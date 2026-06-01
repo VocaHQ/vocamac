@@ -63,6 +63,15 @@ enum SettingsSearchIndex {
             keywords: ["capitalize", "output", "sentence", "punctuation"]
         ),
 
+        // Snippets
+        SettingsSearchEntry(
+            id: "snippets",
+            page: .snippets,
+            title: "Custom Snippets",
+            subtitle: "Replace spoken triggers with saved text",
+            keywords: ["snippet", "shortcut", "expansion", "trigger", "replace", "macro", "abbreviation"]
+        ),
+
         // Speech Model
         SettingsSearchEntry(
             id: "models",

@@ -114,6 +114,8 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .snippets:
+                SnippetsSettingsTab()
             case .speechModel:
                 SpeechModelSettingsPage()
             case .audio:
@@ -409,6 +411,186 @@ struct ApplicationSettingsPage: View {
 struct SpeechModelSettingsPage: View {
     var body: some View {
         ModelSettingsTab(showsLanguageHints: true)
+    }
+}
+
+// MARK: - Snippets Settings
+
+struct SnippetsSettingsTab: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showingAddSnippet = false
+    @State private var newTrigger = ""
+    @State private var newExpansion = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            List {
+                Section {
+                    if appState.snippets.isEmpty {
+                        Text("No snippets defined yet.")
+                            .foregroundStyle(.secondary)
+                            .italic()
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 20)
+                    } else {
+                        ForEach(appState.snippets) { snippet in
+                            SnippetRow(snippet: snippet)
+                        }
+                        .onDelete(perform: deleteSnippets)
+                    }
+                } header: {
+                    Text("Custom Snippets")
+                } footer: {
+                    Text("Speak the trigger phrase and VocaMac will automatically replace it with the expansion text.")
+                }
+            }
+            .listStyle(.inset)
+
+            Divider()
+
+            HStack {
+                Button(action: { showingAddSnippet = true }) {
+                    Label("Add Snippet", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.regular)
+                .padding()
+
+                Spacer()
+
+                if !appState.snippets.isEmpty {
+                    Text("\(appState.snippets.count) Snippet\(appState.snippets.count == 1 ? "" : "s")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddSnippet) {
+            AddSnippetView(isPresented: $showingAddSnippet)
+        }
+    }
+
+    private func deleteSnippets(at offsets: IndexSet) {
+        appState.snippets.remove(atOffsets: offsets)
+    }
+}
+
+struct SnippetRow: View {
+    @EnvironmentObject var appState: AppState
+    let snippet: Snippet
+    @State private var isEditing = false
+    @State private var editedTrigger: String
+    @State private var editedExpansion: String
+
+    init(snippet: Snippet) {
+        self.snippet = snippet
+        _editedTrigger = State(initialValue: snippet.trigger)
+        _editedExpansion = State(initialValue: snippet.expansion)
+    }
+
+    var body: some View {
+        HStack {
+            if isEditing {
+                VStack(alignment: .leading, spacing: 8) {
+                    TextField("Trigger (e.g. 'My Mail')", text: $editedTrigger)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Expansion (e.g. 'me@example.com')", text: $editedExpansion)
+                        .textFieldStyle(.roundedBorder)
+                    
+                    HStack {
+                        Button("Cancel") {
+                            editedTrigger = snippet.trigger
+                            editedExpansion = snippet.expansion
+                            isEditing = false
+                        }
+                        .controlSize(.small)
+                        
+                        Spacer()
+                        
+                        Button("Save") {
+                            updateSnippet()
+                            isEditing = false
+                        }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(editedTrigger.isEmpty || editedExpansion.isEmpty)
+                    }
+                }
+                .padding(.vertical, 4)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snippet.trigger)
+                        .font(.headline)
+                    Text(snippet.expansion)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                
+                Spacer()
+                
+                Button(action: { isEditing = true }) {
+                    Image(systemName: "pencil")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func updateSnippet() {
+        if let index = appState.snippets.firstIndex(where: { $0.id == snippet.id }) {
+            appState.snippets[index].trigger = editedTrigger
+            appState.snippets[index].expansion = editedExpansion
+        }
+    }
+}
+
+struct AddSnippetView: View {
+    @EnvironmentObject var appState: AppState
+    @Binding var isPresented: Bool
+    @State private var trigger = ""
+    @State private var expansion = ""
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Add New Snippet")
+                .font(.headline)
+
+            Form {
+                TextField("Trigger Phrase", text: $trigger, prompt: Text("e.g. My Mail"))
+                TextField("Expansion Text", text: $expansion, prompt: Text("e.g. me@example.com"))
+            }
+            .formStyle(.grouped)
+            .frame(height: 120)
+
+            Text("VocaMac will listen for the trigger phrase and replace it with the expansion text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+
+                Spacer()
+
+                Button("Add Snippet") {
+                    let newSnippet = Snippet(trigger: trigger, expansion: expansion)
+                    appState.snippets.append(newSnippet)
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(trigger.trimmingCharacters(in: .whitespaces).isEmpty || expansion.isEmpty)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 400)
     }
 }
 

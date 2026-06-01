@@ -198,6 +198,9 @@ final class AppState: ObservableObject {
         selectedAudioDeviceName = device?.name ?? ""
     }
 
+    /// Custom text snippets for expansion
+    @Published var snippets: [Snippet] = []
+
     // MARK: - Services
 
     let audioEngine: AudioRecording
@@ -303,6 +306,7 @@ final class AppState: ObservableObject {
         self.skipSystemIntegration = skipSystemIntegration
 
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
+        loadSnippets()
         if !skipSystemIntegration {
             syncLaunchAtLogin()
         }
@@ -527,6 +531,14 @@ final class AppState: ObservableObject {
         // Forward PermissionManager state changes to trigger SwiftUI updates
         permissionManager.objectWillChangePublisher
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // Auto-save snippets when changed
+        $snippets
+            .dropFirst()
+            .sink { [weak self] _ in
+                self?.saveSnippets()
+            }
             .store(in: &cancellables)
 
         // Check permissions
@@ -1023,8 +1035,9 @@ final class AppState: ObservableObject {
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
+                let expandedText = expandSnippets(in: trimmedText)
                 let polished = DictationOutputFormatter.apply(
-                    trimmedText,
+                    expandedText,
                     autoCapitalize: autoCapitalize,
                     appendTrailingSpace: appendTrailingSpace
                 )
@@ -1575,5 +1588,43 @@ final class AppState: ObservableObject {
         }
         hasCompletedOnboarding = true
         VocaLogger.info(.appState, "Onboarding completed")
+    }
+
+    // MARK: - Snippets Management
+
+    private func loadSnippets() {
+        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets"),
+           let decoded = try? JSONDecoder().decode([Snippet].self, from: data) {
+            snippets = decoded
+        }
+    }
+
+    func saveSnippets() {
+        if let encoded = try? JSONEncoder().encode(snippets) {
+            UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")
+        }
+    }
+
+    func expandSnippets(in text: String) -> String {
+        guard !snippets.isEmpty else { return text }
+        
+        var result = text
+        // Sort snippets by trigger length descending to avoid partial matches
+        let sortedSnippets = snippets.sorted { $0.trigger.count > $1.trigger.count }
+        
+        for snippet in sortedSnippets {
+            let trimmedTrigger = snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedTrigger.isEmpty else { continue }
+            
+            // Use word boundaries to avoid partial matches (e.g. "mail" in "mailbox")
+            let escapedTrigger = NSRegularExpression.escapedPattern(for: trimmedTrigger)
+            let pattern = "\\b\(escapedTrigger)\\b"
+            
+            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: snippet.expansion)
+            }
+        }
+        return result
     }
 }

@@ -1622,7 +1622,8 @@ final class AppState: ObservableObject {
             
             if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
                 let range = NSRange(result.startIndex..., in: result)
-                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: snippet.expansion)
+                let template = NSRegularExpression.escapedTemplate(for: snippet.expansion)
+                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: template)
             }
         }
         return result

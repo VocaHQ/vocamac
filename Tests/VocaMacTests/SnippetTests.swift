@@ -6,22 +6,21 @@
 import XCTest
 @testable import VocaMac
 
-@MainActor
 final class SnippetTests: XCTestCase {
     
     var appState: AppState!
     
+    @MainActor
     override func setUp() async throws {
-        // Use a fresh AppState for each test
-        // We need to mock some dependencies to avoid side effects
-        appState = AppState(
-            cursorOverlay: MockCursorOverlayManager(),
-            skipSystemIntegration: true
-        )
+        // Use makeTestState to avoid real hardware access in CI
+        let (testState, _) = AppState.makeTestState()
+        appState = testState
+        
         // Clear snippets for testing
         appState.snippets = []
     }
     
+    @MainActor
     func testSnippetExpansion() {
         // Given
         appState.snippets = [
@@ -41,6 +40,7 @@ final class SnippetTests: XCTestCase {
         XCTAssertEqual(output2, "I love VocaMac")
     }
     
+    @MainActor
     func testCaseInsensitiveExpansion() {
         // Given
         appState.snippets = [
@@ -55,6 +55,7 @@ final class SnippetTests: XCTestCase {
         XCTAssertEqual(output, "please send it to kanishk@example.com")
     }
     
+    @MainActor
     func testWordBoundaries() {
         // Given
         appState.snippets = [
@@ -70,6 +71,7 @@ final class SnippetTests: XCTestCase {
         XCTAssertEqual(output, "Check the mailbox for kanishk@example.com")
     }
     
+    @MainActor
     func testOverlappingSnippets() {
         // Given
         // Snippets should be matched longest-trigger-first
@@ -85,12 +87,20 @@ final class SnippetTests: XCTestCase {
         // Then
         XCTAssertEqual(output, "my LONG")
     }
-}
 
-// Minimal mock for AppState dependency
-class MockCursorOverlayManager: CursorOverlayManaging {
-    func show() {}
-    func hide() {}
-    func updateAudioLevel(_ level: Float) {}
-    func transitionToProcessing() {}
+    @MainActor
+    func testRegexExpansionSafety() {
+        // Given
+        appState.snippets = [
+            Snippet(trigger: "price", expansion: "$100")
+        ]
+        
+        // When
+        let input = "The price is right"
+        let output = appState.expandSnippets(in: input)
+        
+        // Then
+        // If expansion is not escaped, $1 would be treated as a capture group reference.
+        XCTAssertEqual(output, "The $100 is right")
+    }
 }

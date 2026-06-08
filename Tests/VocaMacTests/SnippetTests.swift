@@ -112,20 +112,22 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "sig.", expansion: "Regards, J.")
         ]
         
-        // When
-        let input1 = "I am @home"
-        let output1 = appState.expandSnippets(in: input1)
+        // When & Then
+        // Basic expansion
+        XCTAssertEqual(appState.expandSnippets(in: "I am @home"), "I am at home")
+        XCTAssertEqual(appState.expandSnippets(in: "This is my sig."), "This is my Regards, J.")
         
-        let input2 = "This is my sig."
-        let output2 = appState.expandSnippets(in: input2)
+        // Verify boundaries for leading punctuation (@home)
+        // Current implementation uses (?<!\S) which requires whitespace or start of string
+        XCTAssertEqual(appState.expandSnippets(in: "mail@home"), "mail@home") // No match (preceded by 'l')
+        XCTAssertEqual(appState.expandSnippets(in: "!@home"), "!@home") // No match (preceded by '!')
+        XCTAssertEqual(appState.expandSnippets(in: "(@home)"), "(@home)") // No match (preceded by '(')
         
-        // Then
-        XCTAssertEqual(output1, "I am at home")
-        XCTAssertEqual(output2, "This is my Regards, J.")
-        
-        // Verify boundaries
-        XCTAssertEqual(appState.expandSnippets(in: "mail@home"), "mail@home")
-        XCTAssertEqual(appState.expandSnippets(in: "mysig."), "mysig.")
+        // Verify boundaries for trailing punctuation (sig.)
+        // Current implementation uses \b prefix and (?!\S) suffix
+        XCTAssertEqual(appState.expandSnippets(in: "mysig."), "mysig.") // No match (word-word prefix \b fails)
+        XCTAssertEqual(appState.expandSnippets(in: "sig.now"), "sig.now") // No match (punctuation-word suffix (?!\S) fails)
+        XCTAssertEqual(appState.expandSnippets(in: "!sig."), "!Regards, J.") // MATCH (punctuation-word prefix \b matches)
     }
 
     @MainActor
@@ -157,17 +159,13 @@ final class SnippetTests: XCTestCase {
         // When
         appState.saveSnippets()
         
-        // Create a new AppState to load them (using real UserDefaults in this test context is okay if not conflicting)
-        // Clear them first to ensure we are loading
+        // Clear them first to ensure we are loading fresh
         appState.snippets = []
         
-        // Use reflection or just call the private method if possible, 
-        // but here AppState calls loadSnippets in init.
+        // Load into a new AppState instance
         let (newState, _) = AppState.makeTestState()
         
         // Then
-        XCTAssertEqual(newState.snippets.count, originalSnippets.count)
-        XCTAssertEqual(newState.snippets[0].trigger, originalSnippets[0].trigger)
-        XCTAssertEqual(newState.snippets[1].trigger, originalSnippets[1].trigger)
+        XCTAssertEqual(newState.snippets, originalSnippets)
     }
 }

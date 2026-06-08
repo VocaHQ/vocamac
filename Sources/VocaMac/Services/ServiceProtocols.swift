@@ -170,3 +170,9 @@ protocol StatsManaging: AnyObject {
     func recordTranscription(_ transcription: VocaTranscription)
     func resetStats()
 }
+
+// MARK: - SnippetExpanding
+
+protocol SnippetExpanding: AnyObject {
+    func expand(in text: String, using snippets: [Snippet]) -> String
+}

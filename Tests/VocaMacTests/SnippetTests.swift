@@ -103,4 +103,71 @@ final class SnippetTests: XCTestCase {
         // If expansion is not escaped, $1 would be treated as a capture group reference.
         XCTAssertEqual(output, "The $100 is right")
     }
+
+    @MainActor
+    func testPunctuationTriggers() {
+        // Given
+        appState.snippets = [
+            Snippet(trigger: "@home", expansion: "at home"),
+            Snippet(trigger: "sig.", expansion: "Regards, J.")
+        ]
+        
+        // When
+        let input1 = "I am @home"
+        let output1 = appState.expandSnippets(in: input1)
+        
+        let input2 = "This is my sig."
+        let output2 = appState.expandSnippets(in: input2)
+        
+        // Then
+        XCTAssertEqual(output1, "I am at home")
+        XCTAssertEqual(output2, "This is my Regards, J.")
+        
+        // Verify boundaries
+        XCTAssertEqual(appState.expandSnippets(in: "mail@home"), "mail@home")
+        XCTAssertEqual(appState.expandSnippets(in: "mysig."), "mysig.")
+    }
+
+    @MainActor
+    func testCascadingExpansionPrevention() {
+        // Given
+        appState.snippets = [
+            Snippet(trigger: "report", expansion: "weekly mail"),
+            Snippet(trigger: "mail", expansion: "me@example.com")
+        ]
+        
+        // When
+        let input = "send the report"
+        let output = appState.expandSnippets(in: input)
+        
+        // Then
+        // Should expand to "weekly mail", but "mail" should NOT be further expanded in the same pass.
+        XCTAssertEqual(output, "send the weekly mail")
+    }
+
+    @MainActor
+    func testPersistenceRoundTrip() {
+        // Given
+        let originalSnippets = [
+            Snippet(trigger: "vmac", expansion: "VocaMac"),
+            Snippet(trigger: "@me", expansion: "myself")
+        ]
+        appState.snippets = originalSnippets
+        
+        // When
+        appState.saveSnippets()
+        
+        // Create a new AppState to load them (using real UserDefaults in this test context is okay if not conflicting)
+        // Clear them first to ensure we are loading
+        appState.snippets = []
+        
+        // Use reflection or just call the private method if possible, 
+        // but here AppState calls loadSnippets in init.
+        let (newState, _) = AppState.makeTestState()
+        
+        // Then
+        XCTAssertEqual(newState.snippets.count, originalSnippets.count)
+        XCTAssertEqual(newState.snippets[0].trigger, originalSnippets[0].trigger)
+        XCTAssertEqual(newState.snippets[1].trigger, originalSnippets[1].trigger)
+    }
 }

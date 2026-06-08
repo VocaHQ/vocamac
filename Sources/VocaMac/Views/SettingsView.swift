@@ -514,7 +514,7 @@ struct SnippetRow: View {
                         }
                         .controlSize(.small)
                         .buttonStyle(.borderedProminent)
-                        .disabled(editedTrigger.isEmpty || editedExpansion.isEmpty)
+                        .disabled(editedTrigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || editedExpansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
                 }
                 .padding(.vertical, 4)
@@ -541,8 +541,9 @@ struct SnippetRow: View {
 
     private func updateSnippet() {
         if let index = appState.snippets.firstIndex(where: { $0.id == snippet.id }) {
-            appState.snippets[index].trigger = editedTrigger
-            appState.snippets[index].expansion = editedExpansion
+            appState.snippets[index].trigger = editedTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+            appState.snippets[index].expansion = editedExpansion.trimmingCharacters(in: .whitespacesAndNewlines)
+            appState.saveSnippets()
         }
     }
 }
@@ -580,12 +581,15 @@ struct AddSnippetView: View {
                 Spacer()
 
                 Button("Add Snippet") {
-                    let newSnippet = Snippet(trigger: trigger, expansion: expansion)
+                    let trimmedTrigger = trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmedExpansion = expansion.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let newSnippet = Snippet(trigger: trimmedTrigger, expansion: trimmedExpansion)
                     appState.snippets.append(newSnippet)
                     isPresented = false
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(trigger.trimmingCharacters(in: .whitespaces).isEmpty || expansion.isEmpty)
+                .disabled(trigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
                 .keyboardShortcut(.defaultAction)
             }
         }

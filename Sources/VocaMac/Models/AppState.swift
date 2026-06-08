@@ -211,6 +211,7 @@ final class AppState: ObservableObject {
     let soundManager: SoundPlaying
     let cursorOverlay: CursorOverlayManaging
     let statsManager: StatsManaging
+    let snippetExpander: SnippetExpanding
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
 
@@ -291,6 +292,7 @@ final class AppState: ObservableObject {
         soundManager: SoundPlaying = SoundManager(),
         cursorOverlay: CursorOverlayManaging,
         statsManager: StatsManaging,
+        snippetExpander: SnippetExpanding = SnippetExpander(),
         permissionManager: (any PermissionManaging)? = nil,
         skipSystemIntegration: Bool = false
     ) {
@@ -302,6 +304,7 @@ final class AppState: ObservableObject {
         self.soundManager = soundManager
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
+        self.snippetExpander = snippetExpander
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
 
@@ -1593,39 +1596,25 @@ final class AppState: ObservableObject {
     // MARK: - Snippets Management
 
     private func loadSnippets() {
-        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets"),
-           let decoded = try? JSONDecoder().decode([Snippet].self, from: data) {
-            snippets = decoded
+        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets") {
+            do {
+                snippets = try JSONDecoder().decode([Snippet].self, from: data)
+            } catch {
+                VocaLogger.error(.appState, "Failed to decode snippets: \(error)")
+            }
         }
     }
 
     func saveSnippets() {
-        if let encoded = try? JSONEncoder().encode(snippets) {
+        do {
+            let encoded = try JSONEncoder().encode(snippets)
             UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")
+        } catch {
+            VocaLogger.error(.appState, "Failed to encode snippets: \(error)")
         }
     }
 
     func expandSnippets(in text: String) -> String {
-        guard !snippets.isEmpty else { return text }
-        
-        var result = text
-        // Sort snippets by trigger length descending to avoid partial matches
-        let sortedSnippets = snippets.sorted { $0.trigger.count > $1.trigger.count }
-        
-        for snippet in sortedSnippets {
-            let trimmedTrigger = snippet.trigger.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmedTrigger.isEmpty else { continue }
-            
-            // Use word boundaries to avoid partial matches (e.g. "mail" in "mailbox")
-            let escapedTrigger = NSRegularExpression.escapedPattern(for: trimmedTrigger)
-            let pattern = "\\b\(escapedTrigger)\\b"
-            
-            if let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) {
-                let range = NSRange(result.startIndex..., in: result)
-                let template = NSRegularExpression.escapedTemplate(for: snippet.expansion)
-                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: template)
-            }
-        }
-        return result
+        return snippetExpander.expand(in: text, using: snippets)
     }
 }

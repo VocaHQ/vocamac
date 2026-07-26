@@ -227,3 +227,14 @@ Keep dependencies minimal. This app values being lightweight and self-contained.
 3. **Browser caches SVG/PNG aggressively** — When testing website changes, always hard refresh (`Cmd+Shift+R`)
 4. **Accessibility permission resets on rebuild** — Expected with ad-hoc signing; release builds are Developer ID signed so permissions persist
 5. **WhisperKit model download** — First run requires internet to download the whisper model; all subsequent runs are offline
+
+---
+
+## Cursor Cloud specific instructions
+
+Cloud agents run on a **Linux x86_64** VM. This constrains what is runnable:
+
+- **The Swift macOS app (`Sources/VocaMac/`) cannot be built or run here.** It depends on macOS-only frameworks (AppKit, CoreML, AVFoundation) and WhisperKit, targets `arm64` Apple Silicon, and there is no Swift toolchain on the VM. `make build/install/run` and `swift build/test` only work on macOS — CI runs them on `macos-15` (`.github/workflows/ci.yml`). For app changes, rely on that macOS CI job rather than trying to build locally.
+- **The runnable component on Linux is the website in `web/`.** Note: the "Website" section above is outdated — the site is a **Hugo** project (extended edition), not hand-written static HTML, and there is no `python3 -m http.server` workflow. Build with `cd web && hugo --minify` (output in `web/public/`); run the dev server with `cd web && hugo server`. Both CI (`build-website`) and deploy (`deploy-website.yml`) use `hugo --minify` with the extended edition.
+- **Hugo extended is required** (the site uses features that need the extended build). The startup update script installs it if missing. If `hugo version` doesn't report `+extended`, reinstall the extended edition.
+- Content lives in `web/content/` (Markdown) and templates in `web/layouts/`. Adding a feature page means adding a Markdown file under `web/content/features/`.

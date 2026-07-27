@@ -23,10 +23,9 @@ final class AudioEngine {
     private var pendingEngineRelease: DispatchWorkItem?
     private var audioBuffer: [Float] = []
     private var _isCurrentlyRecording = false
+    private var configuredInputDeviceID: AudioDeviceID?
     private let bufferQueue = DispatchQueue(label: "com.vocamac.audio-buffer", qos: .userInteractive)
     private let lifecycleQueue = DispatchQueue(label: "com.vocamac.audio-engine.lifecycle", qos: .userInitiated)
-    private let recordingPreparationLock = NSLock()
-    private var _isPreparingRecording = false
 
     static let inputRouteConfigurationTimeout: TimeInterval = 0.25
     static let startupConfigurationChangeRecoveryWindow: TimeInterval = 1.0
@@ -38,12 +37,6 @@ final class AudioEngine {
 
     var isEngineAllocatedForTesting: Bool {
         lifecycleQueue.sync { engine != nil }
-    }
-
-    private var isPreparingRecording: Bool {
-        recordingPreparationLock.lock()
-        defer { recordingPreparationLock.unlock() }
-        return _isPreparingRecording
     }
 
     // Silence detection
@@ -131,6 +124,7 @@ final class AudioEngine {
         pendingEngineRelease?.cancel()
         pendingEngineRelease = nil
 
+        configuredInputDeviceID = nil
         guard let engine else { return }
         NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
         self.engine = nil
@@ -163,24 +157,23 @@ final class AudioEngine {
     /// is invalidated — the installed tap references a stale format and no audio
     /// flows. We must stop, reset, and notify AppState so it can recover.
     @objc private func handleAudioConfigurationChange(_ notification: Notification) {
-        // The notification itself can arrive on Core Audio's internal queue while
-        // startRecording owns lifecycleQueue. Capture this state here rather than
-        // reading it later in the queued work, after startup has completed.
-        let occurredDuringRecordingPreparation = isPreparingRecording
-
         lifecycleQueue.async { [weak self] in
             guard let self = self else { return }
             VocaLogger.info(.audioEngine, "Audio configuration changed (device plug/unplug or route change)")
 
             let wasRecording = self._isCurrentlyRecording
             let elapsedSinceRecordingStart = Date().timeIntervalSince(self.recordingStartTime)
+            let currentInputDeviceID = self.engine?.inputNode.audioUnit.flatMap {
+                Self.currentInputDeviceID(for: $0)
+            }
             if Self.shouldIgnoreConfigurationChange(
-                occurredDuringRecordingPreparation: occurredDuringRecordingPreparation,
                 isRecording: wasRecording,
                 engineIsRunning: self.engine?.isRunning == true,
-                elapsedSinceRecordingStart: elapsedSinceRecordingStart
+                elapsedSinceRecordingStart: elapsedSinceRecordingStart,
+                configuredInputDeviceID: self.configuredInputDeviceID,
+                currentInputDeviceID: currentInputDeviceID
             ) {
-                VocaLogger.info(.audioEngine, "Configuration change was part of recording route preparation")
+                VocaLogger.info(.audioEngine, "Configuration change did not disrupt the configured recording route")
                 return
             }
 
@@ -251,9 +244,6 @@ final class AudioEngine {
         lifecycleQueue.sync {
             guard !self._isCurrentlyRecording else { return true }
 
-            self.setIsPreparingRecording(true)
-            defer { self.setIsPreparingRecording(false) }
-
             self.silenceThreshold = silenceThreshold
             self.silenceDuration = silenceDuration
             self.maxDuration = maxDuration
@@ -263,7 +253,7 @@ final class AudioEngine {
             for attempt in 1...2 {
                 let engine = acquireEngine()
                 let inputNode = engine.inputNode
-                guard configureInputRoute(
+                guard let configuredInputDeviceID = configureInputRoute(
                     preferredInputDeviceID: preferredInputDeviceID,
                     engine: engine,
                     inputNode: inputNode
@@ -271,6 +261,7 @@ final class AudioEngine {
                     recoverFromStartFailure(notifyAppState: false)
                     return false
                 }
+                self.configuredInputDeviceID = configuredInputDeviceID
                 let inputFormat = inputNode.outputFormat(forBus: 0)
 
                 guard isValidInputFormat(inputFormat) else {
@@ -414,12 +405,6 @@ final class AudioEngine {
         }
     }
 
-    private func setIsPreparingRecording(_ isPreparing: Bool) {
-        recordingPreparationLock.lock()
-        _isPreparingRecording = isPreparing
-        recordingPreparationLock.unlock()
-    }
-
     /// Checks whether a hardware input format is safe to pass to AVAudioEngine.
     /// Invalid or transient formats can cause installTap to raise NSException.
     private func isValidInputFormat(_ format: AVAudioFormat) -> Bool {
@@ -468,17 +453,19 @@ final class AudioEngine {
     }
 
     static func shouldIgnoreConfigurationChange(
-        occurredDuringRecordingPreparation: Bool,
         isRecording: Bool,
         engineIsRunning: Bool,
         elapsedSinceRecordingStart: TimeInterval,
+        configuredInputDeviceID: AudioDeviceID?,
+        currentInputDeviceID: AudioDeviceID?,
         recoveryWindow: TimeInterval = startupConfigurationChangeRecoveryWindow
     ) -> Bool {
-        occurredDuringRecordingPreparation
-            || (isRecording
-                && engineIsRunning
-                && elapsedSinceRecordingStart >= 0
-                && elapsedSinceRecordingStart <= recoveryWindow)
+        isRecording
+            && engineIsRunning
+            && elapsedSinceRecordingStart >= 0
+            && elapsedSinceRecordingStart <= recoveryWindow
+            && configuredInputDeviceID != nil
+            && currentInputDeviceID == configuredInputDeviceID
     }
 
     static func describeCoreAudioError(_ error: Error) -> String {
@@ -668,7 +655,7 @@ final class AudioEngine {
         preferredInputDeviceID: String?,
         engine: AVAudioEngine,
         inputNode: AVAudioInputNode
-    ) -> Bool {
+    ) -> AudioDeviceID? {
         let requestedUID = preferredInputDeviceID?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let requestedDeviceID = requestedUID.flatMap(Self.inputAudioDeviceID(forUID:))
@@ -679,13 +666,13 @@ final class AudioEngine {
         }
 
         guard let targetDeviceID = requestedDeviceID ?? defaultDeviceID else {
-            VocaLogger.warning(.audioEngine, "No input device is available; retaining the current AudioUnit route")
-            return true
+            VocaLogger.warning(.audioEngine, "No input device is available")
+            return nil
         }
 
         guard let audioUnit = inputNode.audioUnit else {
-            VocaLogger.warning(.audioEngine, "Input node has no AudioUnit; falling back to system default input")
-            return requestedDeviceID == nil
+            VocaLogger.warning(.audioEngine, "Input node has no AudioUnit; unable to verify the requested input route")
+            return nil
         }
 
         let currentDeviceID = Self.currentInputDeviceID(for: audioUnit)
@@ -695,7 +682,7 @@ final class AudioEngine {
         ) else {
             let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
             VocaLogger.debug(.audioEngine, "Input device already configured: \(deviceName)")
-            return true
+            return targetDeviceID
         }
 
         // Observe directly on Core Audio's posting queue. startRecording holds
@@ -721,11 +708,14 @@ final class AudioEngine {
         )
 
         guard status == noErr else {
-            VocaLogger.warning(.audioEngine, "Failed to set input device: OSStatus \(status); retaining the current route")
-            return requestedDeviceID == nil
+            VocaLogger.warning(.audioEngine, "Failed to set input device: OSStatus \(status)")
+            return nil
         }
 
         let deviceIDImmediatelyAfterSet = Self.currentInputDeviceID(for: audioUnit)
+        if deviceIDImmediatelyAfterSet != targetDeviceID {
+            VocaLogger.debug(.audioEngine, "Input route change is still pending after AudioUnitSetProperty")
+        }
 
         let waitResult = routeChangeSignal.wait(timeout: .now() + Self.inputRouteConfigurationTimeout)
         if waitResult == .timedOut {
@@ -739,19 +729,17 @@ final class AudioEngine {
         engine.reset()
 
         let deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
-        if deviceIDImmediatelyAfterSet != targetDeviceID || deviceIDAfterReset != targetDeviceID {
-            VocaLogger.warning(.audioEngine, "Core Audio did not apply the requested input device; rebuilt the graph using the active fallback route")
-            return Self.shouldAcceptConfiguredInputRoute(
-                requestedDeviceID: requestedDeviceID,
-                targetDeviceID: targetDeviceID,
-                deviceIDImmediatelyAfterSet: deviceIDImmediatelyAfterSet,
-                deviceIDAfterReset: deviceIDAfterReset
-            )
+        guard Self.shouldAcceptConfiguredInputRoute(
+            targetDeviceID: targetDeviceID,
+            deviceIDAfterReset: deviceIDAfterReset
+        ) else {
+            VocaLogger.warning(.audioEngine, "Core Audio did not apply the requested input device after rebuilding the graph")
+            return nil
         }
 
         let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
         VocaLogger.info(.audioEngine, "Using input device: \(deviceName)")
-        return true
+        return targetDeviceID
     }
 
     static func shouldReconfigureInputDevice(
@@ -762,14 +750,10 @@ final class AudioEngine {
     }
 
     static func shouldAcceptConfiguredInputRoute(
-        requestedDeviceID: AudioDeviceID?,
         targetDeviceID: AudioDeviceID,
-        deviceIDImmediatelyAfterSet: AudioDeviceID?,
         deviceIDAfterReset: AudioDeviceID?
     ) -> Bool {
-        requestedDeviceID == nil
-            || (deviceIDImmediatelyAfterSet == targetDeviceID
-                && deviceIDAfterReset == targetDeviceID)
+        deviceIDAfterReset == targetDeviceID
     }
 
     private static func currentInputDeviceID(for audioUnit: AudioUnit) -> AudioDeviceID? {

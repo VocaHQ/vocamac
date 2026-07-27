@@ -674,62 +674,79 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
         )
     }
 
-    func testExplicitInputRouteMustBeVerified() {
+    func testConfiguredInputRouteMustMatchTargetAfterReset() {
         XCTAssertTrue(
             AudioEngine.shouldAcceptConfiguredInputRoute(
-                requestedDeviceID: 42,
                 targetDeviceID: 42,
-                deviceIDImmediatelyAfterSet: 42,
                 deviceIDAfterReset: 42
             )
         )
         XCTAssertFalse(
             AudioEngine.shouldAcceptConfiguredInputRoute(
-                requestedDeviceID: 42,
                 targetDeviceID: 42,
-                deviceIDImmediatelyAfterSet: 41,
                 deviceIDAfterReset: 41
             ),
-            "An explicit selection must not silently record from a fallback device"
+            "A route mismatch must not silently record from a fallback device"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             AudioEngine.shouldAcceptConfiguredInputRoute(
-                requestedDeviceID: nil,
                 targetDeviceID: 42,
-                deviceIDImmediatelyAfterSet: 41,
-                deviceIDAfterReset: 41
+                deviceIDAfterReset: nil
             ),
-            "System Default may continue on Core Audio's active fallback route"
+            "An unreadable route must fail verification"
         )
     }
 
-    func testDelayedHealthyStartupConfigurationChangeIsIgnored() {
+    func testStartupConfigurationChangeIsIgnoredOnlyForStableConfiguredRoute() {
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(
-                occurredDuringRecordingPreparation: false,
                 isRecording: true,
                 engineIsRunning: true,
-                elapsedSinceRecordingStart: 0.5
+                elapsedSinceRecordingStart: 0.5,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 42
             ),
-            "A delayed startup notification must not tear down a healthy recording"
+            "A delayed startup notification may be ignored when the configured route is still healthy"
         )
         XCTAssertFalse(
             AudioEngine.shouldIgnoreConfigurationChange(
-                occurredDuringRecordingPreparation: false,
+                isRecording: true,
+                engineIsRunning: true,
+                elapsedSinceRecordingStart: 0.5,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41
+            ),
+            "A live route change must interrupt recording even during startup"
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldIgnoreConfigurationChange(
                 isRecording: true,
                 engineIsRunning: false,
-                elapsedSinceRecordingStart: 0.5
+                elapsedSinceRecordingStart: 0.5,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 42
             ),
             "A stopped engine still requires route-change recovery"
         )
         XCTAssertFalse(
             AudioEngine.shouldIgnoreConfigurationChange(
-                occurredDuringRecordingPreparation: false,
                 isRecording: true,
                 engineIsRunning: true,
-                elapsedSinceRecordingStart: 1.01
+                elapsedSinceRecordingStart: 1.01,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 42
             ),
             "Live route changes after startup must still interrupt recording"
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldIgnoreConfigurationChange(
+                isRecording: true,
+                engineIsRunning: true,
+                elapsedSinceRecordingStart: 0.5,
+                configuredInputDeviceID: nil,
+                currentInputDeviceID: nil
+            ),
+            "A notification cannot be ignored when the configured route is unknown"
         )
     }
 

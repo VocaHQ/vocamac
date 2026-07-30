@@ -8,8 +8,8 @@
 # 3. Code signs — Developer ID if CODE_SIGN_IDENTITY is set, ad-hoc otherwise
 #
 # Environment variables:
-#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 0.7.1.
-#                         Set by CI for nightly builds (e.g., 0.7.1-nightly.20260512+abc1234).
+#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 0.7.2.
+#                         Set by CI for nightly builds (e.g., 0.7.2-nightly.20260512+abc1234).
 #   CODE_SIGN_IDENTITY  — Signing identity to use. Defaults to auto-detect
 #                         Developer ID Application in the login keychain.
 #                         Set to "-" to force ad-hoc signing.
@@ -29,7 +29,7 @@ BUNDLE_ID="com.vocamac.app"
 APP_NAME="VocaMac"
 APP_DIR="${APP_NAME}.app"
 ENTITLEMENTS="VocaMac.entitlements"
-APP_VERSION="${APP_VERSION:-0.7.1}"
+APP_VERSION="${APP_VERSION:-0.7.2}"
 
 # Resolve signing identity:
 # 1. Use CODE_SIGN_IDENTITY env var if set

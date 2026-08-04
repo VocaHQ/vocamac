@@ -536,11 +536,13 @@ final class AppState: ObservableObject {
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &cancellables)
 
-        // Auto-save snippets when changed
+        // Auto-save snippets when changed. @Published emits on willSet, so
+        // persist the emitted array — reading self.snippets here would save
+        // the previous state and leave the latest change unsaved.
         $snippets
-            .dropFirst()
-            .sink { [weak self] _ in
-                self?.saveSnippets()
+            .dropFirst()  // skip the subscription replay of the just-loaded value
+            .sink { [weak self] snippets in
+                self?.saveSnippets(snippets)
             }
             .store(in: &cancellables)
 
@@ -1606,6 +1608,10 @@ final class AppState: ObservableObject {
     }
 
     func saveSnippets() {
+        saveSnippets(snippets)
+    }
+
+    private func saveSnippets(_ snippets: [Snippet]) {
         do {
             let encoded = try JSONEncoder().encode(snippets)
             UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")

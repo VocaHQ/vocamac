@@ -12,12 +12,22 @@ final class SnippetTests: XCTestCase {
     
     @MainActor
     override func setUp() async throws {
+        // Snippets persist to shared UserDefaults; start from a clean slate so
+        // no state leaks in from other tests or a previous run.
+        UserDefaults.standard.removeObject(forKey: "vocamac.snippets")
+
         // Use makeTestState to avoid real hardware access in CI
         let (testState, _) = AppState.makeTestState()
         appState = testState
-        
+
         // Clear snippets for testing
         appState.snippets = []
+    }
+
+    @MainActor
+    override func tearDown() async throws {
+        UserDefaults.standard.removeObject(forKey: "vocamac.snippets")
+        appState = nil
     }
     
     @MainActor
@@ -158,14 +168,27 @@ final class SnippetTests: XCTestCase {
         
         // When
         appState.saveSnippets()
-        
-        // Clear them first to ensure we are loading fresh
-        appState.snippets = []
-        
+
         // Load into a new AppState instance
         let (newState, _) = AppState.makeTestState()
         
         // Then
         XCTAssertEqual(newState.snippets, originalSnippets)
+    }
+
+    @MainActor
+    func testAutoSavePersistsDeletion() {
+        // Given
+        appState.snippets = [Snippet(trigger: "vmac", expansion: "VocaMac")]
+
+        // When — deleting every snippet must persist the empty list. @Published
+        // fires on willSet, so a sink that re-reads appState.snippets would
+        // save the pre-deletion state instead.
+        appState.snippets = []
+
+        // Then
+        let data = UserDefaults.standard.data(forKey: "vocamac.snippets")
+        let decoded = data.flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) }
+        XCTAssertEqual(decoded, [])
     }
 }

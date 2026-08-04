@@ -541,9 +541,10 @@ struct SnippetRow: View {
 
     private func updateSnippet() {
         if let index = appState.snippets.firstIndex(where: { $0.id == snippet.id }) {
+            // Trim the trigger for matching, but keep the expansion as entered —
+            // leading/trailing whitespace can be intentional formatting.
             appState.snippets[index].trigger = editedTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
-            appState.snippets[index].expansion = editedExpansion.trimmingCharacters(in: .whitespacesAndNewlines)
-            appState.saveSnippets()
+            appState.snippets[index].expansion = editedExpansion
         }
     }
 }
@@ -581,9 +582,10 @@ struct AddSnippetView: View {
                 Spacer()
 
                 Button("Add Snippet") {
+                    // Trim the trigger for matching, but keep the expansion as entered —
+                    // leading/trailing whitespace can be intentional formatting.
                     let trimmedTrigger = trigger.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let trimmedExpansion = expansion.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let newSnippet = Snippet(trigger: trimmedTrigger, expansion: trimmedExpansion)
+                    let newSnippet = Snippet(trigger: trimmedTrigger, expansion: expansion)
                     appState.snippets.append(newSnippet)
                     isPresented = false
                 }

@@ -5,7 +5,7 @@
 
 import Foundation
 
-class SnippetExpander: SnippetExpanding {
+final class SnippetExpander: SnippetExpanding {
     func expand(in text: String, using snippets: [Snippet]) -> String {
         guard !snippets.isEmpty else { return text }
         

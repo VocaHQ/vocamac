@@ -2,7 +2,7 @@
 // VocaMac
 //
 // Settings window for VocaMac configuration.
-// Organized into tabs: General, Models, Audio, Debug, About.
+// Organized into tabs: General, Text, Models, Stats, Audio, Debug, About.
 
 import SwiftUI
 
@@ -16,6 +16,11 @@ struct SettingsView: View {
             GeneralSettingsTab()
                 .tabItem {
                     Label("General", systemImage: "gear")
+                }
+
+            TextSettingsTab()
+                .tabItem {
+                    Label("Text", systemImage: "text.bubble")
                 }
 
             ModelSettingsTab()
@@ -43,7 +48,7 @@ struct SettingsView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(minWidth: 560, minHeight: 520)
+        .frame(minWidth: 620, minHeight: 560)
     }
 }
 
@@ -105,9 +110,51 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            // Language
-            Section("Transcription Language") {
-                Picker("Language", selection: $appState.selectedLanguage) {
+            Section("Behavior") {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { appState.launchAtLogin },
+                    set: { appState.setLaunchAtLogin($0) }
+                ))
+
+                Toggle("Show mic indicator near cursor while recording", isOn: $appState.showCursorIndicator)
+            }
+
+        }
+        .formStyle(.grouped)
+    }
+}
+
+// MARK: - Text Settings
+
+struct TextSettingsTab: View {
+    @EnvironmentObject var appState: AppState
+
+    private var selectedModel: LocalLLMModel {
+        LocalLLMModel.model(for: appState.postProcessingModelID)
+    }
+
+    private var runnerReady: Bool {
+        LocalLLMPostProcessor.runnerExists(at: appState.postProcessingRunnerPath)
+    }
+
+    private var brewAvailable: Bool {
+        LocalLLMPostProcessor.detectedBrewPath() != nil
+    }
+
+    private var isPostProcessingSetupBusy: Bool {
+        appState.isPreparingPostProcessingModel || appState.isInstallingLlamaCpp
+    }
+
+    private var canPrepareModel: Bool {
+        runnerReady &&
+        !isPostProcessingSetupBusy &&
+        (selectedModel.reference != nil || !appState.postProcessingModelPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+
+    var body: some View {
+        Form {
+            Section("Language") {
+                Picker("Transcription Language", selection: $appState.selectedLanguage) {
                     Text("Auto-detect").tag("auto")
                     Divider()
                     Group {
@@ -134,23 +181,9 @@ struct GeneralSettingsTab: View {
                     }
                 }
 
-                Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Translate speech", isOn: $appState.translationEnabled)
             }
 
-            // Translation
-            Section("Translation") {
-                Toggle("Enable translation", isOn: $appState.translationEnabled)
-
-                Text(appState.translationEnabled
-                    ? "Speech will be translated to the selected language (or English if Auto-detect)."
-                    : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Custom Vocabulary
             Section("Custom Vocabulary") {
                 TextEditor(text: $appState.customVocabulary)
                     .font(.body)
@@ -167,33 +200,122 @@ struct GeneralSettingsTab: View {
 
                 let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
                 Text(count == 0
-                    ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed. VocaMac hints these to the model so it spells them right."
-                    : "\(count) term\(count == 1 ? "" : "s"). Keep the list short, since the model can only use the first 50 to 100 words as a hint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("For best results, enter terms in the language you dictate and set a matching Transcription Language above. In Auto-detect, the terms can also nudge which language VocaMac picks.")
+                    ? "Add names, jargon, or proper nouns."
+                    : "\(count) term\(count == 1 ? "" : "s")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Behavior") {
-                Toggle("Launch at Login", isOn: Binding(
-                    get: { appState.launchAtLogin },
-                    set: { appState.setLaunchAtLogin($0) }
-                ))
+            Section("AI Rewrite") {
+                Toggle("Rewrite text before pasting", isOn: $appState.postProcessingEnabled)
 
+                Picker("Model", selection: $appState.postProcessingModelID) {
+                    ForEach(LocalLLMModel.catalog) { model in
+                        Text("\(model.displayName) - \(model.detail)").tag(model.id)
+                    }
+                }
+                .disabled(isPostProcessingSetupBusy)
+
+                if selectedModel.id == LocalLLMModel.customID {
+                    HStack {
+                        TextField("GGUF model path", text: $appState.postProcessingModelPath)
+                            .textFieldStyle(.roundedBorder)
+                            .disabled(isPostProcessingSetupBusy)
+                        Button {
+                            chooseFile { appState.postProcessingModelPath = $0 }
+                        } label: {
+                            Label("Choose", systemImage: "folder")
+                        }
+                        .disabled(isPostProcessingSetupBusy)
+                    }
+                }
+
+                HStack {
+                    TextField("llama-server path", text: $appState.postProcessingRunnerPath)
+                        .textFieldStyle(.roundedBorder)
+                        .disabled(isPostProcessingSetupBusy)
+                    Button {
+                        chooseFile { appState.postProcessingRunnerPath = $0 }
+                    } label: {
+                        Label("Choose", systemImage: "folder")
+                    }
+                    .disabled(isPostProcessingSetupBusy)
+                }
+
+                HStack {
+                    Label(runnerReady ? "llama-server ready" : "llama-server not found", systemImage: runnerReady ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(runnerReady ? .green : .orange)
+
+                    Spacer()
+
+                    if !runnerReady, brewAvailable {
+                        Button {
+                            Task { @MainActor in await appState.installLlamaCpp() }
+                        } label: {
+                            Label("Install llama.cpp", systemImage: "terminal")
+                        }
+                        .disabled(appState.isInstallingLlamaCpp)
+                    } else if !runnerReady {
+                        Button {
+                            NSWorkspace.shared.open(LocalLLMPostProcessor.installURL)
+                        } label: {
+                            Label("Install llama.cpp", systemImage: "safari")
+                        }
+                    }
+                }
+
+                HStack {
+                    Button {
+                        Task { @MainActor in await appState.preparePostProcessingModel() }
+                    } label: {
+                        Label("Prepare Selected Model", systemImage: "arrow.down.circle")
+                    }
+                    .disabled(!canPrepareModel)
+
+                    if isPostProcessingSetupBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+
+                if let message = appState.postProcessingSetupMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                TextEditor(text: $appState.postProcessingInstructions)
+                    .font(.body)
+                    .frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if appState.postProcessingInstructions.isEmpty {
+                            Text("Keep my tone concise, warm, and direct.")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+            }
+
+            Section("Insertion") {
                 Toggle("Preserve clipboard after text injection", isOn: $appState.preserveClipboard)
-
-                Toggle("Show mic indicator near cursor while recording", isOn: $appState.showCursorIndicator)
-
-                Text("When enabled, your clipboard contents are restored after injecting text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-
         }
         .formStyle(.grouped)
+        .onAppear {
+            appState.refreshPostProcessingRunner()
+        }
+    }
+
+    private func chooseFile(_ update: (String) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        if panel.runModal() == .OK, let url = panel.url {
+            update(url.path)
+        }
     }
 }
 
@@ -335,7 +457,7 @@ struct ModelSettingsTab: View {
                     }
                 }
 
-                if appState.appStatus == .error, let errorMessage = appState.errorMessage {
+                if let errorMessage = appState.errorMessage {
                     GroupBox {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")

@@ -174,6 +174,13 @@ final class AppStateRecordingTests: XCTestCase {
                       "Translation should be disabled by default")
     }
 
+    func testPostProcessingDisabledByDefault() {
+        let (appState, _) = AppState.makeTestState()
+
+        XCTAssertFalse(appState.postProcessingEnabled,
+                      "Local AI post-processing should be disabled by default")
+    }
+
     func testSelectedLanguageDefault() {
         let (appState, _) = AppState.makeTestState()
 
@@ -276,6 +283,88 @@ final class AppStateRecordingTests: XCTestCase {
 
         XCTAssertEqual(mocks.audioEngine.lastPreferredInputDeviceID, "coreaudio-device-uid",
                        "Selected audio device ID should be forwarded to AudioEngine")
+    }
+
+    func testPostProcessingEnabledInjectsProcessedText() async {
+        let postProcessor = MockTextPostProcessor()
+        postProcessor.result = "Email Namrata about the launch."
+        let whisperService = MockWhisperService()
+        whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "um email nam rata about the launch",
+            duration: 1,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1,
+            modelUsed: .tiny
+        )
+        let (appState, mocks) = AppState.makeTestState(
+            whisperService: whisperService,
+            textPostProcessor: postProcessor
+        )
+        appState.postProcessingEnabled = true
+        appState.postProcessingRunnerPath = "/mock/llama-cli"
+        appState.postProcessingModelID = "gemma-3-1b-q4"
+        appState.postProcessingInstructions = "Keep it concise."
+        appState.isRecording = true
+        appState.appStatus = .recording
+        mocks.audioEngine.stopRecordingResult = [0.1, 0.2]
+
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(postProcessor.improveCallCount, 1)
+        XCTAssertEqual(postProcessor.lastText, "um email nam rata about the launch")
+        XCTAssertEqual(postProcessor.lastConfiguration?.runnerPath, "/mock/llama-cli")
+        XCTAssertEqual(postProcessor.lastConfiguration?.modelID, "gemma-3-1b-q4")
+        XCTAssertEqual(postProcessor.lastConfiguration?.instructions, "Keep it concise.")
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Email Namrata about the launch.")
+        XCTAssertEqual(appState.lastTranscription?.text, "Email Namrata about the launch.")
+    }
+
+    func testPreparePostProcessingModelEnablesRewrite() async {
+        let postProcessor = MockTextPostProcessor()
+        let (appState, _) = AppState.makeTestState(textPostProcessor: postProcessor)
+        appState.postProcessingRunnerPath = LocalLLMPostProcessor.defaultRunnerPath
+        appState.postProcessingModelID = "gemma-3-1b-q4"
+        appState.postProcessingInstructions = "Keep it tidy."
+
+        await appState.preparePostProcessingModel()
+
+        XCTAssertEqual(postProcessor.prepareCallCount, 1)
+        XCTAssertEqual(
+            postProcessor.lastPrepareConfiguration?.runnerPath,
+            LocalLLMPostProcessor.defaultRunnerPath
+        )
+        XCTAssertEqual(postProcessor.lastPrepareConfiguration?.modelID, "gemma-3-1b-q4")
+        XCTAssertEqual(postProcessor.lastPrepareConfiguration?.instructions, "Keep it tidy.")
+        XCTAssertTrue(appState.postProcessingEnabled)
+        XCTAssertEqual(appState.postProcessingSetupMessage, "Gemma 3 1B ready.")
+    }
+
+    func testPostProcessingFailureInjectsRawText() async {
+        let postProcessor = MockTextPostProcessor()
+        postProcessor.error = TextPostProcessingError.emptyOutput
+        let whisperService = MockWhisperService()
+        whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "raw transcription",
+            duration: 1,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1,
+            modelUsed: .tiny
+        )
+        let (appState, mocks) = AppState.makeTestState(
+            whisperService: whisperService,
+            textPostProcessor: postProcessor
+        )
+        appState.postProcessingEnabled = true
+        appState.isRecording = true
+        appState.appStatus = .recording
+        mocks.audioEngine.stopRecordingResult = [0.1, 0.2]
+
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "raw transcription")
+        XCTAssertEqual(appState.lastTranscription?.text, "raw transcription")
+        XCTAssertEqual(appState.appStatus, .idle)
+        XCTAssertTrue(appState.errorMessage?.contains("Post-processing failed") == true)
     }
 }
 

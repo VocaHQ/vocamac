@@ -90,6 +90,11 @@ final class AppState: ObservableObject {
     /// WhisperKit's recommended model for this device
     @Published var deviceRecommendedModel: String?
 
+    /// Local LLM setup status for the Text settings tab.
+    @Published var isInstallingLlamaCpp: Bool = false
+    @Published var isPreparingPostProcessingModel: Bool = false
+    @Published var postProcessingSetupMessage: String?
+
     // MARK: - User Settings (persisted via UserDefaults)
 
     @AppStorage("vocamac.hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
@@ -109,6 +114,11 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.showCursorIndicator") var showCursorIndicator: Bool = true
     @AppStorage("vocamac.translationEnabled") var translationEnabled: Bool = false
     @AppStorage("vocamac.customVocabulary") var customVocabulary: String = ""
+    @AppStorage("vocamac.postProcessingEnabled") var postProcessingEnabled: Bool = false
+    @AppStorage("vocamac.postProcessingRunnerPath") var postProcessingRunnerPath: String = LocalLLMPostProcessor.defaultRunnerPath
+    @AppStorage("vocamac.postProcessingModelID") var postProcessingModelID: String = LocalLLMModel.recommendedID
+    @AppStorage("vocamac.postProcessingModelPath") var postProcessingModelPath: String = ""
+    @AppStorage("vocamac.postProcessingInstructions") var postProcessingInstructions: String = LocalLLMPostProcessor.defaultInstructions
     @AppStorage("vocamac.logLevel") var logLevel: String = "info"
 
     private var hotKeySafetyTimeout: Double {
@@ -120,6 +130,7 @@ final class AppState: ObservableObject {
     let audioEngine: AudioRecording
     let whisperService: SpeechTranscribing
     let textInjector: TextInjecting
+    let textPostProcessor: TextPostProcessing
     let hotKeyManager: HotKeyMonitoring
     let modelManager: ModelManaging
     let soundManager: SoundPlaying
@@ -175,6 +186,7 @@ final class AppState: ObservableObject {
         audioEngine: AudioRecording = AudioEngine(),
         whisperService: SpeechTranscribing = WhisperService(),
         textInjector: TextInjecting = TextInjector(),
+        textPostProcessor: TextPostProcessing = LocalLLMPostProcessor(),
         hotKeyManager: HotKeyMonitoring = HotKeyManager(),
         modelManager: ModelManaging = ModelManager(),
         soundManager: SoundPlaying = SoundManager(),
@@ -186,6 +198,7 @@ final class AppState: ObservableObject {
         self.audioEngine = audioEngine
         self.whisperService = whisperService
         self.textInjector = textInjector
+        self.textPostProcessor = textPostProcessor
         self.hotKeyManager = hotKeyManager
         self.modelManager = modelManager
         self.soundManager = soundManager
@@ -409,6 +422,8 @@ final class AppState: ObservableObject {
 
         // Check permissions
         checkPermissions()
+
+        refreshPostProcessingRunner()
     }
 
     /// Build the model list shown in Settings and onboarding.
@@ -632,14 +647,41 @@ final class AppState: ObservableObject {
                 vocabulary: customVocabulary
             )
 
-            lastTranscription = result
+            var finalText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var postProcessingError: String?
+            if postProcessingEnabled, !finalText.isEmpty {
+                do {
+                    finalText = try await textPostProcessor.improve(
+                        finalText,
+                        configuration: TextPostProcessingConfiguration(
+                            runnerPath: postProcessingRunnerPath,
+                            modelID: postProcessingModelID,
+                            customModelPath: postProcessingModelPath,
+                            instructions: postProcessingInstructions
+                        )
+                    )
+                } catch {
+                    postProcessingError = "Post-processing failed: \(error.localizedDescription)"
+                    VocaLogger.error(.textPostProcessor, postProcessingError ?? "Post-processing failed")
+                }
+            }
+
+            let finalResult = VocaTranscription(
+                text: finalText,
+                duration: result.duration,
+                detectedLanguage: result.detectedLanguage,
+                audioLengthSeconds: result.audioLengthSeconds,
+                modelUsed: result.modelUsed,
+                timestamp: result.timestamp
+            )
+            lastTranscription = finalResult
 
             // Update stats
-            statsManager.recordTranscription(result)
+            statsManager.recordTranscription(finalResult)
 
             // Inject text at cursor position
             // by WhisperService to remove hallucination tokens like [BLANK_AUDIO])
-            let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedText = finalResult.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
                 textInjector.inject(
                     text: trimmedText,
@@ -650,7 +692,12 @@ final class AppState: ObservableObject {
             }
 
             cursorOverlay.hide()
-            appStatus = .idle
+            if let postProcessingError {
+                appStatus = .idle
+                showTemporaryWarning(postProcessingError)
+            } else {
+                appStatus = .idle
+            }
         } catch {
             cursorOverlay.hide()
             errorMessage = "Transcription failed: \(error.localizedDescription)"
@@ -692,6 +739,60 @@ final class AppState: ObservableObject {
             DispatchQueue.global(qos: .userInitiated).async {
                 continuation.resume(returning: worker.stopRecording())
             }
+        }
+    }
+
+    // MARK: - Local AI Post-processing
+
+    func refreshPostProcessingRunner() {
+        guard !LocalLLMPostProcessor.runnerExists(at: postProcessingRunnerPath),
+              let detected = LocalLLMPostProcessor.detectedRunnerPath() else {
+            return
+        }
+
+        postProcessingRunnerPath = detected
+    }
+
+    func installLlamaCpp() async {
+        guard !isInstallingLlamaCpp else { return }
+
+        isInstallingLlamaCpp = true
+        postProcessingSetupMessage = "Installing llama.cpp…"
+        defer { isInstallingLlamaCpp = false }
+
+        do {
+            let runner = try await LocalLLMPostProcessor.installLlamaCpp()
+            postProcessingRunnerPath = runner
+            postProcessingSetupMessage = "llama.cpp ready."
+        } catch {
+            postProcessingSetupMessage = "Install failed: \(error.localizedDescription)"
+            VocaLogger.error(.textPostProcessor, postProcessingSetupMessage ?? "llama.cpp install failed")
+        }
+    }
+
+    func preparePostProcessingModel() async {
+        guard !isPreparingPostProcessingModel else { return }
+
+        refreshPostProcessingRunner()
+        let model = LocalLLMModel.model(for: postProcessingModelID)
+        isPreparingPostProcessingModel = true
+        postProcessingSetupMessage = "Preparing \(model.displayName). First setup can take a few minutes…"
+        defer { isPreparingPostProcessingModel = false }
+
+        do {
+            try await textPostProcessor.prepare(
+                configuration: TextPostProcessingConfiguration(
+                    runnerPath: postProcessingRunnerPath,
+                    modelID: model.id,
+                    customModelPath: postProcessingModelPath,
+                    instructions: postProcessingInstructions
+                )
+            )
+            postProcessingEnabled = true
+            postProcessingSetupMessage = "\(model.displayName) ready."
+        } catch {
+            postProcessingSetupMessage = "Model setup failed: \(error.localizedDescription)"
+            VocaLogger.error(.textPostProcessor, postProcessingSetupMessage ?? "Model setup failed")
         }
     }
 
@@ -829,6 +930,17 @@ final class AppState: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
             if self?.appStatus == .error, self?.errorMessage == message {
                 self?.appStatus = .idle
+                self?.errorMessage = nil
+            }
+        }
+    }
+
+    /// Surface a non-blocking warning while keeping dictation ready.
+    private func showTemporaryWarning(_ message: String) {
+        errorMessage = message
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            if self?.appStatus == .idle, self?.errorMessage == message {
                 self?.errorMessage = nil
             }
         }

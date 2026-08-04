@@ -401,6 +401,37 @@ final class MockTextInjector: TextInjecting {
     }
 }
 
+// MARK: - MockTextPostProcessor
+
+final class MockTextPostProcessor: TextPostProcessing {
+    var prepareCallCount = 0
+    var improveCallCount = 0
+    var lastPrepareConfiguration: TextPostProcessingConfiguration?
+    var lastText: String?
+    var lastConfiguration: TextPostProcessingConfiguration?
+    var result = "processed text"
+    var error: Error?
+    var prepareError: Error?
+
+    func prepare(configuration: TextPostProcessingConfiguration) async throws {
+        prepareCallCount += 1
+        lastPrepareConfiguration = configuration
+        if let prepareError {
+            throw prepareError
+        }
+    }
+
+    func improve(_ text: String, configuration: TextPostProcessingConfiguration) async throws -> String {
+        improveCallCount += 1
+        lastText = text
+        lastConfiguration = configuration
+        if let error {
+            throw error
+        }
+        return result
+    }
+}
+
 // MARK: - MockStatsManager
 
 @MainActor
@@ -429,10 +460,16 @@ extension AppState {
     @MainActor
     static func makeTestState(
         modelManager: MockModelManager = MockModelManager(),
-        whisperService: MockWhisperService = MockWhisperService()
+        whisperService: MockWhisperService = MockWhisperService(),
+        textPostProcessor: MockTextPostProcessor = MockTextPostProcessor()
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
+        UserDefaults.standard.removeObject(forKey: "vocamac.postProcessingEnabled")
+        UserDefaults.standard.removeObject(forKey: "vocamac.postProcessingRunnerPath")
+        UserDefaults.standard.removeObject(forKey: "vocamac.postProcessingModelID")
+        UserDefaults.standard.removeObject(forKey: "vocamac.postProcessingModelPath")
+        UserDefaults.standard.removeObject(forKey: "vocamac.postProcessingInstructions")
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()
@@ -451,12 +488,14 @@ extension AppState {
             modelManager: modelManager,
             whisperService: whisperService,
             textInjector: textInjector,
+            textPostProcessor: textPostProcessor,
             statsManager: statsManager
         )
         let appState = AppState(
             audioEngine: audioEngine,
             whisperService: whisperService,
             textInjector: textInjector,
+            textPostProcessor: textPostProcessor,
             hotKeyManager: hotKeyManager,
             modelManager: modelManager,
             soundManager: soundManager,
@@ -478,5 +517,6 @@ struct TestMocks {
     let modelManager: MockModelManager
     let whisperService: MockWhisperService
     let textInjector: MockTextInjector
+    let textPostProcessor: MockTextPostProcessor
     let statsManager: MockStatsManager
 }

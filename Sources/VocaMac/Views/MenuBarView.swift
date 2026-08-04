@@ -434,7 +434,7 @@ struct MenuBarView: View {
 
     private var statusText: String {
         switch appState.appStatus {
-        case .idle:       return "Ready"
+        case .idle:       return appState.errorMessage ?? "Ready"
         case .recording:  return "Recording..."
         case .processing: return "Transcribing..."
         case .error:      return appState.errorMessage ?? "Error"
@@ -443,7 +443,7 @@ struct MenuBarView: View {
 
     private var statusColor: Color {
         switch appState.appStatus {
-        case .idle:       return .green
+        case .idle:       return appState.errorMessage == nil ? .green : .yellow
         case .recording:  return .red
         case .processing: return .orange
         case .error:      return .yellow

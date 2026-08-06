@@ -11,16 +11,22 @@ brew install --cask vocamac
 
 ### Migrating from the old tap
 
-If you previously tapped `jatinkrmalik/vocamac`, untap it before using `vocahq/vocamac`. Having both causes:
+If you previously tapped via the personal account (`jatinkrmalik/vocamac`), remove it before using the org tap. Keeping both causes Homebrew to fail with:
 
 ```text
-Error: Cask vocamac exists in multiple taps
+Error: Cask vocamac exists in multiple taps:
+       * jatinkrmalik/vocamac/vocamac
+       * vocahq/vocamac/vocamac
 ```
+
+Fix (installed apps are untouched):
 
 ```bash
 brew untap jatinkrmalik/vocamac
 brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
 ```
+
+Matching guidance also lives in the [tap README](https://github.com/VocaHQ/homebrew-vocamac).
 
 ## Nightly Builds
 

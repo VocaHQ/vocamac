@@ -37,8 +37,8 @@ The Homebrew tap moved to `vocahq/vocamac` when the project transferred to the V
 
 ```text
 Error: Cask vocamac exists in multiple taps:
-  jatinkrmalik/vocamac/vocamac
-  vocahq/vocamac/vocamac
+       * jatinkrmalik/vocamac/vocamac
+       * vocahq/vocamac/vocamac
 ```
 
 **Fix:** remove the old tap, then use the new one:
@@ -48,7 +48,9 @@ brew untap jatinkrmalik/vocamac
 brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
 ```
 
-If you already have VocaMac installed from Homebrew and only need to clean up the duplicate tap (no reinstall), `brew untap jatinkrmalik/vocamac` is enough — then upgrade with `brew upgrade --cask vocamac`.
+Installed apps are untouched. If you already have VocaMac installed from Homebrew and only need to clean up the duplicate tap (no reinstall), `brew untap jatinkrmalik/vocamac` is enough — then upgrade with `brew upgrade --cask vocamac`.
+
+The same recovery steps are documented in the [homebrew-vocamac tap](https://github.com/VocaHQ/homebrew-vocamac/pull/2).
 
 ## Nightly Builds
 

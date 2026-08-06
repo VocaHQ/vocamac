@@ -278,9 +278,9 @@ OpenAI Whisper models via WhisperKit's CoreML format. The only engine that suppo
 | **Medium** | 769M | ~2.5 GB | ⚡⚡ | Excellent | 24GB+ for high accuracy |
 | **Large v3** | 1550M | ~4.8 GB | ⚡ | Best | Maximum accuracy |
 
-### Apple Speech — no download (macOS 26+)
+### Apple Speech — managed by macOS (macOS 26+)
 
-Apple's on-device SpeechAnalyzer engine. Assets are managed by macOS, so there is nothing to download and nothing stored in VocaMac's model folder. Covers roughly 30 locales.
+Apple's on-device SpeechAnalyzer engine. Assets are managed by macOS (language packs may download on first use) and are not stored in VocaMac's model folder. Covers roughly 30 locales.
 
 ### Specialized (ONNX) — niche needs
 

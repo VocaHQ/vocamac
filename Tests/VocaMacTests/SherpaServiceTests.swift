@@ -119,4 +119,33 @@ final class SherpaServiceTests: XCTestCase {
         XCTAssertTrue(router.isModelLoaded)
         XCTAssertEqual(router.loadedModelName, model.rawValue)
     }
+
+    func testJoinTranscriptPiecesInsertsSpacesForWesternLanguages() {
+        let joined = SherpaService.joinTranscriptPieces(["hello", "world"], language: "en")
+        XCTAssertEqual(joined, "hello world")
+    }
+
+    func testJoinTranscriptPiecesOmitsSpacesForCJK() {
+        XCTAssertEqual(
+            SherpaService.joinTranscriptPieces(["你好", "世界"], language: "zh"),
+            "你好世界"
+        )
+        XCTAssertEqual(
+            SherpaService.joinTranscriptPieces(["こんにちは", "世界"], language: "ja"),
+            "こんにちは世界"
+        )
+        XCTAssertEqual(
+            SherpaService.joinTranscriptPieces(["你好", "世界"], language: "<|yue|>"),
+            "你好世界"
+        )
+    }
+
+    func testIdeographicSpacingRecognizesCommonLanguageTags() {
+        XCTAssertTrue(SherpaService.usesIdeographicSpacing("zh-CN"))
+        XCTAssertTrue(SherpaService.usesIdeographicSpacing("japanese"))
+        XCTAssertTrue(SherpaService.usesIdeographicSpacing("ko"))
+        XCTAssertFalse(SherpaService.usesIdeographicSpacing("en"))
+        XCTAssertFalse(SherpaService.usesIdeographicSpacing("ru"))
+        XCTAssertFalse(SherpaService.usesIdeographicSpacing(""))
+    }
 }

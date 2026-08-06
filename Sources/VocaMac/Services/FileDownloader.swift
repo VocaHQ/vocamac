@@ -73,6 +73,9 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         stateLock.lock()
         if isCancelled {
             stateLock.unlock()
+            // Cancel the suspended task; finishTasksAndInvalidate alone would
+            // wait for it rather than drop it.
+            task.cancel()
             continuation.resume(throwing: CancellationError())
             return
         }

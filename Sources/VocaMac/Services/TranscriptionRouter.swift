@@ -19,8 +19,9 @@ final class TranscriptionRouter: @unchecked Sendable {
     /// Engine that owns the currently loaded model.
     private(set) var activeEngine: TranscriptionEngine = .whisperKit
 
-    /// Runs model loads one at a time.
-    private let loadSerializer = LoadSerializer()
+    /// Shared queue for loads and transcriptions so a hotkey cannot decode
+    /// against an engine that a concurrent load just unloaded.
+    private let operationSerializer = LoadSerializer()
 
     // MARK: - Engine Resolution
 
@@ -62,16 +63,16 @@ final class TranscriptionRouter: @unchecked Sendable {
 
 extension TranscriptionRouter: SpeechTranscribing {
 
-    /// Load a model, waiting for any load already in flight to finish first.
+    /// Load a model, waiting for any load or transcription already in flight.
     ///
-    /// Loading suspends, so without serialization two loads — easy to trigger
+    /// Loading suspends, so without serialization two loads (easy to trigger
     /// by switching models or changing the language while one is still
-    /// running — can overlap. Both would then finish, the later one setting
-    /// `activeEngine`, while the other engine's model stayed resident in
-    /// memory. Running them one at a time keeps `activeEngine` and the
-    /// engine that actually holds a model in agreement.
+    /// running) can overlap. Both would then finish, the later one setting
+    /// `activeEngine`, while the other engine's model stayed resident.
+    /// Transcription shares the same queue so a hotkey mid-switch cannot
+    /// decode against an unloaded engine.
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
-        try await loadSerializer.run { [self] in
+        try await operationSerializer.run { [self] in
             try await performLoad(name: name, folder: folder, onPhaseChange: onPhaseChange)
         }
     }
@@ -122,6 +123,22 @@ extension TranscriptionRouter: SpeechTranscribing {
     }
 
     func transcribe(
+        audioData: [Float],
+        language: String?,
+        translate: Bool,
+        vocabulary: String
+    ) async throws -> VocaTranscription {
+        try await operationSerializer.run { [self] in
+            try await performTranscribe(
+                audioData: audioData,
+                language: language,
+                translate: translate,
+                vocabulary: vocabulary
+            )
+        }
+    }
+
+    private func performTranscribe(
         audioData: [Float],
         language: String?,
         translate: Bool,

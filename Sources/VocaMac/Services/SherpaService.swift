@@ -265,7 +265,12 @@ final class SherpaService: @unchecked Sendable {
                     if !piece.isEmpty { pieces.append(piece) }
                     if detected.isEmpty { detected = result.lang }
                 }
-                continuation.resume(returning: (pieces.joined(separator: " "), detected))
+                // Prefer the model's detected language; fall back to the caller's
+                // preference so CJK SenseVoice output is not space-joined.
+                let joinLanguage = detected.isEmpty ? (language ?? "") : detected
+                continuation.resume(
+                    returning: (Self.joinTranscriptPieces(pieces, language: joinLanguage), detected)
+                )
             }
         }
 
@@ -290,6 +295,31 @@ final class SherpaService: @unchecked Sendable {
             audioLengthSeconds: audioLengthSeconds,
             modelUsed: size
         )
+    }
+
+    /// Join segment transcripts. CJK scripts do not use spaces between
+    /// phrases; Western languages do.
+    static func joinTranscriptPieces(_ pieces: [String], language: String) -> String {
+        let separator = usesIdeographicSpacing(language) ? "" : " "
+        return pieces.joined(separator: separator)
+    }
+
+    /// Whether transcript pieces should be concatenated without spaces.
+    static func usesIdeographicSpacing(_ language: String) -> Bool {
+        let lang = language.lowercased()
+            .replacingOccurrences(of: "<|", with: "")
+            .replacingOccurrences(of: "|>", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // SenseVoice tags: zh / ja / yue / ko. Also accept common names.
+        if lang.hasPrefix("zh") || lang.hasPrefix("ja") || lang.hasPrefix("yue") || lang.hasPrefix("ko") {
+            return true
+        }
+        switch lang {
+        case "chinese", "japanese", "cantonese", "korean":
+            return true
+        default:
+            return false
+        }
     }
 
     /// Run one decode against the active recognizer. Returns nil if no model

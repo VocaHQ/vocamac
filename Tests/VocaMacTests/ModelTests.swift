@@ -165,6 +165,13 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertFalse(TranscriptionEngine.parakeet.supportsTranslation)
         XCTAssertFalse(TranscriptionEngine.appleSpeech.supportsTranslation)
     }
+
+    func testAppleSpeechEngineSummaryMentionsManagedAssets() {
+        let summary = TranscriptionEngine.appleSpeech.summary.lowercased()
+        XCTAssertTrue(summary.contains("managed by macos"))
+        XCTAssertTrue(summary.contains("download"))
+        XCTAssertFalse(summary.contains("built into"))
+    }
 }
 
 // MARK: - TranscriptionRouter Tests

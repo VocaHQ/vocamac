@@ -569,10 +569,21 @@ final class ModelManager {
 
             // Written last: this marker is what makes the model count as
             // installed, so a crash before this point leaves it re-downloadable.
-            try SherpaService.markModelComplete(for: spec)
-
-            guard SherpaService.modelFilesExist(for: spec) else {
-                throw ModelManagerError.missingModelDirectory(destination.path)
+            // If marking or validation fails, restore the displaced install so
+            // the user keeps a working model instead of a half-finished one.
+            do {
+                try SherpaService.markModelComplete(for: spec)
+                guard SherpaService.modelFilesExist(for: spec) else {
+                    throw ModelManagerError.missingModelDirectory(destination.path)
+                }
+            } catch {
+                if let displaced {
+                    try? fileManager.removeItem(at: destination)
+                    try? fileManager.moveItem(at: displaced, to: destination)
+                } else {
+                    try? fileManager.removeItem(at: destination)
+                }
+                throw error
             }
 
             onProgress(1.0)

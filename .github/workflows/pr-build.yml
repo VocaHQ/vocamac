@@ -99,6 +99,19 @@ jobs:
           restore-keys: |
             spm-${{ runner.os }}-
 
+      # SpeechAnalyzer / Apple Speech needs the Xcode 26 SDK (Swift 6.2+).
+      # macos-15 defaults to Xcode 16.4, which compiles that engine out.
+      - name: Select Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "Xcode 26 is required to build Apple Speech support" >&2
+            ls /Applications/Xcode*.app || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
       # ── Test ──────────────────────────────────────────────────────────────
       - name: Run tests
         run: swift test

@@ -7,8 +7,10 @@ import Foundation
 
 /// Serializes async work so a second request waits for the first to finish.
 ///
-/// Model loading suspends at several points, so two loads started close
-/// together would otherwise interleave and leave two models resident.
+/// Model loading and transcription both touch the active engine. Without a
+/// shared queue, a hotkey mid-switch can decode against an engine that load
+/// just unloaded, and two overlapping loads can leave more than one model
+/// resident. Both paths share this actor so only one runs at a time.
 actor LoadSerializer {
 
     /// The most recently queued operation, used to chain the next one behind it.
@@ -18,14 +20,15 @@ actor LoadSerializer {
     ///
     /// A failure in one operation does not prevent later ones from running;
     /// the error is delivered to whoever queued that operation.
-    func run(_ operation: @escaping @Sendable () async throws -> Void) async throws {
+    func run<T: Sendable>(
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
         let previous = tail
 
-        let task = Task<Result<Void, Error>, Never> {
+        let task = Task<Result<T, Error>, Never> {
             await previous?.value
             do {
-                try await operation()
-                return .success(())
+                return .success(try await operation())
             } catch {
                 return .failure(error)
             }
@@ -36,8 +39,8 @@ actor LoadSerializer {
         tail = Task { _ = await task.value }
 
         switch await task.value {
-        case .success:
-            return
+        case .success(let value):
+            return value
         case .failure(let error):
             throw error
         }

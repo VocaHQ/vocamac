@@ -133,6 +133,11 @@ final class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var hasStarted = false
 
+    /// Bumped at the start of every `loadModel` call. Failure restores and
+    /// success UI updates only apply when the generation is still current, so
+    /// a stale failure cannot undo a newer successful load.
+    private var loadGeneration: UInt64 = 0
+
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
     /// the intentional background handoff explicit for Dispatch's @Sendable API.
     private struct AudioEngineWorker: @unchecked Sendable {
@@ -713,6 +718,9 @@ final class AppState: ObservableObject {
     // MARK: - Model Management
 
     func loadModel(_ size: ModelSize? = nil) async {
+        loadGeneration += 1
+        let generation = loadGeneration
+
         let previousLoadedModelName = whisperService.loadedModelName
         let previousModelSize = currentModel?.size
             ?? previousLoadedModelName.flatMap { modelManager.modelSize(from: $0) }
@@ -797,6 +805,12 @@ final class AppState: ObservableObject {
                 VocaLogger.info(.appState, "Auto-selected model resolved to: \(resolvedSize.displayName) (from '\(whisperService.loadedModelName ?? "unknown")')")
             }
 
+            // A newer loadModel started while we were waiting; leave UI to it.
+            guard generation == loadGeneration else {
+                clearLoadingFlag(for: targetSize)
+                return
+            }
+
             // Persist the resolved model as the user's preference
             selectedModelSize = resolvedSize.rawValue
 
@@ -815,6 +829,12 @@ final class AppState: ObservableObject {
 
             VocaLogger.info(.appState, "Model ready: \(resolvedSize.displayName)")
         } catch {
+            // A newer load superseded this one; do not restore over it.
+            guard generation == loadGeneration else {
+                clearLoadingFlag(for: targetSize)
+                return
+            }
+
             // Clear loading state on error for all models (covers auto-select case)
             for i in availableModels.indices {
                 availableModels[i].isLoading = false
@@ -834,6 +854,16 @@ final class AppState: ObservableObject {
                 originalFailureMessage: failureMessage
             )
         }
+    }
+
+    /// Clear the loading spinner on a superseded load without touching others.
+    private func clearLoadingFlag(for size: ModelSize?) {
+        guard let size,
+              let idx = availableModels.firstIndex(where: { $0.size == size }) else {
+            return
+        }
+        availableModels[idx].isLoading = false
+        availableModels[idx].loadingStatus = "Loading…"
     }
 
     /// Reload the active model when the transcription language changes and

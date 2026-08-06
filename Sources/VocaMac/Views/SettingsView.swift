@@ -431,7 +431,7 @@ struct ModelSettingsTab: View {
                 HStack {
                     Image(systemName: "info.circle")
                         .foregroundStyle(.secondary)
-                    Text("Models are downloaded from HuggingFace and cached locally. Larger models produce better results but are slower and use more memory. Apple Speech uses assets built into macOS.")
+                    Text("Models are downloaded from HuggingFace and cached locally. Larger models produce better results but are slower and use more memory. Apple Speech assets are managed by macOS and may download language packs on first use.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

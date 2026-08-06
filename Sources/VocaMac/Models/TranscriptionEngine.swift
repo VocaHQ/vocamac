@@ -48,7 +48,7 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
         case .whisperKit:
             return "OpenAI's Whisper models — widest language coverage (100+ languages) and translation to English."
         case .appleSpeech:
-            return "Built into macOS — no model to manage, though the system may download language assets the first time you use one."
+            return "Managed by macOS — no model files in VocaMac's folder, though the system may download language assets the first time you use one."
         case .sherpaOnnx:
             return "Community models for specific needs — tiny English models for low-RAM Macs, plus Chinese, Russian, and European language specialists. Runs on CPU."
         }

@@ -298,28 +298,16 @@ final class SherpaService: @unchecked Sendable {
     }
 
     /// Join segment transcripts. CJK scripts do not use spaces between
-    /// phrases; Western languages do.
+    /// phrases; Western languages do. SenseVoice tags look like `zh` / `ja`
+    /// / `yue` / `ko` (sometimes wrapped in `<|…|>`).
     static func joinTranscriptPieces(_ pieces: [String], language: String) -> String {
-        let separator = usesIdeographicSpacing(language) ? "" : " "
-        return pieces.joined(separator: separator)
-    }
-
-    /// Whether transcript pieces should be concatenated without spaces.
-    static func usesIdeographicSpacing(_ language: String) -> Bool {
         let lang = language.lowercased()
             .replacingOccurrences(of: "<|", with: "")
             .replacingOccurrences(of: "|>", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        // SenseVoice tags: zh / ja / yue / ko. Also accept common names.
-        if lang.hasPrefix("zh") || lang.hasPrefix("ja") || lang.hasPrefix("yue") || lang.hasPrefix("ko") {
-            return true
-        }
-        switch lang {
-        case "chinese", "japanese", "cantonese", "korean":
-            return true
-        default:
-            return false
-        }
+        let cjk = lang.hasPrefix("zh") || lang.hasPrefix("ja")
+            || lang.hasPrefix("yue") || lang.hasPrefix("ko")
+        return pieces.joined(separator: cjk ? "" : " ")
     }
 
     /// Run one decode against the active recognizer. Returns nil if no model

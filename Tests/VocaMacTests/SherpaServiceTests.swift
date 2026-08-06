@@ -138,14 +138,9 @@ final class SherpaServiceTests: XCTestCase {
             SherpaService.joinTranscriptPieces(["你好", "世界"], language: "<|yue|>"),
             "你好世界"
         )
-    }
-
-    func testIdeographicSpacingRecognizesCommonLanguageTags() {
-        XCTAssertTrue(SherpaService.usesIdeographicSpacing("zh-CN"))
-        XCTAssertTrue(SherpaService.usesIdeographicSpacing("japanese"))
-        XCTAssertTrue(SherpaService.usesIdeographicSpacing("ko"))
-        XCTAssertFalse(SherpaService.usesIdeographicSpacing("en"))
-        XCTAssertFalse(SherpaService.usesIdeographicSpacing("ru"))
-        XCTAssertFalse(SherpaService.usesIdeographicSpacing(""))
+        XCTAssertEqual(
+            SherpaService.joinTranscriptPieces(["안녕", "하세요"], language: "ko-KR"),
+            "안녕하세요"
+        )
     }
 }

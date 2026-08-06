@@ -129,35 +129,21 @@ extension TranscriptionRouter: SpeechTranscribing {
         vocabulary: String
     ) async throws -> VocaTranscription {
         try await operationSerializer.run { [self] in
-            try await performTranscribe(
-                audioData: audioData,
-                language: language,
-                translate: translate,
-                vocabulary: vocabulary
-            )
-        }
-    }
-
-    private func performTranscribe(
-        audioData: [Float],
-        language: String?,
-        translate: Bool,
-        vocabulary: String
-    ) async throws -> VocaTranscription {
-        switch activeEngine {
-        case .whisperKit:
-            return try await whisper.transcribe(
-                audioData: audioData,
-                language: language,
-                translate: translate,
-                vocabulary: vocabulary
-            )
-        case .parakeet:
-            return try await parakeet.transcribe(audioData: audioData, language: language)
-        case .appleSpeech:
-            return try await appleSpeech.transcribe(audioData: audioData, language: language)
-        case .sherpaOnnx:
-            return try await sherpa.transcribe(audioData: audioData, language: language)
+            switch activeEngine {
+            case .whisperKit:
+                return try await whisper.transcribe(
+                    audioData: audioData,
+                    language: language,
+                    translate: translate,
+                    vocabulary: vocabulary
+                )
+            case .parakeet:
+                return try await parakeet.transcribe(audioData: audioData, language: language)
+            case .appleSpeech:
+                return try await appleSpeech.transcribe(audioData: audioData, language: language)
+            case .sherpaOnnx:
+                return try await sherpa.transcribe(audioData: audioData, language: language)
+            }
         }
     }
 }

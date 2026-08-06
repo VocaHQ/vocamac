@@ -6,7 +6,7 @@ title = "VocaMac - 100% Local Voice-to-Text for macOS"
   description = "100% offline, open-source voice-to-text for macOS. Powered by WhisperKit + CoreML."
   author = "Jatin Kumar Malik"
   twitterHandle = "@jatinkrmalik"
-  githubRepo = "https://github.com/jatinkrmalik/vocamac"
+  githubRepo = "https://github.com/VocaHQ/vocamac"
   gaID = "G-8W6EJV2KP0"
   ogImage = "https://vocamac.com/og-image.png"
 

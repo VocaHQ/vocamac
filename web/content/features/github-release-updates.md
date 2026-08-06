@@ -35,7 +35,7 @@ This keeps the install process familiar and transparent while still making updat
 
 ## Security and Trust
 
-VocaMac only checks `https://api.github.com/repos/jatinkrmalik/vocamac/releases/latest` and downloads release assets served from GitHub over HTTPS.
+VocaMac only checks `https://api.github.com/repos/VocaHQ/vocamac/releases/latest` and downloads release assets served from GitHub over HTTPS.
 
 Each downloaded DMG is validated against the release digest before the app offers to open it. Releases remain Developer ID signed and notarized, matching the existing distribution process.
 

@@ -15,8 +15,8 @@ Since VocaMac is a native macOS `.app` primarily distributed via Homebrew (with 
 
 ```bash
 # Install
-brew tap jatinkrmalik/vocamac
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac
 
 # Upgrade to latest version
@@ -24,20 +24,20 @@ brew upgrade --cask vocamac
 
 # Uninstall
 brew uninstall --cask vocamac
-brew untap jatinkrmalik/vocamac
+brew untap vocahq/vocamac
 ```
 
 After installation, VocaMac appears in `/Applications/VocaMac.app`. Launch it from Spotlight or the Applications folder.
 
-`brew trust jatinkrmalik/vocamac` trusts the whole VocaMac tap. This is intentional: the stable and nightly casks conflict with each other, so Homebrew may load both cask definitions while resolving an install.
+`brew trust vocahq/vocamac` trusts the whole VocaMac tap. This is intentional: the stable and nightly casks conflict with each other, so Homebrew may load both cask definitions while resolving an install.
 
 ## Nightly Builds
 
 A nightly cask is also available, built daily from the latest `main` branch:
 
 ```bash
-brew tap jatinkrmalik/vocamac
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac-nightly
 ```
 
@@ -47,7 +47,7 @@ The nightly cask uses `version :latest` and `sha256 :no_check` because the DMG c
 
 ```bash
 brew uninstall --cask vocamac
-brew trust jatinkrmalik/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac-nightly
 ```
 
@@ -57,15 +57,15 @@ No auto-update workflow is needed for the nightly cask. The cask definition itse
 
 ## Custom Tap Setup
 
-The cask lives in a custom tap repository: `jatinkrmalik/homebrew-vocamac`.
+The cask lives in a custom tap repository: `VocaHQ/homebrew-vocamac`.
 
 ### Creating the Tap Repository
 
-1. Create a new public GitHub repository named `homebrew-vocamac` under the `jatinkrmalik` account
+1. Create a new public GitHub repository named `homebrew-vocamac` under the `VocaHQ` organization
 2. The repository must follow Homebrew tap naming: `homebrew-<name>`
 3. Clone it locally:
    ```bash
-   git clone https://github.com/jatinkrmalik/homebrew-vocamac.git
+   git clone https://github.com/VocaHQ/homebrew-vocamac.git
    cd homebrew-vocamac
    ```
 4. Create the cask directory structure:
@@ -86,8 +86,8 @@ The cask lives in a custom tap repository: `jatinkrmalik/homebrew-vocamac`.
 Users can then install with:
 
 ```bash
-brew tap jatinkrmalik/vocamac
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -96,9 +96,9 @@ brew install --cask vocamac
 Before pushing a cask update to the tap, test it from a tap checkout against a real DMG. Homebrew 6 rejects loose cask files outside a tap, so copy the cask into a local tap checkout first:
 
 ```bash
-brew tap jatinkrmalik/vocamac
-cp homebrew/Casks/vocamac.rb "$(brew --repository jatinkrmalik/vocamac)/Casks/vocamac.rb"
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+cp homebrew/Casks/vocamac.rb "$(brew --repository vocahq/vocamac)/Casks/vocamac.rb"
+brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -126,7 +126,7 @@ When a new VocaMac version ships, the cask needs two updates: the `version` stri
 1. Download the new DMG:
    ```bash
    curl -L -o VocaMac-X.Y.Z-arm64.dmg \
-     https://github.com/jatinkrmalik/vocamac/releases/download/vX.Y.Z/VocaMac-X.Y.Z-arm64.dmg
+     https://github.com/VocaHQ/vocamac/releases/download/vX.Y.Z/VocaMac-X.Y.Z-arm64.dmg
    ```
 
 2. Compute the SHA-256:
@@ -154,12 +154,12 @@ The repository includes `.github/workflows/update-homebrew-cask.yml`, which auto
 
 ### How It Works
 
-1. The workflow triggers on `release` event with `types: [published]`
+1. The workflow triggers on `release` event with `types: [published]`, or via `workflow_dispatch` (optional `tag` input; defaults to the latest release)
 2. It extracts the version tag (e.g., `v0.6.2` → `0.6.2`)
 3. It downloads the DMG from the release assets
 4. It computes the SHA-256 checksum
 5. It updates `homebrew/Casks/vocamac.rb` with the new version and sha256
-6. It pushes the change to the `jatinkrmalik/homebrew-vocamac` tap repository
+6. It pushes the change to the `VocaHQ/homebrew-vocamac` tap repository
 
 ### Required GitHub Secret
 
@@ -169,7 +169,7 @@ The workflow needs a Personal Access Token with `repo` scope to push to the tap 
 - **Scope:** `repo` (full control of private and public repositories)
 - **Set at:** Repository Settings → Secrets and variables → Actions
 
-Generate the token at [github.com/settings/tokens](https://github.com/settings/tokens) with the `repo` scope. The token owner must have write access to `jatinkrmalik/homebrew-vocamac`.
+Generate the token at [github.com/settings/tokens](https://github.com/settings/tokens). Prefer a **classic** PAT with the `repo` scope (works when the token owner is a VocaHQ org owner), or a **fine-grained** PAT with resource owner `VocaHQ`, repository access `homebrew-vocamac`, and permission **Contents: Read and write**. A fine-grained PAT issued under a personal account without org resource ownership cannot push to `VocaHQ/homebrew-vocamac`.
 
 ## Submitting to homebrew-cask
 
@@ -245,7 +245,7 @@ A previous installation exists at `/Applications/VocaMac.app`.
 **Fix:** Remove the existing app first:
 ```bash
 rm -rf /Applications/VocaMac.app
-brew trust jatinkrmalik/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -256,7 +256,7 @@ Homebrew 6 requires explicit trust for casks from third-party taps. Trust the Vo
 **Fix:** Trust the VocaMac tap, then install again:
 
 ```bash
-brew trust jatinkrmalik/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -266,8 +266,8 @@ The tap repository may not exist or the cask file is missing.
 
 **Fix:** Verify the tap:
 ```bash
-brew tap --repair jatinkrmalik/vocamac
-ls "$(brew --prefix)/Homebrew/Library/Taps/jatinkrmalik/homebrew-vocamac/Casks/"
+brew tap --repair vocahq/vocamac
+ls "$(brew --prefix)/Homebrew/Library/Taps/VocaHQ/homebrew-vocamac/Casks/"
 ```
 
 ### App won't launch after Homebrew install

@@ -882,7 +882,7 @@ struct AboutTab: View {
                 Link(destination: URL(string: "https://vocamac.com")!) {
                     Label("Website", systemImage: "globe")
                 }
-                Link(destination: URL(string: "https://github.com/jatinkrmalik/vocamac")!) {
+                Link(destination: URL(string: "https://github.com/VocaHQ/vocamac")!) {
                     Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                 }
                 Link(destination: URL(string: "https://github.com/argmaxinc/WhisperKit")!) {

@@ -345,7 +345,7 @@ CGEventSource(stateID: .hidSystemState)
 **Update Flow (DMG installs):**
 ```
 On launch (max once every 24h)
-  → GET /repos/jatinkrmalik/vocamac/releases/latest
+  → GET /repos/VocaHQ/vocamac/releases/latest
   → Compare tag_name vs CFBundleShortVersionString
   → If newer: show update banner in MenuBarView
   → User opens update sheet and starts download

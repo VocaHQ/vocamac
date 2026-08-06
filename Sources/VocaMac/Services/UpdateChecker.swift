@@ -105,7 +105,7 @@ final class UpdateChecker: ObservableObject {
     /// Stored when an update is found so views can reference it across state transitions.
     private(set) var lastKnownUpdateInfo: UpdateInfo?
 
-    private let apiURL = URL(string: "https://api.github.com/repos/jatinkrmalik/vocamac/releases/latest")!
+    private let apiURL = URL(string: "https://api.github.com/repos/VocaHQ/vocamac/releases/latest")!
     private let checkInterval: TimeInterval = 24 * 60 * 60
     private let lastCheckKey = "vocamac.update.lastCheck"
     private let skippedVersionKey = "vocamac.update.skippedVersion"

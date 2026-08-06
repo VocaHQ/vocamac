@@ -1,11 +1,11 @@
 # VocaMac Homebrew Tap
 
-Official Homebrew tap for [VocaMac](https://github.com/jatinkrmalik/vocamac) — a native macOS menu bar application for local voice-to-text dictation powered by WhisperKit.
+Official Homebrew tap for [VocaMac](https://github.com/VocaHQ/vocamac) — a native macOS menu bar application for local voice-to-text dictation powered by WhisperKit.
 
 ## Installation
 
 ```bash
-brew tap jatinkrmalik/vocamac
+brew tap vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -35,11 +35,11 @@ brew upgrade --cask vocamac-nightly
 
 ```bash
 brew uninstall --cask vocamac
-brew untap jatinkrmalik/vocamac
+brew untap vocahq/vocamac
 ```
 
 ## Links
 
-- **Source:** [github.com/jatinkrmalik/vocamac](https://github.com/jatinkrmalik/vocamac)
+- **Source:** [github.com/VocaHQ/vocamac](https://github.com/VocaHQ/vocamac)
 - **Website:** [vocamac.com](https://vocamac.com)
-- **Issues:** [github.com/jatinkrmalik/vocamac/issues](https://github.com/jatinkrmalik/vocamac/issues)
+- **Issues:** [github.com/VocaHQ/vocamac/issues](https://github.com/VocaHQ/vocamac/issues)

@@ -8,21 +8,21 @@
 
 <div align="center">
   
-[![Build & Test](https://github.com/jatinkrmalik/vocamac/actions/workflows/ci.yml/badge.svg)](https://github.com/jatinkrmalik/vocamac/actions/workflows/ci.yml)
+[![Build & Test](https://github.com/VocaHQ/vocamac/actions/workflows/ci.yml/badge.svg)](https://github.com/VocaHQ/vocamac/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
-[![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](https://github.com/jatinkrmalik/vocamac)
+[![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](https://github.com/VocaHQ/vocamac)
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
-[![Release](https://img.shields.io/github/v/release/jatinkrmalik/vocamac?include_prereleases&label=Release)](https://github.com/jatinkrmalik/vocamac/releases)
-[![Nightly](https://img.shields.io/badge/Nightly-download-blueviolet)](https://github.com/jatinkrmalik/vocamac/releases/tag/nightly)
+[![Release](https://img.shields.io/github/v/release/VocaHQ/vocamac?include_prereleases&label=Release)](https://github.com/VocaHQ/vocamac/releases)
+[![Nightly](https://img.shields.io/badge/Nightly-download-blueviolet)](https://github.com/VocaHQ/vocamac/releases/tag/nightly)
 
 [![Powered by WhisperKit](https://img.shields.io/badge/Powered%20by-WhisperKit-blueviolet.svg)](https://github.com/argmaxinc/WhisperKit)
-[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-Optimized-black.svg?logo=apple&logoColor=white)](https://github.com/jatinkrmalik/vocamac)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](https://github.com/jatinkrmalik/vocamac)
-[![Works Offline](https://img.shields.io/badge/Works-Offline-success.svg)](https://github.com/jatinkrmalik/vocamac)
+[![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-Optimized-black.svg?logo=apple&logoColor=white)](https://github.com/VocaHQ/vocamac)
+[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
+[![Works Offline](https://img.shields.io/badge/Works-Offline-success.svg)](https://github.com/VocaHQ/vocamac)
 
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/jatinkrmalik/vocamac/pulls)
-[![GitHub Issues](https://img.shields.io/github/issues/jatinkrmalik/vocamac)](https://github.com/jatinkrmalik/vocamac/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/jatinkrmalik/vocamac?style=social)](https://github.com/jatinkrmalik/vocamac/stargazers)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/VocaHQ/vocamac/pulls)
+[![GitHub Issues](https://img.shields.io/github/issues/VocaHQ/vocamac)](https://github.com/VocaHQ/vocamac/issues)
+[![GitHub Stars](https://img.shields.io/github/stars/VocaHQ/vocamac?style=social)](https://github.com/VocaHQ/vocamac/stargazers)
 [![Twitter Follow](https://img.shields.io/twitter/follow/jatinkrmalik?style=social)](https://x.com/intent/user?screen_name=jatinkrmalik)
 
 </div>
@@ -128,8 +128,8 @@ VocaMac requires three macOS permissions:
 ### Option 1: Install via Homebrew (Recommended)
 
 ```bash
-brew tap jatinkrmalik/vocamac
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
@@ -143,7 +143,7 @@ brew upgrade --cask vocamac
 
 ### Option 2: Download DMG
 
-1. **Download** the latest `VocaMac-x.x.x-arm64.dmg` from the [Releases page](https://github.com/jatinkrmalik/vocamac/releases)
+1. **Download** the latest `VocaMac-x.x.x-arm64.dmg` from the [Releases page](https://github.com/VocaHQ/vocamac/releases)
 2. **Open** the DMG and drag VocaMac to Applications
 3. **Open** VocaMac from Applications
 4. **Grant permissions**: Microphone, Accessibility, and Input Monitoring when prompted
@@ -153,7 +153,7 @@ brew upgrade --cask vocamac
 ### Option 3: Build from Source
 
 ```bash
-git clone https://github.com/jatinkrmalik/vocamac.git
+git clone https://github.com/VocaHQ/vocamac.git
 cd vocamac
 make install
 ```
@@ -163,7 +163,7 @@ This builds VocaMac, installs it to `/Applications`, and launches it. Permission
 ### Option 4: CLI Commands (For Developers)
 
 ```bash
-git clone https://github.com/jatinkrmalik/vocamac.git
+git clone https://github.com/VocaHQ/vocamac.git
 cd vocamac
 make install-cli
 ```
@@ -197,13 +197,13 @@ Nightly builds are automated builds from the latest `main` branch, published eve
 
 **Via Homebrew (recommended):**
 ```bash
-brew tap jatinkrmalik/vocamac
-brew trust jatinkrmalik/vocamac
+brew tap vocahq/vocamac
+brew trust vocahq/vocamac
 brew install --cask vocamac-nightly
 ```
 
 **Or via DMG:**
-1. Download the latest `VocaMac-nightly-*.dmg` from the [Nightly Release](https://github.com/jatinkrmalik/vocamac/releases/tag/nightly)
+1. Download the latest `VocaMac-nightly-*.dmg` from the [Nightly Release](https://github.com/VocaHQ/vocamac/releases/tag/nightly)
 2. Open the DMG and drag VocaMac to Applications
 3. Grant permissions when prompted (same as a stable release)
 
@@ -227,7 +227,7 @@ This helps us pinpoint the exact code you're running if you report an issue.
 | **Stability** | Production-ready | May contain incomplete features or bugs |
 | **Best for** | Daily use | Testing & early feedback |
 
-> ⚠️ **Nightly builds may be unstable.** If you encounter issues, please [open a bug report](https://github.com/jatinkrmalik/vocamac/issues/new) — your feedback helps us ship better stable releases!
+> ⚠️ **Nightly builds may be unstable.** If you encounter issues, please [open a bug report](https://github.com/VocaHQ/vocamac/issues/new) — your feedback helps us ship better stable releases!
 
 ---
 
@@ -466,7 +466,7 @@ VocaMac is the macOS member of the Voca family:
 | Platform | Project | Status |
 |----------|---------|--------|
 |  Linux | [VocaLinux](https://github.com/jatinkrmalik/vocalinux) | ✅ Available |
-|  macOS | [VocaMac](https://github.com/jatinkrmalik/vocamac) | 🚀 Beta |
+|  macOS | [VocaMac](https://github.com/VocaHQ/vocamac) | 🚀 Beta |
 | 🪟 Windows | [VocaWin](https://vocawin.com) | 📋 Planned |
 
 Each platform uses native technologies for the best possible integration, while sharing the same UX patterns and Whisper model family.
@@ -510,11 +510,11 @@ AGPL-3.0 License - see [LICENSE](LICENSE) for details.
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=jatinkrmalik%2Fvocamac&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=VocaHQ%2Fvocamac&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jatinkrmalik/vocamac&type=date&theme=dark&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jatinkrmalik/vocamac&type=date&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jatinkrmalik/vocamac&type=date&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=VocaHQ/vocamac&type=date&theme=dark&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=VocaHQ/vocamac&type=date&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=VocaHQ/vocamac&type=date&legend=top-left&sealed_token=otfG_PjqVtfSDqjuVxBihRMsoeuZwc0ZnUdPqNX9TypLSfyjI0QHWwkE-IVtel80QH3TtIRZzDSNYISJ_tYCHQjqN5fWBUY028tmOiUPvH_MIJroI3Kidg" />
  </picture>
 </a>
 

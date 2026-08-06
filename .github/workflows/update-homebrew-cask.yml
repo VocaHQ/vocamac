@@ -1,10 +1,19 @@
-# Updates the Homebrew tap cask (jatinkrmalik/homebrew-vocamac) when a GitHub Release is published.
+# Updates the Homebrew tap cask (VocaHQ/homebrew-vocamac) when a GitHub Release is published.
 # Downloads the release DMG, computes its sha256, and commits the updated version+checksum to the tap repo.
+# Can also be triggered manually via workflow_dispatch (optional tag input; defaults to latest)
+# so a cask bump can be run for an existing release without publishing a new one.
 name: Update Homebrew Cask
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to bump the cask for (e.g. v0.7.0). Leave empty to use the latest release."
+        required: false
+        type: string
+        default: ""
 
 jobs:
   update-cask:
@@ -13,18 +22,29 @@ jobs:
       - name: Checkout main repo
         uses: actions/checkout@v4
 
-      - name: Extract version from release tag
+      - name: Resolve release tag and version
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="${{ github.event.release.tag_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+            if [ -z "$TAG" ]; then
+              TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name')
+              echo "No tag input provided; using latest release: ${TAG}"
+            fi
+          else
+            TAG="${{ github.event.release.tag_name }}"
+          fi
           VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Extracted version: ${VERSION}"
+          echo "Resolved tag=${TAG} version=${VERSION}"
 
       - name: Download DMG artifact
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          DMG_URL="https://github.com/jatinkrmalik/vocamac/releases/download/v${VERSION}/VocaMac-${VERSION}-arm64.dmg"
+          DMG_URL="https://github.com/VocaHQ/vocamac/releases/download/v${VERSION}/VocaMac-${VERSION}-arm64.dmg"
           curl -sL -o vocamac.dmg "$DMG_URL"
           echo "Downloaded DMG from ${DMG_URL}"
 
@@ -38,7 +58,7 @@ jobs:
       - name: Checkout tap repo
         uses: actions/checkout@v4
         with:
-          repository: jatinkrmalik/homebrew-vocamac
+          repository: VocaHQ/homebrew-vocamac
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-vocamac
 
@@ -63,5 +83,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/vocamac.rb
+          if git diff --cached --quiet; then
+            echo "No cask changes to commit (already at v${VERSION})."
+            exit 0
+          fi
           git commit -m "chore: update vocamac to v${VERSION}"
           git push

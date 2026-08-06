@@ -62,7 +62,7 @@ Pre-release versions use suffixes: `v0.1.0-alpha`, `v0.1.0-beta.1`
    - Generates SHA-256 checksums
    - Creates a **draft** GitHub Release with all artifacts
 
-3. **Review the draft release** at https://github.com/jatinkrmalik/vocamac/releases
+3. **Review the draft release** at https://github.com/VocaHQ/vocamac/releases
    - Edit release notes if needed
    - Verify artifacts are attached
    - **Publish** the release when ready
@@ -123,6 +123,10 @@ Prepares the **vX.Y.Z** patch/minor release.
 - Tag `vX.Y.Z`, push tag → `release.yml` builds, signs, notarizes, drafts the release
 - Paste finalized notes from local scratch into the draft, publish
 - Delete local scratch file
+
+### Suggested release-notes line (Homebrew tap migration)
+Homebrew: the tap moved to `vocahq/vocamac`. Existing installs keep working via
+GitHub redirects; optionally `brew untap jatinkrmalik/vocamac && brew tap vocahq/vocamac`.
 ```
 
 ## In-App Update Integration

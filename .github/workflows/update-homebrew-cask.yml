@@ -27,6 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ inputs.tag }}"
             if [ -z "$TAG" ]; then
@@ -36,17 +37,31 @@ jobs:
           else
             TAG="${{ github.event.release.tag_name }}"
           fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::Could not resolve a release tag (empty input and no latest release, or API failure)."
+            exit 1
+          fi
           VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then
+            echo "::error::Resolved tag '${TAG}' produced an empty version."
+            exit 1
+          fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "Resolved tag=${TAG} version=${VERSION}"
 
       - name: Download DMG artifact
         run: |
+          set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
           DMG_URL="https://github.com/VocaHQ/vocamac/releases/download/v${VERSION}/VocaMac-${VERSION}-arm64.dmg"
-          curl -sL -o vocamac.dmg "$DMG_URL"
-          echo "Downloaded DMG from ${DMG_URL}"
+          curl -fsSL -o vocamac.dmg "$DMG_URL"
+          SIZE=$(wc -c < vocamac.dmg)
+          if [ "$SIZE" -lt 1000000 ]; then
+            echo "::error::Downloaded DMG is suspiciously small (${SIZE} bytes); refusing to update cask."
+            exit 1
+          fi
+          echo "Downloaded DMG from ${DMG_URL} (${SIZE} bytes)"
 
       - name: Compute DMG sha256
         id: checksum

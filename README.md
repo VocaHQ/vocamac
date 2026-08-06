@@ -133,6 +133,12 @@ brew trust vocahq/vocamac
 brew install --cask vocamac
 ```
 
+> **Still have the old tap?** If you previously used `jatinkrmalik/vocamac`, untap it first or Homebrew will error with `Cask vocamac exists in multiple taps`:
+> ```bash
+> brew untap jatinkrmalik/vocamac
+> brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
+> ```
+
 Homebrew installs VocaMac to `/Applications/VocaMac.app`. Launch it from Spotlight or your Applications folder. Updates are a single command away:
 
 ```bash

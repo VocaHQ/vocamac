@@ -31,6 +31,25 @@ After installation, VocaMac appears in `/Applications/VocaMac.app`. Launch it fr
 
 `brew trust vocahq/vocamac` trusts the whole VocaMac tap. This is intentional: the stable and nightly casks conflict with each other, so Homebrew may load both cask definitions while resolving an install.
 
+## Migrating from `jatinkrmalik/vocamac`
+
+The Homebrew tap moved to `vocahq/vocamac` when the project transferred to the VocaHQ GitHub organization. Existing installs keep working via GitHub redirects, but if you still have the old tap **and** the new one, Homebrew sees the same cask in both places:
+
+```text
+Error: Cask vocamac exists in multiple taps:
+  jatinkrmalik/vocamac/vocamac
+  vocahq/vocamac/vocamac
+```
+
+**Fix:** remove the old tap, then use the new one:
+
+```bash
+brew untap jatinkrmalik/vocamac
+brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
+```
+
+If you already have VocaMac installed from Homebrew and only need to clean up the duplicate tap (no reinstall), `brew untap jatinkrmalik/vocamac` is enough — then upgrade with `brew upgrade --cask vocamac`.
+
 ## Nightly Builds
 
 A nightly cask is also available, built daily from the latest `main` branch:
@@ -231,6 +250,19 @@ Homebrew moves the launched app into the configured app directory, usually `/App
 This prevents conflicts between Homebrew's version management and the app's own update mechanism. Always use `brew upgrade --cask vocamac` or `brew upgrade --cask vocamac-nightly` to update a Homebrew-installed copy of VocaMac.
 
 ## Troubleshooting
+
+### Error: Cask vocamac exists in multiple taps
+
+You have both the pre-migration tap (`jatinkrmalik/vocamac`) and the current tap (`vocahq/vocamac`) installed. Homebrew cannot choose which cask definition to use.
+
+**Fix:**
+
+```bash
+brew untap jatinkrmalik/vocamac
+brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
+```
+
+See [Migrating from `jatinkrmalik/vocamac`](#migrating-from-jatinkrmalikvocamac).
 
 ### Cask install fails with "SHA256 mismatch"
 

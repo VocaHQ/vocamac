@@ -9,6 +9,19 @@ brew tap vocahq/vocamac
 brew install --cask vocamac
 ```
 
+### Migrating from the old tap
+
+If you previously tapped `jatinkrmalik/vocamac`, untap it before using `vocahq/vocamac`. Having both causes:
+
+```text
+Error: Cask vocamac exists in multiple taps
+```
+
+```bash
+brew untap jatinkrmalik/vocamac
+brew tap vocahq/vocamac && brew trust vocahq/vocamac && brew install --cask vocamac
+```
+
 ## Nightly Builds
 
 For early access to the latest features, install the nightly build:

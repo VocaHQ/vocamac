@@ -503,8 +503,10 @@ final class AudioEngine {
             return true
         }
 
-        let routeIsHealthy = configuredInputDeviceID != nil
-            && currentInputDeviceID == configuredInputDeviceID
+        let routeIsHealthy = isConfiguredRouteHealthy(
+            configuredInputDeviceID: configuredInputDeviceID,
+            currentInputDeviceID: currentInputDeviceID
+        )
 
         // A notification posted during preparation but processed after start must
         // not be ignored blindly: if the headset disconnected mid-settle, recover.
@@ -517,6 +519,24 @@ final class AudioEngine {
             && elapsedSinceRecordingStart >= 0
             && elapsedSinceRecordingStart <= recoveryWindow
             && routeIsHealthy
+    }
+
+    /// True when the live AudioUnit device matches the configured one, or is an
+    /// acceptable Bluetooth HFP sibling of that headset.
+    static func isConfiguredRouteHealthy(
+        configuredInputDeviceID: AudioDeviceID?,
+        currentInputDeviceID: AudioDeviceID?
+    ) -> Bool {
+        guard let configuredInputDeviceID, let currentInputDeviceID else {
+            return false
+        }
+        if configuredInputDeviceID == currentInputDeviceID {
+            return true
+        }
+        return isAcceptableBluetoothRouteSubstitute(
+            targetDeviceID: configuredInputDeviceID,
+            actualDeviceID: currentInputDeviceID
+        )
     }
 
     static func describeCoreAudioError(_ error: Error) -> String {
@@ -739,9 +759,21 @@ final class AudioEngine {
             targetDeviceID: targetDeviceID
         ) else {
             // Warm engines can keep CurrentDevice while Bluetooth has already
-            // fallen back to A2DP. Settle HFP before installing the tap.
+            // fallen back to A2DP. Settle HFP before installing the tap, and if
+            // Core Audio moves to an HFP sibling endpoint, return that ID so
+            // later route-health checks match the live device.
             if isBluetoothTarget {
                 Self.waitForBluetoothHFPIfNeeded(deviceID: targetDeviceID, timeout: routeTimeout)
+                if let settledDeviceID = Self.currentInputDeviceID(for: audioUnit),
+                   settledDeviceID != targetDeviceID,
+                   Self.isAcceptableBluetoothRouteSubstitute(
+                    targetDeviceID: targetDeviceID,
+                    actualDeviceID: settledDeviceID
+                   ) {
+                    let substituteName = Self.audioDeviceName(for: settledDeviceID) ?? "bluetooth input"
+                    VocaLogger.info(.audioEngine, "Warm Bluetooth route resolved to HFP endpoint: \(substituteName)")
+                    return settledDeviceID
+                }
             }
             let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
             VocaLogger.debug(.audioEngine, "Input device already configured: \(deviceName)")

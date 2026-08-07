@@ -26,8 +26,15 @@ final class AudioEngine {
     private var configuredInputDeviceID: AudioDeviceID?
     private let bufferQueue = DispatchQueue(label: "com.vocamac.audio-buffer", qos: .userInteractive)
     private let lifecycleQueue = DispatchQueue(label: "com.vocamac.audio-engine.lifecycle", qos: .userInitiated)
+    private let recordingPreparationLock = NSLock()
+    private var _isPreparingRecording = false
 
     static let inputRouteConfigurationTimeout: TimeInterval = 0.25
+    /// Bluetooth headsets need longer for the A2DP → HFP/SCO profile switch.
+    static let bluetoothInputRouteConfigurationTimeout: TimeInterval = 3.0
+    static let inputRoutePollInterval: TimeInterval = 0.05
+    /// HFP/SCO typically runs at 8/16/24 kHz; A2DP stays at 44.1/48 kHz.
+    static let bluetoothHFPSampleRateThreshold: Double = 44100
     static let startupConfigurationChangeRecoveryWindow: TimeInterval = 1.0
     static let idleEngineReleaseDelay: TimeInterval = 3.0
 
@@ -37,6 +44,12 @@ final class AudioEngine {
 
     var isEngineAllocatedForTesting: Bool {
         lifecycleQueue.sync { engine != nil }
+    }
+
+    private var isPreparingRecording: Bool {
+        recordingPreparationLock.lock()
+        defer { recordingPreparationLock.unlock() }
+        return _isPreparingRecording
     }
 
     // Silence detection
@@ -157,6 +170,10 @@ final class AudioEngine {
     /// is invalidated — the installed tap references a stale format and no audio
     /// flows. We must stop, reset, and notify AppState so it can recover.
     @objc private func handleAudioConfigurationChange(_ notification: Notification) {
+        // Capture preparation state on the posting queue. startRecording holds
+        // lifecycleQueue during Bluetooth HFP settle, so reading later would race.
+        let occurredDuringRecordingPreparation = isPreparingRecording
+
         lifecycleQueue.async { [weak self] in
             guard let self = self else { return }
             VocaLogger.info(.audioEngine, "Audio configuration changed (device plug/unplug or route change)")
@@ -167,6 +184,7 @@ final class AudioEngine {
                 Self.currentInputDeviceID(for: $0)
             }
             if Self.shouldIgnoreConfigurationChange(
+                occurredDuringRecordingPreparation: occurredDuringRecordingPreparation,
                 isRecording: wasRecording,
                 engineIsRunning: self.engine?.isRunning == true,
                 elapsedSinceRecordingStart: elapsedSinceRecordingStart,
@@ -243,6 +261,9 @@ final class AudioEngine {
     ) -> Bool {
         lifecycleQueue.sync {
             guard !self._isCurrentlyRecording else { return true }
+
+            self.setIsPreparingRecording(true)
+            defer { self.setIsPreparingRecording(false) }
 
             self.silenceThreshold = silenceThreshold
             self.silenceDuration = silenceDuration
@@ -324,6 +345,10 @@ final class AudioEngine {
                     return false
                 }
 
+                // Anchor max-duration / startup recovery to the moment capture
+                // actually begins, not the start of Bluetooth route settling.
+                recordingStartTime = Date()
+                lastSoundTime = Date()
                 _isCurrentlyRecording = true
                 return true
             }
@@ -387,6 +412,12 @@ final class AudioEngine {
         recordingStartTime = Date()
         silenceCallbackFired = false
         maxDurationCallbackFired = false
+    }
+
+    private func setIsPreparingRecording(_ isPreparing: Bool) {
+        recordingPreparationLock.lock()
+        _isPreparingRecording = isPreparing
+        recordingPreparationLock.unlock()
     }
 
     /// Clears captured audio samples while preserving buffer capacity.
@@ -453,6 +484,7 @@ final class AudioEngine {
     }
 
     static func shouldIgnoreConfigurationChange(
+        occurredDuringRecordingPreparation: Bool = false,
         isRecording: Bool,
         engineIsRunning: Bool,
         elapsedSinceRecordingStart: TimeInterval,
@@ -460,7 +492,11 @@ final class AudioEngine {
         currentInputDeviceID: AudioDeviceID?,
         recoveryWindow: TimeInterval = startupConfigurationChangeRecoveryWindow
     ) -> Bool {
-        isRecording
+        if occurredDuringRecordingPreparation {
+            return true
+        }
+
+        return isRecording
             && engineIsRunning
             && elapsedSinceRecordingStart >= 0
             && elapsedSinceRecordingStart <= recoveryWindow
@@ -651,6 +687,11 @@ final class AudioEngine {
     /// Setting CurrentDevice can asynchronously invalidate AVAudioEngine's formats,
     /// so a real route change is allowed to settle and the graph is reset before
     /// the tap's format is queried.
+    ///
+    /// Bluetooth headsets additionally switch from A2DP to HFP/SCO when the mic is
+    /// activated. That profile change can take multiple seconds and may temporarily
+    /// clear CurrentDevice across `engine.reset()`, so we poll, re-apply, and only
+    /// then verify the active route.
     private func configureInputRoute(
         preferredInputDeviceID: String?,
         engine: AVAudioEngine,
@@ -675,6 +716,8 @@ final class AudioEngine {
             return nil
         }
 
+        let isBluetoothTarget = Self.isBluetoothDevice(targetDeviceID)
+        let routeTimeout = Self.inputRouteTimeout(isBluetooth: isBluetoothTarget)
         let currentDeviceID = Self.currentInputDeviceID(for: audioUnit)
         guard Self.shouldReconfigureInputDevice(
             currentDeviceID: currentDeviceID,
@@ -697,18 +740,8 @@ final class AudioEngine {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
-        var mutableDeviceID = targetDeviceID
-        let status = AudioUnitSetProperty(
-            audioUnit,
-            kAudioOutputUnitProperty_CurrentDevice,
-            kAudioUnitScope_Global,
-            0,
-            &mutableDeviceID,
-            UInt32(MemoryLayout<AudioDeviceID>.size)
-        )
-
-        guard status == noErr else {
-            VocaLogger.warning(.audioEngine, "Failed to set input device: OSStatus \(status)")
+        guard Self.applyInputDevice(targetDeviceID, to: audioUnit) else {
+            VocaLogger.warning(.audioEngine, "Failed to set input device \(targetDeviceID)")
             return nil
         }
 
@@ -717,9 +750,16 @@ final class AudioEngine {
             VocaLogger.debug(.audioEngine, "Input route change is still pending after AudioUnitSetProperty")
         }
 
-        let waitResult = routeChangeSignal.wait(timeout: .now() + Self.inputRouteConfigurationTimeout)
-        if waitResult == .timedOut {
-            VocaLogger.debug(.audioEngine, "No configuration notification received after input route change; rebuilding graph after timeout")
+        // Wait for either a configuration notification or the device ID to stick.
+        // Bluetooth HFP negotiation commonly exceeds the short wired timeout.
+        let appliedBeforeReset = Self.waitForInputDevice(
+            targetDeviceID,
+            on: audioUnit,
+            signal: routeChangeSignal,
+            timeout: routeTimeout
+        )
+        if !appliedBeforeReset {
+            VocaLogger.debug(.audioEngine, "Requested input device not confirmed before graph rebuild; continuing with rebuild")
         }
 
         // Apple documents that configuration changes stop and uninitialize the
@@ -728,18 +768,63 @@ final class AudioEngine {
         engine.stop()
         engine.reset()
 
-        let deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
-        guard Self.shouldAcceptConfiguredInputRoute(
+        var deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
+        if !Self.shouldAcceptConfiguredInputRoute(
             targetDeviceID: targetDeviceID,
             deviceIDAfterReset: deviceIDAfterReset
-        ) else {
-            VocaLogger.warning(.audioEngine, "Core Audio did not apply the requested input device after rebuilding the graph")
+        ) {
+            // `reset()` can drop a Bluetooth CurrentDevice mid-profile-switch.
+            // Re-apply and wait again before giving up.
+            VocaLogger.debug(.audioEngine, "Re-applying input device after graph reset")
+            guard Self.applyInputDevice(targetDeviceID, to: audioUnit) else {
+                VocaLogger.warning(.audioEngine, "Failed to re-apply input device after rebuilding the graph")
+                return nil
+            }
+            _ = Self.waitForInputDevice(
+                targetDeviceID,
+                on: audioUnit,
+                signal: routeChangeSignal,
+                timeout: routeTimeout
+            )
+            deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
+        }
+
+        // Bluetooth profile switches can expose a sibling input endpoint with a
+        // different AudioDeviceID. Accept that sibling when it shares the UID or
+        // name of the requested headset.
+        let resolvedDeviceID: AudioDeviceID
+        if Self.shouldAcceptConfiguredInputRoute(
+            targetDeviceID: targetDeviceID,
+            deviceIDAfterReset: deviceIDAfterReset
+        ) {
+            resolvedDeviceID = targetDeviceID
+        } else if isBluetoothTarget,
+                  let deviceIDAfterReset,
+                  Self.isAcceptableBluetoothRouteSubstitute(
+                    targetDeviceID: targetDeviceID,
+                    actualDeviceID: deviceIDAfterReset
+                  ) {
+            let substituteName = Self.audioDeviceName(for: deviceIDAfterReset) ?? "bluetooth input"
+            VocaLogger.info(.audioEngine, "Using Bluetooth HFP input endpoint: \(substituteName)")
+            resolvedDeviceID = deviceIDAfterReset
+        } else {
+            let actualDescription = deviceIDAfterReset.map(String.init) ?? "none"
+            VocaLogger.warning(
+                .audioEngine,
+                "Core Audio did not apply the requested input device after rebuilding the graph (wanted \(targetDeviceID), got \(actualDescription), bluetooth=\(isBluetoothTarget))"
+            )
             return nil
         }
 
-        let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
+        // Wait for A2DP → HFP/SCO after the route is confirmed so the tap is
+        // installed against the headset mic format, not the stale A2DP rate.
+        if isBluetoothTarget {
+            Self.waitForBluetoothHFPIfNeeded(deviceID: resolvedDeviceID, timeout: routeTimeout)
+        }
+
+        let deviceName = Self.audioDeviceName(for: resolvedDeviceID) ?? requestedUID ?? "system default"
         VocaLogger.info(.audioEngine, "Using input device: \(deviceName)")
-        return targetDeviceID
+        return resolvedDeviceID
     }
 
     static func shouldReconfigureInputDevice(
@@ -754,6 +839,134 @@ final class AudioEngine {
         deviceIDAfterReset: AudioDeviceID?
     ) -> Bool {
         deviceIDAfterReset == targetDeviceID
+    }
+
+    static func inputRouteTimeout(isBluetooth: Bool) -> TimeInterval {
+        isBluetooth ? bluetoothInputRouteConfigurationTimeout : inputRouteConfigurationTimeout
+    }
+
+    static func isBluetoothTransport(_ transportType: UInt32) -> Bool {
+        transportType == kAudioDeviceTransportTypeBluetooth
+            || transportType == kAudioDeviceTransportTypeBluetoothLE
+    }
+
+    static func hasBluetoothHFPSettled(
+        sampleRate: Double?,
+        threshold: Double = bluetoothHFPSampleRateThreshold
+    ) -> Bool {
+        guard let sampleRate, sampleRate > 0 else { return false }
+        return sampleRate < threshold
+    }
+
+    static func isAcceptableBluetoothRouteSubstitute(
+        targetUID: String?,
+        actualUID: String?,
+        targetName: String?,
+        actualName: String?,
+        actualIsBluetooth: Bool
+    ) -> Bool {
+        guard actualIsBluetooth else { return false }
+        if let targetUID, let actualUID, targetUID == actualUID {
+            return true
+        }
+        if let targetName, let actualName,
+           targetName.localizedCaseInsensitiveCompare(actualName) == .orderedSame {
+            return true
+        }
+        return false
+    }
+
+    private static func isAcceptableBluetoothRouteSubstitute(
+        targetDeviceID: AudioDeviceID,
+        actualDeviceID: AudioDeviceID
+    ) -> Bool {
+        isAcceptableBluetoothRouteSubstitute(
+            targetUID: audioDeviceUID(for: targetDeviceID),
+            actualUID: audioDeviceUID(for: actualDeviceID),
+            targetName: audioDeviceName(for: targetDeviceID),
+            actualName: audioDeviceName(for: actualDeviceID),
+            actualIsBluetooth: isBluetoothDevice(actualDeviceID)
+        )
+    }
+
+    private static func applyInputDevice(_ deviceID: AudioDeviceID, to audioUnit: AudioUnit) -> Bool {
+        var mutableDeviceID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &mutableDeviceID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            VocaLogger.warning(.audioEngine, "AudioUnitSetProperty CurrentDevice failed: OSStatus \(status)")
+            return false
+        }
+        return true
+    }
+
+    /// Waits until the AudioUnit reports `targetDeviceID`, or until timeout.
+    /// Returns `true` when the device was observed; `false` on timeout.
+    @discardableResult
+    private static func waitForInputDevice(
+        _ targetDeviceID: AudioDeviceID,
+        on audioUnit: AudioUnit,
+        signal: DispatchSemaphore,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if currentInputDeviceID(for: audioUnit) == targetDeviceID {
+                return true
+            }
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else { break }
+            let slice = min(inputRoutePollInterval, remaining)
+            _ = signal.wait(timeout: .now() + slice)
+        }
+        return currentInputDeviceID(for: audioUnit) == targetDeviceID
+    }
+
+    private static func waitForBluetoothHFPIfNeeded(deviceID: AudioDeviceID, timeout: TimeInterval) {
+        guard isBluetoothDevice(deviceID) else { return }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        var lastRate = audioDeviceSampleRate(for: deviceID)
+        while Date() < deadline {
+            let rate = audioDeviceSampleRate(for: deviceID)
+            lastRate = rate
+            if hasBluetoothHFPSettled(sampleRate: rate) {
+                VocaLogger.debug(.audioEngine, "Bluetooth HFP settled at \(Int(rate))Hz")
+                return
+            }
+            Thread.sleep(forTimeInterval: inputRoutePollInterval)
+        }
+
+        VocaLogger.debug(
+            .audioEngine,
+            "Bluetooth HFP settle timed out at \(Int(lastRate))Hz; continuing with current route"
+        )
+    }
+
+    private static func isBluetoothDevice(_ deviceID: AudioDeviceID) -> Bool {
+        guard let transportType = audioDeviceTransportType(for: deviceID) else {
+            return false
+        }
+        return isBluetoothTransport(transportType)
+    }
+
+    private static func audioDeviceTransportType(for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transportType = UInt32(0)
+        var dataSize = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &dataSize, &transportType)
+        guard status == noErr else { return nil }
+        return transportType
     }
 
     private static func currentInputDeviceID(for audioUnit: AudioUnit) -> AudioDeviceID? {

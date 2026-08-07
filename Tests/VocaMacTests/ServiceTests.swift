@@ -4,6 +4,7 @@
 // Tests for services: KeyCodeReference, TextInjector, SoundManager, AudioEngine.
 
 import XCTest
+import CoreAudio
 @testable import VocaMac
 
 // MARK: - KeyCodeReference Tests
@@ -733,7 +734,93 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
         )
     }
 
+    func testBluetoothInputRouteUsesLongerSettleTimeout() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteTimeout(isBluetooth: false),
+            AudioEngine.inputRouteConfigurationTimeout
+        )
+        XCTAssertEqual(
+            AudioEngine.inputRouteTimeout(isBluetooth: true),
+            AudioEngine.bluetoothInputRouteConfigurationTimeout
+        )
+        XCTAssertGreaterThan(
+            AudioEngine.bluetoothInputRouteConfigurationTimeout,
+            AudioEngine.inputRouteConfigurationTimeout
+        )
+    }
+
+    func testBluetoothTransportDetection() {
+        XCTAssertTrue(AudioEngine.isBluetoothTransport(kAudioDeviceTransportTypeBluetooth))
+        XCTAssertTrue(AudioEngine.isBluetoothTransport(kAudioDeviceTransportTypeBluetoothLE))
+        XCTAssertFalse(AudioEngine.isBluetoothTransport(kAudioDeviceTransportTypeBuiltIn))
+        XCTAssertFalse(AudioEngine.isBluetoothTransport(kAudioDeviceTransportTypeUSB))
+    }
+
+    func testBluetoothHFPSettleUsesHeadsetSampleRates() {
+        XCTAssertTrue(AudioEngine.hasBluetoothHFPSettled(sampleRate: 16000))
+        XCTAssertTrue(AudioEngine.hasBluetoothHFPSettled(sampleRate: 8000))
+        XCTAssertTrue(AudioEngine.hasBluetoothHFPSettled(sampleRate: 24000))
+        XCTAssertFalse(AudioEngine.hasBluetoothHFPSettled(sampleRate: 44100))
+        XCTAssertFalse(AudioEngine.hasBluetoothHFPSettled(sampleRate: 48000))
+        XCTAssertFalse(AudioEngine.hasBluetoothHFPSettled(sampleRate: nil))
+        XCTAssertFalse(AudioEngine.hasBluetoothHFPSettled(sampleRate: 0))
+    }
+
+    func testBluetoothRouteSubstituteAcceptance() {
+        XCTAssertTrue(
+            AudioEngine.isAcceptableBluetoothRouteSubstitute(
+                targetUID: "Soundcore-UID",
+                actualUID: "Soundcore-UID",
+                targetName: "Soundcore Life Q30",
+                actualName: "Soundcore Life Q30 Hands-Free",
+                actualIsBluetooth: true
+            ),
+            "Matching Bluetooth UIDs identify the same headset across HFP endpoints"
+        )
+        XCTAssertTrue(
+            AudioEngine.isAcceptableBluetoothRouteSubstitute(
+                targetUID: "uid-a",
+                actualUID: "uid-b",
+                targetName: "Soundcore Life Q30",
+                actualName: "Soundcore Life Q30",
+                actualIsBluetooth: true
+            ),
+            "Matching Bluetooth names identify the same headset when UIDs diverge"
+        )
+        XCTAssertFalse(
+            AudioEngine.isAcceptableBluetoothRouteSubstitute(
+                targetUID: "uid-a",
+                actualUID: "uid-b",
+                targetName: "Soundcore Life Q30",
+                actualName: "MacBook Pro Microphone",
+                actualIsBluetooth: true
+            ),
+            "Unrelated Bluetooth devices must not be treated as substitutes"
+        )
+        XCTAssertFalse(
+            AudioEngine.isAcceptableBluetoothRouteSubstitute(
+                targetUID: "uid-a",
+                actualUID: "uid-b",
+                targetName: "Soundcore Life Q30",
+                actualName: "MacBook Pro Microphone",
+                actualIsBluetooth: false
+            ),
+            "Wired fallback devices must never be treated as Bluetooth substitutes"
+        )
+    }
+
     func testStartupConfigurationChangeIsIgnoredOnlyForStableConfiguredRoute() {
+        XCTAssertTrue(
+            AudioEngine.shouldIgnoreConfigurationChange(
+                occurredDuringRecordingPreparation: true,
+                isRecording: false,
+                engineIsRunning: false,
+                elapsedSinceRecordingStart: 0,
+                configuredInputDeviceID: nil,
+                currentInputDeviceID: nil
+            ),
+            "Route preparation churn (including Bluetooth HFP settle) must not abort start"
+        )
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(
                 isRecording: true,

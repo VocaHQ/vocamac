@@ -183,8 +183,13 @@ final class AudioEngine {
             let currentInputDeviceID = self.engine?.inputNode.audioUnit.flatMap {
                 Self.currentInputDeviceID(for: $0)
             }
+            // Preparation notifications are queued behind startRecording's sync work,
+            // so by the time we run here preparation has usually finished. Only ignore
+            // those delayed notifications when the configured route is still healthy;
+            // otherwise a disconnect mid-settle would be silently dropped.
             if Self.shouldIgnoreConfigurationChange(
                 occurredDuringRecordingPreparation: occurredDuringRecordingPreparation,
+                isStillPreparingRecording: self.isPreparingRecording,
                 isRecording: wasRecording,
                 engineIsRunning: self.engine?.isRunning == true,
                 elapsedSinceRecordingStart: elapsedSinceRecordingStart,
@@ -485,6 +490,7 @@ final class AudioEngine {
 
     static func shouldIgnoreConfigurationChange(
         occurredDuringRecordingPreparation: Bool = false,
+        isStillPreparingRecording: Bool = false,
         isRecording: Bool,
         engineIsRunning: Bool,
         elapsedSinceRecordingStart: TimeInterval,
@@ -492,16 +498,25 @@ final class AudioEngine {
         currentInputDeviceID: AudioDeviceID?,
         recoveryWindow: TimeInterval = startupConfigurationChangeRecoveryWindow
     ) -> Bool {
-        if occurredDuringRecordingPreparation {
+        // Still inside configureInputRoute / startRecording on lifecycleQueue.
+        if isStillPreparingRecording {
             return true
+        }
+
+        let routeIsHealthy = configuredInputDeviceID != nil
+            && currentInputDeviceID == configuredInputDeviceID
+
+        // A notification posted during preparation but processed after start must
+        // not be ignored blindly: if the headset disconnected mid-settle, recover.
+        if occurredDuringRecordingPreparation {
+            return isRecording && engineIsRunning && routeIsHealthy
         }
 
         return isRecording
             && engineIsRunning
             && elapsedSinceRecordingStart >= 0
             && elapsedSinceRecordingStart <= recoveryWindow
-            && configuredInputDeviceID != nil
-            && currentInputDeviceID == configuredInputDeviceID
+            && routeIsHealthy
     }
 
     static func describeCoreAudioError(_ error: Error) -> String {
@@ -723,6 +738,11 @@ final class AudioEngine {
             currentDeviceID: currentDeviceID,
             targetDeviceID: targetDeviceID
         ) else {
+            // Warm engines can keep CurrentDevice while Bluetooth has already
+            // fallen back to A2DP. Settle HFP before installing the tap.
+            if isBluetoothTarget {
+                Self.waitForBluetoothHFPIfNeeded(deviceID: targetDeviceID, timeout: routeTimeout)
+            }
             let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
             VocaLogger.debug(.audioEngine, "Input device already configured: \(deviceName)")
             return targetDeviceID
@@ -870,10 +890,32 @@ final class AudioEngine {
             return true
         }
         if let targetName, let actualName,
-           targetName.localizedCaseInsensitiveCompare(actualName) == .orderedSame {
+           bluetoothDeviceNamesMatch(targetName, actualName) {
             return true
         }
         return false
+    }
+
+    /// macOS often lists the same headset as "Name" (A2DP) and "Name Hands-Free" (HFP).
+    static func bluetoothDeviceNamesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        let normalizedLHS = normalizeBluetoothDeviceName(lhs)
+        let normalizedRHS = normalizeBluetoothDeviceName(rhs)
+        guard !normalizedLHS.isEmpty, !normalizedRHS.isEmpty else { return false }
+        return normalizedLHS.localizedCaseInsensitiveCompare(normalizedRHS) == .orderedSame
+    }
+
+    static func normalizeBluetoothDeviceName(_ name: String) -> String {
+        var result = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suffixes = [" Hands-Free", " Hands Free", " Headset", " HFP"]
+        let lowercased = result.lowercased()
+        for suffix in suffixes {
+            if lowercased.hasSuffix(suffix.lowercased()) {
+                result = String(result.dropLast(suffix.count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+        return result
     }
 
     private static func isAcceptableBluetoothRouteSubstitute(

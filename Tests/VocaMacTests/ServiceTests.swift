@@ -787,6 +787,22 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
             ),
             "Matching Bluetooth names identify the same headset when UIDs diverge"
         )
+        XCTAssertTrue(
+            AudioEngine.isAcceptableBluetoothRouteSubstitute(
+                targetUID: "uid-a",
+                actualUID: "uid-b",
+                targetName: "Soundcore Life Q30",
+                actualName: "Soundcore Life Q30 Hands-Free",
+                actualIsBluetooth: true
+            ),
+            "HFP Hands-Free suffix should still match the A2DP device name"
+        )
+        XCTAssertTrue(
+            AudioEngine.bluetoothDeviceNamesMatch(
+                "AirPods Pro",
+                "AirPods Pro Hands-Free"
+            )
+        )
         XCTAssertFalse(
             AudioEngine.isAcceptableBluetoothRouteSubstitute(
                 targetUID: "uid-a",
@@ -812,6 +828,39 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
     func testStartupConfigurationChangeIsIgnoredOnlyForStableConfiguredRoute() {
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(
+                isStillPreparingRecording: true,
+                isRecording: false,
+                engineIsRunning: false,
+                elapsedSinceRecordingStart: 0,
+                configuredInputDeviceID: nil,
+                currentInputDeviceID: nil
+            ),
+            "Churn while startRecording still owns preparation must not abort start"
+        )
+        XCTAssertTrue(
+            AudioEngine.shouldIgnoreConfigurationChange(
+                occurredDuringRecordingPreparation: true,
+                isRecording: true,
+                engineIsRunning: true,
+                elapsedSinceRecordingStart: 2.5,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 42
+            ),
+            "Delayed prep notifications may be ignored only while the configured route stays healthy"
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldIgnoreConfigurationChange(
+                occurredDuringRecordingPreparation: true,
+                isRecording: true,
+                engineIsRunning: true,
+                elapsedSinceRecordingStart: 0.1,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41
+            ),
+            "Route loss during Bluetooth settle must still recover after start"
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldIgnoreConfigurationChange(
                 occurredDuringRecordingPreparation: true,
                 isRecording: false,
                 engineIsRunning: false,
@@ -819,7 +868,7 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
                 configuredInputDeviceID: nil,
                 currentInputDeviceID: nil
             ),
-            "Route preparation churn (including Bluetooth HFP settle) must not abort start"
+            "Prep-originated notifications after a failed start must not be treated as healthy"
         )
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(

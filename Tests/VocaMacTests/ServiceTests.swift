@@ -825,6 +825,34 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
         )
     }
 
+    func testConfiguredRouteHealthRequiresMatchingDevice() {
+        XCTAssertTrue(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 42
+            )
+        )
+        XCTAssertFalse(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41
+            ),
+            "Unrelated device IDs are not healthy without Bluetooth substitute metadata"
+        )
+        XCTAssertFalse(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: nil,
+                currentInputDeviceID: 42
+            )
+        )
+        XCTAssertFalse(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: nil
+            )
+        )
+    }
+
     func testStartupConfigurationChangeIsIgnoredOnlyForStableConfiguredRoute() {
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(

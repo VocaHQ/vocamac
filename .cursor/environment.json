@@ -1,0 +1,14 @@
+{
+  "name": "VocaMac Website (Hugo)",
+  "install": ".cursor/install.sh",
+  "terminals": [
+    {
+      "name": "hugo-server",
+      "command": "cd web && hugo server --bind 0.0.0.0 --port 1313",
+      "description": "Hugo dev server for the VocaMac marketing website (web/). Serves http://localhost:1313 with live reload."
+    }
+  ],
+  "ports": [
+    { "name": "hugo", "port": 1313 }
+  ]
+}

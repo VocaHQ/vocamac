@@ -770,6 +770,9 @@ final class AudioEngine {
                     targetDeviceID: targetDeviceID,
                     actualDeviceID: settledDeviceID
                    ) {
+                    // Match the cold path: settle against the live HFP endpoint
+                    // before the tap format is read.
+                    Self.waitForBluetoothHFPIfNeeded(deviceID: settledDeviceID, timeout: routeTimeout)
                     let substituteName = Self.audioDeviceName(for: settledDeviceID) ?? "bluetooth input"
                     VocaLogger.info(.audioEngine, "Warm Bluetooth route resolved to HFP endpoint: \(substituteName)")
                     return settledDeviceID

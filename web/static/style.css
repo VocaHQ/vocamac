@@ -355,7 +355,7 @@ h4 { font-size: 16px; font-weight: 600; }
 .mockup__apple { opacity: 0.8; }
 .mockup__menubar-item { font-size: 12px; }
 .mockup__menubar-icon { font-size: 14px; }
-.mockup__mic-icon { width: auto; height: 14px; filter: drop-shadow(0 0 4px rgba(59, 130, 246, 0.5)); }
+.mockup__mic-icon { width: auto; height: 14px; opacity: 0.85; }
 .mockup__popover {
     padding: 16px;
     display: flex;

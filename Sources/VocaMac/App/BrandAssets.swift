@@ -15,9 +15,40 @@ enum BrandAssets {
         return NSImage(contentsOf: url)
     }
 
-    /// The circular Voca logo used in app-facing surfaces.
+    /// The circular Voca logo used in app-facing surfaces (About, onboarding).
     static var logo: NSImage? {
         image(named: "voca-logo-512")
+    }
+
+    /// Mic-only silhouette for the menu bar (template / tintable).
+    static var mark: NSImage? {
+        image(named: "voca-mark")
+    }
+
+    /// Brand green `#0F6B57`.
+    static let brandGreen = NSColor(red: 0.059, green: 0.420, blue: 0.341, alpha: 1.0)
+}
+
+/// Which artwork the menu bar should show for a given app status.
+enum MenuBarIconStyle: Equatable {
+    /// Black mark drawn as a template so macOS follows the menu bar appearance.
+    case brandMarkTemplate
+    /// Mark tinted with the status color (recording).
+    case brandMarkTinted
+    /// SF Symbol for processing / error.
+    case systemSymbol(name: String)
+
+    static func style(for status: AppStatus) -> MenuBarIconStyle {
+        switch status {
+        case .idle:
+            return .brandMarkTemplate
+        case .recording:
+            return .brandMarkTinted
+        case .processing:
+            return .systemSymbol(name: "ellipsis.circle")
+        case .error:
+            return .systemSymbol(name: "exclamationmark.triangle")
+        }
     }
 }
 
@@ -34,7 +65,7 @@ struct BrandLogoView: View {
         } else {
             Image(systemName: "mic.circle.fill")
                 .font(.system(size: size))
-                .foregroundStyle(.blue)
+                .foregroundStyle(Color(nsColor: BrandAssets.brandGreen))
                 .frame(width: size, height: size)
         }
     }

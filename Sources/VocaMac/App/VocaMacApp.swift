@@ -352,18 +352,38 @@ struct MenuBarIcon: View {
         }
     }
 
-    /// 16×16 copy of the bundled mic mark, or `nil` if the asset is missing.
+    /// Menu-bar point size for the brand mark.
+    /// Slightly above the 16pt SF Symbol default so the line-art mic reads at a
+    /// similar visual weight to neighboring status items.
+    private static let markPointSize: CGFloat = 20
+
+    /// Sized copy of the bundled mic mark, or `nil` if the asset is missing.
+    ///
+    /// The mark is taller than it is wide, so it is scaled to fit the square
+    /// slot (not stretched) and centered — that uses the full slot height.
     private func sizedMark() -> NSImage? {
         guard let mark = BrandAssets.mark else { return nil }
-        let size = NSSize(width: 16, height: 16)
+        let slot = Self.markPointSize
+        let size = NSSize(width: slot, height: slot)
         return NSImage(size: size, flipped: false) { rect in
-            mark.draw(in: rect)
+            NSGraphicsContext.current?.imageInterpolation = .high
+            let markSize = mark.size
+            guard markSize.width > 0, markSize.height > 0 else { return false }
+            let scale = min(rect.width / markSize.width, rect.height / markSize.height)
+            let drawSize = NSSize(width: markSize.width * scale, height: markSize.height * scale)
+            let drawRect = NSRect(
+                x: rect.midX - drawSize.width / 2,
+                y: rect.midY - drawSize.height / 2,
+                width: drawSize.width,
+                height: drawSize.height
+            )
+            mark.draw(in: drawRect)
             return true
         }
     }
 
     private func fallbackSymbol(named name: String, tint: NSColor?) -> NSImage {
-        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        let config = NSImage.SymbolConfiguration(pointSize: Self.markPointSize, weight: .regular)
         guard let baseImage = NSImage(systemSymbolName: name, accessibilityDescription: "VocaMac")?
             .withSymbolConfiguration(config) else {
             return NSImage(systemSymbolName: "mic", accessibilityDescription: "VocaMac") ?? NSImage()

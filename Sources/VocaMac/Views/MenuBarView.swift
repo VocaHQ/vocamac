@@ -121,9 +121,7 @@ struct MenuBarView: View {
 
     private var headerSection: some View {
         HStack {
-            Image(systemName: "mic.fill")
-                .font(.title)
-                .foregroundStyle(.blue)
+            BrandLogoView(size: 28)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("VocaMac")

@@ -17,8 +17,8 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
-    /// Drives a custom trailing toggle so the control stays pinned top-right.
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    /// Manual sidebar visibility — avoids NavigationSplitView's relocating system toggles.
+    @State private var isSidebarVisible = true
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -35,12 +35,58 @@ struct SettingsView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var isSidebarVisible: Bool {
-        columnVisibility != .detailOnly
+    var body: some View {
+        NavigationStack {
+            HStack(spacing: 0) {
+                if isSidebarVisible {
+                    settingsSidebar
+                        .frame(width: 220)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+
+                    Divider()
+                }
+
+                settingsDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        withAnimation(.snappy(duration: 0.2)) {
+                            isSidebarVisible.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "sidebar.left")
+                    }
+                    .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                    .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                }
+            }
+            .onChange(of: searchText) { _, newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    selectedPage = pageBeforeSearch
+                    return
+                }
+                if let current = selectedPage, matchCounts[current, default: 0] == 0 {
+                    selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
+                } else if selectedPage == nil {
+                    selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
+                }
+            }
+            .onChange(of: selectedPage) { _, newValue in
+                if !hasSearchQuery, let newValue {
+                    pageBeforeSearch = newValue
+                }
+            }
+        }
+        .frame(minWidth: 720, minHeight: 520)
     }
 
-    var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+    private var settingsSidebar: some View {
+        VStack(spacing: 0) {
+            SettingsSidebarSearchField(text: $searchText)
+
             List(selection: $selectedPage) {
                 ForEach(visiblePages) { page in
                     Label(page.title, systemImage: page.systemImage)
@@ -49,88 +95,40 @@ struct SettingsView: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
             .overlay {
                 if hasSearchQuery && visiblePages.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
-            // System Settings–style: search lives at the top of the sidebar column
-            // (not the split-view toolbar), so collapsing the sidebar cannot shove it.
-            .safeAreaInset(edge: .top, spacing: 0) {
-                SettingsSidebarSearchField(text: $searchText)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                SettingsSidebarFooter()
-            }
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-        } detail: {
-            Group {
-                switch selectedPage ?? .dictation {
-                case .dictation:
-                    DictationSettingsPage()
-                case .speechModel:
-                    SpeechModelSettingsPage()
-                case .audio:
-                    AudioSettingsTab()
-                case .performance:
-                    PerformanceSettingsTab()
-                case .application:
-                    ApplicationSettingsPage()
-                case .stats:
-                    StatsSettingsTab()
-                case .advanced:
-                    DebugTab()
-                case .about:
-                    AboutTab()
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-        .toolbar {
-            // Always trailing (top-right). We remove the system sidebar toggle below
-            // so this control does not jump between leading and trailing.
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    withAnimation(.snappy(duration: 0.2)) {
-                        columnVisibility = isSidebarVisible ? .detailOnly : .all
-                    }
-                } label: {
-                    Image(systemName: "sidebar.left")
-                }
-                .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-                .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-            }
-        }
-        .modifier(RemoveSystemSidebarToggleModifier())
-        .onChange(of: searchText) { _, newValue in
-            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                selectedPage = pageBeforeSearch
-                return
-            }
-            if let current = selectedPage, matchCounts[current, default: 0] == 0 {
-                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
-            } else if selectedPage == nil {
-                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
-            }
-        }
-        .onChange(of: selectedPage) { _, newValue in
-            if !hasSearchQuery, let newValue {
-                pageBeforeSearch = newValue
-            }
-        }
-        .frame(minWidth: 720, minHeight: 520)
-    }
-}
 
-/// Hides NavigationSplitView's built-in sidebar toggle (macOS 15+), which relocates
-/// when the column collapses. Older OS versions keep the system control as a fallback.
-private struct RemoveSystemSidebarToggleModifier: ViewModifier {
-    func body(content: Content) -> some View {
-        if #available(macOS 15.0, *) {
-            content.toolbar(removing: .sidebarToggle)
-        } else {
-            content
+            Divider()
+            SettingsSidebarFooter()
+        }
+        .background(.background)
+    }
+
+    @ViewBuilder
+    private var settingsDetail: some View {
+        Group {
+            switch selectedPage ?? .dictation {
+            case .dictation:
+                DictationSettingsPage()
+            case .speechModel:
+                SpeechModelSettingsPage()
+            case .audio:
+                AudioSettingsTab()
+            case .performance:
+                PerformanceSettingsTab()
+            case .application:
+                ApplicationSettingsPage()
+            case .stats:
+                StatsSettingsTab()
+            case .advanced:
+                DebugTab()
+            case .about:
+                AboutTab()
+            }
         }
     }
 }

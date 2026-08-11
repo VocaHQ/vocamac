@@ -334,7 +334,7 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
-        case .parakeetV3, .parakeetV2, .appleSpeech,
+        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash:
             return size.rawValue
         }

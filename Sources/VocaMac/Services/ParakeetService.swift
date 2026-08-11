@@ -53,9 +53,10 @@ final class ParakeetService: @unchecked Sendable {
     /// Map a catalog entry to FluidAudio's model version.
     static func modelVersion(for size: ModelSize) -> AsrModelVersion? {
         switch size {
-        case .parakeetV3: return .v3
-        case .parakeetV2: return .v2
-        default:          return nil
+        case .parakeetV3:         return .v3
+        case .parakeetV2:         return .v2
+        case .parakeetTdtCtc110m: return .tdtCtc110m
+        default:                  return nil
         }
     }
 

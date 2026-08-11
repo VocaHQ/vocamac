@@ -28,6 +28,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     // Parakeet (FluidAudio)
     case parakeetV3                   = "parakeet-tdt-0.6b-v3"
     case parakeetV2                   = "parakeet-tdt-0.6b-v2"
+    case parakeetTdtCtc110m           = "parakeet-tdt-ctc-110m"
 
     // Apple Speech (macOS 26+ system engine)
     case appleSpeech                  = "apple-speech"
@@ -44,7 +45,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// Which engine runs this model.
     var engine: TranscriptionEngine {
         switch self {
-        case .parakeetV3, .parakeetV2:
+        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m:
             return .parakeet
         case .appleSpeech:
             return .appleSpeech
@@ -103,6 +104,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     static let standardCatalog: [ModelSize] = [
         .parakeetV3,
         .parakeetV2,
+        .parakeetTdtCtc110m,
         .tiny,
         .base,
         .small,
@@ -141,6 +143,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .medium:                    return "Medium (Legacy)"
         case .parakeetV3:                return "Parakeet v3 (Multilingual)"
         case .parakeetV2:                return "Parakeet v2 (English)"
+        case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
         case .appleSpeech:               return "Apple Speech (System)"
         case .moonshineTiny:             return "Moonshine v2 Tiny (English)"
         case .moonshineBase:             return "Moonshine v2 Base (English)"
@@ -167,6 +170,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .medium:                    return 1_500_000_000
         case .parakeetV3:                return 700_000_000
         case .parakeetV2:                return 1_200_000_000
+        case .parakeetTdtCtc110m:        return 220_000_000
         case .appleSpeech:               return 0
         case .moonshineTiny:             return 60_000_000
         case .moonshineBase:             return 190_000_000
@@ -201,6 +205,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .medium:                    return 5.0
         case .parakeetV3:                return 2.0
         case .parakeetV2:                return 2.5
+        case .parakeetTdtCtc110m:        return 1.0
         case .appleSpeech:               return 1.0
         case .moonshineTiny:             return 0.5
         case .moonshineBase:             return 1.0
@@ -227,6 +232,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .medium:                    return 8
         case .parakeetV3:                return 1
         case .parakeetV2:                return 1
+        case .parakeetTdtCtc110m:        return 1
         case .appleSpeech:               return 2
         case .moonshineTiny:             return 2
         case .moonshineBase:             return 3
@@ -253,6 +259,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .medium:                    return "Legacy"
         case .parakeetV3:                return "Excellent"
         case .parakeetV2:                return "Excellent"
+        case .parakeetTdtCtc110m:        return "Great"
         case .appleSpeech:               return "Excellent"
         case .moonshineTiny:             return "Good"
         case .moonshineBase:             return "Better"

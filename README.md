@@ -271,6 +271,7 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 |-------|------|-------|-----------|
 | **Parakeet v3** | ~0.7 GB | ⚡⚡⚡⚡⚡ | 25 European languages + Japanese, auto-detected |
 | **Parakeet v2** | ~1.2 GB | ⚡⚡⚡⚡⚡ | English only, highest recall |
+| **Parakeet 110M** | ~0.2 GB | ⚡⚡⚡⚡⚡ | English only, smaller download and faster first load |
 
 ### Whisper — widest language coverage
 

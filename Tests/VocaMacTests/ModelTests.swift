@@ -103,7 +103,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 20)
+        XCTAssertEqual(ModelSize.allCases.count, 21)
     }
 
     func testRawValues() {
@@ -121,6 +121,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.medium.rawValue, "medium")
         XCTAssertEqual(ModelSize.parakeetV3.rawValue, "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(ModelSize.parakeetV2.rawValue, "parakeet-tdt-0.6b-v2")
+        XCTAssertEqual(ModelSize.parakeetTdtCtc110m.rawValue, "parakeet-tdt-ctc-110m")
         XCTAssertEqual(ModelSize.appleSpeech.rawValue, "apple-speech")
         XCTAssertEqual(ModelSize.moonshineTiny.rawValue, "moonshine-v2-tiny-en")
         XCTAssertEqual(ModelSize.moonshineBase.rawValue, "moonshine-v2-base-en")
@@ -137,6 +138,7 @@ final class ModelSizeTests: XCTestCase {
     func testStandardCatalogIncludesNewEngines() {
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV3))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV2))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetTdtCtc110m))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.appleSpeech))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.moonshineTiny))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.senseVoiceSmall))
@@ -147,6 +149,7 @@ final class ModelSizeTests: XCTestCase {
     func testEngineAssignment() {
         XCTAssertEqual(ModelSize.parakeetV3.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV2.engine, .parakeet)
+        XCTAssertEqual(ModelSize.parakeetTdtCtc110m.engine, .parakeet)
         XCTAssertEqual(ModelSize.appleSpeech.engine, .appleSpeech)
         XCTAssertEqual(ModelSize.moonshineTiny.engine, .sherpaOnnx)
         XCTAssertEqual(ModelSize.moonshineBase.engine, .sherpaOnnx)
@@ -157,6 +160,13 @@ final class ModelSizeTests: XCTestCase {
         // Everything else is a WhisperKit model.
         let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit }
         XCTAssertEqual(whisperCases.count, 12)
+    }
+
+    func testParakeetModelVersionMapping() {
+        XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV3), .v3)
+        XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV2), .v2)
+        XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetTdtCtc110m), .tdtCtc110m)
+        XCTAssertNil(ParakeetService.modelVersion(for: .tiny))
     }
 
     func testEngineCapabilities() {
@@ -177,6 +187,7 @@ final class TranscriptionRouterTests: XCTestCase {
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "tiny"), .whisperKit)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "parakeet-tdt-0.6b-v3"), .parakeet)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "parakeet-tdt-0.6b-v2"), .parakeet)
+        XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "parakeet-tdt-ctc-110m"), .parakeet)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "apple-speech"), .appleSpeech)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "unknown-model"), .whisperKit)
     }
@@ -258,11 +269,13 @@ final class ModelManagerTests: XCTestCase {
         let manager = ModelManager()
         XCTAssertEqual(manager.modelIdentifier(for: .parakeetV3), "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(manager.modelIdentifier(for: .parakeetV2), "parakeet-tdt-0.6b-v2")
+        XCTAssertEqual(manager.modelIdentifier(for: .parakeetTdtCtc110m), "parakeet-tdt-ctc-110m")
         XCTAssertEqual(manager.modelIdentifier(for: .appleSpeech), "apple-speech")
         XCTAssertEqual(manager.modelIdentifier(for: .tiny), "openai_whisper-tiny")
 
         XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-0.6b-v3"), .parakeetV3)
         XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-0.6b-v2"), .parakeetV2)
+        XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-ctc-110m"), .parakeetTdtCtc110m)
         XCTAssertEqual(manager.modelSize(from: "apple-speech"), .appleSpeech)
     }
 

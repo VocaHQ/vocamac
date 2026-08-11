@@ -296,7 +296,7 @@ final class ModelManager {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
-        case .parakeetV3, .parakeetV2, .appleSpeech,
+        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
@@ -770,6 +770,7 @@ final class ModelManager {
             modelStorageBase,
             parakeetDirectory(for: .v3),
             parakeetDirectory(for: .v2),
+            parakeetDirectory(for: .tdtCtc110m),
             SherpaService.storageRoot,
         ]
     }

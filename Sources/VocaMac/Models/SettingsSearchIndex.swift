@@ -155,8 +155,9 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "cursor-overlay",
             page: .application,
-            title: "Cursor Mic Indicator",
-            keywords: ["overlay", "cursor", "indicator"]
+            title: "Recording Overlay",
+            subtitle: "Style and position near the cursor",
+            keywords: ["overlay", "cursor", "indicator", "mic", "position", "style"]
         ),
 
         // Stats / Advanced / About

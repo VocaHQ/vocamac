@@ -26,7 +26,9 @@ final class SettingsWindowManager: ObservableObject {
 
         // Create a new window
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 560, height: 520),
+            // Wide enough for all seven settings tabs — narrower windows make
+            // the tab bar collapse into an overflow control.
+            contentRect: NSRect(x: 0, y: 0, width: 700, height: 520),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false

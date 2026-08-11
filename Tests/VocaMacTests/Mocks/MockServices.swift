@@ -498,6 +498,7 @@ extension AppState {
             modelManager: modelManager,
             soundManager: soundManager,
             cursorOverlay: cursorOverlay,
+            snippetExpander: SnippetExpander(),
             statsManager: statsManager,
             permissionManager: permissionManager,
             skipSystemIntegration: true

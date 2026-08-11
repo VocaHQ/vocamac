@@ -164,13 +164,13 @@ struct MenuBarView: View {
 
             Spacer()
 
-            // CPU & RAM usage display
+            // CPU & RAM usage display (whole VocaMac process, not model-only)
             HStack(spacing: 10) {
                 ResourceBadge(
                     icon: "cpu",
                     value: String(format: "%.0f%%", processMonitor.cpuUsage),
                     details: [
-                        ("CPU Usage", String(format: "%.1f%%", processMonitor.cpuUsage)),
+                        ("App CPU", String(format: "%.1f%%", processMonitor.cpuUsage)),
                         ("Threads", "\(processMonitor.threadCount)"),
                         ("Cores", "\(ProcessInfo.processInfo.activeProcessorCount)"),
                     ]
@@ -180,8 +180,8 @@ struct MenuBarView: View {
                     icon: "memorychip",
                     value: formattedMemory(processMonitor.memoryMB),
                     details: [
-                        ("Resident", String(format: "%.1f MB", processMonitor.memoryMB)),
-                        ("Peak", String(format: "%.1f MB", processMonitor.memoryPeakMB)),
+                        ("App Memory (RSS)", String(format: "%.1f MB", processMonitor.memoryMB)),
+                        ("Peak RSS (this session)", String(format: "%.1f MB", processMonitor.memoryPeakMB)),
                         ("System", "\(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)) GB"),
                     ]
                 )
@@ -371,26 +371,6 @@ struct MenuBarView: View {
                     Spacer()
                     Text("⌘,")
                         .foregroundStyle(.secondary)
-                }
-                .font(.body)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.0001))
-                )
-            }
-            .buttonStyle(MenuRowButtonStyle())
-
-            Button {
-                NotificationCenter.default.post(name: .showOnboarding, object: nil)
-            } label: {
-                HStack {
-                    Image(systemName: "wand.and.stars")
-                    Text("Setup Wizard")
-                    Spacer()
                 }
                 .font(.body)
                 .padding(.vertical, 6)

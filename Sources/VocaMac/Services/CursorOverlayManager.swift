@@ -17,9 +17,9 @@ enum OverlayLayout {
         case .off:
             return .zero
         case .minimal:
-            return CGSize(width: 128, height: 44)
+            return CGSize(width: 108, height: 44)
         case .live:
-            return CGSize(width: 272, height: 72)
+            return CGSize(width: 240, height: 72)
         }
     }
 }
@@ -107,15 +107,7 @@ final class CursorOverlayManager {
     /// Timer for the recording duration shown by the live panel.
     private var elapsedTimer: Timer?
 
-    /// Called when the user cancels the active recording.
-    private var cancelHandler: (() -> Void)?
-
     // MARK: - Public API
-
-    /// Registers the action invoked by the overlay's cancel button.
-    func setCancelHandler(_ handler: @escaping () -> Void) {
-        cancelHandler = handler
-    }
 
     /// Shows the recording overlay using the requested style and position.
     func show(style: OverlayStyle, position: OverlayPosition) {
@@ -138,11 +130,7 @@ final class CursorOverlayManager {
         }
 
         let size = overlaySize
-        let hosting = NSHostingView(
-            rootView: HandyOverlayView(viewModel: viewModel) { [weak self] in
-                self?.cancelHandler?()
-            }
-        )
+        let hosting = NSHostingView(rootView: HandyOverlayView(viewModel: viewModel))
         hosting.frame = NSRect(origin: .zero, size: size)
 
         let panel = NSPanel(
@@ -156,9 +144,8 @@ final class CursorOverlayManager {
         panel.hasShadow = false
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        // The panel remains non-activating, but the cancel button still needs to
-        // receive clicks. Its small footprint does not cover the target field.
-        panel.ignoresMouseEvents = false
+        // Overlay is display-only; clicks pass through so the target app keeps focus.
+        panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
         panel.contentView = hosting
@@ -436,11 +423,10 @@ enum OverlayWaveformMetrics {
 
 struct HandyOverlayView: View {
     @ObservedObject var viewModel: MicIndicatorViewModel
-    let onCancel: () -> Void
 
     @State private var isPulsing = false
 
-    private let recordingColor = Color(nsColor: .systemRed)
+    private let recordingColor = Color(nsColor: BrandAssets.brandGreen)
     private let processingColor = Color(red: 0.749, green: 0.353, blue: 0.949)
     private let panelColor = Color(red: 0.105, green: 0.108, blue: 0.118)
 
@@ -483,7 +469,7 @@ struct HandyOverlayView: View {
 
     private var liveHeader: some View {
         HStack(spacing: 7) {
-            statusDot
+            brandMarkBadge
 
             Text(viewModel.phase == .recording ? "Listening" : "Transcribing")
                 .font(.system(size: 13, weight: .medium))
@@ -505,23 +491,9 @@ struct HandyOverlayView: View {
     }
 
     private var livePanelContent: some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 0) {
-                liveHeader
-                liveControlRow
-            }
-            .frame(maxWidth: .infinity)
-
-            Rectangle()
-                .fill(Color.white.opacity(viewModel.phase == .recording ? 0.09 : 0))
-                .frame(width: 1, height: 34)
-
-            if viewModel.phase == .recording {
-                cancelButton
-            } else {
-                Color.clear
-                    .frame(width: 24, height: 24)
-            }
+        VStack(spacing: 0) {
+            liveHeader
+            liveControlRow
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -556,7 +528,7 @@ struct HandyOverlayView: View {
     private var minimalControlRow: some View {
         HStack(spacing: 8) {
             if viewModel.phase == .recording {
-                statusDot
+                brandMarkBadge
                 waveform
             } else {
                 ProgressView()
@@ -566,10 +538,6 @@ struct HandyOverlayView: View {
                 Text("Transcribing…")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.white.opacity(0.68))
-            }
-
-            if viewModel.phase == .recording {
-                cancelButton
             }
         }
         .padding(.horizontal, 10)
@@ -601,43 +569,36 @@ struct HandyOverlayView: View {
         .accessibilityLabel("Microphone level")
     }
 
-    private var statusDot: some View {
+    private var brandMarkBadge: some View {
         ZStack {
             if viewModel.phase == .recording {
                 Circle()
-                    .fill(recordingColor.opacity(0.24))
-                    .frame(width: 13, height: 13)
-                    .scaleEffect(isPulsing ? 1 : 0.72)
-                    .opacity(isPulsing ? 0.38 : 0.9)
+                    .fill(recordingColor.opacity(0.22))
+                    .frame(width: 22, height: 22)
+                    .scaleEffect(isPulsing ? 1.08 : 0.86)
+                    .opacity(isPulsing ? 0.45 : 0.85)
             }
 
-            Circle()
-                .fill(viewModel.phase == .recording ? recordingColor : processingColor)
-                .frame(width: 6, height: 6)
-                .shadow(
-                    color: (viewModel.phase == .recording ? recordingColor : processingColor).opacity(0.55),
-                    radius: 4
-                )
-        }
-        .frame(width: 13, height: 13)
-    }
-
-    private var cancelButton: some View {
-        Button(action: onCancel) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.70))
-                .frame(width: 24, height: 24)
-                .background(Color.white.opacity(0.08), in: Circle())
-                .overlay {
-                    Circle()
-                        .stroke(Color.white.opacity(0.08), lineWidth: 1)
+            Group {
+                if let mark = BrandAssets.mark {
+                    Image(nsImage: mark)
+                        .resizable()
+                        .renderingMode(.template)
+                        .scaledToFit()
+                        .frame(width: 12, height: 12)
+                } else {
+                    Image(systemName: "mic.fill")
+                        .font(.system(size: 10, weight: .semibold))
                 }
+            }
+            .foregroundStyle(viewModel.phase == .recording ? recordingColor : processingColor)
+            .shadow(
+                color: (viewModel.phase == .recording ? recordingColor : processingColor).opacity(0.45),
+                radius: 4
+            )
         }
-        .buttonStyle(.plain)
-        .contentShape(Circle())
-        .help("Cancel recording")
-        .accessibilityLabel("Cancel recording")
+        .frame(width: 22, height: 22)
+        .accessibilityLabel(viewModel.phase == .recording ? "Recording" : "Transcribing")
     }
 
     private var formattedElapsed: String {

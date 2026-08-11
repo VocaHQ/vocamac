@@ -89,7 +89,6 @@ protocol CursorOverlayManaging: AnyObject {
     func hide()
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
-    func setCancelHandler(_ handler: @escaping () -> Void)
 }
 
 // MARK: - ModelManaging

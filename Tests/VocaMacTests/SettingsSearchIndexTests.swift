@@ -41,4 +41,10 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertGreaterThan(counts[.performance] ?? 0, 0)
         XCTAssertNil(counts[.about])
     }
+
+    func testResourceQueryHitsAdvanced() {
+        let matches = SettingsSearchIndex.matches(query: "resource")
+        XCTAssertTrue(matches.contains { $0.page == .advanced })
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "resource"), .advanced)
+    }
 }

@@ -133,10 +133,17 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "resources",
-            page: .speechModel,
+            page: .advanced,
             title: "Resource Usage",
-            subtitle: "CPU and memory",
-            keywords: ["cpu", "memory", "ram", "resources"]
+            subtitle: "App CPU and memory",
+            keywords: ["cpu", "memory", "ram", "resources", "system"]
+        ),
+        SettingsSearchEntry(
+            id: "system-info",
+            page: .advanced,
+            title: "System Information",
+            subtitle: "CPU, RAM, Metal",
+            keywords: ["system", "metal", "device", "hardware"]
         ),
 
         // Application

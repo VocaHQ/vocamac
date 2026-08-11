@@ -258,12 +258,6 @@ final class AppState: ObservableObject {
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
 
-        cursorOverlay.setCancelHandler { [weak self] in
-            Task { @MainActor [weak self] in
-                await self?.cancelRecording()
-            }
-        }
-
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
         if !skipSystemIntegration {
             syncLaunchAtLogin()

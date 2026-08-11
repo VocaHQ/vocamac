@@ -222,7 +222,6 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var lastAudioLevel: Float?
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
-    var cancelHandler: (() -> Void)?
 
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
@@ -240,10 +239,6 @@ final class MockCursorOverlay: CursorOverlayManaging {
 
     func updateAudioLevel(_ level: Float) {
         lastAudioLevel = level
-    }
-
-    func setCancelHandler(_ handler: @escaping () -> Void) {
-        cancelHandler = handler
     }
 }
 

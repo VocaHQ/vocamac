@@ -35,22 +35,20 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            VStack(spacing: 0) {
-                List(selection: $selectedPage) {
-                    ForEach(visiblePages) { page in
-                        Label(page.title, systemImage: page.systemImage)
-                            .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
-                            .tag(page)
-                    }
+            List(selection: $selectedPage) {
+                ForEach(visiblePages) { page in
+                    Label(page.title, systemImage: page.systemImage)
+                        .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
+                        .tag(page)
                 }
-                .listStyle(.sidebar)
-
+            }
+            .listStyle(.sidebar)
+            .overlay {
                 if hasSearchQuery && visiblePages.isEmpty {
                     ContentUnavailableView.search(text: searchText)
-                        .frame(maxHeight: 160)
                 }
-
-                Divider()
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 SettingsSidebarFooter()
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
@@ -104,6 +102,12 @@ struct SettingsView: View {
 struct SettingsSidebarFooter: View {
     @EnvironmentObject var appState: AppState
 
+    private var isActiveSession: Bool {
+        appState.isRecording
+            || appState.appStatus == .recording
+            || appState.appStatus == .processing
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -112,8 +116,10 @@ struct SettingsSidebarFooter: View {
                     .frame(width: 8, height: 8)
                 Text(statusLabel)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
+                    .fontWeight(isActiveSession ? .semibold : .regular)
+                    .foregroundStyle(isActiveSession ? .primary : .secondary)
+                    .lineLimit(2)
+                Spacer(minLength: 0)
                 if appState.isAutoPaused {
                     Text("Paused")
                         .font(.caption2)
@@ -126,38 +132,44 @@ struct SettingsSidebarFooter: View {
                     Capsule()
                         .fill(Color.secondary.opacity(0.15))
                     Capsule()
-                        .fill(Color.accentColor)
+                        .fill(appState.appStatus == .recording ? Color.red : Color.accentColor)
                         .frame(width: max(4, geo.size.width * CGFloat(min(max(appState.audioLevel, 0), 1))))
                 }
             }
-            .frame(height: 4)
+            .frame(height: isActiveSession ? 8 : 5)
+            .animation(.easeInOut(duration: 0.15), value: isActiveSession)
 
-            HStack(spacing: 8) {
-                Button {
-                    Task { @MainActor in
-                        if appState.isRecording || appState.appStatus == .recording {
-                            await appState.stopRecordingAndTranscribe()
-                        } else {
-                            await appState.startRecording()
-                        }
-                    }
-                } label: {
-                    Label(
-                        appState.isRecording ? "Stop Dictation" : "Test Dictation",
-                        systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
-                    )
-                }
-                .controlSize(.small)
-                .disabled(appState.isAutoPaused && !appState.isRecording)
-
-                Spacer()
-
-                Button("Close") {
-                    NSApp.keyWindow?.close()
-                }
-                .controlSize(.small)
-                .keyboardShortcut(.cancelAction)
+            if let text = appState.lastTranscription?.text.trimmingCharacters(in: .whitespacesAndNewlines),
+               !text.isEmpty,
+               !isActiveSession {
+                Text(text)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            Button {
+                Task { @MainActor in
+                    if appState.isRecording || appState.appStatus == .recording {
+                        await appState.stopRecordingAndTranscribe()
+                    } else {
+                        await appState.startRecording()
+                    }
+                }
+            } label: {
+                Label(
+                    appState.isRecording || appState.appStatus == .recording ? "Stop Dictation" : "Test Dictation",
+                    systemImage: appState.isRecording || appState.appStatus == .recording ? "stop.fill" : "mic.fill"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .controlSize(.small)
+            .disabled(appState.isAutoPaused && !appState.isRecording)
+
+            Text("Result appears here. Text also injects into the focused app.")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .padding(12)
         .background(.bar)
@@ -167,8 +179,8 @@ struct SettingsSidebarFooter: View {
         if appState.isAutoPaused { return "Auto-paused" }
         switch appState.appStatus {
         case .idle: return "Ready"
-        case .recording: return "Recording"
-        case .processing: return "Processing"
+        case .recording: return "Recording…"
+        case .processing: return "Transcribing…"
         case .error: return appState.errorMessage ?? "Error"
         }
     }
@@ -513,15 +525,13 @@ struct AutoPauseAppPickerSheet: View {
 
 struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var processMonitor = ProcessMonitor()
     @State private var languageSearch = ""
 
-    /// When true, show language / translation / vocabulary above the catalog.
+    /// When true, show language / translation / vocabulary below the catalog.
     var showsLanguageHints: Bool = false
 
     init(showsLanguageHints: Bool = false) {
         self.showsLanguageHints = showsLanguageHints
-        _processMonitor = StateObject(wrappedValue: ProcessMonitor())
     }
 
     /// Catalog entries grouped by engine, preserving catalog order within
@@ -537,6 +547,11 @@ struct ModelSettingsTab: View {
         TranscriptionLanguage.filtered(search: languageSearch)
     }
 
+    private var activeEngine: TranscriptionEngine? {
+        appState.currentModel?.size.engine
+            ?? ModelSize(rawValue: appState.selectedModelSize)?.engine
+    }
+
     private func engineIconName(_ engine: TranscriptionEngine) -> String {
         switch engine {
         case .parakeet:    return "bolt.fill"
@@ -549,69 +564,6 @@ struct ModelSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if showsLanguageHints {
-                    languageAndHintsSection
-                }
-
-                // System info
-                if let capabilities = appState.systemCapabilities {
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Label("System Information", systemImage: "cpu")
-                                .font(.headline)
-                                .padding(.bottom, 4)
-
-                            HStack(spacing: 24) {
-                                SystemInfoPill(icon: "cpu", label: "CPU", value: capabilities.processorName)
-                                SystemInfoPill(icon: "memorychip", label: "RAM", value: "\(capabilities.physicalMemoryGB) GB")
-                                SystemInfoPill(icon: "bolt.fill", label: "Metal", value: capabilities.supportsMetalAcceleration ? "Yes" : "No")
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        }
-                        .padding(4)
-                    }
-                }
-
-                // Resource usage
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Label("Resource Usage", systemImage: "gauge.with.dots.needle.bottom.50percent")
-                            .font(.headline)
-                            .padding(.bottom, 4)
-
-                        HStack(spacing: 24) {
-                            SystemInfoPill(
-                                icon: "cpu",
-                                label: "CPU",
-                                value: String(format: "%.1f%%", processMonitor.cpuUsage)
-                            )
-                            SystemInfoPill(
-                                icon: "memorychip",
-                                label: "Memory",
-                                value: processMonitor.memoryMB >= 1024
-                                    ? String(format: "%.1f GB", processMonitor.memoryMB / 1024)
-                                    : String(format: "%.0f MB", processMonitor.memoryMB)
-                            )
-                            SystemInfoPill(
-                                icon: "chart.line.uptrend.xyaxis",
-                                label: "Peak",
-                                value: processMonitor.memoryPeakMB >= 1024
-                                    ? String(format: "%.1f GB", processMonitor.memoryPeakMB / 1024)
-                                    : String(format: "%.0f MB", processMonitor.memoryPeakMB)
-                            )
-                            SystemInfoPill(
-                                icon: "arrow.triangle.branch",
-                                label: "Threads",
-                                value: "\(processMonitor.threadCount)"
-                            )
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .padding(4)
-                }
-
-                // Currently active model
                 if let current = appState.currentModel {
                     GroupBox {
                         HStack {
@@ -714,6 +666,10 @@ struct ModelSettingsTab: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
+                if showsLanguageHints {
+                    languageAndHintsSection
+                }
             }
             .padding()
         }
@@ -754,51 +710,43 @@ struct ModelSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Divider()
+                if activeEngine?.supportsTranslation == true {
+                    Divider()
 
-                Toggle("Enable translation", isOn: $appState.translationEnabled)
+                    Toggle("Enable translation", isOn: $appState.translationEnabled)
 
-                Text(appState.translationEnabled
-                     ? "Speech will be translated to the selected language (or English if Auto-detect)."
-                     : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let engine = appState.currentModel?.size.engine, !engine.supportsTranslation {
-                    Text("Translation is only available with Whisper models. The active model (\(engine.displayName)) transcribes without translating.")
+                    Text(appState.translationEnabled
+                         ? "Speech will be translated to the selected language (or English if Auto-detect)."
+                         : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 }
 
-                Divider()
+                if activeEngine?.supportsCustomVocabulary == true {
+                    Divider()
 
-                Text("Custom Vocabulary")
-                    .font(.subheadline.weight(.semibold))
+                    Text("Custom Vocabulary")
+                        .font(.subheadline.weight(.semibold))
 
-                TextEditor(text: $appState.customVocabulary)
-                    .font(.body)
-                    .frame(minHeight: 90)
-                    .overlay(alignment: .topLeading) {
-                        if appState.customVocabulary.isEmpty {
-                            Text("kubectl, PostgreSQL, nginx, Grafana")
-                                .foregroundStyle(.tertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
+                    TextEditor(text: $appState.customVocabulary)
+                        .font(.body)
+                        .frame(minHeight: 90)
+                        .overlay(alignment: .topLeading) {
+                            if appState.customVocabulary.isEmpty {
+                                Text("kubectl, PostgreSQL, nginx, Grafana")
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
                         }
-                    }
 
-                let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
-                Text(count == 0
-                     ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed."
-                     : "\(count) term\(count == 1 ? "" : "s"). Keep the list short — the model can only use the first 50 to 100 words as a hint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let engine = appState.currentModel?.size.engine, !engine.supportsCustomVocabulary {
-                    Text("Custom vocabulary is only applied by Whisper models. The active model (\(engine.displayName)) ignores these terms.")
+                    let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
+                    Text(count == 0
+                         ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed."
+                         : "\(count) term\(count == 1 ? "" : "s"). Keep the list short — the model can only use the first 50 to 100 words as a hint.")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(4)
@@ -1176,126 +1124,134 @@ struct AboutTab: View {
     @State private var updateInfoForSheet: UpdateInfo?
 
     var body: some View {
-        VStack(spacing: 16) {
-            Spacer()
+        ScrollView {
+            VStack(spacing: 16) {
+                BrandLogoView(size: 64)
 
-            BrandLogoView(size: 64)
+                Text("VocaMac")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
 
-            // App name and version
-            Text("VocaMac")
-                .font(.largeTitle)
-                .fontWeight(.bold)
+                Text("Your voice, your Mac, your privacy.\nOpen-source dictation powered by AI.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            Text("Your voice, your Mac, your privacy.\nOpen-source dictation powered by AI.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+                Text("Version \(appVersionDisplay) (\(buildChannelLabel))")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
 
-            Text("Version \(appVersionDisplay) (\(buildChannelLabel))")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-
-            Button {
-                Task { @MainActor in
-                    await appState.updateChecker.checkForUpdates()
-                    switch appState.updateChecker.updateState {
-                    case .updateAvailable(let info), .updateAvailableViaHomebrew(let info, _):
-                        updateInfoForSheet = info
-                        showingUpdateSheet = true
-                    default:
-                        break
+                Button {
+                    Task { @MainActor in
+                        await appState.updateChecker.checkForUpdates()
+                        switch appState.updateChecker.updateState {
+                        case .updateAvailable(let info), .updateAvailableViaHomebrew(let info, _):
+                            updateInfoForSheet = info
+                            showingUpdateSheet = true
+                        default:
+                            break
+                        }
+                    }
+                } label: {
+                    if case .checking = appState.updateChecker.updateState {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking for Updates...")
+                        }
+                        .font(.caption)
+                    } else {
+                        Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+                            .font(.caption)
                     }
                 }
-            } label: {
-                if case .checking = appState.updateChecker.updateState {
-                    HStack(spacing: 6) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Checking for Updates...")
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+
+                Text(updateStatusText)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Divider()
+                    .frame(width: 200)
+
+                GroupBox {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let capabilities = appState.systemCapabilities {
+                            InfoRow2(label: "Device", value: capabilities.processorName)
+                            InfoRow2(label: "Architecture", value: capabilities.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)")
+                            InfoRow2(label: "Neural Engine", value: capabilities.supportsMetalAcceleration ? "Available" : "Not Available")
+                        }
+                        InfoRow2(label: "Engine", value: activeEngineLabel)
+                        InfoRow2(label: "Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
+                        InfoRow2(label: "Storage", value: appState.modelManager.diskUsageDescription())
                     }
                     .font(.caption)
-                } else {
-                    Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
+                    .padding(4)
+                }
+                .frame(maxWidth: 340)
+
+                Divider()
+                    .frame(width: 200)
+
+                HStack(spacing: 16) {
+                    Link(destination: URL(string: "https://vocamac.com")!) {
+                        Label("Website", systemImage: "globe")
+                    }
+                    Link(destination: URL(string: "https://github.com/VocaHQ/vocamac")!) {
+                        Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+                    }
+                    Link(destination: URL(string: "https://github.com/argmaxinc/WhisperKit")!) {
+                        Label("WhisperKit", systemImage: "waveform")
+                    }
+                }
+                .font(.caption)
+
+                Divider()
+                    .frame(width: 200)
+
+                Button {
+                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
+                } label: {
+                    Label("Show Setup Wizard…", systemImage: "wand.and.stars")
                         .font(.caption)
                 }
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.blue)
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+                .help("Re-run the first-launch setup wizard")
 
-            Text(updateStatusText)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Divider()
-                .frame(width: 200)
-
-            // Tech info
-            GroupBox {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let capabilities = appState.systemCapabilities {
-                        InfoRow2(label: "Device", value: capabilities.processorName)
-                        InfoRow2(label: "Architecture", value: capabilities.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)")
-                        InfoRow2(label: "Neural Engine", value: capabilities.supportsMetalAcceleration ? "Available" : "Not Available")
-                    }
-                    InfoRow2(label: "Engine", value: "WhisperKit")
-                    InfoRow2(label: "Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
-                    InfoRow2(label: "Storage", value: appState.modelManager.diskUsageDescription())
+                HStack(spacing: 0) {
+                    Text("Made with ❤️ by ")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Link("Jatin Kumar Malik", destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!)
+                        .font(.caption2)
                 }
-                .font(.caption)
-                .padding(4)
+                .padding(.top, 8)
             }
-            .frame(width: 300)
-
-            Divider()
-                .frame(width: 200)
-
-            // Links
-            HStack(spacing: 16) {
-                Link(destination: URL(string: "https://vocamac.com")!) {
-                    Label("Website", systemImage: "globe")
-                }
-                Link(destination: URL(string: "https://github.com/VocaHQ/vocamac")!) {
-                    Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-                }
-                Link(destination: URL(string: "https://github.com/argmaxinc/WhisperKit")!) {
-                    Label("WhisperKit", systemImage: "waveform")
-                }
-            }
-            .font(.caption)
-
-            Divider()
-                .frame(width: 200)
-
-            Button(action: {
-                NotificationCenter.default.post(name: .showOnboarding, object: nil)
-            }) {
-                Label("Show Setup Wizard…", systemImage: "wand.and.stars")
-                    .font(.caption)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.blue)
-            .help("Re-run the first-launch setup wizard")
-
-            Spacer()
-
-            HStack(spacing: 0) {
-                Text("Made with ❤️ by ")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                Link("Jatin Kumar Malik", destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!)
-                    .font(.caption2)
-            }
-            .padding(.bottom, 8)
+            .frame(maxWidth: 420)
+            .frame(maxWidth: .infinity)
+            .padding(24)
         }
-        .frame(maxWidth: .infinity)
-        .padding()
         .sheet(isPresented: $showingUpdateSheet) {
             if let info = updateInfoForSheet {
                 UpdateDetailView(info: info, isPresented: $showingUpdateSheet)
                     .environmentObject(appState)
             }
         }
+    }
+
+    private var activeEngineLabel: String {
+        if let engine = appState.currentModel?.size.engine {
+            return engine.displayName
+        }
+        if let name = appState.whisperService.loadedModelName,
+           let size = appState.modelManager.modelSize(from: name) {
+            return size.engine.displayName
+        }
+        return "—"
     }
 
     private var appVersionDisplay: String {
@@ -1334,10 +1290,40 @@ struct AboutTab: View {
 
 struct DebugTab: View {
     @EnvironmentObject var appState: AppState
+    @StateObject private var processMonitor = ProcessMonitor()
     @State private var logEntryCount: Int = VocaLogger.logEntryCount
 
     var body: some View {
         Form {
+            if let capabilities = appState.systemCapabilities {
+                Section("System Information") {
+                    LabeledContent("CPU", value: capabilities.processorName)
+                    LabeledContent("RAM", value: "\(capabilities.physicalMemoryGB) GB")
+                    LabeledContent("Metal", value: capabilities.supportsMetalAcceleration ? "Yes" : "No")
+                }
+            }
+
+            Section("Resource Usage") {
+                LabeledContent("App CPU", value: String(format: "%.1f%%", processMonitor.cpuUsage))
+                LabeledContent(
+                    "App Memory (RSS)",
+                    value: processMonitor.memoryMB >= 1024
+                        ? String(format: "%.1f GB", processMonitor.memoryMB / 1024)
+                        : String(format: "%.0f MB", processMonitor.memoryMB)
+                )
+                LabeledContent(
+                    "Peak RSS (this session)",
+                    value: processMonitor.memoryPeakMB >= 1024
+                        ? String(format: "%.1f GB", processMonitor.memoryPeakMB / 1024)
+                        : String(format: "%.0f MB", processMonitor.memoryPeakMB)
+                )
+                LabeledContent("Threads", value: "\(processMonitor.threadCount)")
+
+                Text("Process-wide usage for VocaMac, refreshed every few seconds — not model-only VRAM/ANE accounting.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Permissions
             Section("Permissions") {
                 PermissionRow(

@@ -8,6 +8,7 @@ import SwiftUI
 struct StatsSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var showingResetConfirmation = false
+    @State private var shareCopied = false
 
     private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
@@ -38,9 +39,27 @@ struct StatsSettingsTab: View {
                 // Key Metrics
                 GroupBox {
                     VStack(alignment: .leading, spacing: 12) {
-                        Label("Lifetime Totals", systemImage: "chart.bar.fill")
-                            .font(.headline)
-                            .padding(.bottom, 4)
+                        HStack {
+                            Label("Lifetime Totals", systemImage: "chart.bar.fill")
+                                .font(.headline)
+                            Spacer()
+                            Button {
+                                let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
+                                if StatsShareExporter.copyImage(toClipboard: snapshot) {
+                                    shareCopied = true
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                        shareCopied = false
+                                    }
+                                }
+                            } label: {
+                                Label(
+                                    shareCopied ? "Copied!" : "Share",
+                                    systemImage: shareCopied ? "checkmark" : "square.and.arrow.up"
+                                )
+                            }
+                            .controlSize(.small)
+                            .help("Copy a branded stats card image to the clipboard")
+                        }
 
                         HStack(spacing: 0) {
                             StatPill(

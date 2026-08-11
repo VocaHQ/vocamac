@@ -36,22 +36,10 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedPage) {
-                Section {
-                    ForEach(visiblePages) { page in
-                        Label(page.title, systemImage: page.systemImage)
-                            .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
-                            .tag(page)
-                    }
-                } header: {
-                    HStack(spacing: 8) {
-                        BrandLogoView(size: 22)
-                        Text("VocaMac")
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                    }
-                    .padding(.vertical, 4)
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("VocaMac Settings")
+                ForEach(visiblePages) { page in
+                    Label(page.title, systemImage: page.systemImage)
+                        .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
+                        .tag(page)
                 }
             }
             .listStyle(.sidebar)
@@ -60,10 +48,15 @@ struct SettingsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
+            // System Settings–style: search lives at the top of the sidebar column
+            // (not the split-view toolbar), so collapsing the sidebar cannot shove it.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                SettingsSidebarSearchField(text: $searchText)
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 SettingsSidebarFooter()
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
             Group {
                 switch selectedPage ?? .dictation {
@@ -87,9 +80,6 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        // Keep search anchored in the sidebar so collapsing the column does not
-        // shove the field across the toolbar.
-        .searchable(text: $searchText, placement: .sidebar, prompt: "Search settings")
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
@@ -108,6 +98,47 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 520)
+    }
+}
+
+// MARK: - Sidebar Search (System Settings–style)
+
+/// Pill search field pinned to the top of the settings sidebar.
+struct SettingsSidebarSearchField: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+
+            TextField("Search", text: $text)
+                .textFieldStyle(.plain)
+                .font(.body)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 7)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.06))
+        )
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 6)
+        .background(.bar)
     }
 }
 

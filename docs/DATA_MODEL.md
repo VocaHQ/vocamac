@@ -298,6 +298,17 @@ struct UserSettings {
     var selectedModelSize: ModelSize = .tiny
     var selectedLanguage: String = "auto"       // "auto" or ISO 639-1 code
 
+    // Output polish
+    var appendTrailingSpace: Bool = true        // Space after each completed utterance
+    var autoCapitalize: Bool = true             // Capitalize sentence starts
+
+    // Performance / power
+    var autoPauseEnabled: Bool = false
+    var autoPauseApps: [AutoPauseAppEntry] = [] // JSON in UserDefaults
+    var autoPausePollIntervalSeconds: Double = 5
+    var modelKeepAliveEnabled: Bool = false
+    var modelKeepAliveIdleTimeoutSeconds: Double = 300
+
     // App Behavior
     var launchAtLogin: Bool = false
     var preserveClipboard: Bool = true          // Restore clipboard after text injection
@@ -311,6 +322,12 @@ vocamac.activationMode     = "pushToTalk"
 vocamac.hotKeyCode         = 61
 vocamac.doubleTapThreshold = 0.4
 vocamac.silenceThreshold   = 0.01
+vocamac.appendTrailingSpace = true
+vocamac.autoCapitalize = true
+vocamac.autoPause.enabled = false
+vocamac.autoPause.apps = "[]"
+vocamac.modelKeepAlive.enabled = false
+vocamac.modelKeepAlive.idleTimeoutSeconds = 300
 ...
 ```
 

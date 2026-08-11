@@ -333,6 +333,10 @@ CGEventSource(stateID: .hidSystemState)
 
 **Required Permission:** Accessibility (same as HotKeyManager)
 
+**Related helpers:**
+- `DictationOutputFormatter` — trailing space + sentence capitalization before inject
+- `AutoPauseMonitor` / `ModelKeepAlive` / `SleepWakeMonitor` — power controls that unload via `TranscriptionRouter.unloadModel()`
+
 **Edge Cases:**
 - If clipboard contains non-text content (images, files), save and restore the full pasteboard items
 - Add configurable delay between paste simulation events for slower apps

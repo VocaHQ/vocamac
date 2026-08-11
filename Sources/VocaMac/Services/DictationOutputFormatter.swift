@@ -18,30 +18,26 @@ enum DictationOutputFormatter {
     static func capitalizeSentences(_ text: String) -> String {
         guard !text.isEmpty else { return text }
 
-        var characters = Array(text)
-        characters[0] = Character(characters[0].uppercased())
+        // Capitalize the first character without assuming a single Unicode scalar.
+        var result = String(text.prefix(1)).uppercased() + text.dropFirst()
 
-        var index = 1
-        while index < characters.count {
-            let current = characters[index]
-            if current == "." || current == "!" || current == "?" {
-                var whitespaceEnd = index + 1
-                while whitespaceEnd < characters.count && characters[whitespaceEnd].isWhitespace {
-                    whitespaceEnd += 1
-                }
-                if whitespaceEnd > index + 1, whitespaceEnd < characters.count {
-                    let candidate = characters[whitespaceEnd]
-                    if candidate.isLetter && candidate.isLowercase {
-                        characters[whitespaceEnd] = Character(candidate.uppercased())
-                    }
-                    index = whitespaceEnd
-                    continue
-                }
-            }
-            index += 1
+        // Capitalize after sentence-ending punctuation + whitespace.
+        // Mirrors VocaLinux: ([.!?])(\s+)([a-z]) — ASCII lowercase only so
+        // URLs and decimals without a space stay untouched.
+        let pattern = #"([.!?])(\s+)([a-z])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return result
         }
 
-        return String(characters)
+        let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+        let matches = regex.matches(in: result, range: nsRange)
+        // Apply from the end so earlier ranges stay valid.
+        for match in matches.reversed() {
+            guard let letterRange = Range(match.range(at: 3), in: result) else { continue }
+            result.replaceSubrange(letterRange, with: result[letterRange].uppercased())
+        }
+
+        return result
     }
 
     /// Append a trailing space so consecutive dictation sessions do not glue.

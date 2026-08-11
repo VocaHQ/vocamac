@@ -2,71 +2,199 @@
 // VocaMac
 //
 // Settings window for VocaMac configuration.
-// Organized into tabs: General, Models, Audio, Debug, About.
+// Left sidebar topics with live search and a persistent dictation footer.
 
 import SwiftUI
+import AppKit
 
 extension Notification.Name {
     static let showOnboarding = Notification.Name("com.vocamac.showOnboarding")
 }
 
 struct SettingsView: View {
+    @EnvironmentObject var appState: AppState
+
+    @State private var selectedPage: SettingsPage? = .dictation
+    @State private var searchText = ""
+    @State private var pageBeforeSearch: SettingsPage = .dictation
+
+    private var matchCounts: [SettingsPage: Int] {
+        SettingsSearchIndex.matchCounts(query: searchText)
+    }
+
+    private var visiblePages: [SettingsPage] {
+        let trimmed = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return SettingsPage.allCases }
+        let counts = matchCounts
+        return SettingsPage.allCases.filter { counts[$0, default: 0] > 0 }
+    }
+
+    private var hasSearchQuery: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
-        TabView {
-            GeneralSettingsTab()
-                .tabItem {
-                    Label("General", systemImage: "gear")
+        NavigationSplitView {
+            VStack(spacing: 0) {
+                List(selection: $selectedPage) {
+                    ForEach(visiblePages) { page in
+                        Label(page.title, systemImage: page.systemImage)
+                            .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
+                            .tag(page)
+                    }
+                }
+                .listStyle(.sidebar)
+
+                if hasSearchQuery && visiblePages.isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                        .frame(maxHeight: 160)
                 }
 
-            ModelSettingsTab()
-                .tabItem {
-                    Label("Models", systemImage: "brain")
+                Divider()
+                SettingsSidebarFooter()
+            }
+            .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 260)
+        } detail: {
+            Group {
+                switch selectedPage ?? .dictation {
+                case .dictation:
+                    DictationSettingsPage()
+                case .speechModel:
+                    SpeechModelSettingsPage()
+                case .audio:
+                    AudioSettingsTab()
+                case .performance:
+                    PerformanceSettingsTab()
+                case .application:
+                    ApplicationSettingsPage()
+                case .stats:
+                    StatsSettingsTab()
+                case .advanced:
+                    DebugTab()
+                case .about:
+                    AboutTab()
                 }
-
-            StatsSettingsTab()
-                .tabItem {
-                    Label("Stats", systemImage: "chart.xyaxis.line")
-                }
-
-            AudioSettingsTab()
-                .tabItem {
-                    Label("Audio", systemImage: "waveform")
-                }
-
-            PerformanceSettingsTab()
-                .tabItem {
-                    Label("Performance", systemImage: "bolt.circle")
-                }
-
-            DebugTab()
-                .tabItem {
-                    Label("Debug", systemImage: "ladybug")
-                }
-
-            AboutTab()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(minWidth: 560, minHeight: 520)
+        .searchable(text: $searchText, prompt: "Search settings")
+        .onChange(of: searchText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                selectedPage = pageBeforeSearch
+                return
+            }
+            if let current = selectedPage, matchCounts[current, default: 0] == 0 {
+                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
+            } else if selectedPage == nil {
+                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
+            }
+        }
+        .onChange(of: selectedPage) { _, newValue in
+            if !hasSearchQuery, let newValue {
+                pageBeforeSearch = newValue
+            }
+        }
+        .frame(minWidth: 720, minHeight: 520)
     }
 }
 
-// MARK: - General Settings
+// MARK: - Sidebar Footer
 
-struct GeneralSettingsTab: View {
+struct SettingsSidebarFooter: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 8, height: 8)
+                Text(statusLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if appState.isAutoPaused {
+                    Text("Paused")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.15))
+                    Capsule()
+                        .fill(Color.accentColor)
+                        .frame(width: max(4, geo.size.width * CGFloat(min(max(appState.audioLevel, 0), 1))))
+                }
+            }
+            .frame(height: 4)
+
+            HStack(spacing: 8) {
+                Button {
+                    Task { @MainActor in
+                        if appState.isRecording || appState.appStatus == .recording {
+                            await appState.stopRecordingAndTranscribe()
+                        } else {
+                            await appState.startRecording()
+                        }
+                    }
+                } label: {
+                    Label(
+                        appState.isRecording ? "Stop Dictation" : "Test Dictation",
+                        systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
+                    )
+                }
+                .controlSize(.small)
+                .disabled(appState.isAutoPaused && !appState.isRecording)
+
+                Spacer()
+
+                Button("Close") {
+                    NSApp.keyWindow?.close()
+                }
+                .controlSize(.small)
+                .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding(12)
+        .background(.bar)
+    }
+
+    private var statusLabel: String {
+        if appState.isAutoPaused { return "Auto-paused" }
+        switch appState.appStatus {
+        case .idle: return "Ready"
+        case .recording: return "Recording"
+        case .processing: return "Processing"
+        case .error: return appState.errorMessage ?? "Error"
+        }
+    }
+
+    private var statusColor: Color {
+        if appState.isAutoPaused { return .orange }
+        switch appState.appStatus {
+        case .idle: return .green
+        case .recording: return .red
+        case .processing: return .purple
+        case .error: return .orange
+        }
+    }
+}
+
+// MARK: - Dictation Settings
+
+struct DictationSettingsPage: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
         Form {
-            // Activation Mode
             Section("Activation Mode") {
                 Picker("Mode", selection: $appState.activationMode) {
                     ForEach(ActivationMode.allCases) { mode in
-                        VStack(alignment: .leading) {
-                            Text(mode.displayName)
-                        }
-                        .tag(mode)
+                        Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.radioGroup)
@@ -79,7 +207,6 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Hotkey
             Section("Hotkey") {
                 HotKeySelectionControl(
                     pickerLabel: "Activation Key",
@@ -110,101 +237,6 @@ struct GeneralSettingsTab: View {
                 }
             }
 
-            // Language
-            Section("Transcription Language") {
-                Picker("Language", selection: $appState.selectedLanguage) {
-                    Text("Auto-detect").tag("auto")
-                    Divider()
-                    Group {
-                        Text("English").tag("en")
-                        Text("Spanish").tag("es")
-                        Text("French").tag("fr")
-                        Text("German").tag("de")
-                        Text("Italian").tag("it")
-                        Text("Portuguese").tag("pt")
-                        Text("Dutch").tag("nl")
-                    }
-                    Divider()
-                    Group {
-                        Text("Chinese").tag("zh")
-                        Text("Japanese").tag("ja")
-                        Text("Korean").tag("ko")
-                        Text("Hindi").tag("hi")
-                        Text("Arabic").tag("ar")
-                        Text("Russian").tag("ru")
-                        Text("Turkish").tag("tr")
-                        Text("Polish").tag("pl")
-                        Text("Swedish").tag("sv")
-                        Text("Ukrainian").tag("uk")
-                    }
-                }
-
-                Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let model = appState.currentModel?.size, model.bindsLanguageAtLoadTime {
-                    Text("\(model.displayName) applies the language when it loads, so changing it reloads the model.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .onChange(of: appState.selectedLanguage) {
-                Task { @MainActor in
-                    await appState.reloadModelForLanguageChangeIfNeeded()
-                }
-            }
-
-            // Translation
-            Section("Translation") {
-                Toggle("Enable translation", isOn: $appState.translationEnabled)
-
-                Text(appState.translationEnabled
-                    ? "Speech will be translated to the selected language (or English if Auto-detect)."
-                    : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let engine = appState.currentModel?.size.engine, !engine.supportsTranslation {
-                    Text("Translation is only available with Whisper models. The active model (\(engine.displayName)) transcribes without translating.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
-            // Custom Vocabulary
-            Section("Custom Vocabulary") {
-                TextEditor(text: $appState.customVocabulary)
-                    .font(.body)
-                    .frame(minHeight: 90)
-                    .overlay(alignment: .topLeading) {
-                        if appState.customVocabulary.isEmpty {
-                            Text("kubectl, PostgreSQL, nginx, Grafana")
-                                .foregroundStyle(.tertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                    }
-
-                let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
-                Text(count == 0
-                    ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed. VocaMac hints these to the model so it spells them right."
-                    : "\(count) term\(count == 1 ? "" : "s"). Keep the list short, since the model can only use the first 50 to 100 words as a hint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text("For best results, enter terms in the language you dictate and set a matching Transcription Language above. In Auto-detect, the terms can also nudge which language VocaMac picks.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let engine = appState.currentModel?.size.engine, !engine.supportsCustomVocabulary {
-                    Text("Custom vocabulary is only applied by Whisper models. The active model (\(engine.displayName)) ignores these terms.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                }
-            }
-
             Section("Output") {
                 Toggle("Trailing Space After Dictation", isOn: $appState.appendTrailingSpace)
 
@@ -218,7 +250,18 @@ struct GeneralSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+        }
+        .formStyle(.grouped)
+    }
+}
 
+// MARK: - Application Settings
+
+struct ApplicationSettingsPage: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Form {
             Section("Behavior") {
                 Toggle("Launch at Login", isOn: Binding(
                     get: { appState.launchAtLogin },
@@ -255,9 +298,16 @@ struct GeneralSettingsTab: View {
                 .pickerStyle(.radioGroup)
                 .disabled(appState.overlayStyle == .off)
             }
-
         }
         .formStyle(.grouped)
+    }
+}
+
+// MARK: - Speech Model Settings (catalog + language / translation / vocab)
+
+struct SpeechModelSettingsPage: View {
+    var body: some View {
+        ModelSettingsTab(showsLanguageHints: true)
     }
 }
 
@@ -464,6 +514,15 @@ struct AutoPauseAppPickerSheet: View {
 struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @StateObject private var processMonitor = ProcessMonitor()
+    @State private var languageSearch = ""
+
+    /// When true, show language / translation / vocabulary above the catalog.
+    var showsLanguageHints: Bool = false
+
+    init(showsLanguageHints: Bool = false) {
+        self.showsLanguageHints = showsLanguageHints
+        _processMonitor = StateObject(wrappedValue: ProcessMonitor())
+    }
 
     /// Catalog entries grouped by engine, preserving catalog order within
     /// each group. Engines with no available models are omitted.
@@ -472,6 +531,10 @@ struct ModelSettingsTab: View {
             let models = appState.availableModels.filter { $0.size.engine == engine }
             return models.isEmpty ? nil : (engine: engine, models: models)
         }
+    }
+
+    private var filteredLanguages: [TranscriptionLanguage] {
+        TranscriptionLanguage.filtered(search: languageSearch)
     }
 
     private func engineIconName(_ engine: TranscriptionEngine) -> String {
@@ -486,6 +549,10 @@ struct ModelSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if showsLanguageHints {
+                    languageAndHintsSection
+                }
+
                 // System info
                 if let capabilities = appState.systemCapabilities {
                     GroupBox {
@@ -649,6 +716,97 @@ struct ModelSettingsTab: View {
                 }
             }
             .padding()
+        }
+    }
+
+    private var languageAndHintsSection: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                Label("Language & Hints", systemImage: "globe")
+                    .font(.headline)
+
+                TextField("Search languages", text: $languageSearch)
+                    .textFieldStyle(.roundedBorder)
+
+                Picker("Language", selection: $appState.selectedLanguage) {
+                    ForEach(filteredLanguages) { language in
+                        Text(language.code == "auto"
+                             ? language.displayName
+                             : "\(language.displayName) (\(language.code))")
+                            .tag(language.code)
+                    }
+                }
+
+                if !filteredLanguages.contains(where: { $0.code == appState.selectedLanguage }),
+                   let current = TranscriptionLanguage.catalog.first(where: { $0.code == appState.selectedLanguage }) {
+                    Text("Current: \(current.displayName)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let model = appState.currentModel?.size, model.bindsLanguageAtLoadTime {
+                    Text("\(model.displayName) applies the language when it loads, so changing it reloads the model.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Divider()
+
+                Toggle("Enable translation", isOn: $appState.translationEnabled)
+
+                Text(appState.translationEnabled
+                     ? "Speech will be translated to the selected language (or English if Auto-detect)."
+                     : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let engine = appState.currentModel?.size.engine, !engine.supportsTranslation {
+                    Text("Translation is only available with Whisper models. The active model (\(engine.displayName)) transcribes without translating.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Divider()
+
+                Text("Custom Vocabulary")
+                    .font(.subheadline.weight(.semibold))
+
+                TextEditor(text: $appState.customVocabulary)
+                    .font(.body)
+                    .frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if appState.customVocabulary.isEmpty {
+                            Text("kubectl, PostgreSQL, nginx, Grafana")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
+                Text(count == 0
+                     ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed."
+                     : "\(count) term\(count == 1 ? "" : "s"). Keep the list short — the model can only use the first 50 to 100 words as a hint.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let engine = appState.currentModel?.size.engine, !engine.supportsCustomVocabulary {
+                    Text("Custom vocabulary is only applied by Whisper models. The active model (\(engine.displayName)) ignores these terms.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .padding(4)
+        }
+        .onChange(of: appState.selectedLanguage) {
+            Task { @MainActor in
+                await appState.reloadModelForLanguageChangeIfNeeded()
+            }
         }
     }
 }

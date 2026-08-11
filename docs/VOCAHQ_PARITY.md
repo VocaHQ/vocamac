@@ -33,22 +33,22 @@ Status as of this document. Update cells when follow-up PRs land.
 | Category | Capability | VocaLinux v0.15 | VocaMac | Target |
 |----------|------------|-----------------|---------|--------|
 | Core loop | Push-to-talk / toggle, silence stop, inject | Yes | Yes | Keep |
-| Settings IA | Topic pages in a **left sidebar** | Yes | Horizontal tabs | Port UX |
-| Settings IA | Live **settings search** | Yes | No | Port UX |
-| Settings IA | Persistent status / mic / test footer | Yes | No | Port UX |
-| Output | Trailing space after utterance | Yes | No | Port |
-| Output | Auto-capitalize after sentence ends | Yes (esp. VOSK path) | No | Port where useful |
+| Settings IA | Topic pages in a **left sidebar** | Yes | Yes (`NavigationSplitView`) | Keep |
+| Settings IA | Live **settings search** | Yes | Yes | Keep |
+| Settings IA | Persistent status / mic / test footer | Yes | Yes | Keep |
+| Output | Trailing space after utterance | Yes | Yes | Keep |
+| Output | Auto-capitalize after sentence ends | Yes (esp. VOSK path) | Yes | Keep |
 | Output | Voice commands | Yes (engine-gated) | No | Later / optional |
 | Output | Custom vocabulary | No | Yes (Whisper) | Keep; feed Linux later |
 | Output | Translation | No | Yes (Whisper) | Keep |
-| Power | Auto-pause while listed apps run | Yes | No | Port |
-| Power | Idle model unload (keep-alive) | Yes | No | Port |
-| Power | Sleep/wake recovery | Yes (logind) | Partial (audio route) | Strengthen |
+| Power | Auto-pause while listed apps run | Yes | Yes | Keep |
+| Power | Idle model unload (keep-alive) | Yes | Yes (opt-in) | Keep |
+| Power | Sleep/wake recovery | Yes (logind) | Yes (`NSWorkspace`) | Keep |
 | Models | Multi-engine catalog | 3 + remote | 4 on-device | Keep Mac lead |
-| Models | Language catalog depth | ~33 + auto | ~17 + auto | Expand |
-| Updates | Stable / nightly channel picker | Yes | Nightly via separate cask/DMG | Align UX |
-| Diagnostics | In-app log viewer | Yes | Copy/export only | Improve |
-| Stats | Usage stats / streaks | Thin | Rich Stats tab | Keep; feed Linux later |
+| Models | Language catalog depth | ~33 + auto | ~36 + auto (searchable) | Keep |
+| Updates | Stable / nightly channel picker | Yes | Nightly via separate cask/DMG | Align UX (follow-up) |
+| Diagnostics | In-app log viewer | Yes | Copy/export only | Improve (follow-up) |
+| Stats | Usage stats / streaks | Thin | Rich Stats sidebar page | Keep; feed Linux later |
 | UX | Cursor mic overlay | No | Yes | Keep |
 | UX | Onboarding wizard | Basic first-run | Full multi-step | Keep |
 
@@ -142,24 +142,24 @@ Voice commands stay **out of phase 1**. Port later as an optional, engine-aware 
 
 ---
 
-## 6. Phased delivery (separate PRs)
+## 6. Phased delivery
 
-Ship one concern per PR. Do not bundle the settings shell with model lifecycle.
+Originally planned as separate PRs. Phases **1–3** plus the language-catalog half of Phase 4 shipped together in the stacked implementation PR on top of this plan (user requested a single follow-up). Remaining Phase 4 (update channel UX, richer log viewer) and Phase 5 stay deferred.
 
-### Phase 1: Output polish
+### Phase 1: Output polish — **done**
 
 - Trailing space + auto-capitalize preferences and injection hook
 - Tests for edge cases (empty text, already capitalized, CJK, trailing punctuation)
-- Settings toggles under Dictation/Output (can live in General until the sidebar lands)
+- Settings toggles under Dictation/Output
 
-### Phase 2: Performance / power
+### Phase 2: Performance / power — **done**
 
 - `AutoPauseMonitor` + preferences + Settings UI
 - `ModelKeepAlive` idle unload + preferences
 - Sleep/wake hardening
 - Tests with injected process snapshots / fake clocks
 
-### Phase 3: Settings shell
+### Phase 3: Settings shell — **done**
 
 - Sidebar navigation + searchable index
 - Sidebar footer: status, level, Test Dictation, Close
@@ -168,9 +168,9 @@ Ship one concern per PR. Do not bundle the settings shell with model lifecycle.
 
 ### Phase 4: Catalog and updates
 
-- Expand language list toward the VocaLinux catalog; searchable language picker
-- Update channel selector (stable vs nightly) wired to the right GitHub release endpoints
-- Optional: richer log viewer in Advanced
+- Expand language list toward the VocaLinux catalog; searchable language picker — **done**
+- Update channel selector (stable vs nightly) wired to the right GitHub release endpoints — **follow-up**
+- Optional: richer log viewer in Advanced — **follow-up**
 
 ### Phase 5: Bidirectional / org
 

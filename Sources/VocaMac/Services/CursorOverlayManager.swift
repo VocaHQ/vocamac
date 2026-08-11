@@ -144,6 +144,8 @@ final class CursorOverlayManager {
         let size = overlaySize
         let hosting = NSHostingView(rootView: HandyOverlayView(viewModel: viewModel))
         hosting.frame = NSRect(origin: .zero, size: size)
+        // Follow the system appearance so SwiftUI colorScheme stays in sync.
+        hosting.appearance = nil
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: size),
@@ -156,6 +158,7 @@ final class CursorOverlayManager {
         panel.hasShadow = false
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.appearance = nil
         // Overlay is display-only; clicks pass through so the target app keeps focus.
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
@@ -203,8 +206,9 @@ final class CursorOverlayManager {
 
     /// Updates the current audio level used to animate the waveform.
     func updateAudioLevel(_ level: Float) {
-        let target = min(max(level, 0), 1)
-        let smoothing: Float = target > viewModel.audioLevel ? 0.58 : 0.22
+        // Mild pre-gain so quiet speech still drives a lively waveform.
+        let target = min(max(level * 2.6, 0), 1)
+        let smoothing: Float = target > viewModel.audioLevel ? 0.78 : 0.28
         viewModel.audioLevel += (target - viewModel.audioLevel) * smoothing
         viewModel.waveformTick &+= 1
     }
@@ -420,12 +424,16 @@ final class MicIndicatorViewModel: ObservableObject {
 enum OverlayWaveformMetrics {
     static let barProfile: [CGFloat] = [0.42, 0.68, 0.92, 0.70, 1.0, 0.78, 0.88, 0.60, 0.38]
 
+    /// Amplifies quiet speech so the bars react clearly without needing to shout.
+    static let inputGain: CGFloat = 3.4
+
     static func heights(for level: Float, tick: Int = 0, maximumHeight: CGFloat = 18) -> [CGFloat] {
-        let normalized = min(max(CGFloat(level), 0), 1)
-        let shaped = pow(normalized, 0.62)
+        let boosted = min(1, max(0, CGFloat(level) * inputGain))
+        // Lower exponent = more height from mid/quiet levels.
+        let shaped = pow(boosted, 0.42)
         return barProfile.enumerated().map { index, profile in
-            let phase = Double(tick) * 0.78 + Double(index) * 1.31
-            let movement = CGFloat(0.88 + sin(phase) * 0.12)
+            let phase = Double(tick) * 0.95 + Double(index) * 1.31
+            let movement = CGFloat(0.78 + sin(phase) * 0.22)
             return min(maximumHeight, max(3, 3 + shaped * profile * movement * (maximumHeight - 3)))
         }
     }
@@ -435,16 +443,57 @@ enum OverlayWaveformMetrics {
 
 struct HandyOverlayView: View {
     @ObservedObject var viewModel: MicIndicatorViewModel
+    @Environment(\.colorScheme) private var colorScheme
 
     @State private var isPulsing = false
+    @State private var hasEntered = false
 
-    private let recordingColor = Color(nsColor: BrandAssets.brandGreen)
-    private let processingColor = Color(red: 0.749, green: 0.353, blue: 0.949)
-    private let panelColor = Color(red: 0.105, green: 0.108, blue: 0.118)
+    private let brandGreen = Color(nsColor: BrandAssets.brandGreen)
+    private let processingColor = Color(red: 0.62, green: 0.28, blue: 0.92)
+
+    private var isDark: Bool { colorScheme == .dark }
+
+    private var panelFill: Color {
+        isDark
+            ? Color(red: 0.16, green: 0.17, blue: 0.19)
+            : Color(red: 0.99, green: 0.99, blue: 1.0)
+    }
+
+    private var primaryText: Color {
+        isDark ? Color.white.opacity(0.96) : Color(red: 0.08, green: 0.1, blue: 0.12)
+    }
+
+    private var secondaryText: Color {
+        isDark ? Color.white.opacity(0.68) : Color.black.opacity(0.52)
+    }
+
+    private var tertiaryFill: Color {
+        isDark ? Color.white.opacity(0.1) : Color.black.opacity(0.06)
+    }
+
+    private var strokeBase: Color {
+        isDark ? Color.white.opacity(0.22) : Color.black.opacity(0.14)
+    }
+
+    private var waveformColor: Color {
+        viewModel.phase == .recording ? brandGreen : processingColor
+    }
+
+    private var accentColor: Color {
+        viewModel.phase == .recording ? brandGreen : processingColor
+    }
+
+    private var slideInOffset: CGFloat {
+        switch viewModel.position {
+        case .top:
+            return -42
+        case .bottom, .nearCursor:
+            return 42
+        }
+    }
 
     var body: some View {
         let content = OverlayLayout.contentSize(for: viewModel.style)
-        let glowColor = viewModel.phase == .recording ? recordingColor : processingColor
 
         Group {
             if viewModel.style == .live {
@@ -454,30 +503,65 @@ struct HandyOverlayView: View {
             }
         }
         .frame(width: content.width, height: content.height)
-        .background(panelColor.opacity(0.98))
+        .background(panelFill)
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .stroke(
                     viewModel.phase == .recording
-                        ? recordingColor.opacity(isPulsing ? 0.85 : 0.45)
-                        : Color.white.opacity(0.13),
-                    lineWidth: viewModel.phase == .recording ? 1.4 : 1
+                        ? brandGreen.opacity(isPulsing ? 0.95 : 0.55)
+                        : strokeBase,
+                    lineWidth: viewModel.phase == .recording ? 1.6 : 1
                 )
         }
-        .shadow(color: glowColor.opacity(viewModel.phase == .recording ? (isPulsing ? 0.7 : 0.35) : 0.25), radius: 10, y: 0)
-        .shadow(color: glowColor.opacity(viewModel.phase == .recording ? 0.35 : 0.12), radius: 18, y: 0)
+        .shadow(
+            color: accentColor.opacity(viewModel.phase == .recording ? (isPulsing ? 0.75 : 0.4) : 0.28),
+            radius: 11,
+            y: 0
+        )
+        .shadow(
+            color: Color.black.opacity(isDark ? 0.45 : 0.18),
+            radius: 8,
+            y: 3
+        )
         // Transparent bleed so the glow is not clipped by the NSPanel bounds.
         .padding(OverlayLayout.glowBleed)
         .frame(width: panelSize.width, height: panelSize.height)
-        .opacity(viewModel.isActive ? 1 : 0)
-        .scaleEffect(viewModel.isActive ? 1 : 0.96)
-        .animation(.easeOut(duration: 0.18), value: viewModel.isActive)
+        .opacity(viewModel.isActive && hasEntered ? 1 : 0)
+        .offset(y: hasEntered ? 0 : slideInOffset)
+        .scaleEffect(hasEntered ? 1 : 0.94)
+        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: hasEntered)
         .animation(.easeInOut(duration: 0.16), value: viewModel.phase)
         .animation(.easeInOut(duration: 0.9), value: isPulsing)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 isPulsing = true
+            }
+            playEntranceIfNeeded()
+        }
+        .onChange(of: viewModel.isActive) { _, active in
+            if active {
+                playEntranceIfNeeded()
+            } else {
+                hasEntered = false
+            }
+        }
+        .onChange(of: viewModel.position) { _, _ in
+            // Re-run entrance when the anchor edge changes between shows.
+            if viewModel.isActive {
+                hasEntered = false
+                playEntranceIfNeeded()
+            }
+        }
+    }
+
+    private func playEntranceIfNeeded() {
+        guard viewModel.isActive else { return }
+        hasEntered = false
+        // Defer one turn so the off-screen offset is committed before animating in.
+        DispatchQueue.main.async {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                hasEntered = true
             }
         }
     }
@@ -495,18 +579,18 @@ struct HandyOverlayView: View {
             brandMarkBadge
 
             Text(viewModel.phase == .recording ? "Listening" : "Transcribing")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(.white.opacity(0.92))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(primaryText)
 
             Spacer()
 
             if viewModel.phase == .recording {
                 Text(formattedElapsed)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(secondaryText)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.07), in: Capsule())
+                    .background(tertiaryFill, in: Capsule())
             }
         }
         .frame(maxWidth: .infinity)
@@ -530,7 +614,7 @@ struct HandyOverlayView: View {
 
                 Text("Speak naturally")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.46))
+                    .foregroundStyle(secondaryText)
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -538,7 +622,7 @@ struct HandyOverlayView: View {
 
                 Text("Turning speech into text…")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.68))
+                    .foregroundStyle(secondaryText)
             }
 
             Spacer(minLength: 0)
@@ -559,8 +643,8 @@ struct HandyOverlayView: View {
                     .tint(processingColor)
 
                 Text("Transcribing…")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.68))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(primaryText)
             }
         }
         .padding(.horizontal, 10)
@@ -580,13 +664,13 @@ struct HandyOverlayView: View {
         return HStack(spacing: spacing) {
             ForEach(Array(heights.enumerated()), id: \.offset) { _, height in
                 Capsule()
-                    .fill(Color.white.opacity(0.88))
+                    .fill(waveformColor)
                     .frame(width: barWidth, height: height)
             }
         }
         .frame(height: maximumHeight)
         .animation(
-            .interactiveSpring(response: 0.20, dampingFraction: 0.72, blendDuration: 0.08),
+            .interactiveSpring(response: 0.18, dampingFraction: 0.68, blendDuration: 0.06),
             value: viewModel.waveformTick
         )
         .accessibilityLabel("Microphone level")
@@ -596,10 +680,10 @@ struct HandyOverlayView: View {
         ZStack {
             if viewModel.phase == .recording {
                 Circle()
-                    .fill(recordingColor.opacity(0.22))
+                    .fill(brandGreen.opacity(isDark ? 0.28 : 0.18))
                     .frame(width: 22, height: 22)
                     .scaleEffect(isPulsing ? 1.08 : 0.86)
-                    .opacity(isPulsing ? 0.45 : 0.85)
+                    .opacity(isPulsing ? 0.55 : 0.9)
             }
 
             Group {
@@ -614,11 +698,8 @@ struct HandyOverlayView: View {
                         .font(.system(size: 10, weight: .semibold))
                 }
             }
-            .foregroundStyle(viewModel.phase == .recording ? recordingColor : processingColor)
-            .shadow(
-                color: (viewModel.phase == .recording ? recordingColor : processingColor).opacity(0.45),
-                radius: 4
-            )
+            .foregroundStyle(accentColor)
+            .shadow(color: accentColor.opacity(0.4), radius: 3)
         }
         .frame(width: 22, height: 22)
         .accessibilityLabel(viewModel.phase == .recording ? "Recording" : "Transcribing")

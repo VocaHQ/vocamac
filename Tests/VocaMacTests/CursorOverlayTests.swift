@@ -126,10 +126,13 @@ final class OverlayWaveformMetricsTests: XCTestCase {
         let quiet = OverlayWaveformMetrics.heights(for: 0.1)
         let loud = OverlayWaveformMetrics.heights(for: 1.0)
         let overdriven = OverlayWaveformMetrics.heights(for: 4.0)
+        let whisper = OverlayWaveformMetrics.heights(for: 0.05)
 
         XCTAssertGreaterThan(loud.max() ?? 0, quiet.max() ?? 0)
         XCTAssertEqual(overdriven, loud)
         XCTAssertTrue(loud.allSatisfy { $0 <= 18 })
+        // Quiet speech should still lift bars well above the floor after gain.
+        XCTAssertGreaterThan(whisper.max() ?? 0, 5)
     }
 
     func testWaveformMovesBetweenAudioUpdates() {

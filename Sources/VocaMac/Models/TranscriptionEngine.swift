@@ -10,6 +10,13 @@ import Foundation
 /// services that must read the same setting outside the view layer.
 enum PreferenceKey {
     static let selectedLanguage = "vocamac.selectedLanguage"
+    static let appendTrailingSpace = "vocamac.appendTrailingSpace"
+    static let autoCapitalize = "vocamac.autoCapitalize"
+    static let autoPauseEnabled = "vocamac.autoPause.enabled"
+    static let autoPauseApps = "vocamac.autoPause.apps"
+    static let autoPausePollInterval = "vocamac.autoPause.pollIntervalSeconds"
+    static let modelKeepAliveEnabled = "vocamac.modelKeepAlive.enabled"
+    static let modelKeepAliveIdleTimeout = "vocamac.modelKeepAlive.idleTimeoutSeconds"
 }
 
 /// The on-device inference engine backing a model in the catalog.

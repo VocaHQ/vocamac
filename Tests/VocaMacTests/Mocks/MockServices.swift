@@ -433,6 +433,14 @@ final class MockWhisperService: SpeechTranscribing {
         loadedModelName = name ?? "mock-model"
         isModelLoaded = true
     }
+
+    var unloadCallCount = 0
+
+    func unloadModel() async {
+        unloadCallCount += 1
+        loadedModelName = nil
+        isModelLoaded = false
+    }
 }
 
 // MARK: - MockTextInjector

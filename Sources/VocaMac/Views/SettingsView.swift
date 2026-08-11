@@ -33,6 +33,11 @@ struct SettingsView: View {
                     Label("Audio", systemImage: "waveform")
                 }
 
+            PerformanceSettingsTab()
+                .tabItem {
+                    Label("Performance", systemImage: "bolt.circle")
+                }
+
             DebugTab()
                 .tabItem {
                     Label("Debug", systemImage: "ladybug")
@@ -200,6 +205,20 @@ struct GeneralSettingsTab: View {
                 }
             }
 
+            Section("Output") {
+                Toggle("Trailing Space After Dictation", isOn: $appState.appendTrailingSpace)
+
+                Text("Adds a space after each completed utterance so the next dictation session does not glue onto the previous sentence.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Auto-Capitalize Sentences", isOn: $appState.autoCapitalize)
+
+                Text("Capitalizes the start of each utterance and letters that follow sentence-ending punctuation. Already-capitalized text is left alone.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Behavior") {
                 Toggle("Launch at Login", isOn: Binding(
                     get: { appState.launchAtLogin },
@@ -288,6 +307,154 @@ struct PermissionRow: View {
         case .granted: return .green
         case .notDetermined: return .orange
         case .denied: return .red
+        }
+    }
+}
+
+// MARK: - Performance Settings
+
+struct PerformanceSettingsTab: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showingAppPicker = false
+
+    private let idleTimeoutChoices: [(label: String, seconds: Double)] = [
+        ("1 minute", 60),
+        ("2 minutes", 120),
+        ("5 minutes", 300),
+        ("10 minutes", 600),
+        ("15 minutes", 900),
+        ("30 minutes", 1800),
+    ]
+
+    var body: some View {
+        Form {
+            Section("Auto-Pause for Apps") {
+                Toggle("Pause Dictation for Listed Apps", isOn: $appState.autoPauseEnabled)
+
+                Text("While a listed app is running, VocaMac unloads the speech model and blocks dictation. The model reloads when none of the listed apps remain.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Group {
+                    if appState.autoPauseApps.isEmpty {
+                        Text("No apps in the list yet. Add one with “Choose Running App…”")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(appState.autoPauseApps) { app in
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(app.displayName)
+                                    if let bundle = app.bundleIdentifier {
+                                        Text(bundle)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    } else if let process = app.processName {
+                                        Text(process)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                Spacer()
+                                Button(role: .destructive) {
+                                    appState.autoPauseApps.removeAll { $0.id == app.id }
+                                } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    }
+
+                    Button("Choose Running App…") {
+                        showingAppPicker = true
+                    }
+                }
+                .disabled(!appState.autoPauseEnabled)
+                .opacity(appState.autoPauseEnabled ? 1 : 0.45)
+
+                if appState.isAutoPaused {
+                    Label("Dictation is currently paused by a listed app.", systemImage: "pause.circle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.caption)
+                }
+            }
+
+            Section("Unload When Idle") {
+                Toggle("Unload Model When Idle", isOn: $appState.modelKeepAliveEnabled)
+
+                Text("After you stop dictating, unload the model to free RAM. The next dictation session reloads it (cold start may take a moment).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
+                    ForEach(idleTimeoutChoices, id: \.seconds) { choice in
+                        Text(choice.label).tag(choice.seconds)
+                    }
+                }
+                .disabled(!appState.modelKeepAliveEnabled)
+                .opacity(appState.modelKeepAliveEnabled ? 1 : 0.45)
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showingAppPicker) {
+            AutoPauseAppPickerSheet { entry in
+                var apps = appState.autoPauseApps
+                if !apps.contains(where: { $0.id == entry.id }) {
+                    apps.append(entry)
+                    appState.autoPauseApps = apps
+                }
+                showingAppPicker = false
+            } onCancel: {
+                showingAppPicker = false
+            }
+        }
+    }
+}
+
+/// Picker sheet listing currently running apps for the auto-pause list.
+struct AutoPauseAppPickerSheet: View {
+    let onPick: (AutoPauseAppEntry) -> Void
+    let onCancel: () -> Void
+
+    @State private var apps: [RunningAppSnapshot] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Choose Running App")
+                .font(.headline)
+
+            Text("Select an app to pause dictation while it is running.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            List(apps, id: \.self) { snap in
+                Button {
+                    onPick(AutoPauseAppEntry.from(snapshot: snap))
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(snap.displayName)
+                        if let bundle = snap.bundleIdentifier {
+                            Text(bundle)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(minHeight: 280)
+
+            HStack {
+                Spacer()
+                Button("Cancel", action: onCancel)
+                    .keyboardShortcut(.cancelAction)
+            }
+        }
+        .padding()
+        .frame(width: 420, height: 420)
+        .onAppear {
+            apps = AutoPauseMatching.workspaceRunningApps()
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
         }
     }
 }

@@ -133,6 +133,8 @@ protocol SpeechTranscribing: AnyObject {
     var isModelLoaded: Bool { get }
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
+    /// Release the currently loaded model (and any sibling engines) to free memory.
+    func unloadModel() async
 }
 
 extension SpeechTranscribing {

@@ -146,4 +146,22 @@ extension TranscriptionRouter: SpeechTranscribing {
             }
         }
     }
+
+    /// Unload every engine so only cold-start memory remains.
+    ///
+    /// Serialized with load/transcribe so a hotkey cannot decode against an
+    /// engine that is mid-teardown.
+    func unloadModel() async {
+        do {
+            try await operationSerializer.run { [self] in
+                whisper.unloadModel()
+                await parakeet.unloadModelAndWait()
+                appleSpeech.unloadModel()
+                sherpa.unloadModel()
+            }
+        } catch {
+            // Unload paths do not throw today; keep the queue resilient if that changes.
+            VocaLogger.error(.general, "Model unload failed: \(error.localizedDescription)")
+        }
+    }
 }

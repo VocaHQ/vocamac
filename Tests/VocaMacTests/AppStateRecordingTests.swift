@@ -187,6 +187,48 @@ final class AppStateRecordingTests: XCTestCase {
                      "preserveClipboard should default to true")
     }
 
+    func testOutputPolishDefaults() {
+        let (appState, _) = AppState.makeTestState()
+        XCTAssertTrue(appState.appendTrailingSpace)
+        XCTAssertTrue(appState.autoCapitalize)
+        XCTAssertFalse(appState.autoPauseEnabled)
+        XCTAssertFalse(appState.modelKeepAliveEnabled)
+    }
+
+    func testStopRecordingInjectsPolishedText() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "hello world. goodbye",
+            duration: 1.0,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1.0,
+            modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = true
+        appState.autoCapitalize = true
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Hello world. Goodbye ")
+        XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testStartRecordingBlockedWhenAutoPaused() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.isAutoPaused = true
+
+        await appState.startRecording()
+
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertEqual(mocks.audioEngine.lastSilenceThreshold, nil)
+        XCTAssertNotNil(appState.errorMessage)
+        XCTAssertTrue(appState.errorMessage?.contains("paused") == true)
+    }
+
     func testSoundEffectsEnabledDefault() {
         let (appState, _) = AppState.makeTestState()
 

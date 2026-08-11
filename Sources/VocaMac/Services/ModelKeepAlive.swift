@@ -10,9 +10,9 @@ import Foundation
 @MainActor
 final class ModelKeepAlive: ObservableObject {
 
-    static let defaultIdleTimeoutSeconds: TimeInterval = 300
-    static let minIdleTimeoutSeconds: TimeInterval = 60
-    static let maxIdleTimeoutSeconds: TimeInterval = 3600
+    nonisolated static let defaultIdleTimeoutSeconds: TimeInterval = 300
+    nonisolated static let minIdleTimeoutSeconds: TimeInterval = 60
+    nonisolated static let maxIdleTimeoutSeconds: TimeInterval = 3600
 
     /// Re-read on each bump so Settings changes apply without restart.
     var getConfig: () -> (enabled: Bool, idleTimeoutSeconds: TimeInterval)

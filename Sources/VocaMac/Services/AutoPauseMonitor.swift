@@ -124,9 +124,9 @@ enum AutoPauseMatching {
 @MainActor
 final class AutoPauseMonitor: ObservableObject {
 
-    static let defaultPollIntervalSeconds: TimeInterval = 5
-    static let minPollIntervalSeconds: TimeInterval = 1
-    static let maxPollIntervalSeconds: TimeInterval = 60
+    nonisolated static let defaultPollIntervalSeconds: TimeInterval = 5
+    nonisolated static let minPollIntervalSeconds: TimeInterval = 1
+    nonisolated static let maxPollIntervalSeconds: TimeInterval = 60
 
     /// Called once when the match set becomes non-empty.
     var onPause: (() -> Void)?

@@ -514,36 +514,40 @@ swift build -c release
 
 ## 8. Cross-Platform Strategy
 
-### 8.1 Architecture for Future Portability
+VocaMac is part of [VocaHQ](https://github.com/VocaHQ): offline voice dictation on each OS, with feature parity over time. Sister apps: [VocaLinux](https://github.com/VocaHQ/vocalinux) (stable), VocaWin (coming soon), VocaPhone (in development).
 
-While VocaMac is a native macOS app, the architecture is designed to facilitate a future Windows port (VocaWin):
+The living Mac ↔ Linux gap list and phased port plan live in [`docs/VOCAHQ_PARITY.md`](VOCAHQ_PARITY.md).
+
+### 8.1 Shared jobs, native code
 
 ```
 Shared Concepts:
-  └── Whisper models        ← Same model family across platforms
-  └── UX patterns           ← Same user interaction design
+  └── Speech model families   ← Whisper-class (+ platform specialists)
+  └── UX patterns             ← Hotkey → speak → inject; searchable settings IA
+  └── Power controls          ← Auto-pause apps; idle model unload
+  └── Output polish           ← Trailing space; capitalization rules
 
 Platform-Specific:
-  ┌──────────────────────┬──────────────────────┐
-  │      macOS            │      Windows         │
-  ├──────────────────────┼──────────────────────┤
-  │ Swift + SwiftUI      │ C++/C# + WinUI 3    │
-  │ AVAudioEngine        │ WASAPI / NAudio      │
-  │ CGEventTap           │ SetWindowsHookEx     │
-  │ NSPasteboard + CGEvt │ Clipboard + SendInput│
-  │ Metal acceleration   │ CUDA / DirectML      │
-  │ MenuBarExtra         │ System Tray (NotifyIcon) │
-  └──────────────────────┴──────────────────────┘
+  ┌──────────────────────┬──────────────────────┬──────────────────────┐
+  │      macOS            │      Linux            │      Windows         │
+  ├──────────────────────┼──────────────────────┼──────────────────────┤
+  │ Swift + SwiftUI      │ Python + GTK         │ (VocaWin TBD)        │
+  │ AVAudioEngine        │ PortAudio            │ WASAPI / NAudio      │
+  │ CGEventTap           │ evdev / pynput       │ SetWindowsHookEx     │
+  │ AX + NSPasteboard    │ IBus / ydotool / …   │ Clipboard + SendInput│
+  │ CoreML / Metal / ANE │ Vulkan / CUDA        │ CUDA / DirectML      │
+  │ MenuBarExtra         │ AppIndicator tray    │ NotifyIcon           │
+  └──────────────────────┴──────────────────────┴──────────────────────┘
 ```
 
-### 8.2 What Can Be Shared
+### 8.2 What can be shared
 
-- **Whisper models** - Same OpenAI Whisper model family on all platforms
-- **Model files** - Each platform uses its optimal format (CoreML on macOS, GGML on Linux/Windows)
-- **Model catalog** - Same model variants and metadata
-- **UX patterns** - Same user flows and interaction design
+- User jobs and settings topic names (Dictation, Speech Model, Audio, Performance, …)
+- Model catalog *ideas* (size tiers, language honesty); each OS keeps its optimal format
+- Preference semantics (auto-pause app list, idle timeout, trailing space)
+- Privacy bar: local engines, no account wall
 
-### 8.3 What Must Be Platform-Specific
+### 8.3 What must stay platform-specific
 
 - UI framework and rendering
 - Audio capture API
@@ -551,7 +555,7 @@ Platform-Specific:
 - Text injection method
 - Permission handling
 - App lifecycle and distribution
-
+- GPU / NPU acceleration APIs
 ---
 
 ## 9. Error Handling Strategy

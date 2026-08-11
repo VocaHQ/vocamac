@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
+    /// Drives a custom trailing toggle so the control stays pinned top-right.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -33,8 +35,12 @@ struct SettingsView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
+    private var isSidebarVisible: Bool {
+        columnVisibility != .detailOnly
+    }
+
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selectedPage) {
                 ForEach(visiblePages) { page in
                     Label(page.title, systemImage: page.systemImage)
@@ -80,6 +86,22 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+        .toolbar {
+            // Always trailing (top-right). We remove the system sidebar toggle below
+            // so this control does not jump between leading and trailing.
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    withAnimation(.snappy(duration: 0.2)) {
+                        columnVisibility = isSidebarVisible ? .detailOnly : .all
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+            }
+        }
+        .modifier(RemoveSystemSidebarToggleModifier())
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
@@ -98,6 +120,18 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 520)
+    }
+}
+
+/// Hides NavigationSplitView's built-in sidebar toggle (macOS 15+), which relocates
+/// when the column collapses. Older OS versions keep the system control as a fallback.
+private struct RemoveSystemSidebarToggleModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.toolbar(removing: .sidebarToggle)
+        } else {
+            content
+        }
     }
 }
 

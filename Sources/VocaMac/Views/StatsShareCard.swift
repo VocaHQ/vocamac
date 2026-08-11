@@ -2,6 +2,7 @@
 // VocaMac
 //
 // Branded stats card rendered to an image and copied to the clipboard.
+// Forced dark appearance so clipboard shares match the in-app Stats look.
 
 import AppKit
 import SwiftUI
@@ -30,6 +31,10 @@ struct StatsShareSnapshot: Equatable {
 struct StatsShareCard: View {
     let snapshot: StatsShareSnapshot
 
+    private let cardBackground = Color(red: 0.11, green: 0.12, blue: 0.14)
+    private let chipBackground = Color.white.opacity(0.06)
+    private let brandGreen = Color(nsColor: BrandAssets.brandGreen)
+
     private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.hour, .minute]
@@ -39,63 +44,82 @@ struct StatsShareCard: View {
     }()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             HStack(spacing: 12) {
-                BrandLogoView(size: 44)
-                VStack(alignment: .leading, spacing: 2) {
+                BrandLogoView(size: 48)
+                VStack(alignment: .leading, spacing: 3) {
                     Text("VocaMac")
                         .font(.title2.weight(.bold))
+                        .foregroundStyle(.white)
                     Text("My dictation stats")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.55))
                 }
                 Spacer()
             }
 
-            HStack(spacing: 12) {
-                shareMetric(title: "Words", value: "\(snapshot.totalWords)")
-                shareMetric(title: "Sessions", value: "\(snapshot.totalTranscriptions)")
+            HStack(spacing: 10) {
+                shareMetric(title: "Words", value: "\(snapshot.totalWords)", accent: .blue)
+                shareMetric(title: "Sessions", value: "\(snapshot.totalTranscriptions)", accent: .purple)
                 shareMetric(
                     title: "Time",
-                    value: Self.durationFormatter.string(from: snapshot.totalAudioDurationSeconds) ?? "0m"
+                    value: Self.durationFormatter.string(from: snapshot.totalAudioDurationSeconds) ?? "0m",
+                    accent: .orange
                 )
             }
 
-            HStack(spacing: 12) {
-                shareMetric(title: "Speed", value: String(format: "%.0f WPM", snapshot.averageWPM))
-                shareMetric(title: "Streak", value: "\(snapshot.currentStreak)d")
-                shareMetric(title: "Best", value: "\(snapshot.bestStreak)d")
+            HStack(spacing: 10) {
+                shareMetric(title: "Speed", value: String(format: "%.0f WPM", snapshot.averageWPM), accent: brandGreen)
+                shareMetric(title: "Streak", value: "\(snapshot.currentStreak)d", accent: .orange)
+                shareMetric(title: "Best", value: "\(snapshot.bestStreak)d", accent: Color(red: 1.0, green: 0.45, blue: 0.2))
             }
 
-            Text("vocamac.com")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
+            HStack {
+                Capsule()
+                    .fill(brandGreen.opacity(0.85))
+                    .frame(width: 28, height: 4)
+                Spacer()
+                Text("vocamac.com")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
         }
-        .padding(24)
-        .frame(width: 520)
+        .padding(28)
+        .frame(width: 560)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(nsColor: .windowBackgroundColor))
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(cardBackground)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [brandGreen.opacity(0.55), Color.white.opacity(0.08)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1.2
+                )
         }
+        .environment(\.colorScheme, .dark)
     }
 
-    private func shareMetric(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+    private func shareMetric(title: String, value: String, accent: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text(title.uppercased())
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.45))
             Text(value)
                 .font(.title3.weight(.bold))
                 .monospacedDigit()
+                .foregroundStyle(.white)
+            Capsule()
+                .fill(accent)
+                .frame(width: 18, height: 3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(14)
+        .background(chipBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

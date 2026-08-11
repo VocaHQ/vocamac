@@ -217,6 +217,28 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .idle)
     }
 
+    func testSettingsTestDictationDoesNotInject() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "settings only",
+            duration: 1.0,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1.0,
+            modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = true
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        await appState.stopRecordingAndTranscribe(injectResult: false)
+
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
+        XCTAssertEqual(appState.settingsTestResultText, "Settings only")
+        XCTAssertEqual(appState.appStatus, .idle)
+    }
+
     func testStartRecordingBlockedWhenAutoPaused() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.isAutoPaused = true

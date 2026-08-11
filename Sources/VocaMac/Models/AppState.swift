@@ -69,6 +69,9 @@ final class AppState: ObservableObject {
     /// The most recent transcription result
     @Published var lastTranscription: VocaTranscription?
 
+    /// Last Settings → Test Dictation result (shown in the sidebar footer; not injected).
+    @Published var settingsTestResultText: String?
+
     /// Error message to display, if any
     @Published var errorMessage: String?
 
@@ -822,7 +825,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func stopRecordingAndTranscribe() async {
+    func stopRecordingAndTranscribe(injectResult: Bool = true) async {
         // Accept stop if we're recording OR if the audio engine thinks
         // it's recording (covers stuck-state recovery scenarios where
         // isRecording and appStatus may be out of sync).
@@ -873,8 +876,6 @@ final class AppState: ObservableObject {
             // Update stats
             statsManager.recordTranscription(result)
 
-            // Inject text at cursor position
-            // by WhisperService to remove hallucination tokens like [BLANK_AUDIO])
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
                 let polished = DictationOutputFormatter.apply(
@@ -882,12 +883,20 @@ final class AppState: ObservableObject {
                     autoCapitalize: autoCapitalize,
                     appendTrailingSpace: appendTrailingSpace
                 )
-                textInjector.inject(
-                    text: polished,
-                    preserveClipboard: preserveClipboard
-                )
+                if injectResult {
+                    textInjector.inject(
+                        text: polished,
+                        preserveClipboard: preserveClipboard
+                    )
+                } else {
+                    // Settings Test Dictation: show only in the sidebar footer.
+                    settingsTestResultText = polished
+                }
             } else {
                 VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")
+                if !injectResult {
+                    settingsTestResultText = nil
+                }
             }
 
             cursorOverlay.hide()

@@ -40,14 +40,19 @@ final class OverlaySettingsTests: XCTestCase {
 final class OverlayLayoutTests: XCTestCase {
 
     func testMinimalOverlayUsesCompactStableDimensions() {
-        XCTAssertEqual(OverlayLayout.size(for: .minimal), CGSize(width: 108, height: 44))
+        XCTAssertEqual(OverlayLayout.contentSize(for: .minimal), CGSize(width: 108, height: 44))
+        let size = OverlayLayout.size(for: .minimal)
+        XCTAssertEqual(size.width, 108 + OverlayLayout.glowBleed * 2)
+        XCTAssertEqual(size.height, 44 + OverlayLayout.glowBleed * 2)
     }
 
     func testLiveOverlayIsShorterThanTheOriginalPanel() {
+        let content = OverlayLayout.contentSize(for: .live)
         let size = OverlayLayout.size(for: .live)
 
-        XCTAssertEqual(size, CGSize(width: 240, height: 72))
-        XCTAssertLessThan(size.width, 360)
+        XCTAssertEqual(content, CGSize(width: 240, height: 72))
+        XCTAssertEqual(size.width, 240 + OverlayLayout.glowBleed * 2)
+        XCTAssertLessThan(content.width, 360)
     }
 }
 
@@ -56,7 +61,7 @@ final class OverlayLayoutTests: XCTestCase {
 final class OverlayPlacementTests: XCTestCase {
 
     private let visibleFrame = CGRect(x: 0, y: 0, width: 1_000, height: 700)
-    private let panelSize = CGSize(width: 108, height: 44)
+    private let panelSize = OverlayLayout.size(for: .minimal)
 
     func testPointOutsideScreenIsClampedBackIntoVisibleFrame() {
         let origin = OverlayPlacement.clampedOrigin(
@@ -65,7 +70,7 @@ final class OverlayPlacementTests: XCTestCase {
             visibleFrames: [visibleFrame]
         )
 
-        XCTAssertEqual(origin.x, 892)
+        XCTAssertEqual(origin.x, 1000 - OverlayLayout.size(for: .minimal).width)
         XCTAssertEqual(origin.y, 200)
     }
 

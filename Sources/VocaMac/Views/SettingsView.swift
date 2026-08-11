@@ -36,10 +36,22 @@ struct SettingsView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selectedPage) {
-                ForEach(visiblePages) { page in
-                    Label(page.title, systemImage: page.systemImage)
-                        .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
-                        .tag(page)
+                Section {
+                    ForEach(visiblePages) { page in
+                        Label(page.title, systemImage: page.systemImage)
+                            .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
+                            .tag(page)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        BrandLogoView(size: 22)
+                        Text("VocaMac")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.vertical, 4)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("VocaMac Settings")
                 }
             }
             .listStyle(.sidebar)
@@ -75,7 +87,9 @@ struct SettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .searchable(text: $searchText, prompt: "Search settings")
+        // Keep search anchored in the sidebar so collapsing the column does not
+        // shove the field across the toolbar.
+        .searchable(text: $searchText, placement: .sidebar, prompt: "Search settings")
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.isEmpty {
@@ -108,6 +122,13 @@ struct SettingsSidebarFooter: View {
             || appState.appStatus == .processing
     }
 
+    private var resultText: String? {
+        let text = appState.settingsTestResultText?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let text, !text.isEmpty else { return nil }
+        return text
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -132,28 +153,37 @@ struct SettingsSidebarFooter: View {
                     Capsule()
                         .fill(Color.secondary.opacity(0.15))
                     Capsule()
-                        .fill(appState.appStatus == .recording ? Color.red : Color.accentColor)
+                        .fill(appState.appStatus == .recording
+                              ? Color(nsColor: BrandAssets.brandGreen)
+                              : Color.accentColor)
                         .frame(width: max(4, geo.size.width * CGFloat(min(max(appState.audioLevel, 0), 1))))
                 }
             }
             .frame(height: isActiveSession ? 8 : 5)
             .animation(.easeInOut(duration: 0.15), value: isActiveSession)
 
-            if let text = appState.lastTranscription?.text.trimmingCharacters(in: .whitespacesAndNewlines),
-               !text.isEmpty,
-               !isActiveSession {
-                Text(text)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if let resultText, !isActiveSession {
+                    Text(resultText)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else if !isActiveSession {
+                    Text("Results appear here")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
+            .frame(minHeight: 28, alignment: .topLeading)
 
             Button {
                 Task { @MainActor in
                     if appState.isRecording || appState.appStatus == .recording {
-                        await appState.stopRecordingAndTranscribe()
+                        await appState.stopRecordingAndTranscribe(injectResult: false)
                     } else {
+                        appState.settingsTestResultText = nil
                         await appState.startRecording()
                     }
                 }
@@ -166,10 +196,6 @@ struct SettingsSidebarFooter: View {
             }
             .controlSize(.small)
             .disabled(appState.isAutoPaused && !appState.isRecording)
-
-            Text("Result appears here. Text also injects into the focused app.")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
         }
         .padding(12)
         .background(.bar)
@@ -189,7 +215,7 @@ struct SettingsSidebarFooter: View {
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
         case .idle: return .green
-        case .recording: return .red
+        case .recording: return Color(nsColor: BrandAssets.brandGreen)
         case .processing: return .purple
         case .error: return .orange
         }
@@ -1297,27 +1323,49 @@ struct DebugTab: View {
         Form {
             if let capabilities = appState.systemCapabilities {
                 Section("System Information") {
-                    LabeledContent("CPU", value: capabilities.processorName)
-                    LabeledContent("RAM", value: "\(capabilities.physicalMemoryGB) GB")
-                    LabeledContent("Metal", value: capabilities.supportsMetalAcceleration ? "Yes" : "No")
+                    HStack(spacing: 16) {
+                        SystemInfoPill(icon: "cpu", label: "CPU", value: capabilities.processorName)
+                        SystemInfoPill(icon: "memorychip", label: "RAM", value: "\(capabilities.physicalMemoryGB) GB")
+                        SystemInfoPill(
+                            icon: "bolt.fill",
+                            label: "Metal",
+                            value: capabilities.supportsMetalAcceleration ? "Yes" : "No"
+                        )
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 4)
                 }
             }
 
             Section("Resource Usage") {
-                LabeledContent("App CPU", value: String(format: "%.1f%%", processMonitor.cpuUsage))
-                LabeledContent(
-                    "App Memory (RSS)",
-                    value: processMonitor.memoryMB >= 1024
-                        ? String(format: "%.1f GB", processMonitor.memoryMB / 1024)
-                        : String(format: "%.0f MB", processMonitor.memoryMB)
-                )
-                LabeledContent(
-                    "Peak RSS (this session)",
-                    value: processMonitor.memoryPeakMB >= 1024
-                        ? String(format: "%.1f GB", processMonitor.memoryPeakMB / 1024)
-                        : String(format: "%.0f MB", processMonitor.memoryPeakMB)
-                )
-                LabeledContent("Threads", value: "\(processMonitor.threadCount)")
+                HStack(spacing: 12) {
+                    SystemInfoPill(
+                        icon: "cpu",
+                        label: "App CPU",
+                        value: String(format: "%.1f%%", processMonitor.cpuUsage)
+                    )
+                    SystemInfoPill(
+                        icon: "memorychip",
+                        label: "Memory",
+                        value: processMonitor.memoryMB >= 1024
+                            ? String(format: "%.1f GB", processMonitor.memoryMB / 1024)
+                            : String(format: "%.0f MB", processMonitor.memoryMB)
+                    )
+                    SystemInfoPill(
+                        icon: "chart.line.uptrend.xyaxis",
+                        label: "Peak",
+                        value: processMonitor.memoryPeakMB >= 1024
+                            ? String(format: "%.1f GB", processMonitor.memoryPeakMB / 1024)
+                            : String(format: "%.0f MB", processMonitor.memoryPeakMB)
+                    )
+                    SystemInfoPill(
+                        icon: "arrow.triangle.branch",
+                        label: "Threads",
+                        value: "\(processMonitor.threadCount)"
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 4)
 
                 Text("Process-wide usage for VocaMac, refreshed every few seconds — not model-only VRAM/ANE accounting.")
                     .font(.caption)

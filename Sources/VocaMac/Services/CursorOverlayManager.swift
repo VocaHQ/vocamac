@@ -12,7 +12,10 @@ import SwiftUI
 
 /// Shared overlay dimensions keep the AppKit panel and SwiftUI content in sync.
 enum OverlayLayout {
-    static func size(for style: OverlayStyle) -> CGSize {
+    /// Extra transparent margin so brand-green glow is not clipped by the panel.
+    static let glowBleed: CGFloat = 14
+
+    static func contentSize(for style: OverlayStyle) -> CGSize {
         switch style {
         case .off:
             return .zero
@@ -21,6 +24,15 @@ enum OverlayLayout {
         case .live:
             return CGSize(width: 240, height: 72)
         }
+    }
+
+    static func size(for style: OverlayStyle) -> CGSize {
+        let content = contentSize(for: style)
+        guard content != .zero else { return .zero }
+        return CGSize(
+            width: content.width + glowBleed * 2,
+            height: content.height + glowBleed * 2
+        )
     }
 }
 
@@ -431,6 +443,9 @@ struct HandyOverlayView: View {
     private let panelColor = Color(red: 0.105, green: 0.108, blue: 0.118)
 
     var body: some View {
+        let content = OverlayLayout.contentSize(for: viewModel.style)
+        let glowColor = viewModel.phase == .recording ? recordingColor : processingColor
+
         Group {
             if viewModel.style == .live {
                 livePanelContent
@@ -438,20 +453,28 @@ struct HandyOverlayView: View {
                 minimalControlRow
             }
         }
-        .frame(width: panelSize.width, height: panelSize.height)
+        .frame(width: content.width, height: content.height)
         .background(panelColor.opacity(0.98))
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.13), lineWidth: 1)
+                .stroke(
+                    viewModel.phase == .recording
+                        ? recordingColor.opacity(isPulsing ? 0.85 : 0.45)
+                        : Color.white.opacity(0.13),
+                    lineWidth: viewModel.phase == .recording ? 1.4 : 1
+                )
         }
-        // Keep the surface inside the exact-size transparent NSPanel. An outer
-        // SwiftUI shadow is clipped to the panel's rectangular window bounds,
-        // which leaves square artifacts behind the rounded corners.
+        .shadow(color: glowColor.opacity(viewModel.phase == .recording ? (isPulsing ? 0.7 : 0.35) : 0.25), radius: 10, y: 0)
+        .shadow(color: glowColor.opacity(viewModel.phase == .recording ? 0.35 : 0.12), radius: 18, y: 0)
+        // Transparent bleed so the glow is not clipped by the NSPanel bounds.
+        .padding(OverlayLayout.glowBleed)
+        .frame(width: panelSize.width, height: panelSize.height)
         .opacity(viewModel.isActive ? 1 : 0)
         .scaleEffect(viewModel.isActive ? 1 : 0.96)
         .animation(.easeOut(duration: 0.18), value: viewModel.isActive)
         .animation(.easeInOut(duration: 0.16), value: viewModel.phase)
+        .animation(.easeInOut(duration: 0.9), value: isPulsing)
         .onAppear {
             withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
                 isPulsing = true

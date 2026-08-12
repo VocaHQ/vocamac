@@ -51,7 +51,7 @@ struct StatsShareCard: View {
                     Text("VocaMac")
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.white)
-                    Text("My dictation stats")
+                    Text("My usage")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.55))
                 }

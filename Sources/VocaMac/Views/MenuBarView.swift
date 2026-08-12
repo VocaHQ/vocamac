@@ -142,7 +142,7 @@ struct MenuBarView: View {
                     .fontWeight(.semibold)
 
                 if let model = appState.currentModel {
-                    Text("Model: \(model.size.displayName) · ~\(String(format: "%.1f", model.size.ramRequiredGB)) GB")
+                    Text("Model: \(model.size.displayName) (~\(String(format: "%.1f", model.size.ramRequiredGB)) GB)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if appState.whisperService.isModelLoaded {
@@ -164,12 +164,12 @@ struct MenuBarView: View {
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 } else if appState.isAutoPaused {
-                    Text(appState.autoPauseTriggerDisplayName.map { "Unloaded · paused for \($0)" }
-                         ?? "Unloaded · auto-paused")
+                    Text(appState.autoPauseTriggerDisplayName.map { "Unloaded (paused for \($0))" }
+                         ?? "Unloaded (auto-paused)")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 } else if appState.lastModelUnloadReason == .idleKeepAlive {
-                    Text("Unloaded · idle timeout")
+                    Text("Unloaded (idle timeout)")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 } else {
@@ -238,7 +238,7 @@ struct MenuBarView: View {
                             .foregroundStyle(.primary)
                             .fixedSize(horizontal: false, vertical: true)
                         if let freed = appState.approximateMemoryFreedMB {
-                            Text(String(format: "About %.0f MB process memory was released.", freed))
+                            Text(String(format: "About %.0f MB of process memory was released.", freed))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
@@ -452,7 +452,7 @@ struct MenuBarView: View {
 
     private var statusText: String {
         if appState.isAutoPaused {
-            return appState.autoPauseTriggerDisplayName.map { "Paused · \($0)" } ?? "Auto-paused"
+            return appState.autoPauseTriggerDisplayName.map { "Paused (\($0))" } ?? "Auto-paused"
         }
         switch appState.appStatus {
         case .idle:       return "Ready"

@@ -612,7 +612,7 @@ struct HandyOverlayView: View {
             if viewModel.phase == .recording {
                 waveform
 
-                Text("Speak naturally")
+                Text("Speak now")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(secondaryText)
             } else {
@@ -620,7 +620,7 @@ struct HandyOverlayView: View {
                     .controlSize(.small)
                     .tint(processingColor)
 
-                Text("Turning speech into text…")
+                Text("Transcribing…")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(secondaryText)
             }

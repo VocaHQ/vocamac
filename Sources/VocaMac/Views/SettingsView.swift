@@ -17,7 +17,7 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
-    /// Manual sidebar visibility — avoids NavigationSplitView's relocating system toggles.
+    /// Manual sidebar visibility. Avoids NavigationSplitView relocating system toggles.
     @State private var isSidebarVisible = true
 
     private var matchCounts: [SettingsPage: Int] {
@@ -133,7 +133,7 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - Sidebar Search (System Settings–style)
+// MARK: - Sidebar Search (System Settings style)
 
 /// Pill search field pinned to the top of the settings sidebar.
 struct SettingsSidebarSearchField: View {
@@ -341,13 +341,13 @@ struct DictationSettingsPage: View {
             Section("Output") {
                 Toggle("Trailing Space After Dictation", isOn: $appState.appendTrailingSpace)
 
-                Text("Adds a space after each completed utterance so the next dictation session does not glue onto the previous sentence.")
+                Text("Adds a space after each utterance so the next dictation does not stick to the previous one.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Toggle("Auto-Capitalize Sentences", isOn: $appState.autoCapitalize)
 
-                Text("Capitalizes the start of each utterance and letters that follow sentence-ending punctuation. Already-capitalized text is left alone.")
+                Text("Capitalizes the start of each utterance and letters after . ! or ?. Skips text that is already capitalized.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -507,12 +507,12 @@ struct PerformanceSettingsTab: View {
                         .font(.caption)
                         .foregroundStyle(.orange)
                     if let freed = appState.approximateMemoryFreedMB {
-                        Text(String(format: "Approx. %.0f MB process RSS dropped on unload.", freed))
+                        Text(String(format: "About %.0f MB of process memory was released on unload.", freed))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
                 } else {
-                    Text("No speech model is currently resident.")
+                    Text("No speech model is loaded right now.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -521,13 +521,13 @@ struct PerformanceSettingsTab: View {
             Section("Auto-Pause for Apps") {
                 Toggle("Pause Dictation for Listed Apps", isOn: $appState.autoPauseEnabled)
 
-                Text("While a listed app is running, VocaMac unloads the speech model and blocks dictation. The model reloads when none of the listed apps remain.")
+                Text("When a listed app is running, VocaMac unloads the speech model and blocks dictation. The model reloads once none of those apps are still running.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Group {
                     if appState.autoPauseApps.isEmpty {
-                        Text("No apps in the list yet. Add one with “Choose Running App…”")
+                        Text("No apps in the list yet. Use Choose Running App… to add one.")
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(appState.autoPauseApps) { app in
@@ -576,7 +576,7 @@ struct PerformanceSettingsTab: View {
             Section("Unload When Idle") {
                 Toggle("Unload Model When Idle", isOn: $appState.modelKeepAliveEnabled)
 
-                Text("After you stop dictating, unload the model to free RAM. The next dictation session reloads it (cold start may take a moment).")
+                Text("Unload the model after you stop dictating to free RAM. The next dictation reloads it, which can take a moment.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -631,7 +631,7 @@ struct AutoPauseAppPickerSheet: View {
             Text("Choose Running App")
                 .font(.headline)
 
-            Text("Select an app to pause dictation while it is running.")
+            Text("Pick an app. Dictation pauses while that app is running.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -798,7 +798,7 @@ struct ModelSettingsTab: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Recommended for your device: **\(recommendedSize.displayName)**")
                                 .font(.callout)
-                            Text("Based on WhisperKit's tuned variants for your chip — not your RAM.")
+                            Text("Based on WhisperKit's tuned variants for your chip, not your RAM.")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                         }
@@ -862,8 +862,8 @@ struct ModelSettingsTab: View {
                     Toggle("Enable translation", isOn: $appState.translationEnabled)
 
                     Text(appState.translationEnabled
-                         ? "Speech will be translated to the selected language (or English if Auto-detect)."
-                         : "Speech will be transcribed as-is in the spoken language. The language setting is used as a recognition hint only.")
+                         ? "Speech is translated to the selected language (or English if set to Auto-detect)."
+                         : "Speech is transcribed as spoken. The language setting is only a recognition hint.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -889,8 +889,8 @@ struct ModelSettingsTab: View {
 
                     let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
                     Text(count == 0
-                         ? "Add names, jargon, or proper nouns (one per line, or comma-separated) that get mis-transcribed."
-                         : "\(count) term\(count == 1 ? "" : "s"). Keep the list short — the model can only use the first 50 to 100 words as a hint.")
+                         ? "Add names, jargon, or proper nouns (one per line or comma-separated) that get mis-transcribed."
+                         : "\(count) term\(count == 1 ? "" : "s"). Keep the list short; the model can only use the first 50 to 100 words as a hint.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1397,7 +1397,7 @@ struct AboutTab: View {
            let size = appState.modelManager.modelSize(from: name) {
             return size.engine.displayName
         }
-        return "—"
+        return "-"
     }
 
     private var appVersionDisplay: String {
@@ -1487,7 +1487,7 @@ struct DebugTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
 
-                Text("Process-wide usage for VocaMac, refreshed every few seconds — not model-only VRAM/ANE accounting.")
+                Text("This is VocaMac's process usage, refreshed every few seconds. It is not a model-only VRAM or ANE reading.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

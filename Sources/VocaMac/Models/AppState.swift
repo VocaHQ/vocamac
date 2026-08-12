@@ -547,7 +547,7 @@ final class AppState: ObservableObject {
         }
         sleepWakeMonitor.onDidWake = { [weak self] in
             guard let self else { return }
-            VocaLogger.info(.appState, "Wake recovery — refreshing hotkey health")
+            VocaLogger.info(.appState, "Wake recovery: refreshing hotkey health")
             if self.permissionManager.allPermissionsGranted {
                 self.syncHotKeyConfiguration()
                 if !self.hotKeyManager.isListening {
@@ -621,9 +621,9 @@ final class AppState: ObservableObject {
         guard !whisperService.isModelLoaded else { return nil }
         if isAutoPaused {
             if let name = autoPauseTriggerDisplayName, !name.isEmpty {
-                return "Paused while \(name) is running — model unloaded to free memory."
+                return "Paused while \(name) is running. The speech model was unloaded to free memory."
             }
-            return "Paused by a listed app — model unloaded to free memory."
+            return "Paused by a listed app. The speech model was unloaded to free memory."
         }
         switch lastModelUnloadReason {
         case .idleKeepAlive:
@@ -653,7 +653,7 @@ final class AppState: ObservableObject {
         modelKeepAlive.cancel()
 
         if isRecording || appStatus == .recording {
-            VocaLogger.warning(.appState, "Auto-pause entered while recording — stopping without inject")
+            VocaLogger.warning(.appState, "Auto-pause entered while recording: stopping without inject")
             _ = await stopAudioEngine()
             isRecording = false
             audioLevel = 0
@@ -813,7 +813,7 @@ final class AppState: ObservableObject {
         }
 
         if isAutoPaused {
-            let message = "Dictation is paused while a configured app is running."
+            let message = "Dictation is paused while a listed app is running."
             VocaLogger.info(.appState, message)
             showTemporaryError(message)
             return
@@ -842,7 +842,7 @@ final class AppState: ObservableObject {
             appStatus = .processing
             await ensureModelLoaded()
             guard whisperService.isModelLoaded else {
-                showTemporaryError("Failed to load the speech model. Try again from Settings → Speech Model.")
+                showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
                 return
             }
             appStatus = .idle

@@ -58,7 +58,7 @@ struct StatsSettingsTab: View {
                                 )
                             }
                             .controlSize(.small)
-                            .help("Copy a branded stats card image to the clipboard")
+                            .help("Copy a stats card image to the clipboard")
                         }
 
                         HStack(spacing: 0) {

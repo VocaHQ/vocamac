@@ -22,7 +22,7 @@ enum DictationOutputFormatter {
         var result = String(text.prefix(1)).uppercased() + text.dropFirst()
 
         // Capitalize after sentence-ending punctuation + whitespace.
-        // Mirrors VocaLinux: ([.!?])(\s+)([a-z]) — ASCII lowercase only so
+        // Mirrors VocaLinux: ([.!?])(\s+)([a-z]). ASCII lowercase only so
         // URLs and decimals without a space stay untouched.
         let pattern = #"([.!?])(\s+)([a-z])"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else {

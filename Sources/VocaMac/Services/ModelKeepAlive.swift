@@ -137,7 +137,7 @@ final class ModelKeepAlive: ObservableObject {
         }
 
         isArmed = false
-        VocaLogger.info(.general, "Model keep-alive idle timeout reached — unloading model")
+        VocaLogger.info(.general, "Model keep-alive idle timeout reached: unloading model")
         onIdleUnload?()
         return true
     }

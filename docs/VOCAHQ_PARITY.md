@@ -144,22 +144,22 @@ Voice commands stay **out of phase 1**. Port later as an optional, engine-aware 
 
 ## 6. Phased delivery
 
-Originally planned as separate PRs. Phases **1–3** plus the language-catalog half of Phase 4 shipped together in the stacked implementation PR on top of this plan (user requested a single follow-up). Remaining Phase 4 (update channel UX, richer log viewer) and Phase 5 stay deferred.
+Originally planned as separate PRs. Phases 1-3 plus the language-catalog half of Phase 4 shipped together in the stacked implementation PR on top of this plan (user requested a single follow-up). Remaining Phase 4 (update channel UX, richer log viewer) and Phase 5 stay deferred.
 
-### Phase 1: Output polish — **done**
+### Phase 1: Output polish (done)
 
 - Trailing space + auto-capitalize preferences and injection hook
 - Tests for edge cases (empty text, already capitalized, CJK, trailing punctuation)
 - Settings toggles under Dictation/Output
 
-### Phase 2: Performance / power — **done**
+### Phase 2: Performance / power (done)
 
 - `AutoPauseMonitor` + preferences + Settings UI
 - `ModelKeepAlive` idle unload + preferences
 - Sleep/wake hardening
 - Tests with injected process snapshots / fake clocks
 
-### Phase 3: Settings shell — **done**
+### Phase 3: Settings shell (done)
 
 - Sidebar navigation + searchable index
 - Sidebar footer: status, level, Test Dictation, Close
@@ -168,9 +168,9 @@ Originally planned as separate PRs. Phases **1–3** plus the language-catalog h
 
 ### Phase 4: Catalog and updates
 
-- Expand language list toward the VocaLinux catalog; searchable language picker — **done**
-- Update channel selector (stable vs nightly) wired to the right GitHub release endpoints — **follow-up**
-- Optional: richer log viewer in Advanced — **follow-up**
+- Expand language list toward the VocaLinux catalog; searchable language picker (done)
+- Update channel selector (stable vs nightly) wired to the right GitHub release endpoints (follow-up)
+- Optional: richer log viewer in Advanced (follow-up)
 
 ### Phase 5: Bidirectional / org
 

@@ -26,6 +26,19 @@ final class ProcessMonitor: ObservableObject {
 
     deinit { timer?.invalidate() }
 
+    /// One-shot resident memory sample for the current process (MB).
+    static func currentResidentMemoryMB() -> Double {
+        var taskInfo = mach_task_basic_info()
+        var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
+        let kr = withUnsafeMutablePointer(to: &taskInfo) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        return Double(taskInfo.resident_size) / (1024 * 1024)
+    }
+
     func refresh() {
         // --- Memory via mach_task_basic_info ---
         var taskInfo = mach_task_basic_info()
@@ -129,18 +142,15 @@ struct MenuBarView: View {
                     .fontWeight(.semibold)
 
                 if let model = appState.currentModel {
-                    // Model is loaded and ready
-                    Text("Model: \(model.size.displayName)")
+                    Text("Model: \(model.size.displayName) · ~\(String(format: "%.1f", model.size.ramRequiredGB)) GB")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if appState.whisperService.isModelLoaded {
-                    // Loaded but currentModel wasn't set (shouldn't happen, but safety net)
                     Text("Model: \(appState.whisperService.loadedModelName ?? "Loaded")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if let downloadingModel = appState.availableModels.first(where: { $0.downloadProgress != nil }),
                           let progress = downloadingModel.downloadProgress {
-                    // A model is being downloaded — show progress
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Downloading \(downloadingModel.size.displayName)… \(Int(progress * 100))%")
                             .font(.subheadline)
@@ -150,12 +160,19 @@ struct MenuBarView: View {
                             .tint(.orange)
                     }
                 } else if let loadingModel = appState.availableModels.first(where: { $0.isLoading }) {
-                    // A model is being loaded (already downloaded, now initializing)
                     Text("Loading \(loadingModel.size.displayName)…")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
+                } else if appState.isAutoPaused {
+                    Text(appState.autoPauseTriggerDisplayName.map { "Unloaded · paused for \($0)" }
+                         ?? "Unloaded · auto-paused")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                } else if appState.lastModelUnloadReason == .idleKeepAlive {
+                    Text("Unloaded · idle timeout")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
                 } else {
-                    // Fallback: no model loaded and nothing actively in progress
                     Text("No model loaded")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
@@ -208,6 +225,28 @@ struct MenuBarView: View {
                 Text(activationModeHint)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            if let unloadMessage = appState.modelUnloadStatusMessage,
+               appState.appStatus == .idle || appState.isAutoPaused {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: appState.isAutoPaused ? "pause.circle.fill" : "memorychip")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(unloadMessage)
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let freed = appState.approximateMemoryFreedMB {
+                            Text(String(format: "About %.0f MB process memory was released.", freed))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             // Audio level indicator (visible during recording)
@@ -412,6 +451,9 @@ struct MenuBarView: View {
     // MARK: - Helpers
 
     private var statusText: String {
+        if appState.isAutoPaused {
+            return appState.autoPauseTriggerDisplayName.map { "Paused · \($0)" } ?? "Auto-paused"
+        }
         switch appState.appStatus {
         case .idle:       return "Ready"
         case .recording:  return "Recording..."
@@ -421,6 +463,7 @@ struct MenuBarView: View {
     }
 
     private var statusColor: Color {
+        if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
         case .idle:       return .green
         case .recording:  return .red

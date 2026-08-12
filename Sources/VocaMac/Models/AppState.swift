@@ -153,6 +153,18 @@ final class AppState: ObservableObject {
     /// True while a configured auto-pause app is running and dictation is blocked.
     @Published var isAutoPaused: Bool = false
 
+    /// Last reason the speech model was unloaded (nil while a model is loaded).
+    @Published var lastModelUnloadReason: ModelUnloadReason?
+
+    /// Display name of the app that triggered the current auto-pause, if any.
+    @Published var autoPauseTriggerDisplayName: String?
+
+    /// Approximate process RSS (MB) sampled just before the last unload.
+    @Published var processMemoryBeforeUnloadMB: Double?
+
+    /// Approximate process RSS (MB) sampled right after the last unload.
+    @Published var processMemoryAfterUnloadMB: Double?
+
     private var hotKeySafetyTimeout: Double {
         Double(maxRecordingDuration) + 5.0
     }
@@ -575,12 +587,54 @@ final class AppState: ObservableObject {
     func unloadActiveModel(reason: ModelUnloadReason) async {
         VocaLogger.info(.appState, "Unloading model (reason=\(reason.rawValue))")
         modelKeepAlive.cancel()
+        let beforeMB = ProcessMonitor.currentResidentMemoryMB()
+        processMemoryBeforeUnloadMB = beforeMB
         await whisperService.unloadModel()
+        // Give the allocator a beat to release pages before sampling again.
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        let afterMB = ProcessMonitor.currentResidentMemoryMB()
+        processMemoryAfterUnloadMB = afterMB
+        lastModelUnloadReason = reason
         for i in availableModels.indices {
             availableModels[i].isActive = false
             availableModels[i].isLoading = false
         }
         currentModel = nil
+        VocaLogger.info(
+            .appState,
+            "Unload complete (reason=\(reason.rawValue), RSS \(String(format: "%.0f", beforeMB))→\(String(format: "%.0f", afterMB)) MB)"
+        )
+    }
+
+    /// Approximate RAM freed by the last unload, when both samples exist.
+    var approximateMemoryFreedMB: Double? {
+        guard let before = processMemoryBeforeUnloadMB,
+              let after = processMemoryAfterUnloadMB,
+              before > after else {
+            return nil
+        }
+        return before - after
+    }
+
+    /// User-facing summary of why the model is currently unloaded.
+    var modelUnloadStatusMessage: String? {
+        guard !whisperService.isModelLoaded else { return nil }
+        if isAutoPaused {
+            if let name = autoPauseTriggerDisplayName, !name.isEmpty {
+                return "Paused while \(name) is running — model unloaded to free memory."
+            }
+            return "Paused by a listed app — model unloaded to free memory."
+        }
+        switch lastModelUnloadReason {
+        case .idleKeepAlive:
+            return "Model unloaded after idle timeout. Next dictation reloads it."
+        case .autoPause:
+            return "Model unloaded by auto-pause."
+        case .manual:
+            return "Model unloaded."
+        case .none:
+            return nil
+        }
     }
 
     /// Ensure a model is loaded before dictation (lazy reload after idle unload).
@@ -595,6 +649,7 @@ final class AppState: ObservableObject {
 
     private func handleAutoPauseEntered() async {
         isAutoPaused = true
+        autoPauseTriggerDisplayName = autoPauseMonitor.activeTrigger?.displayName
         modelKeepAlive.cancel()
 
         if isRecording || appStatus == .recording {
@@ -609,11 +664,14 @@ final class AppState: ObservableObject {
 
         if whisperService.isModelLoaded {
             await unloadActiveModel(reason: .autoPause)
+        } else {
+            lastModelUnloadReason = .autoPause
         }
     }
 
     private func handleAutoPauseCleared() async {
         isAutoPaused = false
+        autoPauseTriggerDisplayName = nil
         // Warm-reload so the next hotkey is ready (Linux behavior).
         await ensureModelLoaded()
         modelKeepAlive.bump()
@@ -1079,6 +1137,9 @@ final class AppState: ObservableObject {
                 }
             }
 
+            lastModelUnloadReason = nil
+            processMemoryBeforeUnloadMB = nil
+            processMemoryAfterUnloadMB = nil
             VocaLogger.info(.appState, "Model ready: \(resolvedSize.displayName)")
         } catch {
             // A newer load superseded this one; do not restore over it.

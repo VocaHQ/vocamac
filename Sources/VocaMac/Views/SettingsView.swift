@@ -479,6 +479,45 @@ struct PerformanceSettingsTab: View {
 
     var body: some View {
         Form {
+            Section("Model Status") {
+                HStack {
+                    Label(
+                        appState.whisperService.isModelLoaded ? "Model loaded" : "Model unloaded",
+                        systemImage: appState.whisperService.isModelLoaded ? "checkmark.circle.fill" : "memorychip"
+                    )
+                    .foregroundStyle(appState.whisperService.isModelLoaded ? .green : .orange)
+                    Spacer()
+                    if appState.whisperService.isModelLoaded {
+                        Text(loadedModelLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if appState.whisperService.isModelLoaded {
+                    if let estimate = estimatedModelRAMLabel {
+                        LabeledContent("Estimated model RAM", value: estimate)
+                    }
+                    LabeledContent(
+                        "App memory (RSS)",
+                        value: String(format: "%.0f MB", ProcessMonitor.currentResidentMemoryMB())
+                    )
+                } else if let message = appState.modelUnloadStatusMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                    if let freed = appState.approximateMemoryFreedMB {
+                        Text(String(format: "Approx. %.0f MB process RSS dropped on unload.", freed))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("No speech model is currently resident.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Auto-Pause for Apps") {
                 Toggle("Pause Dictation for Listed Apps", isOn: $appState.autoPauseEnabled)
 
@@ -524,9 +563,13 @@ struct PerformanceSettingsTab: View {
                 .opacity(appState.autoPauseEnabled ? 1 : 0.45)
 
                 if appState.isAutoPaused {
-                    Label("Dictation is currently paused by a listed app.", systemImage: "pause.circle.fill")
-                        .foregroundStyle(.orange)
-                        .font(.caption)
+                    Label(
+                        appState.autoPauseTriggerDisplayName.map { "Paused while \($0) is running." }
+                            ?? "Dictation is currently paused by a listed app.",
+                        systemImage: "pause.circle.fill"
+                    )
+                    .foregroundStyle(.orange)
+                    .font(.caption)
                 }
             }
 
@@ -559,6 +602,20 @@ struct PerformanceSettingsTab: View {
                 showingAppPicker = false
             }
         }
+    }
+
+    private var loadedModelLabel: String {
+        if let model = appState.currentModel {
+            return model.size.displayName
+        }
+        return appState.whisperService.loadedModelName ?? "Ready"
+    }
+
+    private var estimatedModelRAMLabel: String? {
+        let size = appState.currentModel?.size
+            ?? ModelSize(rawValue: appState.selectedModelSize)
+        guard let size else { return nil }
+        return String(format: "~%.1f GB", size.ramRequiredGB)
     }
 }
 

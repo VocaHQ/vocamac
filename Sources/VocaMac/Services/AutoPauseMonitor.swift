@@ -75,7 +75,15 @@ enum AutoPauseMatching {
         configured: [AutoPauseAppEntry],
         running: [RunningAppSnapshot]
     ) -> Bool {
-        guard !configured.isEmpty else { return false }
+        firstMatchingConfiguredApp(configured: configured, running: running) != nil
+    }
+
+    /// First configured entry that matches a running snapshot, if any.
+    static func firstMatchingConfiguredApp(
+        configured: [AutoPauseAppEntry],
+        running: [RunningAppSnapshot]
+    ) -> AutoPauseAppEntry? {
+        guard !configured.isEmpty else { return nil }
 
         for entry in configured {
             let entryBundle = entry.bundleIdentifier?.lowercased()
@@ -85,19 +93,19 @@ enum AutoPauseMatching {
             for snap in running {
                 if let entryBundle, let snapBundle = snap.bundleIdentifier?.lowercased(),
                    entryBundle == snapBundle {
-                    return true
+                    return entry
                 }
                 if let snapProcess = snap.processName.map({ normalizeProcessName($0) }),
                    !entryProcess.isEmpty, entryProcess == snapProcess {
-                    return true
+                    return entry
                 }
                 if let snapBundle = snap.bundleIdentifier.map({ normalizeProcessName($0) }),
                    !entryProcess.isEmpty, entryProcess == snapBundle {
-                    return true
+                    return entry
                 }
             }
         }
-        return false
+        return nil
     }
 
     /// Snapshot regular (and accessory) apps from NSWorkspace.
@@ -140,6 +148,8 @@ final class AutoPauseMonitor: ObservableObject {
     var processSnapshot: () -> [RunningAppSnapshot]
 
     @Published private(set) var isPaused: Bool = false
+    /// The configured app that currently triggers auto-pause, if any.
+    @Published private(set) var activeTrigger: AutoPauseAppEntry?
     private(set) var isRunning: Bool = false
 
     private var timer: Timer?
@@ -184,20 +194,24 @@ final class AutoPauseMonitor: ObservableObject {
     func checkOnce() -> Bool {
         let (enabled, apps, _) = readConfig()
         guard enabled else {
+            activeTrigger = nil
             clearPauseIfNeeded()
             return false
         }
 
-        let matched = AutoPauseMatching.anyConfiguredAppRunning(
+        let matchedEntry = AutoPauseMatching.firstMatchingConfiguredApp(
             configured: apps,
             running: processSnapshot()
         )
-        if matched {
+        if let matchedEntry {
+            activeTrigger = matchedEntry
             enterPauseIfNeeded()
+            return true
         } else {
+            activeTrigger = nil
             clearPauseIfNeeded()
+            return false
         }
-        return matched
     }
 
     private func readConfig() -> (Bool, [AutoPauseAppEntry], TimeInterval) {
@@ -248,6 +262,7 @@ final class AutoPauseMonitor: ObservableObject {
     private func clearPauseIfNeeded() {
         guard isPaused else { return }
         isPaused = false
+        activeTrigger = nil
         VocaLogger.info(.general, "Auto-pause cleared")
         onResume?()
     }

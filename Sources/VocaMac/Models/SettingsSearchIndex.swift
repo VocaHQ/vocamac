@@ -118,6 +118,13 @@ enum SettingsSearchIndex {
 
         // Performance
         SettingsSearchEntry(
+            id: "model-status",
+            page: .performance,
+            title: "Model Status",
+            subtitle: "Loaded or unloaded",
+            keywords: ["loaded", "unload", "ram", "memory", "status", "pause"]
+        ),
+        SettingsSearchEntry(
             id: "auto-pause",
             page: .performance,
             title: "Auto-Pause for Apps",

@@ -4,10 +4,10 @@ Living plan for bringing VocaMac in line with the Voca family product bar, start
 
 **Org principle** ([VocaHQ/PRODUCT.md](https://github.com/VocaHQ/vocahq/blob/main/PRODUCT.md)): feature parity over time across platforms. Same jobs, native code. Not a shared UI toolkit, not identical screenshots.
 
-**Sources reviewed for this draft:**
+**Sources reviewed:**
 
 - VocaLinux `main` (v0.15 line): searchable sidebar settings (#601, #618), auto-pause + idle unload (#592), dictation polish (#554, #608), language catalog (#616)
-- VocaMac `main`: tabbed settings, four-engine `TranscriptionRouter`, cursor overlay, stats, AX injection
+- VocaMac: four-engine `TranscriptionRouter`, cursor overlay, stats, AX injection, plus the parity work shipped in PR #207
 - VocaHQ product principles and status labels
 
 ---
@@ -28,14 +28,14 @@ Platform adapters stay native: `NSWorkspace` instead of `psutil`, `NSWorkspace` 
 
 ## 2. Snapshot matrix
 
-Status as of this document. Update cells when follow-up PRs land.
+Status as of the #207 parity ship. Update cells when follow-up PRs land.
 
 | Category | Capability | VocaLinux v0.15 | VocaMac | Target |
 |----------|------------|-----------------|---------|--------|
 | Core loop | Push-to-talk / toggle, silence stop, inject | Yes | Yes | Keep |
-| Settings IA | Topic pages in a **left sidebar** | Yes | Yes (`NavigationSplitView`) | Keep |
-| Settings IA | Live **settings search** | Yes | Yes | Keep |
-| Settings IA | Persistent status / mic / test footer | Yes | Yes | Keep |
+| Settings IA | Topic pages in a **left sidebar** | Yes | Yes (custom sidebar + detail) | Keep |
+| Settings IA | Live **settings search** | Yes | Yes (sidebar search field) | Keep |
+| Settings IA | Persistent status / mic / test footer | Yes | Yes (Test Dictation; no inject) | Keep |
 | Output | Trailing space after utterance | Yes | Yes | Keep |
 | Output | Auto-capitalize after sentence ends | Yes (esp. VOSK path) | Yes | Keep |
 | Output | Voice commands | Yes (engine-gated) | No | Later / optional |
@@ -48,151 +48,127 @@ Status as of this document. Update cells when follow-up PRs land.
 | Models | Language catalog depth | ~33 + auto | ~36 + auto (searchable) | Keep |
 | Updates | Stable / nightly channel picker | Yes | Nightly via separate cask/DMG | Align UX (follow-up) |
 | Diagnostics | In-app log viewer | Yes | Copy/export only | Improve (follow-up) |
-| Stats | Usage stats / streaks | Thin | Rich Stats sidebar page | Keep; feed Linux later |
+| Stats | Usage stats / streaks | Thin | Rich Stats sidebar page (+ Share) | Keep; feed Linux later |
 | UX | Cursor mic overlay | No | Yes | Keep |
-| UX | Onboarding wizard | Basic first-run | Full multi-step | Keep |
+| UX | Onboarding wizard | Basic first-run | Full multi-step (About entry) | Keep |
 
 ---
 
-## 3. Unified settings IA (target)
-
-Mirror VocaLinux topic names where they map cleanly. Keep Mac-only content under the right topic.
+## 3. Settings IA (shipped)
 
 ```
-Dictation       Hotkey, mode, silence/VAD, output formatting, voice commands (later)
-Speech Model    Engine/model picker, downloads, language catalog, translation/vocab
-Audio           Device, mic test, sound effects
-Performance     Auto-pause apps, idle unload, resource readout
-Application     Launch at login, cursor overlay, clipboard preserve, notifications
-Advanced        Engine knobs (gated), debug tools
-About           Version, update channel, links, setup wizard
-[Sidebar footer] Status, level meter, Test Dictation, Close
+Dictation       Hotkey, mode, output formatting (trailing space, auto-capitalize)
+Speech Model    Engine/model picker, downloads, language, translation/vocab (engine-gated)
+Audio           Device, silence/VAD, sound effects
+Performance     Model status, auto-pause apps, idle unload
+Application     Launch at login, recording overlay, clipboard preserve
+Stats           Usage totals, streaks, Share card
+Advanced        System info, resource pills, permissions, debug logs
+About           Version, updates, links, setup wizard
+[Sidebar]       Search at top; status + Test Dictation footer (results only, no inject)
 ```
 
-**macOS shell:** SwiftUI `NavigationSplitView` (or equivalent sidebar list + detail) + `.searchable`. Do not paste GTK layout into SwiftUI.
+**macOS shell:** Custom sidebar + detail layout (not `NavigationSplitView`, which fought Tahoe toolbar chrome). Sidebar search field matches System Settings placement. One top-right sidebar toggle.
 
-**Search contract** (match Linux behavior):
+**Search contract:**
 
 1. Index each control by title, subtitle, and optional keywords
-2. Filter rows in place; badge match counts on sidebar pages
+2. Filter sidebar pages by match; badge counts when searching
 3. Jump to first page with matches; empty state when none
-4. Esc clears search; restore previous page
+4. Clearing search restores the previous page
 
-Current tab → target page mapping:
+Former tab → page mapping:
 
-| Today | Target page |
-|-------|-------------|
-| General (hotkey, language, translation, vocab, behavior) | Split across Dictation / Speech Model / Application |
-| Models | Speech Model (+ resource bits → Performance) |
-| Stats | Application or its own sidebar entry (keep Mac lead) |
+| Was | Now |
+|-----|-----|
+| General | Split across Dictation / Speech Model / Application |
+| Models | Speech Model (system/resource bits → Advanced) |
+| Stats | Stats (own sidebar item) |
 | Audio | Audio |
 | Debug | Advanced |
 | About | About |
 
 ---
 
-## 4. Power management (port of #592)
+## 4. Power management (shipped; port of #592)
 
 ### 4.1 Auto-pause for apps
 
-**Linux:** poll process basenames; unload model while any listed name runs; reload when none remain.
-
 **Mac adapter:**
 
-- Watch `NSWorkspace.shared.runningApplications` (and/or `NSWorkspace` launch/terminate notifications)
-- Match on bundle ID and/or executable basename (user-facing list should prefer app names + bundle IDs)
-- On pause: stop recording if active, call existing unload paths on `TranscriptionRouter` / engine services, set an `isAutoPaused` gate so hotkeys do not start capture
-- On resume: lazy reload on next dictation (same as Linux), or warm-reload if already preferred
+- Poll `NSWorkspace.shared.runningApplications` (~5s)
+- Match on bundle ID **or** executable basename
+- On pause: stop recording if active, unload via `TranscriptionRouter`, set `isAutoPaused`
+- On resume: warm-reload selected model
+- UI surfaces which app triggered pause (Performance + menu bar)
 
-**Settings:** Performance page. Toggle + editable list + "Choose Running App…" picker.
+**Settings:** Performance page. Toggle + list + "Choose Running App…"
 
-**Defaults:** off; empty app list; poll / refresh interval ~5s (reuse the existing ProcessMonitor cadence mindset; do not add a second high-frequency timer).
+**Defaults:** off; empty app list.
 
-### 4.2 Idle model unload ("keep-alive")
+### 4.2 Idle model unload
 
-**Linux:** after N seconds idle (default 300, options 1-30 min), unload model; next dictation reloads.
-
-**Mac adapter:**
-
-- Arm timer when `AppStatus` returns to `.idle` after a transcription
-- Cancel while recording/processing or while auto-paused
-- Call the same unload APIs used on engine switch
-- Surface cold-start latency honestly in UI copy
-
-**Note:** `AudioEngine` already releases the AVAudioEngine after 3s idle for Bluetooth HFP. Idle *model* unload is separate and optional.
+- Arm when status returns to idle; cancel while recording/processing/auto-paused
+- Opt-in; default timeout 300s (1–30 min options)
+- Next dictation reloads; Performance/menu bar show unload reason and approx RSS drop
 
 ### 4.3 Sleep / wake
 
-Subscribe to `NSWorkspace.willSleepNotification` / `didWakeNotification` (and/or screen sleep). On wake: refresh audio devices and hotkey tap health; bump keep-alive. Skip model reload if still auto-paused.
+`NSWorkspace.willSleepNotification` / `didWakeNotification`: cancel keep-alive on sleep; on wake refresh hotkey health and bump keep-alive (skip reload if still auto-paused).
 
 ---
 
-## 5. Dictation polish (port of #554 / #608)
+## 5. Dictation polish (shipped; port of #554 / #608)
 
-Apply in one place before `TextInjector.inject`:
+Applied in `DictationOutputFormatter` before `TextInjector.inject` (hotkey path). Settings Test Dictation shows results in the footer only and does **not** inject.
 
 | Preference | Default | Behavior |
 |------------|---------|----------|
-| `appendTrailingSpace` | `true` | Append a trailing space after a completed utterance so the next PTT/toggle session does not glue onto the previous sentence |
-| `autoCapitalize` | `true` | Capitalize start of session and after `.` `!` `?` when the engine did not already |
+| `appendTrailingSpace` | `true` | Space after each utterance |
+| `autoCapitalize` | `true` | Capitalize start and after `.` `!` `?` when needed |
 
-Whisper / Apple Speech often emit capitalization already; keep the pass idempotent (do not double-upcase). Marketing copy that already claims this behavior should match the implementation once shipped.
-
-Voice commands stay **out of phase 1**. Port later as an optional, engine-aware post-processor, not as a default for WhisperKit.
+Voice commands remain out of scope for now.
 
 ---
 
 ## 6. Phased delivery
 
-Originally planned as separate PRs. Phases 1-3 plus the language-catalog half of Phase 4 shipped together in the stacked implementation PR on top of this plan (user requested a single follow-up). Remaining Phase 4 (update channel UX, richer log viewer) and Phase 5 stay deferred.
+Phases 1–3 and the language half of Phase 4 shipped in PR #207. Remaining Phase 4 and Phase 5 stay deferred.
 
 ### Phase 1: Output polish (done)
 
-- Trailing space + auto-capitalize preferences and injection hook
-- Tests for edge cases (empty text, already capitalized, CJK, trailing punctuation)
-- Settings toggles under Dictation/Output
-
 ### Phase 2: Performance / power (done)
-
-- `AutoPauseMonitor` + preferences + Settings UI
-- `ModelKeepAlive` idle unload + preferences
-- Sleep/wake hardening
-- Tests with injected process snapshots / fake clocks
 
 ### Phase 3: Settings shell (done)
 
-- Sidebar navigation + searchable index
-- Sidebar footer: status, level, Test Dictation, Close
-- Rehome existing controls into the target IA
-- Preserve Stats and Mac-only controls
-
 ### Phase 4: Catalog and updates
 
-- Expand language list toward the VocaLinux catalog; searchable language picker (done)
-- Update channel selector (stable vs nightly) wired to the right GitHub release endpoints (follow-up)
-- Optional: richer log viewer in Advanced (follow-up)
+- Expand language list; searchable picker (done)
+- Update channel selector stable vs nightly (follow-up)
+- Richer log viewer in Advanced (follow-up)
 
 ### Phase 5: Bidirectional / org
 
 - Feed Mac wins back to Linux where useful: stats, custom vocabulary, translation UX, multi-engine honesty
-- Keep the matrix in this file (and eventually a short matrix on vocahq.com) updated
-- VocaWin / VocaPhone consume the same taxonomy when they grow past marketing
+- Keep this matrix (and eventually vocahq.com) updated
+- VocaWin / VocaPhone reuse the same taxonomy when they grow past marketing
 
 ---
 
-## 7. Suggested Swift touch points
+## 7. Swift touch points (implemented)
 
 | Work | Where |
 |------|--------|
-| Preferences | `AppState` `@AppStorage` keys (`vocamac.appendTrailingSpace`, `vocamac.autoCapitalize`, `vocamac.autoPause.*`, `vocamac.modelKeepAlive.*`) |
-| Text polish | Small helper used from `AppState` before `TextInjector` |
-| Auto-pause | New `AutoPauseMonitor` service; wire from `AppState` / app lifecycle |
-| Idle unload | New `ModelKeepAlive` helper calling `TranscriptionRouter` unload APIs |
-| Settings shell | Refactor `SettingsView.swift` off `TabView`; keep tab bodies as page views |
-| Search index | Lightweight struct listing title/subtitle/keywords → page id (no new dependency) |
-| Tests | `Tests/VocaMacTests/` mirrors Linux: pure matching + timeout logic without UI |
+| Preferences | `AppState` / `PreferenceKey` (`vocamac.appendTrailingSpace`, `vocamac.autoCapitalize`, `vocamac.autoPause.*`, `vocamac.modelKeepAlive.*`) |
+| Text polish | `DictationOutputFormatter` |
+| Auto-pause | `AutoPauseMonitor` |
+| Idle unload | `ModelKeepAlive` |
+| Sleep/wake | `SleepWakeMonitor` |
+| Settings shell | `SettingsView` (custom sidebar + detail) |
+| Search index | `SettingsSearchIndex` |
+| Tests | `Tests/VocaMacTests/` (matching, formatter, keep-alive, search, languages, …) |
 
-Reuse unload already present on Whisper / Parakeet / Apple Speech / Sherpa services. Do not invent a second model lifecycle path.
+Unload reuses existing engine teardown via `TranscriptionRouter.unloadModel()`.
 
 ---
 
@@ -211,20 +187,18 @@ Reuse unload already present on Whisper / Parakeet / Apple Speech / Sherpa servi
 
 A reviewer can open Settings and:
 
-1. Navigate by left sidebar topics (not only top tabs)
-2. Search "pause" or "idle" and land on Performance controls
-3. See live recognition status and run Test Dictation without leaving Settings
-4. Enable auto-pause, pick a running app, confirm the model unloads while it runs and reloads after
-5. Enable idle unload, wait past the timeout (or advance a test clock), confirm unload + next-dictation reload
-6. Dictate twice in a row with trailing-space on and get a clean space between utterances
+1. Navigate by left sidebar topics
+2. Search "pause" or "idle" and land on Performance
+3. See status and run Test Dictation in the footer (results appear there; no inject)
+4. Enable auto-pause, pick a running app, confirm unload while it runs and reload after
+5. Enable idle unload, wait past the timeout, confirm unload + next-dictation reload
+6. Dictate twice with trailing space on and get a clean space between utterances
 
 ---
 
-## 10. Open questions
+## 10. Decisions (resolved in #207)
 
-1. **Stats placement:** keep a dedicated sidebar item vs fold into Application?
-2. **Auto-pause matching:** bundle ID only, or also process name for CLI tools / games?
-3. **Idle unload default:** stay opt-in (Linux default) or recommend-on for large models?
-4. **Voice commands:** skip until a Whisper-friendly design exists, or ship a small English command set behind a toggle?
-
-Resolve these in the phase PRs; do not block Phase 1 on them.
+1. **Stats placement:** dedicated sidebar item (keep Mac lead).
+2. **Auto-pause matching:** bundle ID **or** process name.
+3. **Idle unload default:** opt-in, default off (match Linux).
+4. **Voice commands:** skip for now; revisit with a Whisper-friendly design.

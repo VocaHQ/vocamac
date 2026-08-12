@@ -466,9 +466,9 @@ struct MenuBarView: View {
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
         case .idle:       return .green
-        case .recording:  return .red
-        case .processing: return .orange
-        case .error:      return .yellow
+        case .recording:  return Color(nsColor: BrandAssets.brandGreen)
+        case .processing: return .yellow
+        case .error:      return .orange
         }
     }
 

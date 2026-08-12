@@ -449,7 +449,7 @@ struct HandyOverlayView: View {
     @State private var hasEntered = false
 
     private let brandGreen = Color(nsColor: BrandAssets.brandGreen)
-    private let processingColor = Color(red: 0.62, green: 0.28, blue: 0.92)
+    private let processingColor = Color(nsColor: .systemYellow)
 
     private var isDark: Bool { colorScheme == .dark }
 

@@ -33,7 +33,7 @@ enum BrandAssets {
 enum MenuBarIconStyle: Equatable {
     /// Black mark drawn as a template so macOS follows the menu bar appearance.
     case brandMarkTemplate
-    /// Mark tinted with the status color (recording).
+    /// Mark tinted with brand teal while recording (mic hot).
     case brandMarkTinted
     /// SF Symbol for processing / error.
     case systemSymbol(name: String)

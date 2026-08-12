@@ -315,16 +315,16 @@ struct VocaMacApp: App {
 /// Renders the Voca mark in the menu bar with color changes based on app status.
 ///
 /// Idle uses a template silhouette so macOS follows the menu bar appearance.
-/// Recording tints that same mark red. Processing and error keep SF Symbols.
+/// Recording tints that same mark brand teal. Processing and error keep SF Symbols.
 ///
 /// MenuBarExtra strips SwiftUI `.foregroundStyle()` colors, so status colors
 /// are applied via `NSImage` + `sourceAtop` with `isTemplate = false`.
 ///
 /// States:
 ///   • idle       → Voca mark (template, adapts to menu bar)
-///   • recording  → Voca mark in red
-///   • processing → purple ellipsis (non-template, colored)
-///   • error      → yellow warning (non-template, colored)
+///   • recording  → Voca mark in brand teal (mic hot)
+///   • processing → yellow ellipsis (non-template, colored)
+///   • error      → orange warning (non-template, colored)
 struct MenuBarIcon: View {
     let appStatus: AppStatus
 
@@ -343,9 +343,9 @@ struct MenuBarIcon: View {
 
         case .brandMarkTinted:
             if let mark = sizedMark() {
-                return tintedImage(base: mark, color: .systemRed)
+                return tintedImage(base: mark, color: BrandAssets.brandGreen)
             }
-            return fallbackSymbol(named: "mic.fill", tint: .systemRed)
+            return fallbackSymbol(named: "mic.fill", tint: BrandAssets.brandGreen)
 
         case .systemSymbol(let name):
             return fallbackSymbol(named: name, tint: statusColor)
@@ -413,9 +413,9 @@ struct MenuBarIcon: View {
     private var statusColor: NSColor {
         switch appStatus {
         case .idle:       return BrandAssets.brandGreen
-        case .recording:  return .systemRed
-        case .processing: return NSColor(red: 0.749, green: 0.353, blue: 0.949, alpha: 1.0) // #BF5AF2
-        case .error:      return .systemYellow
+        case .recording:  return BrandAssets.brandGreen
+        case .processing: return .systemYellow
+        case .error:      return .systemOrange
         }
     }
 }

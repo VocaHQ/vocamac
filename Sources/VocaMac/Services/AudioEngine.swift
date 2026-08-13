@@ -24,6 +24,9 @@ final class AudioEngine {
     private var audioBuffer: [Float] = []
     private var _isCurrentlyRecording = false
     private var configuredInputDeviceID: AudioDeviceID?
+    /// Last UID passed to `startRecording`, used to rebuild the graph after a
+    /// configuration change without dropping the user's selected microphone.
+    private var lastPreferredInputDeviceUID: String?
     private let bufferQueue = DispatchQueue(label: "com.vocamac.audio-buffer", qos: .userInteractive)
     private let lifecycleQueue = DispatchQueue(label: "com.vocamac.audio-engine.lifecycle", qos: .userInitiated)
     private let recordingPreparationLock = NSLock()
@@ -82,8 +85,8 @@ final class AudioEngine {
     /// Called when max recording duration is reached
     var onMaxDurationReached: (() -> Void)?
 
-    /// Called when the audio device configuration changes (e.g., mic unplugged/replugged).
-    /// The engine is automatically stopped and reset when this happens.
+    /// Called when a recording cannot be recovered after an audio route change
+    /// (mic unplugged, Bluetooth disconnect, or a failed in-place restart).
     /// AppState should use this to recover from a stuck recording state.
     var onAudioDeviceChanged: (() -> Void)?
 
@@ -166,9 +169,10 @@ final class AudioEngine {
     /// This happens when a microphone is unplugged/replugged, Bluetooth audio
     /// disconnects, or the default audio device changes (e.g., after sleep).
     ///
-    /// When this fires during an active recording, the engine's internal state
-    /// is invalidated — the installed tap references a stale format and no audio
-    /// flows. We must stop, reset, and notify AppState so it can recover.
+    /// Apple stops the engine and posts this notification. Do not deallocate
+    /// `AVAudioEngine` from the handler — AVFAudio may still be running
+    /// `AVAudioIOUnit` property listeners on another queue.
+    /// https://developer.apple.com/documentation/avfaudio/avaudioengineconfigurationchangenotification
     @objc private func handleAudioConfigurationChange(_ notification: Notification) {
         // Capture preparation state on the posting queue. startRecording holds
         // lifecycleQueue during Bluetooth HFP settle, so reading later would race.
@@ -194,34 +198,103 @@ final class AudioEngine {
                 engineIsRunning: self.engine?.isRunning == true,
                 elapsedSinceRecordingStart: elapsedSinceRecordingStart,
                 configuredInputDeviceID: self.configuredInputDeviceID,
-                currentInputDeviceID: currentInputDeviceID
+                currentInputDeviceID: currentInputDeviceID,
+                currentDeviceName: currentInputDeviceID.flatMap(Self.audioDeviceName),
+                currentDeviceUID: currentInputDeviceID.flatMap(Self.audioDeviceUID)
             ) {
                 VocaLogger.info(.audioEngine, "Configuration change did not disrupt the configured recording route")
                 return
             }
 
             if wasRecording {
-                VocaLogger.warning(.audioEngine, "Configuration changed while recording — forcing stop and reset")
-                // Tear down the stale recording state
+                VocaLogger.warning(.audioEngine, "Configuration changed while recording — restarting audio graph")
+                self.setIsPreparingRecording(true)
+                let recovered = self.restartRecordingGraph()
+                self.setIsPreparingRecording(false)
+                if recovered {
+                    VocaLogger.info(.audioEngine, "Audio graph restarted after configuration change")
+                    return
+                }
+
+                VocaLogger.warning(.audioEngine, "Failed to restart audio graph after configuration change")
                 self._isCurrentlyRecording = false
                 self.silenceCallbackFired = false
                 self.maxDurationCallbackFired = false
                 self.removeInputTap(reason: "audio configuration change")
-                self.engine?.stop()
-            }
-
-            // Drop the engine entirely so the next recording starts from a
-            // clean instance bound to the new default device.
-            self.releaseEngine()
-            VocaLogger.info(.audioEngine, "Audio engine released after configuration change")
-
-            if wasRecording {
-                // Notify AppState on the main queue so it can handle the interrupted recording
+                self.retireEngineAfterConfigurationChange()
                 DispatchQueue.main.async { [weak self] in
                     self?.onAudioDeviceChanged?()
                 }
+                return
             }
+
+            // Idle engine was invalidated (typical HFP → A2DP fallback after stop).
+            // Detach it now so the next recording gets a fresh instance, but keep
+            // the old object alive until AVFAudio finishes its callbacks.
+            self.retireEngineAfterConfigurationChange()
         }
+    }
+
+    /// Detaches the current engine so the next recording creates a new one,
+    /// without deallocating the old `AVAudioEngine` on this turn.
+    /// Must be called on `lifecycleQueue`.
+    private func retireEngineAfterConfigurationChange() {
+        pendingEngineRelease?.cancel()
+        pendingEngineRelease = nil
+        configuredInputDeviceID = nil
+
+        guard let oldEngine = engine else { return }
+
+        NotificationCenter.default.removeObserver(
+            self,
+            name: .AVAudioEngineConfigurationChange,
+            object: oldEngine
+        )
+        engine = nil
+        VocaLogger.info(.audioEngine, "Audio engine retired after configuration change")
+
+        lifecycleQueue.asyncAfter(deadline: .now() + Self.idleEngineReleaseDelay) {
+            withExtendedLifetime(oldEngine) {}
+        }
+    }
+
+    /// Rebuilds the input tap and restarts the existing engine after Apple
+    /// stops it for a configuration change. Keeps captured audio and does not
+    /// notify AppState on success.
+    /// Must be called on `lifecycleQueue`.
+    private func restartRecordingGraph() -> Bool {
+        guard let engine else { return false }
+
+        removeInputTap(reason: "configuration-change restart")
+        engine.stop()
+        engine.reset()
+
+        let inputNode = engine.inputNode
+        guard let configuredInputDeviceID = configureInputRoute(
+            preferredInputDeviceID: lastPreferredInputDeviceUID,
+            engine: engine,
+            inputNode: inputNode
+        ) else {
+            return false
+        }
+        self.configuredInputDeviceID = configuredInputDeviceID
+
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard isValidInputFormat(inputFormat) else {
+            VocaLogger.error(
+                .audioEngine,
+                "Invalid input format after configuration change: sampleRate=\(inputFormat.sampleRate), channels=\(inputFormat.channelCount)"
+            )
+            return false
+        }
+
+        if let startFailure = installTapAndStart(engine: engine, inputNode: inputNode, inputFormat: inputFormat) {
+            VocaLogger.error(.audioEngine, "Failed to restart audio engine after configuration change: \(startFailure)")
+            removeInputTap(reason: "configuration-change restart failure")
+            return false
+        }
+
+        return engine.isRunning
     }
 
     // MARK: - Permission Handling
@@ -270,6 +343,7 @@ final class AudioEngine {
             self.setIsPreparingRecording(true)
             defer { self.setIsPreparingRecording(false) }
 
+            self.lastPreferredInputDeviceUID = preferredInputDeviceID
             self.silenceThreshold = silenceThreshold
             self.silenceDuration = silenceDuration
             self.maxDuration = maxDuration
@@ -461,6 +535,38 @@ final class AudioEngine {
         }
     }
 
+    /// Installs the input tap and starts the engine. Returns a description of
+    /// the failure, or `nil` when `engine.isRunning` after start.
+    private func installTapAndStart(
+        engine: AVAudioEngine,
+        inputNode: AVAudioInputNode,
+        inputFormat: AVAudioFormat
+    ) -> String? {
+        var startError: Error?
+        let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
+            guard let self else { return }
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer, inputFormat: inputFormat)
+            }
+            engine.prepare()
+            do {
+                try engine.start()
+            } catch {
+                startError = error
+            }
+        }
+        if let exception {
+            return exception.localizedDescription
+        }
+        if let startError {
+            return Self.describeCoreAudioError(startError)
+        }
+        guard engine.isRunning else {
+            return "engine stopped during start"
+        }
+        return nil
+    }
+
     /// Restores AudioEngine to a clean idle state after any failed start attempt.
     private func recoverFromStartFailure(notifyAppState: Bool) {
         _isCurrentlyRecording = false
@@ -496,6 +602,8 @@ final class AudioEngine {
         elapsedSinceRecordingStart: TimeInterval,
         configuredInputDeviceID: AudioDeviceID?,
         currentInputDeviceID: AudioDeviceID?,
+        currentDeviceName: String? = nil,
+        currentDeviceUID: String? = nil,
         recoveryWindow: TimeInterval = startupConfigurationChangeRecoveryWindow
     ) -> Bool {
         // Still inside configureInputRoute / startRecording on lifecycleQueue.
@@ -505,7 +613,9 @@ final class AudioEngine {
 
         let routeIsHealthy = isConfiguredRouteHealthy(
             configuredInputDeviceID: configuredInputDeviceID,
-            currentInputDeviceID: currentInputDeviceID
+            currentInputDeviceID: currentInputDeviceID,
+            currentDeviceName: currentDeviceName,
+            currentDeviceUID: currentDeviceUID
         )
 
         // A notification posted during preparation but processed after start must
@@ -525,7 +635,9 @@ final class AudioEngine {
     /// acceptable Bluetooth HFP sibling of that headset.
     static func isConfiguredRouteHealthy(
         configuredInputDeviceID: AudioDeviceID?,
-        currentInputDeviceID: AudioDeviceID?
+        currentInputDeviceID: AudioDeviceID?,
+        currentDeviceName: String? = nil,
+        currentDeviceUID: String? = nil
     ) -> Bool {
         guard let configuredInputDeviceID, let currentInputDeviceID else {
             return false
@@ -533,10 +645,28 @@ final class AudioEngine {
         if configuredInputDeviceID == currentInputDeviceID {
             return true
         }
+        // Core Audio exposes a temporary default aggregate while Bluetooth
+        // flips between A2DP and HFP. That is settle churn, not a lost mic.
+        if isTransientCoreAudioAggregate(name: currentDeviceName, uid: currentDeviceUID) {
+            return true
+        }
         return isAcceptableBluetoothRouteSubstitute(
             targetDeviceID: configuredInputDeviceID,
             actualDeviceID: currentInputDeviceID
         )
+    }
+
+    /// Core Audio's internal default-device wrapper. It shows up during
+    /// Bluetooth profile switches and is not a real microphone.
+    static func isTransientCoreAudioAggregate(name: String?, uid: String?) -> Bool {
+        let prefix = "CADefaultDeviceAggregate"
+        if let name, name.hasPrefix(prefix) { return true }
+        if let uid, uid.hasPrefix(prefix) { return true }
+        return false
+    }
+
+    static func shouldExposeInputDevice(name: String, uid: String) -> Bool {
+        !isTransientCoreAudioAggregate(name: name, uid: uid)
     }
 
     static func describeCoreAudioError(_ error: Error) -> String {
@@ -700,7 +830,8 @@ final class AudioEngine {
 
         return inputAudioDeviceIDs().compactMap { deviceID in
             guard let uid = audioDeviceUID(for: deviceID),
-                  let name = audioDeviceName(for: deviceID) else {
+                  let name = audioDeviceName(for: deviceID),
+                  shouldExposeInputDevice(name: name, uid: uid) else {
                 return nil
             }
 
@@ -862,6 +993,13 @@ final class AudioEngine {
             let substituteName = Self.audioDeviceName(for: deviceIDAfterReset) ?? "bluetooth input"
             VocaLogger.info(.audioEngine, "Using Bluetooth HFP input endpoint: \(substituteName)")
             resolvedDeviceID = deviceIDAfterReset
+        } else if let deviceIDAfterReset,
+                  Self.isTransientCoreAudioAggregate(deviceID: deviceIDAfterReset) {
+            // During A2DP → HFP, Core Audio briefly routes through its default
+            // aggregate. Keep the requested device as the logical target so
+            // later health checks still match the headset.
+            VocaLogger.info(.audioEngine, "Input route is on a transient Core Audio aggregate; keeping requested device")
+            resolvedDeviceID = targetDeviceID
         } else {
             let actualDescription = deviceIDAfterReset.map(String.init) ?? "none"
             VocaLogger.warning(
@@ -963,6 +1101,13 @@ final class AudioEngine {
             targetName: audioDeviceName(for: targetDeviceID),
             actualName: audioDeviceName(for: actualDeviceID),
             actualIsBluetooth: isBluetoothDevice(actualDeviceID)
+        )
+    }
+
+    private static func isTransientCoreAudioAggregate(deviceID: AudioDeviceID) -> Bool {
+        isTransientCoreAudioAggregate(
+            name: audioDeviceName(for: deviceID),
+            uid: audioDeviceUID(for: deviceID)
         )
     }
 

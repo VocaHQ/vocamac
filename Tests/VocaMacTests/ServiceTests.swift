@@ -946,6 +946,93 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
         )
     }
 
+    func testTransientCoreAudioAggregateDetection() {
+        XCTAssertTrue(
+            AudioEngine.isTransientCoreAudioAggregate(
+                name: "CADefaultDeviceAggregate",
+                uid: "CADefaultDeviceAggregate-0x8a"
+            )
+        )
+        XCTAssertTrue(
+            AudioEngine.isTransientCoreAudioAggregate(
+                name: "CADefaultDeviceAggregate-0x8a",
+                uid: "other-uid"
+            )
+        )
+        XCTAssertTrue(
+            AudioEngine.isTransientCoreAudioAggregate(
+                name: "MacBook Pro Microphone",
+                uid: "CADefaultDeviceAggregate-0x8a"
+            )
+        )
+        XCTAssertFalse(
+            AudioEngine.isTransientCoreAudioAggregate(
+                name: "soundcore Liberty 5",
+                uid: "00-11-22-33"
+            )
+        )
+        XCTAssertFalse(
+            AudioEngine.isTransientCoreAudioAggregate(name: nil, uid: nil)
+        )
+    }
+
+    func testInternalCoreAudioAggregateIsHiddenFromPicker() {
+        XCTAssertFalse(
+            AudioEngine.shouldExposeInputDevice(
+                name: "CADefaultDeviceAggregate",
+                uid: "CADefaultDeviceAggregate-0x1"
+            )
+        )
+        XCTAssertTrue(
+            AudioEngine.shouldExposeInputDevice(
+                name: "soundcore Liberty 5",
+                uid: "00-11-22-33"
+            )
+        )
+        XCTAssertTrue(
+            AudioEngine.shouldExposeInputDevice(
+                name: "MacBook Pro Microphone",
+                uid: "BuiltInMicrophoneDevice"
+            )
+        )
+    }
+
+    func testConfiguredRouteHealthTreatsTransientAggregateAsHealthy() {
+        XCTAssertTrue(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41,
+                currentDeviceName: "CADefaultDeviceAggregate",
+                currentDeviceUID: "CADefaultDeviceAggregate-0x1"
+            ),
+            "CADefaultDeviceAggregate during Bluetooth settle is not a lost mic"
+        )
+        XCTAssertFalse(
+            AudioEngine.isConfiguredRouteHealthy(
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41,
+                currentDeviceName: "MacBook Pro Microphone",
+                currentDeviceUID: "BuiltInMicrophoneDevice"
+            ),
+            "A real different device is still an unhealthy route"
+        )
+    }
+
+    func testStartupConfigurationChangeIgnoresTransientAggregate() {
+        XCTAssertTrue(
+            AudioEngine.shouldIgnoreConfigurationChange(
+                isRecording: true,
+                engineIsRunning: true,
+                elapsedSinceRecordingStart: 0.9,
+                configuredInputDeviceID: 42,
+                currentInputDeviceID: 41,
+                currentDeviceName: "CADefaultDeviceAggregate",
+                currentDeviceUID: "CADefaultDeviceAggregate-0x1"
+            ),
+            "Bluetooth settle that lands on CADefaultDeviceAggregate must not abort recording"
+        )
+    }
+
     func testStartupConfigurationChangeIsIgnoredOnlyForStableConfiguredRoute() {
         XCTAssertTrue(
             AudioEngine.shouldIgnoreConfigurationChange(

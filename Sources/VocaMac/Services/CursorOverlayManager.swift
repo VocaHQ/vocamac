@@ -12,8 +12,8 @@ import SwiftUI
 
 /// Shared overlay dimensions keep the AppKit panel and SwiftUI content in sync.
 enum OverlayLayout {
-    /// Extra transparent margin so brand-green glow is not clipped by the panel.
-    static let glowBleed: CGFloat = 14
+    /// Transparent room for rounded-edge antialiasing at the native panel boundary.
+    static let edgeInset: CGFloat = 2
 
     static func contentSize(for style: OverlayStyle) -> CGSize {
         switch style {
@@ -30,8 +30,8 @@ enum OverlayLayout {
         let content = contentSize(for: style)
         guard content != .zero else { return .zero }
         return CGSize(
-            width: content.width + glowBleed * 2,
-            height: content.height + glowBleed * 2
+            width: content.width + edgeInset * 2,
+            height: content.height + edgeInset * 2
         )
     }
 }
@@ -507,25 +507,16 @@ struct HandyOverlayView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(
+                .strokeBorder(
                     viewModel.phase == .recording
                         ? brandGreen.opacity(isPulsing ? 0.95 : 0.55)
                         : strokeBase,
                     lineWidth: viewModel.phase == .recording ? 1.6 : 1
                 )
         }
-        .shadow(
-            color: accentColor.opacity(viewModel.phase == .recording ? (isPulsing ? 0.75 : 0.4) : 0.28),
-            radius: 11,
-            y: 0
-        )
-        .shadow(
-            color: Color.black.opacity(isDark ? 0.45 : 0.18),
-            radius: 8,
-            y: 3
-        )
-        // Transparent bleed so the glow is not clipped by the NSPanel bounds.
-        .padding(OverlayLayout.glowBleed)
+        // Leave only enough transparent room for rounded-edge antialiasing.
+        // There is deliberately no outer shadow that could reveal panel bounds.
+        .padding(OverlayLayout.edgeInset)
         .frame(width: panelSize.width, height: panelSize.height)
         .opacity(viewModel.isActive && hasEntered ? 1 : 0)
         .offset(y: hasEntered ? 0 : slideInOffset)

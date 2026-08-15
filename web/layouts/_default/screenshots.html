@@ -1,84 +1,54 @@
 {{ define "main" }}
-    <section class="screenshots-hero">
-        <div class="container">
-            <a href="/" class="back-link">← Back to Home</a>
-            <h1>Screenshots</h1>
-            <p class="text-secondary">See VocaMac in action. From the menu bar to settings to the recording indicator.</p>
+<section class="page-hero" aria-labelledby="page-title">
+    <div class="shell">
+        <a class="back-link" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a>
+        <p class="section-tag">real product states</p>
+        <h1 id="page-title">Screenshots</h1>
+        <p>See VocaMac in the menu bar, during recording, and inside its settings. These images are product proof, not decorative mockups.</p>
+    </div>
+</section>
+
+<section class="section" aria-labelledby="gallery-title">
+    <div class="shell">
+        <h2 class="sr-only" id="gallery-title">VocaMac screenshot gallery</h2>
+        <div class="gallery">
+            <figure class="shot reveal">
+                <img src="/screenshots/menu-bar-idle.png" alt="VocaMac menu bar icon in its idle state" width="872" height="328" loading="lazy">
+                <figcaption><strong>Menu bar · idle</strong>VocaMac stays ready without taking over the desktop.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/menu-bar-recording.png" alt="VocaMac menu bar icon in its recording state" width="796" height="765" loading="lazy">
+                <figcaption><strong>Menu bar · recording</strong>A visible state change confirms that audio capture is active.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/popover-panel.png" alt="VocaMac popover showing status and the last transcription" width="852" height="508" loading="lazy">
+                <figcaption><strong>Popover panel</strong>Check readiness, the selected model, and the last result.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/settings-general.png" alt="VocaMac Settings General tab" width="1344" height="1340" loading="lazy">
+                <figcaption><strong>General settings</strong>Choose the activation mode, language, and behavior.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/settings-models.png" alt="VocaMac Settings Models tab" width="1344" height="1260" loading="lazy">
+                <figcaption><strong>Model settings</strong>Inspect hardware information and manage local models.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/settings-audio.png" alt="VocaMac Settings Audio tab" width="1344" height="1260" loading="lazy">
+                <figcaption><strong>Audio settings</strong>Adjust recording duration, silence detection, and input device.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/settings-stats.png" alt="VocaMac Settings Stats tab" width="1344" height="1340" loading="lazy">
+                <figcaption><strong>Local statistics</strong>Review words, speaking speed, and daily activity stored on the Mac.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/settings-about.png" alt="VocaMac Settings About tab" width="1344" height="1260" loading="lazy">
+                <figcaption><strong>About and updates</strong>See app details and the release update path.</figcaption>
+            </figure>
+            <figure class="shot reveal">
+                <img src="/screenshots/cursor-indicator.png" alt="VocaMac cursor indicator beside text during recording" width="1217" height="990" loading="lazy">
+                <figcaption><strong>Cursor indicator</strong>An optional floating signal keeps the recording state close to the text.</figcaption>
+            </figure>
         </div>
-    </section>
-
-    <section class="screenshots-grid">
-        <div class="container">
-
-            <!-- Menu Bar -->
-            <div class="screenshot-section">
-                <h2>📍 Menu Bar</h2>
-                <p class="text-secondary">VocaMac lives in your menu bar. Always accessible, never in the way.</p>
-                <div class="screenshot-group screenshot-group--pair">
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/menu-bar-idle.png" alt="VocaMac menu bar icon in idle state" loading="lazy">
-                        <figcaption>Menu bar - Idle</figcaption>
-                    </figure>
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/menu-bar-recording.png" alt="VocaMac menu bar icon in recording state" loading="lazy">
-                        <figcaption>Menu bar - Recording</figcaption>
-                    </figure>
-                </div>
-            </div>
-
-            <!-- Popover Panel -->
-            <div class="screenshot-section">
-                <h2>🎙️ Popover Panel</h2>
-                <p class="text-secondary">Click the menu bar icon to see status, last transcription, and quick actions.</p>
-                <div class="screenshot-group screenshot-group--single">
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/popover-panel.png" alt="VocaMac popover panel showing status and last transcription" loading="lazy">
-                        <figcaption>Popover panel with status, transcription, and controls</figcaption>
-                    </figure>
-                </div>
-            </div>
-
-            <!-- Settings -->
-            <div class="screenshot-section">
-                <h2>⚙️ Settings</h2>
-                <p class="text-secondary">Fine-tune everything: hotkeys, models, audio, and more across dedicated tabs.</p>
-                <div class="screenshot-group screenshot-group--pair">
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/settings-general.png" alt="VocaMac Settings - General tab" loading="lazy">
-                        <figcaption>General - Activation mode, hotkey, language, and behavior</figcaption>
-                    </figure>
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/settings-models.png" alt="VocaMac Settings - Models tab" loading="lazy">
-                        <figcaption>Models - System info, resource usage, and model management</figcaption>
-                    </figure>
-                    <!-- SCREENSHOT PLACEHOLDER: add web/static/screenshots/settings-stats.png (Stats tab, ~1344×1260) -->
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/settings-stats.png" alt="VocaMac Settings - Stats tab" loading="lazy">
-                        <figcaption>Stats - Lifetime totals, speaking speed, and daily streaks</figcaption>
-                    </figure>
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/settings-audio.png" alt="VocaMac Settings - Audio tab" loading="lazy">
-                        <figcaption>Audio - Recording duration, silence detection, and input device</figcaption>
-                    </figure>
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/settings-about.png" alt="VocaMac Settings - About tab" loading="lazy">
-                        <figcaption>About - Version info, system details, and links</figcaption>
-                    </figure>
-                </div>
-            </div>
-
-            <!-- Cursor Indicator -->
-            <div class="screenshot-section">
-                <h2>🔴 Cursor Indicator</h2>
-                <p class="text-secondary">A floating mic indicator appears near your text cursor while recording, so you always know VocaMac is listening.</p>
-                <div class="screenshot-group screenshot-group--single">
-                    <figure class="screenshot-item">
-                        <img src="/screenshots/cursor-indicator.png" alt="VocaMac cursor indicator overlay during recording" loading="lazy">
-                        <figcaption>Floating mic indicator near the text cursor during recording</figcaption>
-                    </figure>
-                </div>
-            </div>
-
-        </div>
-    </section>
+    </div>
+</section>
 {{ end }}

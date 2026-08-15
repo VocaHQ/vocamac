@@ -1,16 +1,49 @@
-    <footer class="footer">
-        <div class="container footer__container">
-            <div class="footer__left">
-                <img src="/brand/voca-logo.svg" alt="VocaMac" class="footer__logo-img">
-                <span class="footer__brand">VocaMac</span>
+{{- $p := hugo.Data.product -}}
+<footer class="site-footer">
+    <div class="shell">
+        <div class="footer-inner">
+            <div class="footer-brand">
+                <a class="brand" href="/">
+                    <img src="/brand/voca-logo.svg" alt="" width="28" height="28">
+                    <span>VocaMac</span>
+                </a>
+                <p>Native voice typing for macOS. Your speech is transcribed by a model running on your own Mac.</p>
             </div>
-            <div class="footer__links">
-                <a href="{{ .Site.Params.githubRepo }}" target="_blank" rel="noopener">GitHub</a>
-                <a href="{{ .Site.Params.githubRepo }}/releases" target="_blank" rel="noopener">Changelog</a>
-                <a href="/screenshots/">Screenshots</a>
+
+            <div class="footer-col">
+                <h2>Product</h2>
+                <ul>
+                    <li><a href="/#how-it-works">How it works</a></li>
+                    <li><a href="/#models">Models</a></li>
+                    <li><a href="/#privacy">Privacy</a></li>
+                    <li><a href="/features/">All features</a></li>
+                    <li><a href="/screenshots/">Screenshots</a></li>
+                </ul>
             </div>
-            <div class="footer__right">
-                Made with ❤️ by <a href="https://x.com/intent/user?screen_name=jatinkrmalik" target="_blank" rel="noopener">Jatin Kumar Malik</a>
+
+            <div class="footer-col">
+                <h2>Install</h2>
+                <ul>
+                    <li><a href="/#install">Installation</a></li>
+                    <li><a href="{{ $p.stable.releasesURL }}">Releases</a></li>
+                    <li><a href="{{ $p.links.homebrewDoc }}">Homebrew guide</a></li>
+                </ul>
+            </div>
+
+            <div class="footer-col">
+                <h2>Project</h2>
+                <ul>
+                    <li><a href="{{ $p.links.repo }}">Source on GitHub</a></li>
+                    <li><a href="{{ $p.links.issues }}">Issues</a></li>
+                    <li><a href="{{ $p.links.license }}">{{ $p.license.id }} licence</a></li>
+                    <li><a href="{{ $p.links.vocahq }}">Part of the Voca family</a></li>
+                </ul>
             </div>
         </div>
-    </footer>
+
+        <div class="footer-base">
+            <span>{{ $p.license.id }}. Built in public by <a href="https://github.com/jatinkrmalik">{{ site.Params.author }}</a>.</span>
+            <span>Current release {{ $p.stable.tag }} &middot; {{ $p.requirements.osShort }} &middot; {{ $p.requirements.arch }}</span>
+        </div>
+    </div>
+</footer>

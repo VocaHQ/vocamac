@@ -1,0 +1,139 @@
+# Centralized VocaMac product facts.
+#
+# Every figure here was verified against the tagged source of the current
+# stable release, the published release artifacts, and the Homebrew cask.
+# Re-verify this file before publishing a website change.
+#
+# Verified: 2026-08-16 against v0.7.2.
+
+[stable]
+version = "0.7.2"
+tag = "v0.7.2"
+status = "Stable release"
+released = "2026-08-04"
+releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.7.2"
+releasesURL = "https://github.com/VocaHQ/vocamac/releases"
+latestURL = "https://github.com/VocaHQ/vocamac/releases/latest"
+dmg = "VocaMac-0.7.2-arm64.dmg"
+dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.7.2/VocaMac-0.7.2-arm64.dmg"
+dmgSize = "75 MB"
+
+[requirements]
+os = "macOS 13 Ventura or later"
+osShort = "macOS 13+"
+arch = "Apple Silicon"
+archNote = "Apple Silicon only. There is no supported Intel build."
+signing = "Developer ID signed and notarized by Apple"
+permissions = ["Microphone", "Accessibility", "Input Monitoring"]
+
+# Languages that can actually be pinned in Settings in v0.7.2, verified by
+# counting the tags in the Transcription Language picker in SettingsView.swift.
+# The Whisper model is trained on ~99 languages, but only these are selectable,
+# so the site must not claim "99+ languages".
+[languages]
+count = 17
+list = "English, Spanish, French, German, Italian, Portuguese, Dutch, Chinese, Japanese, Korean, Hindi, Arabic, Russian, Turkish, Polish, Swedish, and Ukrainian"
+autoDetect = true
+
+[engine]
+name = "WhisperKit"
+url = "https://github.com/argmaxinc/WhisperKit"
+runtime = "CoreML"
+modelRepo = "argmaxinc/whisperkit-coreml"
+modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
+
+# The model picker shown in Settings in v0.7.2 (ModelSize.standardCatalog).
+# size/ram are the values the app itself reports.
+[[models]]
+id = "tiny"
+name = "Tiny"
+size = "39 MB"
+ram = "1 GB"
+quality = "Good"
+note = "Fastest. Good for short commands and quick notes."
+
+[[models]]
+id = "base"
+name = "Base"
+size = "142 MB"
+ram = "1.5 GB"
+quality = "Better"
+note = "A small step up in accuracy for very little extra weight."
+
+[[models]]
+id = "small"
+name = "Small"
+size = "466 MB"
+ram = "2 GB"
+quality = "Great"
+note = "A sensible default on 8 GB Macs."
+
+[[models]]
+id = "large-v3-turbo-compact"
+name = "Large v3 Turbo (Compact)"
+size = "632 MB"
+ram = "4 GB"
+quality = "Excellent"
+note = "The best accuracy-per-second trade-off for most people."
+
+[[models]]
+id = "distil-large-v3-compact"
+name = "Distil Large v3 (Compact)"
+size = "594 MB"
+ram = "4 GB"
+quality = "Excellent"
+note = "Distilled for speed. English-focused."
+
+[[models]]
+id = "distil-large-v3-turbo"
+name = "Distil Large v3 Turbo"
+size = "600 MB"
+ram = "4 GB"
+quality = "Excellent"
+note = "The fastest of the distilled variants."
+
+[[models]]
+id = "large-v3-latest-compact"
+name = "Large v3 Latest (Compact)"
+size = "626 MB"
+ram = "5 GB"
+quality = "Best"
+note = "Full large-model accuracy, compressed."
+
+[[models]]
+id = "large-v3-latest"
+name = "Large v3 Latest"
+size = "3.1 GB"
+ram = "10 GB"
+quality = "Best"
+note = "Highest accuracy. Wants a 16 GB Mac and patience."
+
+[links]
+repo = "https://github.com/VocaHQ/vocamac"
+issues = "https://github.com/VocaHQ/vocamac/issues"
+license = "https://github.com/VocaHQ/vocamac/blob/main/LICENSE"
+vocahq = "https://vocahq.com/"
+homebrewDoc = "https://github.com/VocaHQ/vocamac/blob/main/docs/HOMEBREW.md"
+
+[license]
+id = "AGPL-3.0"
+name = "GNU Affero General Public License v3.0"
+
+[brew]
+tap = "brew tap vocahq/vocamac"
+trust = "brew trust vocahq/vocamac"
+install = "brew install --cask vocamac"
+upgrade = "brew upgrade --cask vocamac"
+
+# Shipped only in nightly builds from main, not in the stable release above.
+# Anything listed here must be labelled as nightly wherever it appears.
+[nightly]
+cask = "brew install --cask vocamac-nightly"
+url = "https://github.com/VocaHQ/vocamac/releases/tag/nightly"
+features = [
+  "Additional speech-to-text engines (Parakeet, Apple Speech, sherpa-onnx)",
+  "Headless file transcription from the command line",
+  "A configurable recording overlay",
+  "Microphone switching from the menu bar",
+  "Deleting downloaded models from Settings",
+]

@@ -1,24 +1,54 @@
 {{ define "main" }}
-    <section class="feature-hero">
-        <div class="container">
-            <a href="/" class="back-link">← Back to Home</a>
-            <div class="feature-hero__icon">{{ .Params.icon }}</div>
-            <h1>{{ .Title }}</h1>
-            <p class="feature-hero__subtitle">{{ .Params.subtitle }}</p>
-        </div>
-    </section>
-
-    <section class="feature-content">
-        <div class="container">
-            {{ .Content }}
-
-            <div class="feature-cta">
-                <p>Ready to try {{ .Title }}?</p>
-                <a href="/#install" class="button button--hero-primary">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: -3px; margin-right: 8px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Install VocaMac - It's Free
-                </a>
+{{- $icons := dict
+  "apple-silicon-native" "spark"
+  "clipboard-preservation" "clipboard"
+  "custom-vocabulary" "vocabulary"
+  "double-tap-toggle" "hotkey"
+  "fully-configurable" "sliders"
+  "github-release-updates" "refresh"
+  "languages" "globe"
+  "launch-at-login" "launch"
+  "push-to-talk" "mic"
+  "silence-detection" "clock"
+  "smart-model-selection" "chip"
+  "system-wide-text-injection" "caret"
+  "translation" "translate"
+  "usage-stats" "chart"
+  "visual-feedback" "levels"
+-}}
+{{- $icon := default "shield" (index $icons .File.ContentBaseName) -}}
+<section class="page-hero" aria-labelledby="page-title">
+    <div class="shell">
+        <a class="back-link" href="/features/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> All features</a>
+        <div class="page-hero-head">
+            <span class="page-hero-icon">{{ partial "icon.html" $icon }}</span>
+            <div>
+                <p class="section-tag">VocaMac feature</p>
+                <h1 id="page-title">{{ .Title }}</h1>
+                <p>{{ .Params.subtitle }}</p>
             </div>
         </div>
-    </section>
+    </div>
+</section>
+<section class="section" aria-labelledby="feature-content-title">
+    <div class="shell doc-layout">
+        <article class="prose" id="feature-content-title">
+            {{ .Content }}
+            <div class="feature-cta">
+                <p>Ready to try {{ .Title }}?</p>
+                <a class="btn btn-primary" href="/#install">Install VocaMac <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+            </div>
+        </article>
+        {{ with .TableOfContents }}
+        <aside class="doc-aside" aria-label="On this page">
+            <div class="doc-aside-inner" data-toc>
+                <p class="doc-aside-title">On this page</p>
+                {{/* Hugo emits a bare <nav>; name it so it is not an anonymous landmark. */}}
+                {{ . | replaceRE `<nav id="TableOfContents">` `<nav id="TableOfContents" aria-label="Sections of this page">` | safeHTML }}
+                <a class="text-link doc-aside-link" href="/#install">Install VocaMac <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+            </div>
+        </aside>
+        {{ end }}
+    </div>
+</section>
 {{ end }}

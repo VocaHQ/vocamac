@@ -22,7 +22,7 @@ Configure your hotkey and set VocaMac to Toggle mode. When recording begins:
 4. Speak your message, question, email, code comment, or anything else
 5. Double-tap your hotkey again to stop recording and transcribe
 
-The transcription happens instantly. Your text appears at your cursor position. If you double-tap again, VocaMac starts a new recording session.
+After you stop, VocaMac processes the recording and inserts the result at your cursor. Processing time varies with recording length, selected model, and Mac hardware.
 
 ## Configurable Double-Tap Threshold
 

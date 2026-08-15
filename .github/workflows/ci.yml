@@ -96,8 +96,17 @@ jobs:
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3
         with:
-          hugo-version: 'latest'
+          hugo-version: '0.165.0'
           extended: true
 
-      - name: Build Hugo site
-        run: cd web && hugo --minify
+      - name: Build and test website
+        working-directory: web
+        run: npm run check
+
+      - name: Validate rendered HTML
+        working-directory: web
+        run: npx --yes html-validate 'public/**/*.html'
+
+      - name: Validate CSS
+        working-directory: web
+        run: npx --yes stylelint static/style.css

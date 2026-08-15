@@ -5,14 +5,14 @@
     {{ block "extra_head" . }}{{ end }}
 </head>
 <body>
+    <a class="skip-link" href="#main">Skip to content</a>
     {{ partial "nav.html" . }}
 
-    <main>
+    <main id="main">
         {{ block "main" . }}{{ end }}
     </main>
 
     {{ partial "footer.html" . }}
-    {{ partial "mobile-menu.html" . }}
-    {{ block "extra_scripts" . }}{{ end }}
+    <script src="/script.js" defer></script>
 </body>
 </html>

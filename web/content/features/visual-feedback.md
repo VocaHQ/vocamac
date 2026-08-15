@@ -1,27 +1,27 @@
 ---
 title: "Visual Feedback"
-subtitle: "Menu bar icon changes color. Audio level indicator shows input. Cursor indicator near your caret while recording."
-description: "VocaMac provides clear visual feedback during recording with a color-changing menu bar icon, real-time audio level indicator, and an optional floating cursor indicator."
+subtitle: "Menu-bar status, audio level, and an optional cursor indicator make recording state visible without relying on color alone."
+description: "VocaMac provides clear visual feedback during recording with menu-bar state, status text, an audio level indicator, and an optional floating cursor indicator."
 keywords: "recording indicator macOS, visual feedback dictation, menu bar recording icon, cursor indicator voice typing, audio level meter mac, recording status indicator"
 icon: "📊"
 ---
 
 ## Always Know What's Happening
 
-Voice dictation works best when you have complete clarity about your recording state. VocaMac provides three layers of visual feedback so you're never uncertain about whether you're recording, what your audio input looks like, or exactly where your text will appear.
+Voice dictation works best when you have complete clarity about your recording state. VocaMac provides several layers of feedback so you can tell whether you are idle, recording, processing, or ready for another dictation.
 
 ## Menu Bar Icon
 
 ![VocaMac menu bar in idle state](/screenshots/menu-bar-idle.png)
 ![VocaMac menu bar while recording](/screenshots/menu-bar-recording.png)
 
-The VocaMac menu bar icon is your primary indicator of recording status. It changes color instantly to show what's happening:
+The VocaMac menu-bar icon is one indicator of recording status. Its treatment changes instantly, while the popover and status text provide the words that color alone cannot:
 
-- **Blue (idle)**: VocaMac is running and ready to use. No recording is active. This is the default state when you're not speaking.
-- **Green (recording)**: You are actively recording. Audio is flowing into the microphone and will be transcribed when you stop. This provides instant visual confirmation that your hotkey press was recognized.
-- **Red (error)**: A problem occurred during transcription, audio capture, or model processing. The error message appears in the popover panel with details on how to resolve it.
+- **Idle**: VocaMac is running and ready to use. No recording is active.
+- **Recording**: Audio is being captured and the popover/indicator shows the active state.
+- **Processing or error**: The popover exposes the current status and a useful message when model or audio work needs attention.
 
-These color changes happen instantly. The moment you press your activation hotkey, the icon turns green. The moment you release, it returns to blue. This immediate feedback eliminates the guesswork that plagues other voice apps.
+The icon treatment is a quick glanceable cue, while the popover and status text provide the authoritative state. Color is intentionally not the only signal.
 
 ## Real-Time Audio Level Indicator
 
@@ -68,7 +68,7 @@ Together, these create a complete feedback loop that matches the directness of k
 
 Many users rely on all three feedback sources simultaneously. While recording in a fullscreen text editor:
 
-1. You glance at the menu bar and see the icon is green (recording is active)
+1. You glance at the menu bar and see the recording state
 2. You see the audio level meter climbing in the popover (your voice is being captured)
 3. You see the cursor indicator blinking near your text field (this is where your words will appear)
 
@@ -78,6 +78,6 @@ If any of these signals is missing or unclear, you can adjust settings or check 
 
 ## Accessibility and Visibility
 
-The color-coded menu bar icon uses high-contrast colors (blue, green, red) that are easily distinguishable. The audio level meter provides both visual and spatial feedback. Together with the cursor indicator, VocaMac ensures that visual feedback is clear and actionable for all users.
+The menu-bar state uses icon treatment, status text, and the popover alongside color. The audio level meter provides another signal, while the cursor indicator keeps recording context near the active text field. Together these make feedback clearer without relying on color alone.
 
 You control what's visible and when. Customize your feedback experience in Settings to match your preferences and workflow.

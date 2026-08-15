@@ -1,13 +1,12 @@
 baseURL = "https://vocamac.com/"
-languageCode = "en-us"
-title = "VocaMac - 100% Local Voice-to-Text for macOS"
+locale = "en-us"
+title = "VocaMac — native voice typing for macOS"
 
 [params]
-  description = "100% offline, open-source voice-to-text for macOS. Powered by WhisperKit + CoreML."
+  description = "Native voice typing for macOS. Hold a hotkey, speak, and text appears at your cursor — transcribed by a Whisper model running on your own Mac. Free and open source."
   author = "Jatin Kumar Malik"
   twitterHandle = "@jatinkrmalik"
   githubRepo = "https://github.com/VocaHQ/vocamac"
-  gaID = "G-8W6EJV2KP0"
   ogImage = "https://vocamac.com/og-image.png"
 
 [build]

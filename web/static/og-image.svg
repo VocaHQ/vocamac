@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="og-title og-desc">
+  <title id="og-title">VocaMac — native voice typing for macOS</title>
+  <desc id="og-desc">A warm paper card. On the left, the VocaMac lockup, the headline "Say it once. Your Mac types.", and the macOS 13+, Apple Silicon, v0.7.2 and AGPL-3.0 proof line. On the right, the menu-bar recording preview with an audio meter and a transcript landing at the cursor.</desc>
+
+  <!-- Defs first: a forward reference to the dot pattern is what turned the
+       previous card into a grey wash in strict rasterisers. -->
+  <defs>
+    <pattern id="og-dots" width="32" height="32" patternUnits="userSpaceOnUse">
+      <circle cx="3" cy="3" r="1" fill="#d8d1c3"/>
+      <circle cx="19" cy="19" r="1" fill="#d8d1c3"/>
+    </pattern>
+    <clipPath id="og-window">
+      <rect x="616" y="206" width="512" height="278" rx="13"/>
+    </clipPath>
+    <style>
+      .display { font-family: "Avenir Next", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 600; letter-spacing: -0.025em; }
+      .body { font-family: "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="630" fill="#f4f1e8"/>
+  <rect width="1200" height="630" fill="url(#og-dots)"/>
+
+  <!-- Everything below is laid out from y=62; the nudge balances the optical
+       margin top and bottom on the 630px card. -->
+  <g transform="translate(0 26)">
+
+  <!-- Brand lockup -->
+  <g transform="translate(72 62)">
+    <circle cx="19" cy="19" r="19" fill="#0f6b57"/>
+    <g transform="translate(19 19) scale(0.0826) translate(-228.5 -226.5)">
+      <path d="M 164 127 A 65 65 0 0 1 294 127 L 294 224 A 65 65 0 0 1 164 224 Z" fill="#f2f6f2"/>
+      <path d="M 144.87 202.02 A 87 87 0 1 0 312.13 202.02" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+      <path d="M 228.5 313 L 228.5 382" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+      <path d="M 170 382 L 287 382" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+      <path d="M 123.12 168.78 A 129.0 99.2 0 0 0 123.12 283.22" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+      <path d="M 333.88 168.78 A 129.0 99.2 0 0 1 333.88 283.22" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+    </g>
+    <text class="display" x="50" y="26" font-size="25" fill="#14231c">VocaMac</text>
+  </g>
+
+  <!-- Section tag -->
+  <rect x="72" y="136" width="304" height="36" rx="18" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <text id="og-tag" class="mono" x="224" y="159" font-size="14" letter-spacing="1.5" fill="#0b493d" text-anchor="middle">NATIVE MACOS VOICE TYPING</text>
+
+  <!-- Headline -->
+  <text class="display" x="72" y="256" font-size="66" fill="#14231c">Say it once.</text>
+  <text class="display" x="72" y="330" font-size="66" font-style="italic" fill="#14231c">Your Mac types.</text>
+
+  <!-- Lede -->
+  <text class="body" x="72" y="386" font-size="20" fill="#58625c">Hold a hotkey, speak, and the words land at your</text>
+  <text class="body" x="72" y="414" font-size="20" fill="#58625c">cursor — transcribed on your own Mac.</text>
+
+  <!-- Proof line -->
+  <line x1="72" y1="486" x2="536" y2="486" stroke="#c9c8bd" stroke-width="1.5"/>
+  <text id="og-proof" class="mono" x="72" y="516" font-size="14" fill="#5f6861">macOS 13+ · Apple Silicon · v0.7.2 stable · AGPL-3.0</text>
+
+  <!-- Menu bar strip -->
+  <rect x="616" y="140" width="512" height="46" rx="10" fill="#0b1a15"/>
+  <g transform="translate(636 152) scale(0.0578) translate(-90.5 -62)">
+    <path d="M 164 127 A 65 65 0 0 1 294 127 L 294 224 A 65 65 0 0 1 164 224 Z" fill="#f2f6f2"/>
+    <path d="M 144.87 202.02 A 87 87 0 1 0 312.13 202.02" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M 228.5 313 L 228.5 382" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M 170 382 L 287 382" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M 123.12 168.78 A 129.0 99.2 0 0 0 123.12 283.22" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+    <path d="M 333.88 168.78 A 129.0 99.2 0 0 1 333.88 283.22" fill="none" stroke="#f2f6f2" stroke-width="18" stroke-linecap="round"/>
+  </g>
+  <text class="mono" x="656" y="169" font-size="14" fill="#fffdf7">VocaMac</text>
+  <circle cx="1013" cy="164" r="4.5" fill="#de6a57"/>
+  <text class="mono" x="1026" y="169" font-size="14" fill="#cfe9dc">recording</text>
+
+  <!-- macOS window -->
+  <g clip-path="url(#og-window)">
+    <rect x="616" y="206" width="512" height="278" fill="#fffdf7"/>
+    <rect x="616" y="206" width="512" height="42" fill="#ebe5d8"/>
+  </g>
+  <line x1="616" y1="248" x2="1128" y2="248" stroke="#c9c8bd" stroke-width="1.5"/>
+  <rect x="616" y="206" width="512" height="278" rx="13" fill="none" stroke="#9ea59f" stroke-width="1.5"/>
+  <circle cx="638" cy="227" r="5.5" fill="#ec6a5e"/>
+  <circle cx="658" cy="227" r="5.5" fill="#f4bf50"/>
+  <circle cx="678" cy="227" r="5.5" fill="#61c454"/>
+  <text class="mono" x="700" y="232" font-size="12" fill="#5f6861">VocaMac · menu bar</text>
+
+  <text class="display" x="640" y="290" font-size="20" fill="#14231c">Ready to dictate</text>
+  <text class="body" x="640" y="314" font-size="14" fill="#58625c">Hold Right Option to record</text>
+
+  <rect x="1014" y="270" width="90" height="27" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <circle cx="1030" cy="283.5" r="3.5" fill="#0f6b57"/>
+  <text class="mono" x="1043" y="288" font-size="11" letter-spacing="0.8" fill="#0b493d">LOCAL</text>
+
+  <!-- Audio meter: 42 bars, varied amplitude, same green as the site. -->
+  <g fill="#0f6b57">
+    <rect x="640" y="344" width="3" height="16" rx="1.5"/>
+    <rect x="651" y="338" width="3" height="28" rx="1.5"/>
+    <rect x="662" y="347" width="3" height="10" rx="1.5"/>
+    <rect x="673" y="333" width="3" height="38" rx="1.5"/>
+    <rect x="684" y="342" width="3" height="20" rx="1.5"/>
+    <rect x="695" y="330" width="3" height="44" rx="1.5"/>
+    <rect x="706" y="345" width="3" height="14" rx="1.5"/>
+    <rect x="717" y="336" width="3" height="32" rx="1.5"/>
+    <rect x="728" y="348" width="3" height="8" rx="1.5"/>
+    <rect x="739" y="331" width="3" height="42" rx="1.5"/>
+    <rect x="750" y="340" width="3" height="24" rx="1.5"/>
+    <rect x="761" y="346" width="3" height="12" rx="1.5"/>
+    <rect x="772" y="329" width="3" height="46" rx="1.5"/>
+    <rect x="783" y="337" width="3" height="30" rx="1.5"/>
+    <rect x="794" y="344" width="3" height="16" rx="1.5"/>
+    <rect x="805" y="334" width="3" height="36" rx="1.5"/>
+    <rect x="816" y="347" width="3" height="10" rx="1.5"/>
+    <rect x="827" y="330" width="3" height="44" rx="1.5"/>
+    <rect x="838" y="341" width="3" height="22" rx="1.5"/>
+    <rect x="849" y="336" width="3" height="32" rx="1.5"/>
+    <rect x="860" y="348" width="3" height="8" rx="1.5"/>
+    <rect x="871" y="332" width="3" height="40" rx="1.5"/>
+    <rect x="882" y="343" width="3" height="18" rx="1.5"/>
+    <rect x="893" y="328" width="3" height="48" rx="1.5"/>
+    <rect x="904" y="345" width="3" height="14" rx="1.5"/>
+    <rect x="915" y="335" width="3" height="34" rx="1.5"/>
+    <rect x="926" y="347" width="3" height="10" rx="1.5"/>
+    <rect x="937" y="331" width="3" height="42" rx="1.5"/>
+    <rect x="948" y="340" width="3" height="24" rx="1.5"/>
+    <rect x="959" y="346" width="3" height="12" rx="1.5"/>
+    <rect x="970" y="333" width="3" height="38" rx="1.5"/>
+    <rect x="981" y="342" width="3" height="20" rx="1.5"/>
+    <rect x="992" y="337" width="3" height="30" rx="1.5"/>
+    <rect x="1003" y="348" width="3" height="8" rx="1.5"/>
+    <rect x="1014" y="330" width="3" height="44" rx="1.5"/>
+    <rect x="1025" y="344" width="3" height="16" rx="1.5"/>
+    <rect x="1036" y="336" width="3" height="32" rx="1.5"/>
+    <rect x="1047" y="347" width="3" height="10" rx="1.5"/>
+    <rect x="1058" y="334" width="3" height="36" rx="1.5"/>
+    <rect x="1069" y="343" width="3" height="18" rx="1.5"/>
+    <rect x="1080" y="338" width="3" height="28" rx="1.5"/>
+    <rect x="1091" y="345" width="3" height="14" rx="1.5"/>
+  </g>
+
+  <!-- Transcript at the cursor -->
+  <rect x="640" y="386" width="464" height="46" rx="8" fill="#f4f1e8" stroke="#c9c8bd" stroke-width="1.5"/>
+  <text id="og-transcript" class="body" x="658" y="415" font-size="15" fill="#14231c">VocaMac puts the words where I am already working</text>
+  <rect id="og-caret" x="1016" y="399" width="2" height="20" fill="#0f6b57"/>
+
+  <!-- Chips -->
+  <rect x="640" y="446" width="151" height="26" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <text id="og-chip1" class="mono" x="715.5" y="464" font-size="12" fill="#0b493d" text-anchor="middle">model: WhisperKit</text>
+  <rect x="803" y="446" width="158" height="26" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <text id="og-chip2" class="mono" x="882" y="464" font-size="12" fill="#0b493d" text-anchor="middle">audio stays on Mac</text>
+
+  </g>
+</svg>

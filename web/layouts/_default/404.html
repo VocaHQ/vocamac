@@ -1,9 +1,10 @@
 {{ define "main" }}
-    <section class="page-content" style="padding: 120px 0 60px; text-align: center;">
-        <div class="container">
-            <h1 style="font-size: 4rem; margin-bottom: 0.5rem;">404</h1>
-            <p class="text-secondary" style="font-size: 1.25rem; margin-bottom: 2rem;">Page not found. The page you're looking for doesn't exist or has been moved.</p>
-            <a href="/" class="button button--hero-primary">← Back to Home</a>
-        </div>
-    </section>
+<section class="not-found" aria-labelledby="page-title">
+    <div class="shell">
+        <p class="section-tag">404 / not here</p>
+        <h1 id="page-title">That page wandered off.</h1>
+        <p>Try the VocaMac home page or browse the feature notes.</p>
+        <div class="hero-actions"><a class="btn btn-primary" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a><a class="btn btn-secondary" href="/features/">Browse features <span class="btn-arrow" aria-hidden="true">→</span></a></div>
+    </div>
+</section>
 {{ end }}

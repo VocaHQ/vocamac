@@ -1,0 +1,10 @@
+{
+  "name": "vocamac-website-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "hugo --cleanDestinationDir --minify",
+    "test": "node --test tests/site.test.mjs",
+    "check": "npm run build && npm test"
+  }
+}

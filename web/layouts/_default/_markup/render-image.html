@@ -1,0 +1,15 @@
+{{- $dimensions := dict
+  "/screenshots/cursor-indicator.png" (dict "width" 1217 "height" 990)
+  "/screenshots/menu-bar-idle.png" (dict "width" 872 "height" 328)
+  "/screenshots/menu-bar-recording.png" (dict "width" 796 "height" 765)
+  "/screenshots/popover-panel.png" (dict "width" 852 "height" 508)
+  "/screenshots/settings-about.png" (dict "width" 1344 "height" 1260)
+  "/screenshots/settings-audio.png" (dict "width" 1344 "height" 1260)
+  "/screenshots/settings-general.png" (dict "width" 1344 "height" 1340)
+  "/screenshots/settings-models.png" (dict "width" 1344 "height" 1260)
+  "/screenshots/settings-stats.png" (dict "width" 1344 "height" 1340)
+  "/screenshots/settings-vocabulary.png" (dict "width" 1344 "height" 1340)
+  "/screenshots/update-ux.png" (dict "width" 1344 "height" 1368)
+-}}
+{{- $size := index $dimensions .Destination -}}
+<img src="{{ .Destination | safeURL }}" alt="{{ .Text }}" loading="lazy" decoding="async"{{ with $size }} width="{{ .width }}" height="{{ .height }}"{{ end }}{{ with .Title }} title="{{ . }}"{{ end }}>

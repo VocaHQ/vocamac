@@ -20,23 +20,23 @@ Your hotkey is how you activate VocaMac. The app respects how you work and lets 
 
 Start from a preset — Right Option, Left Option, Right Command, Right Shift, Right Control, Fn, or a function key (F5–F12). Prefer something else? Click **Record**, press any key, and VocaMac captures it (press Escape to cancel). Your choice shows up as a "Custom" key, and while VocaMac is running that key is reserved for activation.
 
-The hotkey works from anywhere on your Mac. Launch VocaMac from Mail, from Slack, from a web browser, or from any application. As long as VocaMac is running, your hotkey is active and ready.
+The hotkey is global while VocaMac is running, so you can trigger it while working in Mail, Slack, a browser, or another app. The target app still needs to expose a text field for insertion.
 
 ## Model Management
 
-VocaMac includes multiple Whisper models, each offering different tradeoffs between speed and accuracy. The settings window gives you full control over which models are available on your Mac.
+VocaMac includes multiple Whisper models, each offering different tradeoffs between speed, memory, and accuracy. The settings window gives you control over which models are available on your Mac.
 
-The base model is tiny (just 140 megabytes) and transcribes nearly as fast as you can speak. It's perfect for quick notes or when speed matters more than perfect accuracy.
+The Base model is a small download and transcribes quickly. It is useful for quick notes or when speed and disk space matter more than maximum accuracy.
 
-The small and medium models offer progressively better accuracy at the cost of slightly longer transcription times. They're ideal for important documents, interviews, or situations where every word needs to be perfect.
+Small, compact Large, and Distil variants offer different accuracy and speed trade-offs. Choose among the models shown in Settings rather than assuming every legacy Whisper size is part of the stable catalog.
 
-The model management interface shows how much disk space each model uses. Download the models you want. Delete the ones you don't need. Switch between models instantly. You're always in control of what's installed on your Mac.
+The model management interface shows how much disk space each model uses. Download the models you want and switch the selected model from Settings. Model deletion is available in newer nightly/source builds, not the v0.7.2 stable catalog.
 
 ## Audio Settings
 
 Audio behavior can make or break the dictation experience. VocaMac includes granular controls for how it handles microphone input and silence detection.
 
-Set the silence detection threshold to match your environment. In a quiet office, a sensitive threshold works well. In a noisier space, you might want to increase it to avoid accidental transcriptions. Adjust the threshold, speak a few test words, and instantly see how the app responds.
+Set the silence detection threshold to match your environment. In a quiet office, a lower threshold may work well; in a noisier space, a higher threshold can help avoid accidental stops. Test the setting with your microphone and speaking style.
 
 Configure the maximum recording duration. If you prefer shorter bursts of dictation, set a reasonable limit. The app will automatically stop recording when you reach it, preventing accidental marathon recording sessions.
 

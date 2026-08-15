@@ -1,8 +1,15 @@
 {{ define "main" }}
-<section class="page-content" style="padding: 120px 0 60px;">
-    <div class="container">
-        <h1>{{ .Title }}</h1>
-        {{ .Content }}
+<section class="page-hero" aria-labelledby="page-title">
+    <div class="shell">
+        <a class="back-link" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a>
+        <p class="section-tag">VocaMac notes</p>
+        <h1 id="page-title">{{ .Title }}</h1>
+        {{ with .Params.description }}<p>{{ . }}</p>{{ end }}
+    </div>
+</section>
+<section class="section" aria-labelledby="content-title">
+    <div class="shell">
+        <article class="prose" id="content-title">{{ .Content }}</article>
     </div>
 </section>
 {{ end }}

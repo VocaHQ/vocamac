@@ -1,14 +1,14 @@
 ---
 title: "Translation"
-subtitle: "Speak in one language, get text in another. Built-in speech translation powered by Whisper."
-description: "VocaMac can translate your speech from one language to another in real-time, all running locally on your Mac. Powered by Whisper's built-in translation capability."
+subtitle: "Whisper can translate supported speech into English while it runs locally on your Mac."
+description: "VocaMac's Whisper path supports local speech translation into English after the required model is available on your Mac."
 keywords: "offline speech translation macOS, voice translator mac, speak translate type, whisper translation, local speech translation, voice to text translation mac"
 icon: "🌐"
 ---
 
 ## Translate While You Speak
 
-Language barriers shouldn't slow down your work. VocaMac's translation feature lets you speak naturally in your native language and have your words transcribed in another language, all processed locally on your Mac with no internet required.
+Language barriers shouldn't slow down your work. VocaMac's Whisper path can translate supported speech into English while the model runs locally on your Mac. This is an engine-specific capability, not a general-purpose translation service.
 
 This opens possibilities that traditional voice typing simply cannot match: multilingual collaboration, language learning, cross-cultural meetings, and more. All without sending your voice data to cloud servers.
 
@@ -21,15 +21,15 @@ VocaMac uses OpenAI's Whisper model, which has a built-in translation capability
 3. **Whisper translates** that transcription to English
 4. **VocaMac inserts** the translated English text at your cursor
 
-The entire process happens on your Mac. Your voice never leaves your computer. No cloud calls, no data collection, no privacy concerns.
+The speech-processing step happens on your Mac. VocaMac does not send dictation audio to a Voca cloud endpoint; separate actions such as model and release downloads still need a network connection.
 
-Whisper supports translation from over 90 languages into English. While the primary translation target is English, this covers the vast majority of real-world use cases.
+The available source languages and results depend on the selected Whisper model. The stable app exposes its supported language hints in Settings; it does not promise every language in Whisper's training data.
 
 ## Setting Your Source Language
 
 By default, VocaMac automatically detects the language you're speaking. Whisper's detection is remarkably accurate, even for short utterances.
 
-For more predictable results, you can manually set your source language in **Settings → Models → Language**. Simply select from the list of supported languages. Once set, VocaMac will always transcribe in that language (and translate to English if translation is enabled).
+For more predictable results, you can manually set your source language in **Settings → Models → Language**. Select from the language hints exposed by the stable app. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
 
 Changing languages is as simple as picking a new option from the dropdown. No restarts, no waiting. The change takes effect immediately.
 
@@ -61,20 +61,20 @@ Researchers working with multilingual sources can speak notes in their preferred
 
 Support teams, customer success, and engineering teams spanning multiple countries can communicate asynchronously. VocaMac lets each person speak in their native language, with translation happening automatically. Reduces friction, improves clarity, and makes async communication feel more personal.
 
-## Fully Offline Translation
+## Local translation after the model download
 
-This is the key advantage of VocaMac's translation feature: everything runs on your Mac.
+This is the key boundary of VocaMac's translation feature: once the selected model is available, processing happens locally.
 
 Other voice translation services (Google Translate, Microsoft Translator, Amazon Transcribe) require internet connectivity and send your audio or transcription to cloud servers. This introduces latency, battery drain, and privacy concerns.
 
-VocaMac's translation is entirely local. No internet required. No delay. No privacy exposure. The Whisper model sits on your machine and processes everything there. This makes VocaMac suitable for:
+VocaMac's translation is local after the model download. The first model download still requires a network connection. This makes VocaMac suitable for:
 
 - Offline work environments
 - Sensitive conversations
 - Regions with unreliable internet
 - Users who simply prefer not to transmit their voice data
 
-Once the Whisper model is downloaded (on first run), you can transcribe and translate anywhere, anytime, with complete privacy.
+Once the Whisper model is downloaded, the speech-processing step can run without a network connection. Review translated text before using it for high-stakes work.
 
 ## Accuracy Considerations
 
@@ -102,7 +102,7 @@ If you want to transcribe in your source language without translation, simply di
 VocaMac's translation feature represents a fundamentally different approach than cloud-based translation services. By keeping everything local, you get:
 
 - **Privacy**: your voice and words never leave your computer
-- **Speed**: no network latency, instant processing
+- **Speed**: no network round trip for the speech-processing step
 - **Offline capability**: work anywhere, anytime
 - **No subscription fees**: translation is included with VocaMac
 

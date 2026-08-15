@@ -28,7 +28,7 @@ Every environment is different. A quiet home office has lower background noise t
 This controls how sensitive the detector is to quiet sounds. A lower threshold is more aggressive (stops recording sooner), while a higher threshold is more lenient (requires more silence before stopping).
 
 - **Low threshold (20-40%)**: use in quiet environments where you want quick stops
-- **Medium threshold (50-60%)**: the default sweet spot for most users
+- **Medium threshold (50-60%)**: a useful starting point for many environments
 - **High threshold (70-90%)**: use in noisy environments to prevent accidental cutoffs
 
 **Silence Duration (0.5-3 seconds)**
@@ -63,7 +63,7 @@ One concern with any silence detection system is false positives: stopping recor
 
 **Minimum recording duration**: VocaMac won't stop recording in the first 0.3 seconds, even if silence is detected, to avoid cutting off initial words
 
-**Adaptive thresholds**: the silence detector continuously adapts to the ambient noise floor in your environment, so sudden sounds (a door closing, a car horn) won't trigger a false stop
+**Audio-level feedback**: the popover exposes the current input level so you can tune the threshold against your actual microphone and room
 
 **Real-time monitoring**: you can see the audio level indicator in the VocaMac popover in real time, so you know exactly how loud the detector thinks your speech is
 
@@ -71,13 +71,13 @@ One concern with any silence detection system is false positives: stopping recor
 
 VocaMac recently fixed a critical silence detection bug: in rare cases, audio at the very beginning of a recording could be lost if the silence detector kicked in too aggressively during the initial setup phase. This has been corrected.
 
-Now, VocaMac guarantees that:
+The current implementation is designed to:
 
 1. No audio is lost at the start of recording
 2. The minimum recording duration (0.3 seconds) is respected
-3. The silence threshold always accounts for the detected noise floor
+3. Keep silence detection scoped to the configured threshold and duration
 
-This means you can trust silence detection completely. Your words won't be cut off, and nothing will be lost.
+As with any energy-based detector, test the threshold and duration with your microphone and speaking style before relying on it for long dictations.
 
 ## Tips for Best Results
 

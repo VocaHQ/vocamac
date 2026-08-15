@@ -15,7 +15,7 @@ Push-to-Talk is the default activation mode in VocaMac. It's designed to feel as
 3. **Release** the key when you're done
 4. **Text appears** at your cursor, wherever you're typing
 
-The entire flow takes less than a second from release to text appearing on screen. There's no delay, no loading spinner, no waiting. Just your words, typed out.
+After you release the key, VocaMac processes the recording and inserts the result at the active cursor. The time varies with recording length, selected model, and Mac hardware.
 
 ## Why Push-to-Talk?
 
@@ -25,7 +25,7 @@ Push-to-Talk eliminates that entirely:
 
 - **No ambiguity**: if your finger is on the key, you're recording. If it's not, you're not.
 - **No forgotten recordings**: release the key and recording stops automatically.
-- **Instant feedback**: the menu bar icon turns green the moment you press, and returns to normal when you release.
+- **Clear feedback**: the menu bar and popover expose the active recording state; color is not the only signal.
 - **Muscle memory**: after a few uses, it becomes second nature. Like holding Shift to capitalize.
 
 ## Choosing Your Hotkey
@@ -50,13 +50,13 @@ You can change your hotkey anytime in **Settings → General → Activation Key*
 
 While recording, VocaMac gives you clear visual cues so you always know what's happening:
 
-- **Menu bar icon** turns green to indicate active recording
+- **Menu bar icon and status text** indicate active recording
 - **Audio level indicator** shows real-time input volume in the popover
 - **Cursor indicator** (optional) shows a floating mic icon near your text cursor
 
-## Works Everywhere
+## Works Across Text Fields
 
-Push-to-Talk works in any application that accepts text input:
+Push-to-Talk is intended for applications and fields that accept macOS text insertion, including:
 
 - Text editors and IDEs (VS Code, Xcode, Sublime Text)
 - Browsers (Chrome, Safari, Firefox, Arc)
@@ -65,7 +65,7 @@ Push-to-Talk works in any application that accepts text input:
 - Terminal emulators
 - Email clients
 
-VocaMac injects text at your cursor position using macOS accessibility APIs, so it works system-wide without any app-specific integrations.
+VocaMac injects text at your cursor position using macOS accessibility APIs. The exact result depends on the target app, the active field, and Accessibility permission.
 
 ## Compared to Double-Tap Toggle
 

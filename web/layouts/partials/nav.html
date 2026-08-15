@@ -1,24 +1,35 @@
-    <nav class="navbar">
-        <div class="container navbar__container">
-            <a href="/" class="navbar__logo">
-                <img src="/brand/voca-logo.svg" alt="VocaMac" class="navbar__logo-img">
-                <span>VocaMac</span>
-            </a>
-            <ul class="navbar__menu">
-                <li><a href="/#features" class="navbar__link">Features</a></li>
-                <li><a href="/#privacy" class="navbar__link">Privacy</a></li>
-                <li><a href="/#install" class="navbar__link">Install</a></li>
-                <li><a href="/screenshots/" class="navbar__link">Screenshots</a></li>
-                <li><a href="/#faq" class="navbar__link">FAQ</a></li>
-            </ul>
-            <div class="navbar__actions">
-                <a href="{{ .Site.Params.githubRepo }}" class="navbar__cta" target="_blank" rel="noopener">
-                    <svg class="navbar__cta-icon" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/></svg>
-                    <span class="navbar__cta-text">View Source</span>
-                </a>
-                <button class="navbar__toggle" aria-label="Menu">
-                    <span></span><span></span><span></span>
-                </button>
-            </div>
-        </div>
+<header class="site-header" data-header>
+    <div class="shell header-inner">
+        <a class="brand" href="/">
+            <img src="/brand/voca-logo.svg" alt="" width="28" height="28">
+            <span>VocaMac</span>
+        </a>
+
+        <ul class="nav-links">
+            <li><a href="/#how-it-works">How it works</a></li>
+            <li><a href="/#models">Models</a></li>
+            <li><a href="/#privacy">Privacy</a></li>
+            <li><a href="/#install">Install</a></li>
+            <li><a href="/#faq">Questions</a></li>
+        </ul>
+
+        <a class="btn btn-primary header-cta" href="/#install">Get VocaMac</a>
+
+        <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="mobile-nav" aria-label="Menu">
+            <span class="nav-toggle-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
+    </div>
+
+    <nav class="mobile-nav shell" id="mobile-nav" data-mobile-nav aria-label="Site" hidden>
+        <ul>
+            <li><a href="/#how-it-works">How it works</a></li>
+            <li><a href="/#models">Models</a></li>
+            <li><a href="/#privacy">Privacy</a></li>
+            <li><a href="/#install">Install</a></li>
+            <li><a href="/#faq">Questions</a></li>
+            <li><a href="/features/">All features</a></li>
+            <li><a href="/screenshots/">Screenshots</a></li>
+        </ul>
+        <a class="btn btn-primary" href="/#install">Get VocaMac</a>
     </nav>
+</header>

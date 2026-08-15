@@ -1,25 +1,43 @@
 {{ define "main" }}
-<section class="feature-hero">
-    <div class="container">
-        <a href="/" class="back-link">← Back to Home</a>
-        <h1>{{ .Title }}</h1>
-        {{ with .Params.description }}<p class="feature-hero__subtitle">{{ . }}</p>{{ end }}
+{{- $icons := dict
+  "apple-silicon-native" "spark"
+  "clipboard-preservation" "clipboard"
+  "custom-vocabulary" "vocabulary"
+  "double-tap-toggle" "hotkey"
+  "fully-configurable" "sliders"
+  "github-release-updates" "refresh"
+  "languages" "globe"
+  "launch-at-login" "launch"
+  "push-to-talk" "mic"
+  "silence-detection" "clock"
+  "smart-model-selection" "chip"
+  "system-wide-text-injection" "caret"
+  "translation" "translate"
+  "usage-stats" "chart"
+  "visual-feedback" "levels"
+-}}
+<section class="page-hero" aria-labelledby="page-title">
+    <div class="shell">
+        <a class="back-link" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a>
+        <p class="section-tag">the complete toolbox</p>
+        <h1 id="page-title">{{ .Title }}</h1>
+        {{ with .Params.description }}<p>{{ . }}</p>{{ end }}
     </div>
 </section>
-<section class="feature-content">
-    <div class="container">
-        {{ .Content }}
-        {{ range .Pages }}
-        <div style="margin-bottom: 16px;">
-            <a href="{{ .Permalink }}" style="text-decoration: none; color: inherit;">
-                <div class="feature-card" style="cursor: pointer;">
-                    <div class="feature-card__icon">{{ .Params.icon }}</div>
-                    <h3>{{ .Title }}</h3>
-                    <p>{{ .Params.subtitle }}</p>
-                </div>
+<section class="section" aria-labelledby="feature-list-title">
+    <div class="shell">
+        <h2 class="sr-only" id="feature-list-title">VocaMac features</h2>
+        {{ with .Content }}<div class="prose">{{ . }}</div>{{ end }}
+        <div class="feature-index">
+            {{ range .Pages }}
+            <a class="feature-entry reveal" href="{{ .RelPermalink }}">
+                <span class="card-icon">{{ partial "icon.html" (default "shield" (index $icons .File.ContentBaseName)) }}</span>
+                <h2>{{ .Title }}</h2>
+                <p>{{ .Params.subtitle }}</p>
+                <span class="feature-entry-more">Read the note <span class="btn-arrow" aria-hidden="true">→</span></span>
             </a>
+            {{ end }}
         </div>
-        {{ end }}
     </div>
 </section>
 {{ end }}

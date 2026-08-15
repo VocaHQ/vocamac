@@ -2,3 +2,6 @@
 public/
 resources/
 .hugo_build.lock
+
+# Netlify CLI local site link (machine-specific, created by `netlify deploy`)
+.netlify/

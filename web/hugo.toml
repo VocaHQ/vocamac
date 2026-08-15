@@ -7,7 +7,7 @@ title = "VocaMac — native voice typing for macOS"
   author = "Jatin Kumar Malik"
   twitterHandle = "@jatinkrmalik"
   githubRepo = "https://github.com/VocaHQ/vocamac"
-  ogImage = "https://vocamac.com/og-image.png"
+  ogImagePath = "og-image.png"
 
 [build]
   [build.buildStats]

@@ -550,9 +550,11 @@ VocaMac is the macOS member of the Voca family:
 
 | Platform | Project | Status |
 |----------|---------|--------|
-|  Linux | [VocaLinux](https://github.com/jatinkrmalik/vocalinux) | ✅ Available |
+|  Linux | [VocaLinux](https://github.com/VocaHQ/vocalinux) | ✅ Available |
 |  macOS | [VocaMac](https://github.com/VocaHQ/vocamac) | 🚀 Beta |
 | 🪟 Windows | [VocaWin](https://vocawin.com) | 📋 Planned |
+| 📱 Phone | [VocaPhone](https://vocaphone.vocahq.com) | Android beta / iOS source build |
+| 🔌 Gateway | [VocaGateway](https://github.com/VocaHQ/vocagateway) | Early |
 
 Each platform uses native technologies for the best possible integration, while sharing the same UX patterns and Whisper model family.
 
@@ -561,7 +563,7 @@ Each platform uses native technologies for the best possible integration, while 
 ## 🤝 Related Projects
 
 - [WhisperKit](https://github.com/argmaxinc/WhisperKit) - Swift native on-device speech recognition
-- [VocaLinux](https://github.com/jatinkrmalik/vocalinux) - Voice-to-text for Linux
+- [VocaLinux](https://github.com/VocaHQ/vocalinux) - Voice-to-text for Linux
 - [OpenAI Whisper](https://github.com/openai/whisper) - Original Whisper model
 
 ---

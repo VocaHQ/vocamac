@@ -1,14 +1,14 @@
 ---
 title: "Apple Silicon Native"
 subtitle: "A native macOS app with local WhisperKit/CoreML transcription on Apple Silicon."
-description: "VocaMac's stable release is built for Apple Silicon Macs and runs its WhisperKit speech-processing path locally after the model is available."
+description: "VocaMac is built for Apple Silicon Macs and runs its WhisperKit speech-processing path locally after the model is available."
 keywords: "apple silicon speech recognition, coreml voice to text, whisperkit macOS, local dictation mac, hardware accelerated transcription mac"
 icon: "⚡"
 ---
 
 ## Built for Apple Silicon
 
-VocaMac's stable release targets Apple Silicon Macs running macOS 13 Ventura or later. The app is a native SwiftUI menu-bar client, with WhisperKit and CoreML providing the stable release's speech-processing path.
+VocaMac targets Apple Silicon Macs running macOS 14 Sonoma or later. The app is a native SwiftUI menu-bar client, with WhisperKit and CoreML providing the current release's speech-processing path.
 
 ![VocaMac Settings showing model management on Apple Silicon](/screenshots/settings-models.png)
 
@@ -30,4 +30,4 @@ Start with a smaller model if you are checking the workflow or have limited disk
 
 Apple Silicon gives the native app a consistent local hardware target and lets CoreML use Apple's on-device execution stack. You keep control over model downloads, microphone permissions, Accessibility access, and the text insertion destination.
 
-For the stable release's complete version, download links, supported language hints, and permissions, see the [installation guide](/#install) and [model catalog](/#models). For newer engines and experiments on `main`, see the [nightly boundary](/#models).
+For the current release's version, download links, supported language hints, and permissions, see the [installation guide](/#install) and [model catalog](/#models). For newer engines and experiments on `main`, see the [nightly boundary](/#models).

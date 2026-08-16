@@ -96,14 +96,14 @@
             <div>
                 <p class="section-tag">choose your model</p>
                 <h2 class="section-title" id="models-title">The model is a setting, not a mystery.</h2>
-                <p class="section-lede">The stable release uses {{ $p.engine.name }} with {{ $p.engine.runtime }} acceleration. VocaMac keeps model choice local, visible, and reversible.</p>
+                <p class="section-lede">The current release uses {{ $p.engine.name }} with {{ $p.engine.runtime }} acceleration. VocaMac keeps model choice local, visible, and reversible.</p>
                 <div class="note">
                     <h3>First download</h3>
                     <p>Models download from <a href="{{ $p.engine.modelRepoURL }}">{{ $p.engine.modelRepo }}</a> and are cached locally. After a model is available, transcription can run without sending audio to a cloud service.</p>
                 </div>
                 <div class="note note-nightly">
                     <h3>Nightly is a separate lane</h3>
-                    <p>The public stable release is {{ $p.stable.tag }}. New engine work may appear in nightly builds before it reaches a stable release; check the release notes before choosing that path.</p>
+                    <p>The current shipping release is {{ $p.stable.tag }} ({{ $p.stable.status }}). New engine work may appear in nightly builds before it reaches a tagged release; check the release notes before choosing that path.</p>
                 </div>
             </div>
             <div class="table-scroll">
@@ -295,10 +295,10 @@
         <div class="faq" data-faq>
             <details open><summary>Does my voice leave my Mac?</summary><p>During transcription, audio is passed to the selected local speech-to-text model on your Mac. VocaMac does not send dictation audio to a Voca cloud service. Model downloads and update checks are separate network actions.</p></details>
             <details><summary>Do I need internet access?</summary><p>You need internet access to download the app or a model that is not on your Mac yet. After the model is available, on-device transcription can work offline. VocaMac may still check GitHub for application updates when that feature is enabled.</p></details>
-            <details><summary>Which Macs can run VocaMac?</summary><p>The current stable release supports {{ $p.requirements.os }} on {{ $p.requirements.arch }}. Intel Macs are not supported by the released arm64 build.</p></details>
+            <details><summary>Which Macs can run VocaMac?</summary><p>The current release supports {{ $p.requirements.os }} on {{ $p.requirements.arch }}. Intel Macs are not supported by the released arm64 build.</p></details>
             <details><summary>Why does VocaMac need permissions?</summary><p>Microphone access captures speech. Accessibility and Input Monitoring let the menu-bar app hear its configured shortcut and insert the resulting text into the app where you are working. Secure fields and individual apps can still restrict insertion.</p></details>
             <details><summary>Which model should I choose?</summary><p>Start with Small on an 8 GB Mac, then choose a compact Large or Distil variant when accuracy matters and your Mac has the headroom. Tiny and Base are useful when a smaller download or lower memory use matters more.</p></details>
-            <details><summary>What is available beyond Whisper?</summary><p>Additional engine work is currently shipped in nightly/source channels rather than the {{ $p.stable.tag }} stable release. Check the current release notes before installing a nightly build.</p></details>
+            <details><summary>What is available beyond Whisper?</summary><p>Additional engine work is currently shipped in nightly/source channels rather than the {{ $p.stable.tag }} release. Check the current release notes before installing a nightly build.</p></details>
         </div>
     </div>
 </section>

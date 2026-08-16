@@ -22,7 +22,7 @@ Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or B
 
 ## Download, verify, switch
 
-The first use of a model can download its files from the documented WhisperKit model repository. VocaMac caches the model locally, verifies the downloaded assets, and uses the selected model for later recordings. You can keep more than one model; model deletion is part of the newer nightly/source lane rather than the v0.7.2 stable catalog.
+The first use of a model can download its files from the documented WhisperKit model repository. VocaMac caches the model locally, verifies the downloaded assets, and uses the selected model for later recordings. You can keep more than one model; model deletion is part of the newer nightly/source lane rather than the v0.7.2 release catalog.
 
 The model choice affects speed, memory, and accuracy; it does not change the privacy boundary. Transcription remains on-device after the selected model is available.
 

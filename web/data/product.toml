@@ -1,15 +1,16 @@
 # Centralized VocaMac product facts.
 #
-# Every figure here was verified against the tagged source of the current
-# stable release, the published release artifacts, and the Homebrew cask.
+# Status and OS floor follow VocaHQ/vocahq PRODUCT.md (verified 2026-08-14):
+# Beta, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
+# Version/artifact figures were verified against the tagged v0.7.2 release.
 # Re-verify this file before publishing a website change.
 #
-# Verified: 2026-08-16 against v0.7.2.
+# Verified: 2026-08-16 against v0.7.2 and PRODUCT.md.
 
 [stable]
 version = "0.7.2"
 tag = "v0.7.2"
-status = "Stable release"
+status = "Beta"
 released = "2026-08-04"
 releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.7.2"
 releasesURL = "https://github.com/VocaHQ/vocamac/releases"
@@ -19,8 +20,8 @@ dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.7.2/VocaMac-0.7
 dmgSize = "75 MB"
 
 [requirements]
-os = "macOS 13 Ventura or later"
-osShort = "macOS 13+"
+os = "macOS 14 Sonoma or later"
+osShort = "macOS 14+"
 arch = "Apple Silicon"
 archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
@@ -125,7 +126,7 @@ trust = "brew trust vocahq/vocamac"
 install = "brew install --cask vocamac"
 upgrade = "brew upgrade --cask vocamac"
 
-# Shipped only in nightly builds from main, not in the stable release above.
+# Shipped only in nightly builds from main, not in the v0.7.2 release above.
 # Anything listed here must be labelled as nightly wherever it appears.
 [nightly]
 cask = "brew install --cask vocamac-nightly"

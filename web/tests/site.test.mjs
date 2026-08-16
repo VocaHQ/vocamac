@@ -55,21 +55,23 @@ test("keeps navigation and anchors accessible", () => {
   }
 });
 
-test("keeps the stable product boundary explicit", () => {
+test("keeps the PRODUCT.md product boundary explicit", () => {
   assert.match(index, /v0\.7\.2/);
-  assert.match(index, /macOS 13\+|macOS 13 Ventura/);
+  assert.match(index, /macOS 14\+|macOS 14 Sonoma/);
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
-  assert.match(index, /Stable release/);
+  assert.match(index, /Beta/);
   assert.match(index, /Additional engine work is currently shipped in nightly\/source channels/i);
-  assert.doesNotMatch(index, /beta/i);
+  assert.doesNotMatch(index, /Stable release/i);
+  assert.doesNotMatch(index, /macOS 13/);
   assert.doesNotMatch(index, /Zero Network Calls/i);
   assert.doesNotMatch(index, /100% Offline/i);
   assert.doesNotMatch(index, /Works in All Apps/i);
   assert.doesNotMatch(index, /99\+ Languages/i);
   assert.doesNotMatch(index, /remove local models/i);
-  assert.match(product, /status = "Stable release"/);
+  assert.match(product, /status = "Beta"/);
+  assert.match(product, /osShort = "macOS 14\+"/);
 });
 
 test("uses local assets and accurate social metadata", async () => {

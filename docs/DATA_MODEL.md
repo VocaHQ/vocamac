@@ -293,6 +293,7 @@ struct UserSettings {
     var maxRecordingDuration: Int = 60          // seconds
     var selectedAudioDeviceID: String?          // nil = system default
     var selectedAudioDeviceName: String?        // last known display name for unavailable-device messaging
+    var muteSystemAudioWhileRecording: Bool = false // Temporarily mute default output during recording
 
     // Model
     var selectedModelSize: ModelSize = .tiny

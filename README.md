@@ -399,6 +399,7 @@ Open Settings from the menu bar popover or with **⌘,**
 - **Max recording duration** - 30s, 60s, 120s, or 300s
 - **Silence detection** - Auto-stop recording after configurable silence
 - **Sound effects** - Toggle audio feedback for recording start/stop
+- **Mute system audio while recording** - Temporarily mute the default output and restore its previous state when recording ends
 - **Input device** - Select which microphone to use
 
 ### Models

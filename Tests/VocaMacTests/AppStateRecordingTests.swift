@@ -34,6 +34,52 @@ final class AppStateRecordingTests: XCTestCase {
                      "Error message should mention microphone")
     }
 
+    func testMuteSystemAudioWhileRecordingRestoresAfterStop() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.muteSystemAudioWhileRecording = true
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.systemAudioMuter.muteCallCount, 1)
+
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(mocks.systemAudioMuter.restoreCallCount, 1)
+    }
+
+    func testMuteSystemAudioWhileRecordingRestoresAfterCancel() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.muteSystemAudioWhileRecording = true
+
+        await appState.startRecording()
+        await appState.cancelRecording()
+
+        XCTAssertEqual(mocks.systemAudioMuter.muteCallCount, 1)
+        XCTAssertEqual(mocks.systemAudioMuter.restoreCallCount, 1)
+    }
+
+    func testMuteSystemAudioWhileRecordingRestoresAfterForceRecovery() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.muteSystemAudioWhileRecording = true
+
+        await appState.startRecording()
+        appState.forceRecovery()
+
+        XCTAssertEqual(mocks.systemAudioMuter.muteCallCount, 1)
+        XCTAssertEqual(mocks.systemAudioMuter.restoreCallCount, 1)
+    }
+
+    func testMuteSystemAudioIsNotChangedWhenDisabled() async {
+        let (appState, mocks) = AppState.makeTestState()
+
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(mocks.systemAudioMuter.muteCallCount, 0)
+        XCTAssertEqual(mocks.systemAudioMuter.restoreCallCount, 1,
+                       "Restoring is idempotent and protects recovery paths")
+    }
+
     func testStartRecordingPassesOverlayStyleAndPosition() async {
         let (appState, mocks) = AppState.makeTestState()
         let originalStyle = appState.overlayStyle
@@ -596,6 +642,8 @@ final class AppStateRecordingGuardTests: XCTestCase {
             "failed audio start should reset hotkey state")
         XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0,
             "failed audio start should not play the start sound")
+        XCTAssertEqual(mocks.systemAudioMuter.muteCallCount, 0,
+                       "System audio should not be muted when microphone startup fails")
     }
 
     @MainActor

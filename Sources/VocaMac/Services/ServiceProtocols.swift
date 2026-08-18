@@ -39,6 +39,14 @@ protocol SoundPlaying: AnyObject {
     func playStopSoundAsync() async
 }
 
+// MARK: - SystemAudioMuting
+
+/// Controls the default output device's mute state for the duration of a recording.
+protocol SystemAudioMuting: AnyObject {
+    func muteSystemAudio()
+    func restoreSystemAudio()
+}
+
 // MARK: - HotKeyMonitoring
 
 protocol HotKeyMonitoring: AnyObject {

@@ -110,6 +110,7 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
     @AppStorage("vocamac.preserveClipboard") var preserveClipboard: Bool = true
     @AppStorage("vocamac.soundEffectsEnabled") var soundEffectsEnabled: Bool = true
+    @AppStorage("vocamac.muteSystemAudioWhileRecording") var muteSystemAudioWhileRecording: Bool = false
     @AppStorage("vocamac.overlayStyle") var overlayStyle: OverlayStyle = .minimal
     @AppStorage("vocamac.overlayPosition") var overlayPosition: OverlayPosition = .bottom
     /// Legacy preference retained so existing installs that disabled the old
@@ -185,6 +186,7 @@ final class AppState: ObservableObject {
     let hotKeyManager: HotKeyMonitoring
     let modelManager: ModelManaging
     let soundManager: SoundPlaying
+    let systemAudioMuter: SystemAudioMuting
     let cursorOverlay: CursorOverlayManaging
     let statsManager: StatsManaging
     let updateChecker = UpdateChecker()
@@ -265,6 +267,7 @@ final class AppState: ObservableObject {
         hotKeyManager: HotKeyMonitoring = HotKeyManager(),
         modelManager: ModelManaging = ModelManager(),
         soundManager: SoundPlaying = SoundManager(),
+        systemAudioMuter: SystemAudioMuting = SystemAudioMuteManager(),
         cursorOverlay: CursorOverlayManaging,
         statsManager: StatsManaging,
         permissionManager: (any PermissionManaging)? = nil,
@@ -276,6 +279,7 @@ final class AppState: ObservableObject {
         self.hotKeyManager = hotKeyManager
         self.modelManager = modelManager
         self.soundManager = soundManager
+        self.systemAudioMuter = systemAudioMuter
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
@@ -457,6 +461,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
                 VocaLogger.warning(.appState, "Audio device changed — recovering from interrupted recording")
+                self.systemAudioMuter.restoreSystemAudio()
                 self.isRecording = false
                 self.audioLevel = 0.0
                 self.cursorOverlay.hide()
@@ -799,6 +804,7 @@ final class AppState: ObservableObject {
 
         // Reset audio engine unconditionally
         audioEngine.forceReset()
+        systemAudioMuter.restoreSystemAudio()
 
         // Reset hotkey tracking state
         hotKeyManager.resetKeyState()
@@ -880,12 +886,17 @@ final class AppState: ObservableObject {
 
         guard didStartRecording else {
             VocaLogger.warning(.appState, "Audio engine failed to start — resetting recording state")
+            systemAudioMuter.restoreSystemAudio()
             isRecording = false
             audioLevel = 0.0
             cursorOverlay.hide()
             hotKeyManager.resetKeyState()
             appStatus = .idle
             return
+        }
+
+        if muteSystemAudioWhileRecording && isRecording && appStatus == .recording {
+            systemAudioMuter.muteSystemAudio()
         }
 
         // Play start sound after mic is active (fire-and-forget)
@@ -898,9 +909,13 @@ final class AppState: ObservableObject {
         // Accept stop if we're recording OR if the audio engine thinks
         // it's recording (covers stuck-state recovery scenarios where
         // isRecording and appStatus may be out of sync).
-        guard isRecording || appStatus == .recording else { return }
+        guard isRecording || appStatus == .recording else {
+            systemAudioMuter.restoreSystemAudio()
+            return
+        }
 
         let audioData = await stopAudioEngine()
+        systemAudioMuter.restoreSystemAudio()
         isRecording = false
         audioLevel = 0.0
 
@@ -988,9 +1003,13 @@ final class AppState: ObservableObject {
     /// Cancels the active recording without sending its audio to a transcription
     /// engine. This is used by the overlay's cancel button.
     func cancelRecording() async {
-        guard isRecording || appStatus == .recording else { return }
+        guard isRecording || appStatus == .recording else {
+            systemAudioMuter.restoreSystemAudio()
+            return
+        }
 
         _ = await stopAudioEngine()
+        systemAudioMuter.restoreSystemAudio()
         isRecording = false
         audioLevel = 0.0
         cursorOverlay.hide()

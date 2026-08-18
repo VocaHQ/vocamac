@@ -1163,6 +1163,14 @@ struct AudioSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("System Audio") {
+                Toggle("Mute system audio while recording", isOn: $appState.muteSystemAudioWhileRecording)
+
+                Text("Temporarily mutes the default output device while VocaMac records, then restores its previous mute state.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Input Device") {
                 Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
                     Text("System Default").tag("")

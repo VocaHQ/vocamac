@@ -448,10 +448,23 @@ struct HandyOverlayView: View {
     @State private var isPulsing = false
     @State private var hasEntered = false
 
-    private let brandGreen = Color(nsColor: BrandAssets.brandGreen)
-    private let processingColor = Color(nsColor: .systemYellow)
-
     private var isDark: Bool { colorScheme == .dark }
+
+    /// A brighter recording accent keeps the small waveform and status icon
+    /// distinct from the panel in both system appearances.
+    private var recordingColor: Color {
+        isDark
+            ? Color(red: 0.35, green: 0.91, blue: 0.70)
+            : Color(red: 0.0, green: 0.45, blue: 0.33)
+    }
+
+    /// Yellow is clear on a dark panel, while the deeper amber remains visible
+    /// against the light panel when it is used for the processing spinner.
+    private var processingColor: Color {
+        isDark
+            ? Color(nsColor: .systemYellow)
+            : Color(red: 0.55, green: 0.27, blue: 0.0)
+    }
 
     private var panelFill: Color {
         isDark
@@ -476,11 +489,7 @@ struct HandyOverlayView: View {
     }
 
     private var waveformColor: Color {
-        viewModel.phase == .recording ? brandGreen : processingColor
-    }
-
-    private var accentColor: Color {
-        viewModel.phase == .recording ? brandGreen : processingColor
+        viewModel.phase == .recording ? recordingColor : processingColor
     }
 
     private var slideInOffset: CGFloat {
@@ -509,7 +518,7 @@ struct HandyOverlayView: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(
                     viewModel.phase == .recording
-                        ? brandGreen.opacity(isPulsing ? 0.95 : 0.55)
+                        ? recordingColor.opacity(isPulsing ? 0.95 : 0.55)
                         : strokeBase,
                     lineWidth: viewModel.phase == .recording ? 1.6 : 1
                 )
@@ -567,7 +576,7 @@ struct HandyOverlayView: View {
 
     private var liveHeader: some View {
         HStack(spacing: 7) {
-            brandMarkBadge
+            recordingIndicatorIcon
 
             Text(viewModel.phase == .recording ? "Listening" : "Transcribing")
                 .font(.system(size: 13, weight: .semibold))
@@ -626,16 +635,14 @@ struct HandyOverlayView: View {
     private var minimalControlRow: some View {
         HStack(spacing: 8) {
             if viewModel.phase == .recording {
-                brandMarkBadge
+                recordingIndicatorIcon
                 waveform
             } else {
                 ProgressView()
                     .controlSize(.small)
                     .tint(processingColor)
-
-                Text("Transcribing…")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(primaryText)
+                    .accessibilityLabel("Transcribing")
+                    .frame(maxWidth: .infinity)
             }
         }
         .padding(.horizontal, 10)
@@ -667,30 +674,20 @@ struct HandyOverlayView: View {
         .accessibilityLabel("Microphone level")
     }
 
-    private var brandMarkBadge: some View {
+    private var recordingIndicatorIcon: some View {
         ZStack {
             if viewModel.phase == .recording {
                 Circle()
-                    .fill(brandGreen.opacity(isDark ? 0.28 : 0.18))
+                    .fill(recordingColor.opacity(isDark ? 0.28 : 0.18))
                     .frame(width: 22, height: 22)
                     .scaleEffect(isPulsing ? 1.08 : 0.86)
                     .opacity(isPulsing ? 0.55 : 0.9)
             }
 
-            Group {
-                if let mark = BrandAssets.mark {
-                    Image(nsImage: mark)
-                        .resizable()
-                        .renderingMode(.template)
-                        .scaledToFit()
-                        .frame(width: 12, height: 12)
-                } else {
-                    Image(systemName: "mic.fill")
-                        .font(.system(size: 10, weight: .semibold))
-                }
-            }
-            .foregroundStyle(accentColor)
-            .shadow(color: accentColor.opacity(0.4), radius: 3)
+            Image(systemName: "mic.fill")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(viewModel.phase == .recording ? recordingColor : processingColor)
+                .shadow(color: waveformColor.opacity(0.45), radius: 3)
         }
         .frame(width: 22, height: 22)
         .accessibilityLabel(viewModel.phase == .recording ? "Recording" : "Transcribing")

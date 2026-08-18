@@ -1,5 +1,5 @@
 {{- $p := hugo.Data.product -}}
-{{- $title := cond .IsHome "VocaMac — native voice typing for macOS, transcribed on your Mac" (printf "%s | VocaMac" .Title) -}}
+{{- $title := cond .IsHome "VocaMac: native voice typing for macOS" (printf "%s | VocaMac" .Title) -}}
 {{- $description := cond (ne .Params.description nil) .Params.description site.Params.description -}}
 {{- /* absURL, not a hardcoded domain string: a literal "https://vocamac.com/..."
    can't follow a --baseURL override, so a Netlify preview build kept
@@ -29,7 +29,7 @@
     <meta property="og:image:type" content="image/png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="VocaMac — native voice typing for macOS">
+    <meta property="og:image:alt" content="VocaMac: native voice typing for macOS">
     <meta property="og:site_name" content="VocaMac">
     <meta property="og:locale" content="en_US">
 
@@ -38,7 +38,7 @@
     <meta name="twitter:title" content="{{ $title }}">
     <meta name="twitter:description" content="{{ $description }}">
     <meta name="twitter:image" content="{{ $ogImage }}">
-    <meta name="twitter:image:alt" content="VocaMac — native voice typing for macOS">
+    <meta name="twitter:image:alt" content="VocaMac: native voice typing for macOS">
     <meta name="twitter:creator" content="{{ site.Params.twitterHandle }}">
 
     <link rel="stylesheet" href="/style.css">

@@ -1,6 +1,6 @@
 baseURL = "https://vocamac.com/"
 locale = "en-us"
-title = "VocaMac — native voice typing for macOS"
+title = "VocaMac: native voice typing for macOS"
 
 [params]
   description = "Native voice typing for macOS. Hold a hotkey, speak, and text appears at your cursor — transcribed by a Whisper model running on your own Mac. Free and open source."

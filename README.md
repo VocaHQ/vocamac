@@ -12,10 +12,10 @@
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](https://github.com/VocaHQ/vocamac)
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)
-[![Release](https://img.shields.io/github/v/release/VocaHQ/vocamac?include_prereleases&label=Release)](https://github.com/VocaHQ/vocamac/releases)
+[![Release](https://img.shields.io/github/v/release/VocaHQ/vocamac?label=Release)](https://github.com/VocaHQ/vocamac/releases)
 [![Nightly](https://img.shields.io/badge/Nightly-download-blueviolet)](https://github.com/VocaHQ/vocamac/releases/tag/nightly)
 
-[![Powered by WhisperKit](https://img.shields.io/badge/Powered%20by-WhisperKit-blueviolet.svg)](https://github.com/argmaxinc/WhisperKit)
+[![Speech engines](https://img.shields.io/badge/Speech%20engines-Whisper%20%7C%20Parakeet%20%7C%20Apple%20Speech%20%7C%20ONNX-6C5CE7.svg)](#-models)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-Optimized-black.svg?logo=apple&logoColor=white)](https://github.com/VocaHQ/vocamac)
 [![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
 [![Works Offline](https://img.shields.io/badge/Works-Offline-success.svg)](https://github.com/VocaHQ/vocamac)
@@ -29,7 +29,7 @@
 
 </div>
 
-<p align="center">Speak. It types. 100% offline, open-source voice-to-text for macOS - powered by WhisperKit. No cloud, no subscriptions, no data leaves your device. Just hold a hotkey, speak, and your words appear wherever your cursor is.</p>
+<p align="center">Speak. It types. 100% offline, open-source voice-to-text for macOS. Choose from local Whisper, Parakeet, Apple Speech, and specialized ONNX models. No cloud, no subscriptions, and no dictation audio leaves your device. Hold a hotkey, speak, and your words appear wherever your cursor is.</p>
 
 ---
 
@@ -39,7 +39,7 @@
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
 - **👆 Double-Tap Toggle** - Double-tap the hotkey to start/stop recording.
-- **🧠 Smart Model Selection** - Auto-detects your Apple Silicon chip and RAM, then recommends the best whisper model via WhisperKit.
+- **🧠 Engine and Model Choice** - Choose the local speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible options for your Apple Silicon Mac.
 - **⚡ Native Apple Acceleration** - CoreML + Metal + Neural Engine acceleration on Apple Silicon. No manual setup.
 - **📊 Visual Feedback** - Menu bar icon changes color during recording and processing. Audio level indicator shows input.
 - **🔄 Auto-Updates** - Built-in update checker queries GitHub Releases on launch and lets you download and install the latest version in one click from within the app.
@@ -87,9 +87,13 @@
 
 ---
 
-## 🏛️ Why WhisperKit?
+## 🧠 How the engines work
 
-VocaMac uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) instead of raw whisper.cpp because:
+VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Models**. The [Models](#-models) section explains the full catalogue.
+
+### Why the Whisper engine uses WhisperKit
+
+The Whisper path uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) instead of raw whisper.cpp because:
 
 | | WhisperKit | whisper.cpp |
 |---|-----------|-------------|

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="og-title og-desc">
   <title id="og-title">VocaMac — native voice typing for macOS</title>
-  <desc id="og-desc">A warm paper card. On the left, the VocaMac lockup, the headline "Say it once. Your Mac types.", and the macOS 14+, Apple Silicon, v0.7.2 beta and AGPL-3.0 proof line. On the right, the menu-bar recording preview with an audio meter and a transcript landing at the cursor.</desc>
+  <desc id="og-desc">A warm paper card. On the left, the VocaMac lockup, the headline "Say it once. Your Mac types.", and the macOS 14+, Apple Silicon, v0.8.0 beta and AGPL-3.0 proof line. On the right, the menu-bar recording preview with an audio meter and a transcript landing at the cursor.</desc>
 
   <!-- Defs first: a forward reference to the dot pattern is what turned the
        previous card into a grey wash in strict rasterisers. -->
@@ -54,7 +54,7 @@
 
   <!-- Proof line -->
   <line x1="72" y1="486" x2="536" y2="486" stroke="#c9c8bd" stroke-width="1.5"/>
-  <text id="og-proof" class="mono" x="72" y="516" font-size="14" fill="#5f6861">macOS 14+ · Apple Silicon · v0.7.2 beta · AGPL-3.0</text>
+  <text id="og-proof" class="mono" x="72" y="516" font-size="14" fill="#5f6861">macOS 14+ · Apple Silicon · v0.8.0 beta · AGPL-3.0</text>
 
   <!-- Menu bar strip -->
   <rect x="616" y="140" width="512" height="46" rx="10" fill="#0b1a15"/>

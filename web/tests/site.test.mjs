@@ -56,14 +56,14 @@ test("keeps navigation and anchors accessible", () => {
 });
 
 test("keeps the PRODUCT.md product boundary explicit", () => {
-  assert.match(index, /v0\.7\.2/);
+  assert.match(index, /v0\.8\.0/);
   assert.match(index, /macOS 14\+|macOS 14 Sonoma/);
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
   assert.match(index, /Beta/);
-  assert.match(index, /Nightly builds add three more engines/i);
-  assert.match(index, /ship in nightly\/source channels/i);
+  assert.match(index, /includes Parakeet/i);
+  assert.match(index, /Additional engines and models available in v0\.8\.0/i);
   assert.match(index, /Parakeet/);
   assert.match(index, /sherpa-onnx/);
   assert.doesNotMatch(index, /Stable release/i);
@@ -96,7 +96,7 @@ test("emits valid structured metadata", () => {
   assert.ok(jsonLd, "homepage JSON-LD is present");
   const structured = JSON.parse(jsonLd);
   assert.equal(structured["@type"], "SoftwareApplication");
-  assert.equal(structured.softwareVersion, "0.7.2");
+  assert.equal(structured.softwareVersion, "0.8.0");
   assert.equal(structured.processorRequirements, "Apple Silicon");
 });
 
@@ -113,7 +113,7 @@ test("keeps content available without javascript", () => {
   assert.match(index, /<details[^>]+open/);
   assert.match(index, /<summary>Does my voice leave my Mac\?<\/summary>/);
   assert.match(index, /brew install --cask vocamac/);
-  assert.match(index, /Download v0\.7\.2 DMG/);
+  assert.match(index, /Download v0\.8\.0 DMG/);
   assert.match(script, /IntersectionObserver/);
   assert.match(script, /setTimeout\(function \(\) \{ revealItems\.forEach\(reveal\); \}, 800\)/);
   assert.match(script, /event\.key === "Escape"/);

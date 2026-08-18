@@ -30,4 +30,4 @@ Start with a smaller model if you are checking the workflow or have limited disk
 
 Apple Silicon gives the native app a consistent local hardware target and lets CoreML use Apple's on-device execution stack. You keep control over model downloads, microphone permissions, Accessibility access, and the text insertion destination.
 
-For the current release's version, download links, supported language hints, and permissions, see the [installation guide](/#install) and [model catalog](/#models). For newer engines and experiments on `main`, see the [nightly boundary](/#models).
+For the current release's version, download links, supported language hints, and permissions, see the [installation guide](/#install) and [model catalog](/#models).

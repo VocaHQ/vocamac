@@ -30,7 +30,7 @@ The Base model is a small download and transcribes quickly. It is useful for qui
 
 Small, compact Large, and Distil variants offer different accuracy and speed trade-offs. Choose among the models shown in Settings rather than assuming every legacy Whisper size is part of the stable catalog.
 
-The model management interface shows how much disk space each model uses. Download the models you want and switch the selected model from Settings. Model deletion is available in newer nightly/source builds, not the v0.7.2 release catalog.
+The model management interface shows how much disk space each model uses. Download the models you want, switch the selected model from Settings, and delete downloaded models you no longer need.
 
 ## Audio Settings
 

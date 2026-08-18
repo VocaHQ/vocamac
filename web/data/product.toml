@@ -2,24 +2,22 @@
 #
 # Status and OS floor follow VocaHQ/vocahq PRODUCT.md (verified 2026-08-14):
 # Beta, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
-# Version/artifact figures were verified against the tagged v0.7.2 release.
+# Version/artifact figures were verified against the tagged v0.8.0 release.
 # Re-verify this file before publishing a website change.
 #
-# Verified: 2026-08-17 against v0.7.2 (stable) and main @ 1b409b6 (nightly
-# models, from Sources/VocaMac/Models/WhisperModel.swift and
-# SherpaModelCatalog.swift).
+# Verified: 2026-08-18 against v0.8.0 and its tagged release assets.
 
 [stable]
-version = "0.7.2"
-tag = "v0.7.2"
+version = "0.8.0"
+tag = "v0.8.0"
 status = "Beta"
-released = "2026-08-04"
-releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.7.2"
+released = "2026-08-18"
+releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.8.0"
 releasesURL = "https://github.com/VocaHQ/vocamac/releases"
 latestURL = "https://github.com/VocaHQ/vocamac/releases/latest"
-dmg = "VocaMac-0.7.2-arm64.dmg"
-dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.7.2/VocaMac-0.7.2-arm64.dmg"
-dmgSize = "75 MB"
+dmg = "VocaMac-0.8.0-arm64.dmg"
+dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.8.0/VocaMac-0.8.0-arm64.dmg"
+dmgSize = "90 MB"
 
 [requirements]
 os = "macOS 14 Sonoma or later"
@@ -29,7 +27,7 @@ archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
 permissions = ["Microphone", "Accessibility", "Input Monitoring"]
 
-# Languages that can actually be pinned in Settings in v0.7.2, verified by
+# Languages that can actually be pinned in Settings in v0.8.0, verified by
 # counting the tags in the Transcription Language picker in SettingsView.swift.
 # The Whisper model is trained on ~99 languages, but only these are selectable,
 # so the site must not claim "99+ languages".
@@ -45,7 +43,7 @@ runtime = "CoreML"
 modelRepo = "argmaxinc/whisperkit-coreml"
 modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
 
-# The model picker shown in Settings in v0.7.2 (ModelSize.standardCatalog).
+# The WhisperKit model picker shown in Settings in v0.8.0 (ModelSize.standardCatalog).
 # size/ram are the values the app itself reports.
 [[models]]
 id = "tiny"
@@ -111,66 +109,65 @@ ram = "10 GB"
 quality = "Best"
 note = "Highest accuracy. Wants a 16 GB Mac and patience."
 
-# Additional engines and models shipped only in nightly builds from main
-# (Sources/VocaMac/Models/WhisperModel.swift ModelSize + SherpaModelCatalog.swift),
-# not in the v0.7.2 release above. size/note follow README.md's Models section.
-[[nightlyModels]]
+# Additional engines and models in v0.8.0. Sizes and notes follow the shipped
+# catalogs in WhisperModel.swift and SherpaModelCatalog.swift.
+[[releaseModels]]
 id = "parakeet-v3"
 name = "Parakeet v3"
 engine = "Parakeet"
 size = "0.7 GB"
 note = "Fastest engine. 25 European languages + Japanese, auto-detected."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "parakeet-v2"
 name = "Parakeet v2"
 engine = "Parakeet"
 size = "1.2 GB"
 note = "Fastest engine. English only, highest recall."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "parakeet-110m"
 name = "Parakeet 110M"
 engine = "Parakeet"
 size = "0.2 GB"
 note = "English only, smaller download and faster first load."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "apple-speech"
 name = "Apple Speech"
 engine = "Apple Speech"
 size = "Managed by macOS"
 note = "macOS 26+ system engine (SpeechAnalyzer). Roughly 30 locales."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "moonshine-v2-tiny"
 name = "Moonshine v2 Tiny"
 engine = "sherpa-onnx"
 size = "60 MB"
 note = "CPU-only. Very low-RAM Macs, English."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "moonshine-v2-base"
 name = "Moonshine v2 Base"
 engine = "sherpa-onnx"
 size = "190 MB"
 note = "CPU-only. Low-RAM Macs, English."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "sense-voice"
 name = "SenseVoice"
 engine = "sherpa-onnx"
 size = "240 MB"
 note = "CPU-only. Chinese, Japanese, Korean, Cantonese, English."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "gigaam-v3"
 name = "GigaAM v3"
 engine = "sherpa-onnx"
 size = "270 MB"
 note = "CPU-only. Russian, with punctuation."
 
-[[nightlyModels]]
+[[releaseModels]]
 id = "canary-180m-flash"
 name = "Canary 180M Flash"
 engine = "sherpa-onnx"
@@ -193,16 +190,3 @@ tap = "brew tap vocahq/vocamac"
 trust = "brew trust vocahq/vocamac"
 install = "brew install --cask vocamac"
 upgrade = "brew upgrade --cask vocamac"
-
-# Shipped only in nightly builds from main, not in the v0.7.2 release above.
-# Anything listed here must be labelled as nightly wherever it appears.
-[nightly]
-cask = "brew install --cask vocamac-nightly"
-url = "https://github.com/VocaHQ/vocamac/releases/tag/nightly"
-features = [
-  "Additional speech-to-text engines (Parakeet, Apple Speech, sherpa-onnx)",
-  "Headless file transcription from the command line",
-  "A configurable recording overlay",
-  "Microphone switching from the menu bar",
-  "Deleting downloaded models from Settings",
-]

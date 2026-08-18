@@ -96,18 +96,14 @@
             <div>
                 <p class="section-tag">choose your model</p>
                 <h2 class="section-title" id="models-title">The model is a setting, not a mystery.</h2>
-                <p class="section-lede">The current release uses {{ $p.engine.name }} with {{ $p.engine.runtime }} acceleration. VocaMac keeps model choice local, visible, and reversible.</p>
+                <p class="section-lede">{{ $p.stable.tag }} includes WhisperKit with {{ $p.engine.runtime }} acceleration plus Parakeet, Apple Speech, and specialized ONNX models. VocaMac keeps model choice local, visible, and reversible.</p>
                 <div class="note">
                     <h3>First download</h3>
                     <p>Models download from <a href="{{ $p.engine.modelRepoURL }}">{{ $p.engine.modelRepo }}</a> and are cached locally. After a model is available, transcription can run without sending audio to a cloud service.</p>
                 </div>
-                <div class="note note-nightly">
-                    <h3>Nightly is a separate lane</h3>
-                    <p>The current shipping release is {{ $p.stable.tag }} ({{ $p.stable.status }}). Nightly builds from <code>main</code> add the engines and models in the second table before they reach a tagged release.</p>
-                    <div class="code-block" data-copy>
-                        <pre><code><span class="prompt">$ </span>{{ $p.nightly.cask }}</code></pre>
-                    </div>
-                    <p class="install-detail">Check the <a href="{{ $p.nightly.url }}">nightly release notes</a> before installing.</p>
+                <div class="note">
+                    <h3>More than Whisper</h3>
+                    <p>{{ $p.stable.tag }} brings the engines and models in the second table into the shipping release. Check the <a href="{{ $p.stable.releaseURL }}">release notes</a> for their language and macOS requirements.</p>
                 </div>
             </div>
             <div>
@@ -131,12 +127,12 @@
                 </div>
                 <div class="table-scroll table-scroll-nightly">
                     <table class="model-table">
-                        <caption>Additional engines and models in nightly builds</caption>
+                        <caption>Additional engines and models available in {{ $p.stable.tag }}</caption>
                         <thead>
                             <tr><th scope="col">Model</th><th scope="col">Engine</th><th scope="col">Download</th><th scope="col">Note</th></tr>
                         </thead>
                         <tbody>
-                            {{ range $p.nightlyModels }}
+                            {{ range $p.releaseModels }}
                             <tr>
                                 <th scope="row">{{ .name }}</th>
                                 <td>{{ .engine }}</td>
@@ -322,7 +318,7 @@
             <details><summary>Which Macs can run VocaMac?</summary><p>The current release supports {{ $p.requirements.os }} on {{ $p.requirements.arch }}. Intel Macs are not supported by the released arm64 build.</p></details>
             <details><summary>Why does VocaMac need permissions?</summary><p>Microphone access captures speech. Accessibility and Input Monitoring let the menu-bar app hear its configured shortcut and insert the resulting text into the app where you are working. Secure fields and individual apps can still restrict insertion.</p></details>
             <details><summary>Which model should I choose?</summary><p>Start with Small on an 8 GB Mac, then choose a compact Large or Distil variant when accuracy matters and your Mac has the headroom. Tiny and Base are useful when a smaller download or lower memory use matters more.</p></details>
-            <details><summary>What is available beyond Whisper?</summary><p>Nightly builds add three more engines: Parakeet (NVIDIA TDT models on the Apple Neural Engine, the fastest option), Apple Speech (the macOS 26+ system engine), and sherpa-onnx (CPU-only specialized models: Moonshine, SenseVoice, GigaAM v3, and Canary 180M Flash). These ship in nightly/source channels rather than the {{ $p.stable.tag }} release — see the nightly table above and check release notes before installing.</p></details>
+            <details><summary>What is available beyond Whisper?</summary><p>{{ $p.stable.tag }} includes Parakeet (NVIDIA TDT models on the Apple Neural Engine), Apple Speech (the macOS 26+ system engine), and sherpa-onnx (CPU-only specialized models: Moonshine, SenseVoice, GigaAM v3, and Canary 180M Flash). See the model table above and the release notes for language and macOS requirements.</p></details>
         </div>
     </div>
 </section>

@@ -19,6 +19,7 @@
   --line-dark: #9ea59f;
   --line-control: #5c7d71;
   --brand: #0f6b57;
+  --teal: var(--brand);
   --brand-dark: #0b493d;
   --brand-soft: #cfe9dc;
   --brand-softer: #e5f2eb;
@@ -117,7 +118,7 @@ h1, h2, h3, h4 {
   font-family: var(--display);
   font-weight: 760;
   line-height: 1.08;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.065em;
 }
 
 /* em does not keep the heading stack when the user-agent italic face is
@@ -144,7 +145,10 @@ p { margin: 0; }
 
 .section-title {
   max-width: 20ch;
-  font-size: clamp(2.1rem, 4.6vw, 3.3rem);
+  font-size: clamp(2.2rem, 6vw, 4.7rem);
+  font-weight: 760;
+  letter-spacing: -0.065em;
+  line-height: 1.06;
 }
 
 .section-lede {
@@ -361,13 +365,14 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 .hero h1 {
   max-width: 15ch;
-  font-size: clamp(3.2rem, 7vw, 5.6rem);
+  font-size: clamp(3.7rem, 10vw, 7.4rem);
   font-weight: 780;
-  letter-spacing: -0.065em;
-  line-height: 1.02;
+  letter-spacing: -0.075em;
+  line-height: 0.92;
 }
 
 .hero h1 em {
+  color: var(--teal);
   font-family: var(--display);
   font-style: normal;
 }

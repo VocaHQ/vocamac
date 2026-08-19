@@ -121,10 +121,19 @@ test("keeps Windows Chrome headlines on a real sans stack", () => {
 
   assert.match(css, /h1,\s*h2,\s*h3,\s*h4\s*\{[^}]*font-family:\s*var\(--display\)/);
   assert.match(css, /h1,\s*h2,\s*h3,\s*h4\s*\{[^}]*font-weight:\s*760/);
+  assert.match(css, /h1,\s*h2,\s*h3,\s*h4\s*\{[^}]*letter-spacing:\s*-0?\.065em/);
   assert.match(css, /h1 em,\s*h2 em,\s*h3 em,\s*h4 em\s*\{[^}]*font-family:\s*var\(--display\)/);
+  assert.match(css, /\.hero h1 em\s*\{[^}]*color:\s*var\(--teal\)/);
   assert.match(css, /\.hero h1 em\s*\{[^}]*font-family:\s*var\(--display\)/);
   assert.match(css, /\.hero h1 em\s*\{[^}]*font-style:\s*normal/);
+  assert.match(css, /\.hero h1\s*\{[^}]*font-size:\s*clamp\(3\.7rem,\s*10vw,\s*7\.4rem\)/);
   assert.match(css, /\.hero h1\s*\{[^}]*font-weight:\s*780/);
+  assert.match(css, /\.hero h1\s*\{[^}]*letter-spacing:\s*-0?\.075em/);
+  assert.match(css, /\.hero h1\s*\{[^}]*line-height:\s*0?\.92/);
+  assert.match(css, /\.section-title\s*\{[^}]*font-size:\s*clamp\(2\.2rem,\s*6vw,\s*4\.7rem\)/);
+  assert.match(css, /\.section-title\s*\{[^}]*font-weight:\s*760/);
+  assert.match(css, /\.section-title\s*\{[^}]*letter-spacing:\s*-0?\.065em/);
+  assert.match(css, /\.section-title\s*\{[^}]*line-height:\s*1\.06/);
   assert.match(index, /<h1 id="hero-title">Say it once\.<br><em>Your Mac types\.<\/em><\/h1>/);
 });
 

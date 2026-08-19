@@ -30,9 +30,10 @@
   --veil-14: rgba(207, 233, 220, 0.14);
   --veil-30: rgba(207, 233, 220, 0.3);
   --veil-45: rgba(207, 233, 220, 0.45);
-  /* HQ display stack, plus Windows faces. SF Pro Display is gone: Windows
-     does not ship it, and a hole in Helvetica Neue italic used to dump
-     headings into Times New Roman. Segoe UI and Arial close that hole. */
+  /* HQ display stack, plus Windows faces. The old Apple display name is
+     gone: Windows does not ship it, and a hole in Helvetica Neue italic
+     used to dump headings into Times New Roman. Segoe UI and Arial close
+     that hole. */
   --display: "Avenir Next", "Helvetica Neue", ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
   --body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;

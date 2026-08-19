@@ -37,6 +37,14 @@ protocol SoundPlaying: AnyObject {
     func playStartSoundAsync() async
     func playStopSound()
     func playStopSoundAsync() async
+    func previewStartThenStop() async
+}
+
+extension SoundPlaying {
+    func previewStartThenStop() async {
+        await playStartSoundAsync()
+        await playStopSoundAsync()
+    }
 }
 
 // MARK: - HotKeyMonitoring

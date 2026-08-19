@@ -1,95 +1,95 @@
 // SoundManager.swift
 // VocaMac
 //
-// Plays audio feedback sounds for recording start/stop events.
-// Uses macOS system sounds for soft, pleasing audio cues.
+// Plays start/stop dictation cues for the selected tone.
 
 import Foundation
 import AppKit
 
 final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
 
-    // MARK: - Sound Names
-
-    /// Soft pop sound for recording start
-    private let startSoundName = "Pop"
-
-    /// Hollow bottle sound for recording stop
-    private let stopSoundName = "Bottle"
-
     // MARK: - Properties
 
     /// Volume for sound effects (0.0 to 1.0)
     var volume: Float = 0.5
 
+    /// Test hook. When set, playback uses this tone instead of the saved preference.
+    var toneOverride: DictationTone?
+
     /// Queue used because NSSound can block while Core Audio wakes or fails.
     private let soundQueue = DispatchQueue(label: "com.vocamac.sound-playback", qos: .utility)
 
-    /// Lock for thread-safe access to continuation
+    /// Lock for thread-safe access to continuation and retained sounds.
     private let continuationLock = NSLock()
 
     /// Continuation for async sound playback completion
     private var soundCompletionContinuation: CheckedContinuation<Void, Never>?
 
+    /// Keeps in-flight `NSSound` instances alive until they finish.
+    private var activeSounds: [NSSound] = []
+
+    private var currentTone: DictationTone {
+        if let toneOverride { return toneOverride }
+        let stored = UserDefaults.standard.string(forKey: PreferenceKey.dictationTone)
+        return DictationTone.resolved(stored: stored)
+    }
+
     // MARK: - Public API
 
     /// Play the recording-started sound (synchronous, fire-and-forget)
     func playStartSound() {
-        playSystemSound(startSoundName)
+        playCue(.start)
     }
 
     /// Play the recording-started sound and wait for completion
     /// Ensures the sound finishes before returning, preventing mic capture of the sound.
-    /// - Throws: May timeout if sound is stuck
     func playStartSoundAsync() async {
-        await playSystemSoundAsync(startSoundName)
+        await playCueAsync(.start)
     }
 
     /// Play the recording-stopped sound (synchronous, fire-and-forget)
     func playStopSound() {
-        playSystemSound(stopSoundName)
+        playCue(.stop)
     }
 
     /// Play the recording-stopped sound and wait for completion
-    /// Ensures the sound finishes before returning.
-    /// - Throws: May timeout if sound is stuck
     func playStopSoundAsync() async {
-        await playSystemSoundAsync(stopSoundName)
+        await playCueAsync(.stop)
     }
 
     // MARK: - Private
 
-    /// Play a macOS system sound by name (fire-and-forget)
-    private func playSystemSound(_ name: String) {
+    private func playCue(_ kind: DictationCueKind) {
+        guard let data = currentTone.audioData(for: kind) else { return }
         let volume = self.volume
 
-        soundQueue.async {
-            let soundPath = "/System/Library/Sounds/\(name).aiff"
-            guard let sound = NSSound(contentsOfFile: soundPath, byReference: true) else {
-                VocaLogger.warning(.soundManager, "Could not load system sound: \(name)")
+        soundQueue.async { [weak self] in
+            guard let self else { return }
+            guard let sound = NSSound(data: data) else {
+                VocaLogger.warning(.soundManager, "Could not load dictation tone: \(self.currentTone.rawValue) \(kind.rawValue)")
                 return
             }
 
             sound.volume = volume
+            sound.delegate = self
+            self.retain(sound)
             if !sound.play() {
-                VocaLogger.warning(.soundManager, "Could not play system sound: \(name)")
+                VocaLogger.warning(.soundManager, "Could not play dictation tone: \(self.currentTone.rawValue) \(kind.rawValue)")
+                self.release(sound)
             }
         }
     }
 
-    /// Play a system sound and wait for completion using async/await
-    /// Uses NSSoundDelegate callback to detect when playback finishes.
-    /// Includes a 1-second timeout to prevent stuck sounds from blocking recording.
-    /// - Parameter name: The system sound name to play (e.g., "Pop", "Bottle")
-    private func playSystemSoundAsync(_ name: String) async {
-        let soundPath = "/System/Library/Sounds/\(name).aiff"
-        guard let sound = NSSound(contentsOfFile: soundPath, byReference: true) else {
-            VocaLogger.warning(.soundManager, "Could not load system sound: \(name)")
+    private func playCueAsync(_ kind: DictationCueKind) async {
+        guard let data = currentTone.audioData(for: kind) else { return }
+        guard let sound = NSSound(data: data) else {
+            VocaLogger.warning(.soundManager, "Could not load dictation tone: \(currentTone.rawValue) \(kind.rawValue)")
             return
         }
 
         sound.volume = volume
         sound.delegate = self
+        retain(sound)
 
         return await withCheckedContinuation { continuation in
             continuationLock.lock()
@@ -100,10 +100,10 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
 
             // Timeout after 1 second to prevent stuck sounds from blocking
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                guard let self = self else { return }
+                guard let self else { return }
                 self.continuationLock.lock()
                 if self.soundCompletionContinuation != nil {
-                    VocaLogger.warning(.soundManager, "Sound playback timeout for: \(name)")
+                    VocaLogger.warning(.soundManager, "Sound playback timeout for: \(kind.rawValue)")
                     self.soundCompletionContinuation?.resume()
                     self.soundCompletionContinuation = nil
                 }
@@ -112,12 +112,24 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
         }
     }
 
+    private func retain(_ sound: NSSound) {
+        continuationLock.lock()
+        activeSounds.append(sound)
+        continuationLock.unlock()
+    }
+
+    private func release(_ sound: NSSound) {
+        continuationLock.lock()
+        activeSounds.removeAll { $0 === sound }
+        continuationLock.unlock()
+    }
+
     // MARK: - NSSoundDelegate
 
-    /// Called when sound finishes playing
     nonisolated func sound(_ sound: NSSound, didFinishPlaying FinishedPlaying: Bool) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self else { return }
+            self.release(sound)
             self.continuationLock.lock()
             if let continuation = self.soundCompletionContinuation {
                 continuation.resume()

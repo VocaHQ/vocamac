@@ -1158,7 +1158,21 @@ struct AudioSettingsTab: View {
             Section("Sound Effects") {
                 Toggle("Enable sound effects", isOn: $appState.soundEffectsEnabled)
 
-                Text("Play subtle audio cues when recording starts and stops.")
+                Picker("Dictation tone", selection: $appState.dictationTone) {
+                    ForEach(DictationTone.allCases) { tone in
+                        Text(tone.displayName).tag(tone)
+                    }
+                }
+
+                Button("Preview") {
+                    Task {
+                        await appState.previewDictationTone()
+                    }
+                }
+                .controlSize(.small)
+                .disabled(appState.dictationTone == .off)
+
+                Text("Play a short cue when recording starts and stops. Off is a saved silent tone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

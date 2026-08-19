@@ -404,6 +404,21 @@ final class SoundManagerTests: XCTestCase {
         soundManager.volume = 1.0
         XCTAssertEqual(soundManager.volume, 1.0)
     }
+
+    func testOffTonePlayReturnsImmediately() async {
+        soundManager.toneOverride = .off
+        let startTime = Date()
+        await soundManager.playStartSoundAsync()
+        await soundManager.playStopSoundAsync()
+        XCTAssertLessThan(Date().timeIntervalSince(startTime), 0.2)
+    }
+
+    func testOffToneSyncPlayDoesNotCrash() {
+        soundManager.toneOverride = .off
+        soundManager.playStartSound()
+        soundManager.playStopSound()
+        XCTAssertTrue(true)
+    }
 }
 
 

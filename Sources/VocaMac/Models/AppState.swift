@@ -110,6 +110,7 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
     @AppStorage("vocamac.preserveClipboard") var preserveClipboard: Bool = true
     @AppStorage("vocamac.soundEffectsEnabled") var soundEffectsEnabled: Bool = true
+    @AppStorage(PreferenceKey.dictationTone) var dictationTone: DictationTone = .voca
     @AppStorage("vocamac.overlayStyle") var overlayStyle: OverlayStyle = .minimal
     @AppStorage("vocamac.overlayPosition") var overlayPosition: OverlayPosition = .bottom
     /// Legacy preference retained so existing installs that disabled the old
@@ -811,6 +812,12 @@ final class AppState: ObservableObject {
         errorMessage = nil
     }
 
+    /// Play start, then stop, for the tone currently selected in Settings.
+    /// Off is silence. Preview is not gated by the sound-effects switch.
+    func previewDictationTone() async {
+        await soundManager.previewStartThenStop()
+    }
+
     // MARK: - Recording Flow
 
     func startRecording() async {
@@ -888,7 +895,8 @@ final class AppState: ObservableObject {
             return
         }
 
-        // Play start sound after mic is active (fire-and-forget)
+        // Play start sound after mic is active (fire-and-forget).
+        // Off is a stored tone and stays silent even when this switch is on.
         if soundEffectsEnabled && isRecording && appStatus == .recording {
             soundManager.playStartSound()
         }

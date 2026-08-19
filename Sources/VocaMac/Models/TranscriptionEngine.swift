@@ -18,6 +18,7 @@ enum PreferenceKey {
     static let autoPausePollInterval = "vocamac.autoPause.pollIntervalSeconds"
     static let modelKeepAliveEnabled = "vocamac.modelKeepAlive.enabled"
     static let modelKeepAliveIdleTimeout = "vocamac.modelKeepAlive.idleTimeoutSeconds"
+    static let dictationTone = "vocamac.dictationTone"
 }
 
 /// The on-device inference engine backing a model in the catalog.

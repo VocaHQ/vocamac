@@ -113,7 +113,7 @@ enum SettingsSearchIndex {
             page: .audio,
             title: "Sound Effects",
             subtitle: "Start and stop cues",
-            keywords: ["sound", "beep", "audio"]
+            keywords: ["sound", "beep", "audio", "tone", "preview"]
         ),
 
         // Performance

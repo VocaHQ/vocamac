@@ -47,4 +47,10 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertTrue(matches.contains { $0.page == .advanced })
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "resource"), .advanced)
     }
+
+    func testToneQueryHitsAudio() {
+        let matches = SettingsSearchIndex.matches(query: "tone")
+        XCTAssertTrue(matches.contains { $0.id == "sound-effects" })
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "tone"), .audio)
+    }
 }

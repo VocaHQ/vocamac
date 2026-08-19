@@ -73,26 +73,38 @@ final class MockAudioEngine: AudioRecording {
 // MARK: - MockSoundManager
 
 final class MockSoundManager: SoundPlaying {
+    enum PlayEvent {
+        case start
+        case stop
+        case startAsync
+        case stopAsync
+    }
+
     var volume: Float = 0.5
     var startSoundCallCount = 0
     var stopSoundCallCount = 0
     var startSoundAsyncCallCount = 0
     var stopSoundAsyncCallCount = 0
+    var playLog: [PlayEvent] = []
 
     func playStartSound() {
         startSoundCallCount += 1
+        playLog.append(.start)
     }
 
     func playStartSoundAsync() async {
         startSoundAsyncCallCount += 1
+        playLog.append(.startAsync)
     }
 
     func playStopSound() {
         stopSoundCallCount += 1
+        playLog.append(.stop)
     }
 
     func playStopSoundAsync() async {
         stopSoundAsyncCallCount += 1
+        playLog.append(.stopAsync)
     }
 }
 

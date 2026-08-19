@@ -3,7 +3,7 @@
 //
 // Shared start/stop dictation-tone catalog. Missing or unknown stored
 // ids resolve to `.voca`. Off is a real stored choice. Audio comes from
-// bundled WAV files (Linux #707 bytes), not an in-app oscillator.
+// bundled WAV files, not an in-app oscillator.
 
 import Foundation
 

@@ -11,6 +11,16 @@ import XCTest
 @MainActor
 final class AppStateRecordingTests: XCTestCase {
 
+    override func setUp() {
+        super.setUp()
+        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+    }
+
+    override func tearDown() {
+        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        super.tearDown()
+    }
+
     func testInitialState() {
         let (appState, _) = AppState.makeTestState()
 

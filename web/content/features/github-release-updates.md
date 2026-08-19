@@ -15,7 +15,7 @@ If you installed VocaMac via Homebrew (`brew install --cask vocamac`), updates a
 The check is lightweight and rate-limit friendly:
 
 - automatic check on launch (at most once every 24 hours)
-- manual **Check for Updates...** button in **Settings -> About**
+- manual **Check for Updates...** button in **Settings / About**
 - no extra account, login, or update service required
 
 ## Update Flow (DMG Installs)

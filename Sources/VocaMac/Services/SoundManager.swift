@@ -96,7 +96,15 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
             soundCompletionContinuation = continuation
             continuationLock.unlock()
 
-            sound.play()
+            if !sound.play() {
+                VocaLogger.warning(.soundManager, "Could not play dictation tone: \(currentTone.rawValue) \(kind.rawValue)")
+                release(sound)
+                continuationLock.lock()
+                soundCompletionContinuation?.resume()
+                soundCompletionContinuation = nil
+                continuationLock.unlock()
+                return
+            }
 
             // Timeout after 1 second to prevent stuck sounds from blocking
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in

@@ -109,6 +109,25 @@ test("keeps the visual and privacy boundaries flat", () => {
   assert.doesNotMatch(script, /api\.github\.com|fetch\(/i);
 });
 
+test("keeps Windows Chrome headlines on a real sans stack", () => {
+  assert.match(
+    css,
+    /--display:\s*"Avenir Next",\s*"Helvetica Neue",\s*ui-sans-serif,\s*system-ui,\s*"Segoe UI",\s*Arial,\s*sans-serif/,
+  );
+  assert.doesNotMatch(css, /SF Pro Display/);
+  assert.doesNotMatch(css, /@font-face/);
+  assert.doesNotMatch(css, /fonts\.google/);
+  assert.doesNotMatch(index, /fonts\.google|fonts\.gstatic|typekit|use\.typekit/i);
+
+  assert.match(css, /h1,\s*h2,\s*h3,\s*h4\s*\{[^}]*font-family:\s*var\(--display\)/);
+  assert.match(css, /h1,\s*h2,\s*h3,\s*h4\s*\{[^}]*font-weight:\s*760/);
+  assert.match(css, /h1 em,\s*h2 em,\s*h3 em,\s*h4 em\s*\{[^}]*font-family:\s*var\(--display\)/);
+  assert.match(css, /\.hero h1 em\s*\{[^}]*font-family:\s*var\(--display\)/);
+  assert.match(css, /\.hero h1 em\s*\{[^}]*font-style:\s*normal/);
+  assert.match(css, /\.hero h1\s*\{[^}]*font-weight:\s*780/);
+  assert.match(index, /<h1 id="hero-title">Say it once\.<br><em>Your Mac types\.<\/em><\/h1>/);
+});
+
 test("keeps content available without javascript", () => {
   assert.match(index, /<details[^>]+open/);
   assert.match(index, /<summary>Does my voice leave my Mac\?<\/summary>/);

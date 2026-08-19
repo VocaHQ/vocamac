@@ -30,7 +30,10 @@
   --veil-14: rgba(207, 233, 220, 0.14);
   --veil-30: rgba(207, 233, 220, 0.3);
   --veil-45: rgba(207, 233, 220, 0.45);
-  --display: "Avenir Next", "SF Pro Display", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+  /* HQ display stack, plus Windows faces. SF Pro Display is gone: Windows
+     does not ship it, and a hole in Helvetica Neue italic used to dump
+     headings into Times New Roman. Segoe UI and Arial close that hole. */
+  --display: "Avenir Next", "Helvetica Neue", ui-sans-serif, system-ui, "Segoe UI", Arial, sans-serif;
   --body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
   --shell: min(1180px, calc(100% - 2rem));
@@ -57,7 +60,7 @@ body {
   color: var(--ink);
   background: var(--paper) url("/brand/paper-dots.svg") repeat;
   font-family: var(--body);
-  font-size: 1.0625rem;
+  font-size: 1rem;
   line-height: 1.65;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -111,9 +114,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 h1, h2, h3, h4 {
   margin: 0;
   font-family: var(--display);
-  font-weight: 600;
+  font-weight: 760;
   line-height: 1.08;
-  letter-spacing: -0.025em;
+  letter-spacing: -0.04em;
+}
+
+/* em does not keep the heading stack when the user-agent italic face is
+   missing. Repeat the Windows-safe list so Chrome cannot fall to Times. */
+h1 em, h2 em, h3 em, h4 em {
+  font-family: var(--display);
 }
 
 p { margin: 0; }
@@ -351,7 +360,15 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 .hero h1 {
   max-width: 15ch;
-  font-size: clamp(2.6rem, 5.6vw, 4.4rem);
+  font-size: clamp(3.2rem, 7vw, 5.6rem);
+  font-weight: 780;
+  letter-spacing: -0.065em;
+  line-height: 1.02;
+}
+
+.hero h1 em {
+  font-family: var(--display);
+  font-style: normal;
 }
 
 .hero-lede {
@@ -1376,7 +1393,7 @@ details.source-install summary {
 
 .back-link:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 
-.page-hero h1 { max-width: 22ch; font-size: clamp(2.1rem, 4.6vw, 3.2rem); }
+.page-hero h1 { max-width: 22ch; font-size: clamp(2.4rem, 5vw, 3.6rem); }
 .page-hero p { max-width: 60ch; margin-top: 1rem; color: var(--muted); }
 
 /* Article + sticky contents. The measure used to sit alone against a third of

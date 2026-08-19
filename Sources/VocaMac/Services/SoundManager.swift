@@ -1,7 +1,7 @@
 // SoundManager.swift
 // VocaMac
 //
-// Plays start/stop dictation cues for the selected tone.
+// Plays bundled start/stop dictation cues for the selected tone.
 
 import Foundation
 import AppKit
@@ -19,7 +19,7 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
     /// Queue used because NSSound can block while Core Audio wakes or fails.
     private let soundQueue = DispatchQueue(label: "com.vocamac.sound-playback", qos: .utility)
 
-    /// Lock for thread-safe access to continuation and retained sounds.
+    /// Lock for thread-safe access to continuation, cache, and retained sounds.
     private let continuationLock = NSLock()
 
     /// Continuation for async sound playback completion
@@ -27,6 +27,9 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
 
     /// Keeps in-flight `NSSound` instances alive until they finish.
     private var activeSounds: [NSSound] = []
+
+    /// Cached WAV bytes keyed by `tone-cue`.
+    private var wavCache: [String: Data] = [:]
 
     private var currentTone: DictationTone {
         if let toneOverride { return toneOverride }
@@ -59,8 +62,29 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
 
     // MARK: - Private
 
+    private func wavData(for kind: DictationCueKind) -> Data? {
+        let tone = currentTone
+        guard tone.playsCues else { return nil }
+        let key = "\(tone.rawValue)-\(kind.rawValue)"
+        continuationLock.lock()
+        if let cached = wavCache[key] {
+            continuationLock.unlock()
+            return cached
+        }
+        continuationLock.unlock()
+
+        guard let data = tone.audioData(for: kind) else {
+            VocaLogger.warning(.soundManager, "Missing bundled dictation tone: \(tone.rawValue) \(kind.rawValue)")
+            return nil
+        }
+        continuationLock.lock()
+        wavCache[key] = data
+        continuationLock.unlock()
+        return data
+    }
+
     private func playCue(_ kind: DictationCueKind) {
-        guard let data = currentTone.audioData(for: kind) else { return }
+        guard let data = wavData(for: kind) else { return }
         let volume = self.volume
 
         soundQueue.async { [weak self] in
@@ -81,7 +105,7 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
     }
 
     private func playCueAsync(_ kind: DictationCueKind) async {
-        guard let data = currentTone.audioData(for: kind) else { return }
+        guard let data = wavData(for: kind) else { return }
         guard let sound = NSSound(data: data) else {
             VocaLogger.warning(.soundManager, "Could not load dictation tone: \(currentTone.rawValue) \(kind.rawValue)")
             return

@@ -1,6 +1,7 @@
 // AboutSocialMarkTests.swift
 // VocaMac Tests
 
+import AppKit
 import CryptoKit
 import XCTest
 @testable import VocaMac
@@ -44,5 +45,36 @@ final class AboutSocialMarkTests: XCTestCase {
         XCTAssertEqual(AboutSocialMark.mail.url.absoluteString, "mailto:hello@vocahq.com")
         XCTAssertEqual(AboutSocialMark.talkRowMarks, [.discord, .x, .mail])
         XCTAssertFalse(AboutSocialMark.talkRowMarks.contains(.github))
+    }
+
+    func testTemplateImagesAreVisible() {
+        for mark in AboutSocialMark.allCases {
+            guard let image = mark.templateImage() else {
+                XCTFail("\(mark.rawValue) templateImage should be non-nil")
+                continue
+            }
+            XCTAssertGreaterThan(image.size.width, 0, mark.rawValue)
+            XCTAssertGreaterThan(image.size.height, 0, mark.rawValue)
+            let text = String(data: mark.svgData() ?? Data(), encoding: .utf8) ?? ""
+            XCTAssertTrue(text.contains("fill=\"currentColor\""), mark.rawValue)
+        }
+    }
+
+    func testOfficialPathsProduceNonEmptyBounds() {
+        for mark in AboutSocialMark.allCases {
+            guard let d = mark.officialPathData() else {
+                XCTFail("\(mark.rawValue) should expose its official path d")
+                continue
+            }
+            XCTAssertFalse(d.contains("currentColor"), mark.rawValue)
+            guard let path = SVGPath.makeCGPath(from: d) else {
+                XCTFail("\(mark.rawValue) official path should parse")
+                continue
+            }
+            let bounds = path.boundingBox
+            XCTAssertFalse(bounds.isNull || bounds.isInfinite || bounds.isEmpty, mark.rawValue)
+            XCTAssertGreaterThan(bounds.width, 0, mark.rawValue)
+            XCTAssertGreaterThan(bounds.height, 0, mark.rawValue)
+        }
     }
 }

@@ -55,7 +55,7 @@ final class SettingsSearchIndexTests: XCTestCase {
     }
 
     func testAboutSearchEntriesStayIndexed() {
-        let requiredIDs = ["about", "family", "discord", "email", "github-issues"]
+        let requiredIDs = ["about", "family", "discord", "email", "github-issues", "x"]
         let entriesByID = Dictionary(
             uniqueKeysWithValues: SettingsSearchIndex.entries.map { ($0.id, $0) }
         )
@@ -74,5 +74,15 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "email"), .about)
         XCTAssertTrue(SettingsSearchIndex.matches(query: "github").contains { $0.id == "github-issues" })
         XCTAssertTrue(SettingsSearchIndex.matches(query: "vocahq").contains { $0.id == "family" })
+
+        guard let xEntry = entriesByID["x"] else {
+            return
+        }
+        XCTAssertEqual(xEntry.title, "X")
+        XCTAssertFalse(xEntry.title.lowercased().contains("twitter"))
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "x.com"), .about)
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "twitter"), .about)
+        XCTAssertTrue(SettingsSearchIndex.matches(query: "x.com").contains { $0.id == "x" })
+        XCTAssertTrue(SettingsSearchIndex.matches(query: "twitter").contains { $0.id == "x" })
     }
 }

@@ -228,6 +228,13 @@ enum SettingsSearchIndex {
             keywords: ["discord", "chat", "community"]
         ),
         SettingsSearchEntry(
+            id: "x",
+            page: .about,
+            title: "X",
+            subtitle: "Talk to us",
+            keywords: ["x", "twitter", "x.com"]
+        ),
+        SettingsSearchEntry(
             id: "email",
             page: .about,
             title: "Email",

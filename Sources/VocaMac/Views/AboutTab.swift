@@ -21,7 +21,7 @@ struct AboutTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                thisMacCard
+                thisAppCard
                 familyCard
                 talkToUsCard
                 creditLine
@@ -38,10 +38,10 @@ struct AboutTab: View {
         }
     }
 
-    private var thisMacCard: some View {
+    private var thisAppCard: some View {
         GroupBox {
             VStack(spacing: 12) {
-                Text("This Mac")
+                Text("This app")
                     .font(.headline)
                     .frame(maxWidth: .infinity, alignment: .leading)
 

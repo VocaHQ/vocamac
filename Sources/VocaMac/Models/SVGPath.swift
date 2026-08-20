@@ -11,7 +11,7 @@ enum SVGPath {
     /// Builds a CGPath from an official SVG `d` attribute. Returns nil when
     /// the string is empty or the first command is missing.
     static func makeCGPath(from d: String) -> CGPath? {
-        let scanner = Scanner(d)
+        var scanner = Scanner(d)
         let path = CGMutablePath()
         var current = CGPoint.zero
         var subpathStart = CGPoint.zero
@@ -257,8 +257,11 @@ enum SVGPath {
         }
 
         var isAtEnd: Bool {
-            skipSeparators()
-            return index >= chars.count
+            var cursor = index
+            while cursor < chars.count, chars[cursor].isSVGSeparator {
+                cursor += 1
+            }
+            return cursor >= chars.count
         }
 
         mutating func nextCommand() -> Character? {

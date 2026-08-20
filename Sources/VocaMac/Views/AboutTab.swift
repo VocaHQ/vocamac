@@ -152,7 +152,7 @@ struct AboutTab: View {
                     familyLinkRow
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Self.familySites, id: \.host) { site in
-                            Link(site.host, destination: site.url)
+                            familyLink(site)
                         }
                     }
                 }
@@ -166,9 +166,16 @@ struct AboutTab: View {
     private var familyLinkRow: some View {
         HStack(spacing: 12) {
             ForEach(Self.familySites, id: \.host) { site in
-                Link(site.host, destination: site.url)
+                familyLink(site)
             }
         }
+    }
+
+    /// Family sites stay host-name text links. No social marks here.
+    private func familyLink(_ site: (host: String, url: URL)) -> some View {
+        Link(site.host, destination: site.url)
+            .foregroundStyle(BrandAssets.settingsTeal)
+            .tint(BrandAssets.settingsTeal)
     }
 
     private var talkToUsCard: some View {
@@ -184,16 +191,18 @@ struct AboutTab: View {
 
                 // Official marks from VocaDesign in VocaHQ/.github
                 // brand/vocahq/social @ 61c8eee. fill is currentColor.
-                // The button label color tints them. Do not redraw.
+                // github.svg is for Report a bug only. Discord / X / Email
+                // are icon + label buttons, tinted Settings teal #0F6B57
+                // via template rendering. Do not bake the hex into the SVGs.
                 Link(destination: AboutSocialMark.github.url) {
                     HStack(spacing: 8) {
-                        AboutSocialMarkImage(mark: .github, size: 16)
+                        AboutSocialMarkImage(mark: .github, size: 16, tint: nil)
                         Text(AboutSocialMark.github.visibleLabel)
                     }
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(Color(nsColor: BrandAssets.brandGreen))
+                .tint(BrandAssets.settingsTeal)
                 .help("Open GitHub issues")
 
                 ViewThatFits(in: .horizontal) {
@@ -221,8 +230,10 @@ struct AboutTab: View {
                 AboutSocialMarkImage(mark: mark, size: 16)
                 Text(mark.visibleLabel)
             }
+            .foregroundStyle(BrandAssets.settingsTeal)
         }
         .buttonStyle(.bordered)
+        .tint(BrandAssets.settingsTeal)
         .help(mark.url.absoluteString)
         .accessibilityLabel(mark.visibleLabel)
     }

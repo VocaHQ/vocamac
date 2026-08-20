@@ -16,6 +16,10 @@ final class AboutSocialMarkTests: XCTestCase {
             let text = String(data: data, encoding: .utf8) ?? ""
             XCTAssertTrue(text.contains("viewBox=\"0 0 24 24\""), mark.rawValue)
             XCTAssertTrue(text.contains("fill=\"currentColor\""), mark.rawValue)
+            XCTAssertFalse(
+                text.localizedCaseInsensitiveContains("#0F6B57"),
+                "\(mark.rawValue).svg must keep currentColor; do not bake Settings teal into the file"
+            )
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             XCTAssertEqual(digest, mark.expectedSHA256, mark.rawValue)
         }
@@ -39,5 +43,6 @@ final class AboutSocialMarkTests: XCTestCase {
         XCTAssertEqual(AboutSocialMark.x.url.absoluteString, "https://x.com/vocahq")
         XCTAssertEqual(AboutSocialMark.mail.url.absoluteString, "mailto:hello@vocahq.com")
         XCTAssertEqual(AboutSocialMark.talkRowMarks, [.discord, .x, .mail])
+        XCTAssertFalse(AboutSocialMark.talkRowMarks.contains(.github))
     }
 }

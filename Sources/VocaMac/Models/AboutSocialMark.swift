@@ -86,11 +86,27 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
 }
 
 /// Official VocaDesign mark, drawn at 16pt in a text button.
+///
+/// Talk-to-us icons tint with Settings teal `#0F6B57` through
+/// `currentColor` / template rendering so they match About links.
+/// Pass `tint: nil` on a filled control so the button label color wins.
+/// Do not bake `#0F6B57` into the SVG files.
 struct AboutSocialMarkImage: View {
     let mark: AboutSocialMark
     var size: CGFloat = 16
+    var tint: Color? = BrandAssets.settingsTeal
 
     var body: some View {
+        Group {
+            if let tint {
+                markImage.foregroundStyle(tint)
+            } else {
+                markImage
+            }
+        }
+    }
+
+    private var markImage: some View {
         Group {
             if let image = mark.templateImage() {
                 Image(nsImage: image)

@@ -1,7 +1,7 @@
 // AboutTab.swift
 // VocaMac
 //
-// Settings About: this Mac, the Voca family, and how to reach us.
+// Settings About: this app, the Voca family, and how to reach us.
 
 import SwiftUI
 
@@ -19,17 +19,14 @@ struct AboutTab: View {
     ]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                thisAppCard
-                familyCard
-                talkToUsCard
-                creditLine
-            }
-            .frame(maxWidth: 560)
-            .frame(maxWidth: .infinity)
-            .padding(24)
+        Form {
+            identitySection
+            thisMacSection
+            familySection
+            talkToUsSection
+            creditSection
         }
+        .formStyle(.grouped)
         .sheet(isPresented: $showingUpdateSheet) {
             if let info = updateInfoForSheet {
                 UpdateDetailView(info: info, isPresented: $showingUpdateSheet)
@@ -38,34 +35,24 @@ struct AboutTab: View {
         }
     }
 
-    private var thisAppCard: some View {
-        GroupBox {
-            VStack(spacing: 12) {
-                Text("This app")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+    private var identitySection: some View {
+        Section {
+            VStack(spacing: 8) {
+                BrandLogoView(size: 64)
 
-                VStack(spacing: 8) {
-                    BrandLogoView(size: 64)
+                Text("VocaMac")
+                    .font(.title)
+                    .fontWeight(.bold)
 
-                    Text("VocaMac")
-                        .font(.title)
-                        .fontWeight(.bold)
+                Text("Voice-to-text for macOS, kept on this Mac.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    Text("Voice-to-text for macOS, kept on this Mac.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                Link("vocamac.com", destination: URL(string: "https://vocamac.com")!)
 
-                    Link("vocamac.com", destination: URL(string: "https://vocamac.com")!)
-                        .font(.callout)
-
-                    Text("Version \(appVersionDisplay) (\(buildChannelLabel))")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity)
+                Text("Version \(appVersionDisplay) · \(buildChannelLabel)")
+                    .foregroundStyle(.secondary)
 
                 Button {
                     Task { @MainActor in
@@ -85,142 +72,85 @@ struct AboutTab: View {
                                 .controlSize(.small)
                             Text("Checking for Updates...")
                         }
-                        .font(.caption)
                     } else {
-                        Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
-                            .font(.caption)
+                        Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
                     }
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                .frame(maxWidth: .infinity)
 
-                Text(updateStatusText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: .infinity)
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let capabilities = appState.systemCapabilities {
-                            InfoRow2(label: "Device", value: capabilities.processorName)
-                            InfoRow2(
-                                label: "Architecture",
-                                value: capabilities.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)"
-                            )
-                            InfoRow2(
-                                label: "Neural Engine",
-                                value: capabilities.supportsMetalAcceleration ? "Available" : "Not Available"
-                            )
-                        }
-                        InfoRow2(label: "Engine", value: activeEngineLabel)
-                        InfoRow2(label: "Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
-                        InfoRow2(label: "Storage", value: appState.modelManager.diskUsageDescription())
-                    }
-                    .font(.caption)
-                    .padding(4)
-                }
-
-                Button {
-                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
-                } label: {
-                    Label("Show Setup Wizard…", systemImage: "wand.and.stars")
+                if !updateStatusText.isEmpty {
+                    Text(updateStatusText)
                         .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                .help("Re-run the first-launch setup wizard")
-                .frame(maxWidth: .infinity)
             }
-            .padding(4)
+            .frame(maxWidth: .infinity)
         }
     }
 
-    private var familyCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Part of VocaHQ")
-                    .font(.headline)
-
-                Text("VocaMac is one of the VocaHQ apps (VocaLinux, VocaMac, VocaPhone, VocaGateway). VocaGateway is optional self-hosted compute, not on-device.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                ViewThatFits(in: .horizontal) {
-                    familyLinkRow
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Self.familySites, id: \.host) { site in
-                            familyLink(site)
-                        }
-                    }
-                }
-                .font(.callout)
+    private var thisMacSection: some View {
+        Section("This Mac") {
+            if let capabilities = appState.systemCapabilities {
+                LabeledContent("Device", value: capabilities.processorName)
+                LabeledContent(
+                    "Architecture",
+                    value: capabilities.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)"
+                )
+                LabeledContent(
+                    "Neural Engine",
+                    value: capabilities.supportsMetalAcceleration ? "Available" : "Not Available"
+                )
             }
-            .padding(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            LabeledContent("Engine", value: activeEngineLabel)
+            LabeledContent("Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
+            LabeledContent("Storage", value: appState.modelManager.diskUsageDescription())
+
+            Button {
+                NotificationCenter.default.post(name: .showOnboarding, object: nil)
+            } label: {
+                Label("Show Setup Wizard…", systemImage: "wand.and.stars")
+            }
+            .help("Re-run the first-launch setup wizard")
         }
     }
 
-    private var familyLinkRow: some View {
-        HStack(spacing: 12) {
+    private var familySection: some View {
+        Section("Part of VocaHQ") {
+            Text("VocaMac is one of the VocaHQ apps (VocaLinux, VocaMac, VocaPhone, VocaGateway). VocaGateway is optional self-hosted compute, not on-device.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
             ForEach(Self.familySites, id: \.host) { site in
-                familyLink(site)
+                Link(site.host, destination: site.url)
             }
         }
     }
 
-    /// Family sites stay host-name text links. No social marks here.
-    private func familyLink(_ site: (host: String, url: URL)) -> some View {
-        Link(site.host, destination: site.url)
-            .foregroundStyle(BrandAssets.settingsTeal)
-            .tint(BrandAssets.settingsTeal)
-    }
+    private var talkToUsSection: some View {
+        Section("Talk to us") {
+            Text("Bugs and ideas open a GitHub issue. Discord, X, and email are next to that.")
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-    private var talkToUsCard: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Talk to us")
-                    .font(.headline)
-
-                Text("Bugs and ideas open a GitHub issue. Discord, X, and email are next to that.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                // Official marks from VocaDesign in VocaHQ/.github
-                // brand/vocahq/social @ 61c8eee. fill is currentColor.
-                // github.svg is for Report a bug only. Discord / X / Email
-                // are icon + label buttons, tinted Settings teal #0F6B57
-                // via template rendering. Do not bake the hex into the SVGs.
-                Link(destination: AboutSocialMark.github.url) {
-                    HStack(spacing: 8) {
-                        AboutSocialMarkImage(mark: .github, size: 16, tint: nil)
-                        Text(AboutSocialMark.github.visibleLabel)
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(BrandAssets.settingsTeal)
-                .help("Open GitHub issues")
-
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(AboutSocialMark.talkRowMarks) { mark in
-                            talkButton(mark)
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(AboutSocialMark.talkRowMarks) { mark in
-                            talkButton(mark)
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
+            // Official marks from VocaDesign in VocaHQ/.github
+            // brand/vocahq/social @ 61c8eee. github.svg is for Report a bug
+            // only. Discord / X / Email hug their labels. Do not stretch.
+            Link(destination: AboutSocialMark.github.url) {
+                HStack(spacing: 6) {
+                    AboutSocialMarkImage(mark: .github, size: 16, tint: nil)
+                    Text(AboutSocialMark.github.visibleLabel)
                 }
             }
-            .padding(4)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.borderedProminent)
+            .tint(BrandAssets.settingsTeal)
+            .help("Open GitHub issues")
+
+            HStack(spacing: 8) {
+                ForEach(AboutSocialMark.talkRowMarks) { mark in
+                    talkButton(mark)
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -238,16 +168,18 @@ struct AboutTab: View {
         .accessibilityLabel(mark.visibleLabel)
     }
 
-    private var creditLine: some View {
-        HStack(spacing: 0) {
-            Text("Made with ❤️ by ")
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-            Link("Jatin Kumar Malik", destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!)
-                .font(.caption2)
+    private var creditSection: some View {
+        Section {
+            HStack(spacing: 0) {
+                Text("Made with ❤️ by ")
+                    .foregroundStyle(.tertiary)
+                Link(
+                    "Jatin Kumar Malik",
+                    destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!
+                )
+            }
+            .font(.caption2)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 4)
     }
 
     private var activeEngineLabel: String {
@@ -289,22 +221,6 @@ struct AboutTab: View {
             return "Checking for updates..."
         case .idle:
             return ""
-        }
-    }
-}
-
-struct InfoRow2: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 100, alignment: .trailing)
-            Text(value)
-                .fontWeight(.medium)
-            Spacer()
         }
     }
 }

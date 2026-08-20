@@ -194,10 +194,45 @@ enum SettingsSearchIndex {
             keywords: ["mic", "accessibility", "input monitoring"]
         ),
         SettingsSearchEntry(
+            id: "about",
+            page: .about,
+            title: "About",
+            subtitle: "This Mac, the Voca family, and how to reach us",
+            keywords: ["about", "vocamac", "beta"]
+        ),
+        SettingsSearchEntry(
             id: "updates",
             page: .about,
             title: "Updates",
             keywords: ["version", "release", "nightly", "update"]
+        ),
+        SettingsSearchEntry(
+            id: "family",
+            page: .about,
+            title: "Part of VocaHQ",
+            subtitle: "VocaLinux, VocaMac, VocaPhone, VocaGateway",
+            keywords: ["family", "vocahq", "vocalinux", "vocamac", "vocaphone", "vocagateway"]
+        ),
+        SettingsSearchEntry(
+            id: "github-issues",
+            page: .about,
+            title: "Report a bug or idea",
+            subtitle: "GitHub issues",
+            keywords: ["github", "issues", "bug", "feedback", "idea"]
+        ),
+        SettingsSearchEntry(
+            id: "discord",
+            page: .about,
+            title: "Discord",
+            subtitle: "Talk to us",
+            keywords: ["discord", "chat", "community"]
+        ),
+        SettingsSearchEntry(
+            id: "email",
+            page: .about,
+            title: "Email",
+            subtitle: "hello@vocahq.com",
+            keywords: ["email", "mail", "hello"]
         ),
     ]
 

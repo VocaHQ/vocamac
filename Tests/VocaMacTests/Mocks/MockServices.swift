@@ -26,6 +26,11 @@ final class MockAudioEngine: AudioRecording {
     var forceResetCallCount = 0
     var startRecordingResult = true
     var startRecordingDelay: TimeInterval = 0
+    private(set) var cancelPendingStartCallCount = 0
+    /// Mirrors the real engine: a start cancelled while it is still negotiating
+    /// the input route is abandoned and reports failure.
+    private let cancelLock = NSLock()
+    private var startCancelled = false
 
     private var permissionStatus: PermissionStatus = .granted
 
@@ -36,15 +41,29 @@ final class MockAudioEngine: AudioRecording {
         maxDuration: TimeInterval,
         preferredInputDeviceID: String?
     ) -> Bool {
+        cancelLock.withLock { startCancelled = false }
         if startRecordingDelay > 0 {
             Thread.sleep(forTimeInterval: startRecordingDelay)
         }
-        isCurrentlyRecording = startRecordingResult
         lastSilenceThreshold = silenceThreshold
         lastSilenceDuration = silenceDuration
         lastMaxDuration = maxDuration
         lastPreferredInputDeviceID = preferredInputDeviceID
+
+        if cancelLock.withLock({ startCancelled }) {
+            isCurrentlyRecording = false
+            return false
+        }
+
+        isCurrentlyRecording = startRecordingResult
         return startRecordingResult
+    }
+
+    func cancelPendingStart() {
+        cancelLock.withLock {
+            cancelPendingStartCallCount += 1
+            startCancelled = true
+        }
     }
 
     @discardableResult

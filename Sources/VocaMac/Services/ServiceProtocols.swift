@@ -25,6 +25,7 @@ protocol AudioRecording: AnyObject {
         preferredInputDeviceID: String?
     ) -> Bool
     @discardableResult func stopRecording() -> [Float]
+    func cancelPendingStart()
     func forceReset()
     func checkPermissionStatus() -> PermissionStatus
     func requestPermission(completion: @escaping (Bool) -> Void)

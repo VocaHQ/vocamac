@@ -159,6 +159,22 @@ final class AppState: ObservableObject {
     /// Cleared when a recording starts on the requested device.
     @Published var inputDeviceFallbackNotice: String?
 
+    /// True while the audio engine is negotiating its input route. Bluetooth
+    /// headsets can take seconds to switch to their microphone, and a stop
+    /// arriving in that window has to be deferred rather than blocked on.
+    private var isStartingAudio = false
+
+    /// How to finish a start that the user interrupted while it was still
+    /// negotiating the route.
+    private var pendingStopDuringStart: PendingStopKind?
+
+    private enum PendingStopKind {
+        /// Push-to-talk released: keep whatever the engine managed to capture.
+        case transcribe
+        /// Overlay cancel: throw the recording away.
+        case discard
+    }
+
     /// Last reason the speech model was unloaded (nil while a model is loaded).
     @Published var lastModelUnloadReason: ModelUnloadReason?
 
@@ -897,12 +913,24 @@ final class AppState: ObservableObject {
         // Start recording immediately for instant responsiveness.
         // The start sound is played concurrently — any brief bleed into the
         // mic buffer is negligible and handled well by WhisperKit's noise model.
+        isStartingAudio = true
+        pendingStopDuringStart = nil
         let didStartRecording = await startAudioEngine(
             silenceThreshold: Float(silenceThreshold),
             silenceDuration: silenceDuration,
             maxDuration: TimeInterval(maxRecordingDuration),
             preferredInputDeviceID: selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID
         )
+        isStartingAudio = false
+
+        // The hotkey was released (or the overlay cancelled) while the route was
+        // still coming up. That stop was deferred so it wouldn't block behind the
+        // Bluetooth settle; finish it now.
+        if let pendingStop = pendingStopDuringStart {
+            pendingStopDuringStart = nil
+            await finishStartInterruptedByStop(pendingStop, didStartRecording: didStartRecording)
+            return
+        }
 
         guard didStartRecording else {
             VocaLogger.warning(.appState, "Audio engine failed to start — resetting recording state")
@@ -931,6 +959,17 @@ final class AppState: ObservableObject {
         // it's recording (covers stuck-state recovery scenarios where
         // isRecording and appStatus may be out of sync).
         guard isRecording || appStatus == .recording else { return }
+
+        // A start that is still negotiating its input route holds the audio
+        // engine's lifecycle queue. Calling stopRecording() here would block the
+        // hotkey path for the whole Bluetooth settle and then hand back an empty
+        // buffer — the "No microphone audio detected" report. Ask the engine to
+        // abandon the start instead and let startRecording() finish up.
+        if isStartingAudio {
+            pendingStopDuringStart = .transcribe
+            audioEngine.cancelPendingStart()
+            return
+        }
 
         let audioData = await stopAudioEngine()
         isRecording = false
@@ -1022,6 +1061,12 @@ final class AppState: ObservableObject {
     func cancelRecording() async {
         guard isRecording || appStatus == .recording else { return }
 
+        if isStartingAudio {
+            pendingStopDuringStart = .discard
+            audioEngine.cancelPendingStart()
+            return
+        }
+
         _ = await stopAudioEngine()
         isRecording = false
         audioLevel = 0.0
@@ -1030,6 +1075,40 @@ final class AppState: ObservableObject {
         appStatus = .idle
         errorMessage = nil
         VocaLogger.info(.appState, "Recording cancelled from overlay")
+    }
+
+    /// Completes a recording the user ended while the microphone was still
+    /// connecting. If the engine never reached the capture stage there is
+    /// nothing to transcribe — no audio existed before the route came up — so
+    /// say so plainly instead of reporting a mysterious silent recording.
+    private func finishStartInterruptedByStop(
+        _ kind: PendingStopKind,
+        didStartRecording: Bool
+    ) async {
+        guard didStartRecording else {
+            VocaLogger.info(.appState, "Recording ended while the microphone was still connecting")
+            isRecording = false
+            audioLevel = 0.0
+            cursorOverlay.hide()
+            hotKeyManager.resetKeyState()
+
+            switch kind {
+            case .discard:
+                appStatus = .idle
+                errorMessage = nil
+            case .transcribe:
+                showTemporaryError("The microphone was still connecting, so nothing was recorded. Bluetooth headsets need a moment — hold the hotkey until the start sound, then speak.")
+            }
+            return
+        }
+
+        // The route came up just as the user let go; treat it as a normal end.
+        switch kind {
+        case .transcribe:
+            await stopRecordingAndTranscribe()
+        case .discard:
+            await cancelRecording()
+        }
     }
 
     private func startAudioEngine(

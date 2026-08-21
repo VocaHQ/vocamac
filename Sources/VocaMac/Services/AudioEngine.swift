@@ -32,6 +32,10 @@ final class AudioEngine {
     /// deadlocks the audio graph — and with it the app, because AppState waits
     /// on `stopRecording`.
     private let captureActive = OSAllocatedUnfairLock(initialState: false)
+    /// Set by `cancelPendingStart()` when the user lets go of push-to-talk while
+    /// the input route is still being negotiated. Read from the settle loops,
+    /// which run inside `lifecycleQueue` — so this cannot live behind that queue.
+    private let startCancelled = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
@@ -337,6 +341,21 @@ final class AudioEngine {
 
     // MARK: - Recording Control
 
+    /// Abandon a start that is still negotiating its input route.
+    ///
+    /// Bluetooth headsets take up to `bluetoothInputRouteConfigurationTimeout`
+    /// to switch from A2DP to HFP, and `startRecording` holds `lifecycleQueue`
+    /// for that whole time. A user who releases push-to-talk during it would
+    /// otherwise wait out the settle and then be handed an empty buffer. This
+    /// is deliberately lock-free so it can be called while the queue is busy.
+    func cancelPendingStart() {
+        startCancelled.withLock { $0 = true }
+    }
+
+    private var isStartCancelled: Bool {
+        startCancelled.withLock { $0 }
+    }
+
     /// Start recording audio from the microphone
     /// - Parameters:
     ///   - silenceThreshold: RMS energy threshold below which audio is considered silence
@@ -354,7 +373,16 @@ final class AudioEngine {
             guard !self._isCurrentlyRecording else { return true }
 
             self.setIsPreparingRecording(true)
-            defer { self.setIsPreparingRecording(false) }
+            // Cleared on both ends so a cancel can only ever apply to the start
+            // it was meant for: on entry against one that landed with no start in
+            // flight, and on exit against one that arrived after the last check
+            // (the caller stops the finished recording instead) — either would
+            // otherwise poison the next start or a mid-recording route restart.
+            self.startCancelled.withLock { $0 = false }
+            defer {
+                self.setIsPreparingRecording(false)
+                self.startCancelled.withLock { $0 = false }
+            }
 
             self.lastPreferredInputDeviceUID = preferredInputDeviceID
             self.silenceThreshold = silenceThreshold
@@ -364,6 +392,10 @@ final class AudioEngine {
             resetRecordingState()
 
             for attempt in 1...2 {
+                if isStartCancelled {
+                    return abandonCancelledStart()
+                }
+
                 let engine = acquireEngine()
                 let inputNode = engine.inputNode
                 guard let configuredInputDeviceID = configureInputRoute(
@@ -371,10 +403,20 @@ final class AudioEngine {
                     engine: engine,
                     inputNode: inputNode
                 ) else {
+                    if isStartCancelled {
+                        return abandonCancelledStart()
+                    }
                     recoverFromStartFailure(notifyAppState: false)
                     return false
                 }
                 self.configuredInputDeviceID = configuredInputDeviceID
+
+                // The route is up but the user has already let go. Starting now
+                // would capture only the silence after they stopped talking.
+                if isStartCancelled {
+                    return abandonCancelledStart()
+                }
+
                 let inputFormat = inputNode.outputFormat(forBus: 0)
 
                 guard isValidInputFormat(inputFormat) else {
@@ -599,6 +641,24 @@ final class AudioEngine {
             return "engine stopped during start"
         }
         return nil
+    }
+
+    /// Tears down a start the user abandoned mid-negotiation.
+    ///
+    /// Unlike a failed start, the engine is kept for the idle window: the route
+    /// it just negotiated is the expensive part, and someone who released too
+    /// early is about to press again. No tap is installed on these paths, so
+    /// there is nothing to stop — only state to clear.
+    /// Must be called on `lifecycleQueue`.
+    private func abandonCancelledStart() -> Bool {
+        setRecordingActive(false)
+        silenceCallbackFired = false
+        maxDurationCallbackFired = false
+        removeInputTap(reason: "cancelled start")
+        clearAudioBuffer()
+        scheduleEngineRelease()
+        VocaLogger.info(.audioEngine, "Start cancelled before capture began — keeping the negotiated route warm")
+        return false
     }
 
     /// Restores AudioEngine to a clean idle state after any failed start attempt.
@@ -930,6 +990,10 @@ final class AudioEngine {
         // users experience as "the mic just doesn't work", so fall back to the
         // system default rather than recording nothing.
         for (index, candidate) in candidates.enumerated() {
+            // Don't pay a second route negotiation for a start nobody is
+            // waiting for any more.
+            if isStartCancelled { return nil }
+
             if let resolved = applyInputRoute(
                 targetDeviceID: candidate,
                 engine: engine,
@@ -991,7 +1055,11 @@ final class AudioEngine {
             // Core Audio moves to an HFP sibling endpoint, return that ID so
             // later route-health checks match the live device.
             if isBluetoothTarget {
-                Self.waitForBluetoothHFPIfNeeded(deviceID: targetDeviceID, timeout: routeTimeout)
+                Self.waitForBluetoothHFPIfNeeded(
+                    deviceID: targetDeviceID,
+                    timeout: routeTimeout,
+                    isCancelled: { self.isStartCancelled }
+                )
                 if let settledDeviceID = Self.currentInputDeviceID(for: audioUnit),
                    settledDeviceID != targetDeviceID,
                    Self.isAcceptableBluetoothRouteSubstitute(
@@ -1000,7 +1068,11 @@ final class AudioEngine {
                    ) {
                     // Match the cold path: settle against the live HFP endpoint
                     // before the tap format is read.
-                    Self.waitForBluetoothHFPIfNeeded(deviceID: settledDeviceID, timeout: routeTimeout)
+                    Self.waitForBluetoothHFPIfNeeded(
+                        deviceID: settledDeviceID,
+                        timeout: routeTimeout,
+                        isCancelled: { self.isStartCancelled }
+                    )
                     let substituteName = Self.audioDeviceName(for: settledDeviceID) ?? "bluetooth input"
                     VocaLogger.info(.audioEngine, "Warm Bluetooth route resolved to HFP endpoint: \(substituteName)")
                     return settledDeviceID
@@ -1039,7 +1111,8 @@ final class AudioEngine {
             targetDeviceID,
             on: audioUnit,
             signal: routeChangeSignal,
-            timeout: routeTimeout
+            timeout: routeTimeout,
+            isCancelled: { self.isStartCancelled }
         )
         if !appliedBeforeReset {
             VocaLogger.debug(.audioEngine, "Requested input device not confirmed before graph rebuild; continuing with rebuild")
@@ -1067,7 +1140,8 @@ final class AudioEngine {
                 targetDeviceID,
                 on: audioUnit,
                 signal: routeChangeSignal,
-                timeout: routeTimeout
+                timeout: routeTimeout,
+                isCancelled: { self.isStartCancelled }
             )
             deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
         }
@@ -1109,7 +1183,11 @@ final class AudioEngine {
         // Wait for A2DP → HFP/SCO after the route is confirmed so the tap is
         // installed against the headset mic format, not the stale A2DP rate.
         if isBluetoothTarget {
-            Self.waitForBluetoothHFPIfNeeded(deviceID: resolvedDeviceID, timeout: routeTimeout)
+            Self.waitForBluetoothHFPIfNeeded(
+                deviceID: resolvedDeviceID,
+                timeout: routeTimeout,
+                isCancelled: { self.isStartCancelled }
+            )
         }
 
         let deviceName = Self.audioDeviceName(for: resolvedDeviceID) ?? "system default"
@@ -1232,13 +1310,15 @@ final class AudioEngine {
         _ targetDeviceID: AudioDeviceID,
         on audioUnit: AudioUnit,
         signal: DispatchSemaphore,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        isCancelled: () -> Bool = { false }
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if currentInputDeviceID(for: audioUnit) == targetDeviceID {
                 return true
             }
+            if isCancelled() { break }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
             let slice = min(inputRoutePollInterval, remaining)
@@ -1247,7 +1327,11 @@ final class AudioEngine {
         return currentInputDeviceID(for: audioUnit) == targetDeviceID
     }
 
-    private static func waitForBluetoothHFPIfNeeded(deviceID: AudioDeviceID, timeout: TimeInterval) {
+    private static func waitForBluetoothHFPIfNeeded(
+        deviceID: AudioDeviceID,
+        timeout: TimeInterval,
+        isCancelled: () -> Bool = { false }
+    ) {
         guard isBluetoothDevice(deviceID) else { return }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -1257,6 +1341,10 @@ final class AudioEngine {
             lastRate = rate
             if hasBluetoothHFPSettled(sampleRate: rate) {
                 VocaLogger.debug(.audioEngine, "Bluetooth HFP settled at \(Int(rate))Hz")
+                return
+            }
+            if isCancelled() {
+                VocaLogger.debug(.audioEngine, "Bluetooth HFP settle abandoned — start was cancelled")
                 return
             }
             Thread.sleep(forTimeInterval: inputRoutePollInterval)

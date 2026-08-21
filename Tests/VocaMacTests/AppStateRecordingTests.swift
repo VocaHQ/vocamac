@@ -111,8 +111,11 @@ final class AppStateRecordingTests: XCTestCase {
         await task.value
 
         XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0)
-        XCTAssertEqual(mocks.soundManager.stopSoundCallCount, 1)
-        XCTAssertEqual(appState.appStatus, .idle)
+        XCTAssertEqual(mocks.soundManager.stopSoundCallCount, 0,
+            "the start was abandoned before capture, so there is no recording to end")
+        XCTAssertEqual(appState.appStatus, .error,
+            "releasing before the microphone is live records nothing, and the user is told why")
+        XCTAssertNotNil(appState.errorMessage)
         XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 0)
     }
 
@@ -636,5 +639,76 @@ final class AppStateRecordingGuardTests: XCTestCase {
         XCTAssertFalse(appState.isRecording)
         XCTAssertEqual(appState.audioLevel, 0.0)
         XCTAssertNil(appState.errorMessage)
+    }
+}
+
+// MARK: - Slow Microphone Start Tests
+
+/// Bluetooth headsets take up to three seconds to switch from A2DP to their
+/// microphone. Releasing push-to-talk during that window used to wait out the
+/// whole negotiation and then report a silent recording.
+final class AppStateSlowMicrophoneStartTests: XCTestCase {
+
+    @MainActor
+    func testStopWhileMicrophoneIsConnectingDoesNotBlock() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.startRecordingDelay = 0.6
+
+        let start = Task { await appState.startRecording() }
+        // Let startRecording reach its await on the audio engine.
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        let stopBegan = Date()
+        await appState.stopRecordingAndTranscribe()
+        let stopDuration = Date().timeIntervalSince(stopBegan)
+
+        XCTAssertLessThan(stopDuration, 0.2,
+            "stop must not wait out the input route negotiation")
+        XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1,
+            "the engine should be told to abandon the start it is still negotiating")
+
+        await start.value
+
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertEqual(appState.appStatus, .error,
+            "the user needs to know nothing was captured")
+        XCTAssertNotNil(appState.errorMessage)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData,
+            "there is no audio from before the microphone came up, so nothing should be transcribed")
+        XCTAssertEqual(mocks.cursorOverlay.hideCallCount, 1)
+    }
+
+    @MainActor
+    func testCancelWhileMicrophoneIsConnectingEndsQuietly() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.startRecordingDelay = 0.6
+
+        let start = Task { await appState.startRecording() }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        await appState.cancelRecording()
+        XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1)
+
+        await start.value
+
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertEqual(appState.appStatus, .idle,
+            "an explicit cancel is not an error")
+        XCTAssertNil(appState.errorMessage)
+    }
+
+    @MainActor
+    func testFastStartIsUnaffected() async {
+        let (appState, mocks) = AppState.makeTestState()
+
+        await appState.startRecording()
+
+        XCTAssertTrue(appState.isRecording)
+        XCTAssertEqual(appState.appStatus, .recording)
+        XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 0,
+            "a start that completes promptly should never be cancelled")
+
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertFalse(appState.isRecording)
     }
 }

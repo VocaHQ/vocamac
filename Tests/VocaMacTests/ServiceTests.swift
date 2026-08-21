@@ -1310,3 +1310,34 @@ final class AudioDeviceMonitorTests: XCTestCase {
         )
     }
 }
+
+// MARK: - AudioEngine Start Cancellation Tests
+
+final class AudioEngineStartCancellationTests: XCTestCase {
+
+    func testCancelPendingStartIsSafeWhenIdle() {
+        let engine = AudioEngine()
+        engine.cancelPendingStart()
+        XCTAssertFalse(engine.isCurrentlyRecording)
+    }
+
+    /// A cancel that lands after its start already finished must not leak into
+    /// the next one.
+    func testStaleCancelDoesNotPoisonTheNextStart() throws {
+        try skipWithoutRealAudioInput()
+        let engine = AudioEngine()
+        engine.cancelPendingStart()
+
+        let didStart = engine.startRecording(
+            silenceThreshold: 0.01,
+            silenceDuration: 999.0,
+            maxDuration: 60.0
+        )
+
+        try XCTSkipIf(!didStart, "No microphone available or Core Audio input could not start")
+        XCTAssertTrue(engine.isCurrentlyRecording)
+
+        _ = engine.stopRecording()
+        engine.forceReset()
+    }
+}

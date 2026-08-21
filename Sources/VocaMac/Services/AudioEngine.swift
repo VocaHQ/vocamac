@@ -40,6 +40,9 @@ final class AudioEngine {
     static let bluetoothHFPSampleRateThreshold: Double = 44100
     static let startupConfigurationChangeRecoveryWindow: TimeInterval = 1.0
     static let idleEngineReleaseDelay: TimeInterval = 3.0
+    /// If Core Audio starts but never delivers a buffer, fail instead of leaving
+    /// Test Dictation or a hotkey recording stuck until the user stops it.
+    static let noAudioInputTimeout: TimeInterval = 3.0
 
     var isCurrentlyRecording: Bool {
         lifecycleQueue.sync { _isCurrentlyRecording }
@@ -61,6 +64,7 @@ final class AudioEngine {
     private var silenceDuration: Double = 2.0
     private var maxDuration: TimeInterval = 60.0
     private var recordingStartTime: Date = Date()
+    private var recordingGeneration: UInt64 = 0
 
     // Audio level throttling
     private var lastLevelReportTime: Date = Date()
@@ -89,6 +93,9 @@ final class AudioEngine {
     /// (mic unplugged, Bluetooth disconnect, or a failed in-place restart).
     /// AppState should use this to recover from a stuck recording state.
     var onAudioDeviceChanged: (() -> Void)?
+
+    /// Called when the engine reports that it started but delivers no audio buffers.
+    var onAudioCaptureUnavailable: (() -> Void)?
 
     // MARK: - Initialization
 
@@ -382,8 +389,16 @@ final class AudioEngine {
                 let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
                     guard let self = self else { return }
 
-                    inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                        self?.processAudioBuffer(buffer, inputFormat: inputFormat)
+                    // Let AVAudioEngine bind the tap to the live hardware format.
+                    // Supplying the format queried above can race a Core Audio
+                    // route/format change and raise "Input HW format and tap
+                    // format not matching" for USB and virtual input devices.
+                    inputNode.installTap(
+                        onBus: 0,
+                        bufferSize: 4096,
+                        format: Self.inputTapFormat(for: inputFormat)
+                    ) { [weak self] buffer, _ in
+                        self?.processAudioBuffer(buffer, inputFormat: buffer.format)
                     }
 
                     engine.prepare()
@@ -429,6 +444,7 @@ final class AudioEngine {
                 recordingStartTime = Date()
                 lastSoundTime = Date()
                 _isCurrentlyRecording = true
+                scheduleNoAudioInputWatchdog()
                 return true
             }
 
@@ -486,11 +502,49 @@ final class AudioEngine {
 
     /// Resets per-recording state before a new capture attempt.
     private func resetRecordingState() {
+        recordingGeneration &+= 1
         clearAudioBuffer()
         lastSoundTime = Date()
         recordingStartTime = Date()
         silenceCallbackFired = false
         maxDurationCallbackFired = false
+    }
+
+    /// Stops a recording that started successfully but receives no callbacks
+    /// from Core Audio. Silence detection and the normal duration limit run from
+    /// the audio callback, so neither can recover this specific dead-route state.
+    private func scheduleNoAudioInputWatchdog() {
+        let generation = recordingGeneration
+        lifecycleQueue.asyncAfter(deadline: .now() + Self.noAudioInputTimeout) { [weak self] in
+            guard let self,
+                  self._isCurrentlyRecording,
+                  self.recordingGeneration == generation else { return }
+            let hasCapturedSamples = self.bufferQueue.sync { !self.audioBuffer.isEmpty }
+            guard Self.shouldFailNoAudioInputStartup(
+                isRecording: self._isCurrentlyRecording,
+                hasCapturedSamples: hasCapturedSamples
+            ) else { return }
+
+            VocaLogger.warning(.audioEngine, "Audio engine started but delivered no input buffers")
+            self.recoverFromStartFailure(notifyAppState: false)
+            DispatchQueue.main.async { [weak self] in
+                self?.onAudioCaptureUnavailable?()
+            }
+        }
+    }
+
+    static func shouldFailNoAudioInputStartup(
+        isRecording: Bool,
+        hasCapturedSamples: Bool
+    ) -> Bool {
+        isRecording && !hasCapturedSamples
+    }
+
+    /// A nil tap format asks AVAudioEngine to use the input node's live format.
+    /// This avoids binding the tap to a snapshot that can become stale while
+    /// Core Audio finishes applying an input route.
+    static func inputTapFormat(for _: AVAudioFormat) -> AVAudioFormat? {
+        nil
     }
 
     private func setIsPreparingRecording(_ isPreparing: Bool) {
@@ -545,8 +599,12 @@ final class AudioEngine {
         var startError: Error?
         let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
             guard let self else { return }
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer, inputFormat: inputFormat)
+            inputNode.installTap(
+                onBus: 0,
+                bufferSize: 4096,
+                format: Self.inputTapFormat(for: inputFormat)
+            ) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer, inputFormat: buffer.format)
             }
             engine.prepare()
             do {

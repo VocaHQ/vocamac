@@ -15,6 +15,7 @@ protocol AudioRecording: AnyObject {
     var onSilenceDetected: (() -> Void)? { get set }
     var onMaxDurationReached: (() -> Void)? { get set }
     var onAudioDeviceChanged: (() -> Void)? { get set }
+    var onInputDeviceFallback: ((String) -> Void)? { get set }
 
     @discardableResult
     func startRecording(

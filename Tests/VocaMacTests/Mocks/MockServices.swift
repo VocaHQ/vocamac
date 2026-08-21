@@ -16,6 +16,7 @@ final class MockAudioEngine: AudioRecording {
     var onSilenceDetected: (() -> Void)?
     var onMaxDurationReached: (() -> Void)?
     var onAudioDeviceChanged: (() -> Void)?
+    var onInputDeviceFallback: ((String) -> Void)?
 
     var lastSilenceThreshold: Float?
     var lastSilenceDuration: Double?

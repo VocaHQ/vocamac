@@ -1217,6 +1217,15 @@ struct AudioSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
 
+                if let fallbackNotice = appState.inputDeviceFallbackNotice {
+                    HStack(alignment: .top) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(.orange)
+                        Text(fallbackNotice)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 Button("Refresh Devices") {
                     refreshAudioDevices()
                 }
@@ -1229,6 +1238,9 @@ struct AudioSettingsTab: View {
         }
         .formStyle(.grouped)
         .onAppear {
+            refreshAudioDevices()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vocaAudioDevicesChanged)) { _ in
             refreshAudioDevices()
         }
     }

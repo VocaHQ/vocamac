@@ -1226,3 +1226,87 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
             "Device change callback should NOT fire during forceReset (only notification handler fires it)")
     }
 }
+
+// MARK: - AudioEngine Input Route Fallback Tests
+
+final class AudioEngineInputRouteFallbackTests: XCTestCase {
+
+    func testCandidatesTryRequestedDeviceBeforeSystemDefault() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: 42, defaultDeviceID: 7),
+            [42, 7],
+            "The pinned microphone is tried first, with the system default as a fallback"
+        )
+    }
+
+    func testCandidatesCollapseAPinnedDefaultDevice() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: 42, defaultDeviceID: 42),
+            [42],
+            "Pinning the system default should not make us configure the same device twice"
+        )
+    }
+
+    func testCandidatesFallBackToDefaultWhenNothingIsPinned() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: nil, defaultDeviceID: 7),
+            [7]
+        )
+    }
+
+    func testCandidatesAreEmptyWhenNoInputExists() {
+        XCTAssertTrue(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: nil, defaultDeviceID: nil).isEmpty,
+            "With no device to try, the caller must report the failure rather than record silence"
+        )
+    }
+
+    /// The input tap used to read `isCurrentlyRecording`, which hops through
+    /// `lifecycleQueue`. `stopRecording` holds that queue while `engine.stop()`
+    /// waits for the render thread, so a tap blocked on the queue deadlocks the
+    /// graph. Recording and stopping repeatedly must stay responsive.
+    func testStartStopCyclesDoNotDeadlock() throws {
+        try skipWithoutRealAudioInput()
+        let engine = AudioEngine()
+
+        let finished = XCTestExpectation(description: "Start/stop cycles completed")
+        DispatchQueue.global(qos: .userInitiated).async {
+            for _ in 0..<5 {
+                let didStart = engine.startRecording(
+                    silenceThreshold: 0.01,
+                    silenceDuration: 999.0,
+                    maxDuration: 60.0
+                )
+                guard didStart else { break }
+                Thread.sleep(forTimeInterval: 0.1)
+                _ = engine.stopRecording()
+            }
+            finished.fulfill()
+        }
+
+        wait(for: [finished], timeout: 20.0)
+        XCTAssertFalse(engine.isCurrentlyRecording)
+        engine.forceReset()
+    }
+}
+
+// MARK: - AudioDeviceMonitor Tests
+
+final class AudioDeviceMonitorTests: XCTestCase {
+
+    func testStartIsIdempotentAndStopIsSafe() {
+        let monitor = AudioDeviceMonitor()
+        monitor.start()
+        monitor.start()
+        monitor.stop()
+        monitor.stop()
+    }
+
+    func testChangeNotificationsAreCoalesced() {
+        XCTAssertGreaterThan(
+            AudioDeviceMonitor.coalesceInterval,
+            0,
+            "Bluetooth profile switches fire several property changes; the pickers should rebuild once"
+        )
+    }
+}

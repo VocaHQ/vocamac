@@ -375,8 +375,17 @@ struct MenuBarView: View {
                  : "Applies to the next recording. Does not change macOS's system default.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+            if let fallbackNotice = appState.inputDeviceFallbackNotice {
+                Label(fallbackNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
         }
         .onAppear {
+            refreshAudioDevices()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vocaAudioDevicesChanged)) { _ in
             refreshAudioDevices()
         }
     }

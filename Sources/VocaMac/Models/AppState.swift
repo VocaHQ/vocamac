@@ -155,6 +155,10 @@ final class AppState: ObservableObject {
     /// True while a configured auto-pause app is running and dictation is blocked.
     @Published var isAutoPaused: Bool = false
 
+    /// Set when the last recording could not use the pinned microphone.
+    /// Cleared when a recording starts on the requested device.
+    @Published var inputDeviceFallbackNotice: String?
+
     /// Last reason the speech model was unloaded (nil while a model is loaded).
     @Published var lastModelUnloadReason: ModelUnloadReason?
 
@@ -467,6 +471,17 @@ final class AppState: ObservableObject {
             }
         }
 
+        // The pinned microphone could not be configured and recording fell back
+        // to another device. Surface it so the user isn't left wondering why the
+        // transcript came from the built-in mic.
+        audioEngine.onInputDeviceFallback = { [weak self] notice in
+            Task { @MainActor in
+                guard let self else { return }
+                VocaLogger.warning(.appState, notice)
+                self.inputDeviceFallbackNotice = notice
+            }
+        }
+
         // Setup hotkey callbacks
         hotKeyManager.onRecordingStart = { [weak self] in
             Task { @MainActor in
@@ -592,6 +607,9 @@ final class AppState: ObservableObject {
         autoPauseMonitor.start()
         modelKeepAlive.start()
         sleepWakeMonitor.start()
+        if !skipSystemIntegration {
+            AudioDeviceMonitor.shared.start()
+        }
     }
 
     /// Unload the resident model and clear active UI flags.
@@ -869,6 +887,7 @@ final class AppState: ObservableObject {
         appStatus = .recording
         isRecording = true
         errorMessage = nil
+        inputDeviceFallbackNotice = nil
 
         // Show the configured recording overlay.
         if showCursorIndicator && overlayStyle != .off {
@@ -891,7 +910,12 @@ final class AppState: ObservableObject {
             audioLevel = 0.0
             cursorOverlay.hide()
             hotKeyManager.resetKeyState()
-            appStatus = .idle
+            // Silently dropping back to idle looks like the hotkey did nothing.
+            // Tell the user which microphone we tried and where to change it.
+            let deviceDescription = selectedAudioDeviceName.isEmpty
+                ? "the system default microphone"
+                : selectedAudioDeviceName
+            showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
             return
         }
 

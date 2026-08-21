@@ -613,8 +613,10 @@ final class AppStateRecordingGuardTests: XCTestCase {
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-            "failed audio start should return app state to idle")
+        XCTAssertEqual(appState.appStatus, .error,
+            "a failed audio start is reported, not silently swallowed")
+        XCTAssertNotNil(appState.errorMessage,
+            "the user needs to know why the hotkey appeared to do nothing")
         XCTAssertFalse(appState.isRecording,
             "failed audio start should clear recording state")
         XCTAssertEqual(appState.audioLevel, 0.0,

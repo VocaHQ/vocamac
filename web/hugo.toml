@@ -5,7 +5,7 @@ title = "VocaMac: native voice typing for macOS"
 [params]
   description = "Native voice typing for macOS. Hold a hotkey, speak, and text appears at your cursor — transcribed by a Whisper model running on your own Mac. Free and open source."
   author = "Jatin Kumar Malik"
-  twitterHandle = "@jatinkrmalik"
+  twitterHandle = "@vocahq"
   githubRepo = "https://github.com/VocaHQ/vocamac"
   ogImagePath = "og-image.png"
 

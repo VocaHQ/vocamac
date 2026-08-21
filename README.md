@@ -23,8 +23,8 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/VocaHQ/vocamac/pulls)
 [![GitHub Issues](https://img.shields.io/github/issues/VocaHQ/vocamac)](https://github.com/VocaHQ/vocamac/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/VocaHQ/vocamac?style=social)](https://github.com/VocaHQ/vocamac/stargazers)
-[![Twitter Follow](https://img.shields.io/twitter/follow/jatinkrmalik?style=social)](https://x.com/intent/user?screen_name=jatinkrmalik)
-[![Discord](https://img.shields.io/discord/1538633755877580810?logo=discord&logoColor=white&label=Discord)](https://discord.gg/UMJduhcqn)
+[![Twitter Follow](https://img.shields.io/twitter/follow/vocahq?style=social)](https://x.com/vocahq)
+[![Discord](https://img.shields.io/discord/1538633755877580810?logo=discord&logoColor=white&label=Discord)](https://discord.gg/t6muquAJbm)
 [![VocaHQ](https://img.shields.io/badge/VocaHQ-vocahq.com-1a7f4e)](https://vocahq.com)
 
 </div>
@@ -614,5 +614,8 @@ AGPL-3.0 License - see [LICENSE](LICENSE) for details.
 <div align="center">
   
 Made with ❤️ for the macOS community!
+
+Join [Discord](https://discord.gg/t6muquAJbm) to talk with us, or follow
+[@vocahq](https://x.com/vocahq) on X.
 
 </div>

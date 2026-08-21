@@ -95,8 +95,11 @@ protocol PermissionManaging: AnyObject {
 
 @MainActor
 protocol CursorOverlayManaging: AnyObject {
+    /// Shows the overlay in its connecting state: visible, but explicit that
+    /// the microphone is not capturing yet.
     func show(style: OverlayStyle, position: OverlayPosition)
     func hide()
+    func transitionToRecording()
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
 }

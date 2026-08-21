@@ -256,6 +256,7 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var showCallCount = 0
     var hideCallCount = 0
     var transitionCallCount = 0
+    var transitionToRecordingCallCount = 0
     var lastAudioLevel: Float?
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
@@ -268,6 +269,10 @@ final class MockCursorOverlay: CursorOverlayManaging {
 
     func hide() {
         hideCallCount += 1
+    }
+
+    func transitionToRecording() {
+        transitionToRecordingCallCount += 1
     }
 
     func transitionToProcessing() {

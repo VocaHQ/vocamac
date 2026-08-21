@@ -905,7 +905,10 @@ final class AppState: ObservableObject {
         errorMessage = nil
         inputDeviceFallbackNotice = nil
 
-        // Show the configured recording overlay.
+        // Show the overlay in its connecting state. It only claims to be
+        // listening once the audio engine confirms the route is live — on
+        // Bluetooth that can be seconds later, and anything said before then is
+        // not captured by anyone.
         if showCursorIndicator && overlayStyle != .off {
             cursorOverlay.show(style: overlayStyle, position: overlayPosition)
         }
@@ -946,6 +949,8 @@ final class AppState: ObservableObject {
             showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
             return
         }
+
+        cursorOverlay.transitionToRecording()
 
         // Play start sound after mic is active (fire-and-forget).
         // Off is a stored tone and stays silent even when this switch is on.

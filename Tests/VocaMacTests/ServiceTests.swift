@@ -528,11 +528,14 @@ final class AudioEngineTests: XCTestCase {
             return
         }
 
+        // A cold Core Audio start does not guarantee a buffer within 300 ms,
+        // especially with other tests in this process cycling the same device.
+        // One second is still a tight assertion and no longer races the hardware.
         let expectation = XCTestExpectation(description: "Recording period")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             expectation.fulfill()
         }
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [expectation], timeout: 3.0)
 
         let samples = engine.stopRecording()
 

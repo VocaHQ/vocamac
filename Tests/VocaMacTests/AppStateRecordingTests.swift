@@ -698,6 +698,36 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     }
 
     @MainActor
+    func testOverlayOnlyClaimsToListenOnceTheMicrophoneIsLive() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.startRecordingDelay = 0.6
+
+        let start = Task { await appState.startRecording() }
+        try? await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertEqual(mocks.cursorOverlay.showCallCount, 1,
+            "the overlay appears immediately so the hotkey feels responsive")
+        XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 0,
+            "but it must not claim to be listening while the route is still coming up")
+
+        await appState.stopRecordingAndTranscribe()
+        await start.value
+
+        XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 0,
+            "a start that never reached capture never becomes a recording")
+    }
+
+    @MainActor
+    func testOverlayDoesNotEnterRecordingWhenTheStartFails() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.startRecordingResult = false
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 0)
+    }
+
+    @MainActor
     func testFastStartIsUnaffected() async {
         let (appState, mocks) = AppState.makeTestState()
 
@@ -707,6 +737,8 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .recording)
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 0,
             "a start that completes promptly should never be cancelled")
+        XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 1,
+            "a live microphone flips the overlay out of its connecting state")
 
         await appState.stopRecordingAndTranscribe()
         XCTAssertFalse(appState.isRecording)

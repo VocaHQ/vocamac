@@ -1,173 +1,159 @@
 # VocaMac — AI Coding Agent Guidelines
 
-## Project Overview
+Agent-facing rules for this repo. Product copy lives in `README.md` and `web/`.
 
-VocaMac is a **native macOS menu bar application** for local voice-to-text dictation, built with **Swift 5.9+** and **SwiftUI**. It supports four on-device speech engines: **WhisperKit** (OpenAI Whisper, CoreML), **FluidAudio** (NVIDIA Parakeet TDT, CoreML on the Neural Engine), **Apple Speech** (SpeechAnalyzer, macOS 26+), and **sherpa-onnx** (specialized ONNX models: Moonshine, SenseVoice, GigaAM, Canary; CPU-only). `TranscriptionRouter` dispatches to the engine that owns the selected model. The project also includes a **static marketing website** (`web/`) deployed to GitHub Pages at [vocamac.com](https://vocamac.com).
+## Project overview
 
-- **License:** AGPL-3.0
-- **Minimum target:** macOS 14 (Sonoma)
-- **Build system:** Swift Package Manager
-- **CI:** GitHub Actions (`.github/workflows/ci.yml`)
-- **Website deployment:** GitHub Pages via release trigger (`.github/workflows/deploy-website.yml`)
+Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device engines; `TranscriptionRouter` dispatches to the engine that owns the selected model.
+
+| Engine | Library / API | Runtime |
+|--------|---------------|---------|
+| Whisper | [WhisperKit](https://github.com/argmaxinc/WhisperKit) | OpenAI Whisper, CoreML |
+| Parakeet | [FluidAudio](https://github.com/FluidInference/FluidAudio) | NVIDIA Parakeet TDT, CoreML on the Neural Engine |
+| Apple Speech | SpeechAnalyzer / SpeechTranscriber | macOS 26+, system-managed assets |
+| Specialized ONNX | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Moonshine, SenseVoice, GigaAM, Canary; CPU-only |
+
+The marketing site is Hugo in `web/`, deployed to GitHub Pages at [vocamac.com](https://vocamac.com).
+
+| | |
+|--|--|
+| License | AGPL-3.0 |
+| Minimum OS | macOS 14 Sonoma; **Apple Silicon only** (`arm64`) |
+| Build | Swift Package Manager; `.app` bundles via `scripts/build.sh` (`xcodebuild`) |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): app on `macos-15` + Xcode 26; site on Ubuntu |
+| Website | Hugo 0.165.0 extended; deploy via `.github/workflows/deploy-website.yml` |
 
 ---
 
-## Critical Rule: Use Git Worktrees for Parallel Tasks
+## Critical: git worktrees for every branch and PR
 
-**When asked to perform multiple unrelated tasks simultaneously, ALWAYS use git worktrees.**
+Never create a branch, commit, or open a pull request in the primary checkout. Always use a linked git worktree so the main working tree stays on `main` and stays clean. Do not `git switch` / `git checkout` a feature branch in the primary directory, and do not leave it dirty.
 
 ```bash
-# Create worktrees in /tmp — never pollute the main workspace
-git worktree add /tmp/vocamac-<task-name> -b <branch-name> main
+git fetch origin
+git worktree add /tmp/vocamac-<task> -b <type>/<short-name> origin/main
 
-# After work is complete, clean up
-git worktree remove /tmp/vocamac-<task-name>
+# All edits, commits, and `gh pr create` happen inside that worktree.
+
+git worktree remove /tmp/vocamac-<task>
 git worktree prune
 ```
 
-**Why:** Concurrent work on the same directory causes branch conflicts, overwritten files, and corrupted state. Each worktree gets its own isolated copy of the repo on its own branch.
+Rules:
 
-**Rules:**
-- Create worktrees in `/tmp/` with the prefix `vocamac-`
 - One worktree per branch, one branch per PR
-- Always prune worktrees after pushing and creating PRs
-- Never modify files in the main workspace when worktrees are active for that task
+- Place worktrees **outside** the primary working tree (`/tmp/vocamac-<task>` or a sibling directory such as `../.worktrees/vocamac-<task>`)
+- Never run two tasks in the same worktree
+- Never commit directly to `main`
+- Clean up the worktree after the PR is pushed
 
 ---
 
-## Repository Structure
+## Repository structure
 
 ```
-VocaMac/
-├── Sources/VocaMac/
-│   ├── App/              # App entry point, MenuBarExtra, MenuBarIcon
-│   ├── Models/           # AppState, TranscriptionResult, WhisperModel
-│   ├── Services/         # AudioEngine, HotKeyManager, ModelManager,
-│   │                     #   SystemInfo, TextInjector, TranscriptionRouter,
-│   │                     #   WhisperService, ParakeetService, AppleSpeechService,
-│   │                     #   SherpaService (+ Vendor/SherpaOnnxConfigBuilders)
-│   ├── Views/            # MenuBarView, SettingsView
-│   └── Resources/        # Bundled resources (.gitkeep placeholder)
-├── Tests/VocaMacTests/   # Unit tests
-├── web/                  # Static website (HTML/CSS/JS, deployed to GitHub Pages)
-├── Makefile              # make build, install, test, clean
-├── scripts/              # build.sh, install.sh, uninstall.sh
-├── docs/                 # ARCHITECTURE.md, DATA_MODEL.md, PRD.md
-├── Package.swift         # SPM manifest
-└── VocaMac.entitlements  # App sandbox entitlements
+Sources/VocaMac/
+├── App/              # VocaMacApp, MenuBarIcon, BrandAssets, DockVisibilityCoordinator
+├── CLI/              # Headless --transcribe-file / --list-models (no AppState)
+├── Models/           # AppState, engines, models, stats, overlay, updates
+├── Services/         # Audio, hotkeys, engines, router, logger, overlay, sounds, stats, updates
+├── Vendor/           # SherpaOnnxConfigBuilders (sherpa-onnx Swift config)
+├── Views/            # Menu bar, settings, onboarding, stats, updates
+└── Resources/        # App icon, start/stop sounds, brand bitmaps
+Sources/VocaMacObjC/  # NSException catcher for AVFoundation taps
+Tests/VocaMacTests/   # XCTest; Mocks/ for fakes
+web/                  # Hugo site — see web/AGENTS.md
+homebrew/             # Cask sources mirrored to the tap
+docs/                 # ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW (no per-version notes)
+scripts/              # build, install, dist, release, uninstall, Xcode 26 select
+Makefile              # make build / install / test / dmg / release / reset
+Package.swift         # SPM: VocaMac + VocaMacObjC
+VocaMac.entitlements  # Microphone
 ```
 
 ---
 
-## Build & Run
+## Build & run
 
 ```bash
-# Build + install to /Applications (recommended)
-make install
-
-# Build .app bundle in repo root (fast dev iteration)
-make build
-
-# Install CLI commands to ~/.local/bin
-make install-cli
-
-# Run tests
-make test
-
-# Clean build artifacts
+make install       # Build + install to /Applications (recommended)
+make build         # .app in repo root (fast iteration)
+make install-cli   # vocamac / vocamac-build → ~/.local/bin
+make test          # swift test (what CI runs for the app)
+make dmg           # Dist DMG → dist/
+make run           # open the locally built .app
 make clean
 ```
 
-Or use the scripts directly:
+Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/install.sh --cli`.
 
-```bash
-./scripts/build.sh              # Build .app bundle (dev)
-./scripts/install.sh            # Build + install to /Applications
-./scripts/install.sh --cli      # Install CLI commands
-```
+**macOS only** (AppKit, CoreML, AVFoundation). CI uses `scripts/select-xcode-26.sh` so Apple Speech APIs compile in.
 
-The project builds on **macOS only** (requires AppKit, CoreML, AVFoundation). CI runs on `macos-15`.
+`swift build` / `swift test` are for compile and unit tests. Shipping `.app` bundles **must** go through `scripts/build.sh` (`xcodebuild`): SPM’s `swift build` `Bundle.module` accessor does not resolve `Contents/Resources` and crashes on user machines.
 
 ---
 
-## Code Style & Best Practices
+## Architecture (for agents)
 
-### Swift Conventions
-- Use **SwiftUI** for all views — no AppKit views unless absolutely necessary for system integration
-- Use **`@Observable`** (or `ObservableObject` with `@Published`) for state management
-- Prefer **`async/await`** over callbacks and closures for asynchronous work
-- Use **`guard`** for early returns; avoid deep nesting
-- Follow Apple's [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/)
-- Use meaningful names: `isRecording` not `flag`, `audioLevel` not `val`
-- Mark sections with `// MARK: -` for organization
-- Add doc comments (`///`) on all public types, methods, and non-trivial private methods
+- **Single source of truth:** `AppState` (`ObservableObject` + `@Published`). Views observe and dispatch; they do not own business logic.
+- **Service layer:** `Sources/VocaMac/Services/`. `TranscriptionRouter` is the `SpeechTranscribing` facade — views and `AppState` must not call Whisper / Parakeet / Apple Speech / Sherpa services directly.
+- **CLI:** same executable, headless. Flags: `--transcribe-file`, `--list-models`, `--help` (`-h`). Production CLI must not construct `AppState` or start SwiftUI, mic capture, hotkeys, onboarding, or text injection.
+- **ObjC helper:** `VocaMacObjC` converts `NSException` (e.g. AVAudioEngine tap install) into `NSError`. Swift cannot catch those exceptions.
+- **DI:** `@EnvironmentObject` or init parameters.
 
-### Architecture Patterns
-- **Single source of truth:** `AppState` is the central observable state object
-- **Service layer:** Business logic lives in `Services/` (AudioEngine, WhisperService, etc.)
-- **Views are thin:** Views observe state and dispatch actions — no business logic in views
-- **Dependency injection:** Pass dependencies via `@EnvironmentObject` or init parameters
+---
 
-### Error Handling
-- Never force-unwrap (`!`) unless the value is guaranteed (e.g., system symbols)
-- Use `do/catch` with meaningful error types
-- Surface errors to the user via `AppState.appStatus = .error` with clear messages
-- Log errors with `print()` (we don't have a logging framework yet — use descriptive prefixes like `[AudioEngine]`, `[WhisperService]`)
+## Code style
+
+### Swift
+
+- SwiftUI for views. AppKit only for system integration (windows, event taps, Accessibility, `NSImage` menu bar icon).
+- Prefer `@Observable` for new types. Existing `AppState` is `ObservableObject` — match the surrounding type; do not mix styles in one object.
+- `async/await` over callbacks. `guard` for early returns; avoid deep nesting.
+- Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/). Names: `isRecording`, not `flag`.
+- `// MARK: -` sections. `///` on public types/methods and non-trivial private methods.
+
+### Errors and logging
+
+- Never force-unwrap (`!`) unless the value is guaranteed (e.g. system symbols).
+- `do/catch` with meaningful error types. Surface user-visible failures via `AppState.appStatus = .error`.
+- Log with **`VocaLogger`** (`debug` / `info` / `warning` / `error` + `LogCategory`). Do **not** use `print()`.
+- Logs go to Console.app (`os.Logger`) and `~/Library/Application Support/VocaMac/logs/` (rotated files).
 
 ### Performance
-- This is a **menu bar app** — it must be lightweight and responsive
-- Avoid unnecessary polling; prefer event-driven updates
-- `ProcessMonitor` polls every 5 seconds — don't add more frequent timers
-- Heavy work (transcription, model loading) runs on background threads
-- UI updates must dispatch to `@MainActor`
+
+- Menu bar app: stay lightweight. Prefer event-driven updates over extra timers.
+- `ProcessMonitor` polls every **5 seconds** — do not add tighter polling.
+- Transcription and model load off the main thread; UI updates on `@MainActor`.
 
 ---
 
-## Testing Requirements
+## Testing
 
-### Test Coverage
-- **All new logic must have corresponding tests** in `Tests/VocaMacTests/`
-- Test file naming: `<ClassName>Tests.swift` (e.g., `WhisperServiceTests.swift`)
-- Use **XCTest** framework
-- Run tests with `swift test` — this is what CI executes
-
-### What to Test
-- Model logic and state transitions in `AppState`
-- Service layer methods (parsing, formatting, validation)
-- Data model encoding/decoding
-- Edge cases: empty input, nil values, boundary conditions
-
-### What NOT to Test
-- SwiftUI view rendering (no snapshot tests currently)
-- System APIs (microphone, accessibility, pasteboard) — these require real hardware
-- WhisperKit internals — that's a third-party dependency
+- New logic → `Tests/VocaMacTests/<ClassName>Tests.swift` (XCTest).
+- CI app job runs `swift build` and `swift test`.
+- **Test:** `AppState` transitions, service parsing/formatting/validation, Codable, CLI, Logger, edge cases (empty, nil, bounds).
+- **Do not test:** SwiftUI snapshots, microphone / Accessibility / pasteboard hardware, WhisperKit / FluidAudio / sherpa-onnx internals.
+- Fakes live in `Tests/VocaMacTests/Mocks/`.
 
 ---
 
 ## Website (`web/`)
 
-- **Pure HTML/CSS/JS** — no build tools, no frameworks, no npm
-- Served as static files from the `web/` directory
-- Deployed to GitHub Pages on release via `.github/workflows/deploy-website.yml`
-- Custom domain: `vocamac.com` (configured via `web/CNAME`)
-- Brand logo: `web/static/brand/voca-logo.svg`; app icon: `Sources/VocaMac/Resources/AppIcon.icns`
-- Supports light/dark theme toggle
-- Test locally: `cd web && python3 -m http.server 8080`
+See **`web/AGENTS.md`**. Short version: Hugo-generated static HTML; hand-written CSS/JS in `web/static/`; **no** React/Vue, no CSS framework, no bundler. `package.json` is check-only (`npm run check`). Product facts live in `web/data/product.toml`.
 
 ---
 
-## Git & PR Workflow
+## Git & PR
 
-### Branch Naming
-- `feat/<description>` — new features
-- `fix/<description>` — bug fixes
-- `ui/<description>` — UI/UX improvements
-- `chore/<description>` — maintenance, config, tooling
-- `docs/<description>` — documentation updates
-- `ci/<description>` — CI/CD changes
+### Branch names
 
-### Commit Messages
-Follow [Conventional Commits](https://www.conventionalcommits.org/):
+`feat/<description>` · `fix/` · `ui/` · `chore/` · `docs/` · `ci/`
+
+### Commits
+
+[Conventional Commits](https://www.conventionalcommits.org/):
+
 ```
 feat: add CPU monitoring to popover panel
 fix: menu bar icon not showing colored states
@@ -177,55 +163,54 @@ chore: change license to AGPL-3.0
 ci: add GitHub Actions build workflow
 ```
 
-### Pull Requests
-- **NEVER commit directly to main** — always create a feature branch and raise a PR
-- One logical change per PR — don't bundle unrelated changes
-- Write descriptive PR titles and bodies
-- PRs must pass CI (`swift build` + `swift test`) before merge
-- Squash merge preferred for clean history
-- Wait for the user to review and merge — do not merge PRs yourself
+### Pull requests
 
-### Release Notes — Do NOT Commit Them to the Repo
+- **Never commit directly to `main`.** Branch in a worktree, then open a PR.
+- One logical change per PR — do not bundle unrelated work.
+- Descriptive title and body. PRs must pass CI before merge.
+- Squash merge preferred.
+- **Do not merge PRs yourself** — wait for the user to review and merge.
 
-**Never create or commit `docs/RELEASE_NOTES_v*.md` files** (or any other per-version release-notes file inside the repo). These files clutter the source tree, become stale the moment the release ships, and duplicate content that already lives on the GitHub Release page.
+### Release notes — do not commit them
 
-The release-notes lifecycle is:
+**Never create or commit `docs/RELEASE_NOTES_v*.md`** (or any other per-version release-notes file). They clutter the tree, go stale at ship, and duplicate the GitHub Release page.
 
-1. **Draft** the notes in a scratch location *outside* the repo (e.g. `/tmp/RELEASE_NOTES_vX.Y.Z.md`, a Gist, or directly in the GitHub Release "draft" UI).
-2. **Reuse** that draft to update the version-bump PR description, the `gh release create --notes-file ...` invocation, and any related comms.
-3. **Paste** the final text into the GitHub Release description when publishing.
-4. **Delete** the local scratch file after the release goes live.
+1. Draft outside the repo (`/tmp/RELEASE_NOTES_vX.Y.Z.md`, a Gist, or the GitHub Release draft UI).
+2. Reuse that draft for the version-bump PR body, `gh release create --notes-file …`, and comms.
+3. Paste the final text into the GitHub Release when publishing.
+4. Delete the local scratch file.
 
-If a version bump PR needs changelog context, put the changelog table in the **PR description**, not in a tracked file. The single source of truth for shipped release notes is the **GitHub Release page** itself, which is also what the in-app update checker surfaces to users.
-
-See `docs/RELEASE.md` → **Release Notes (out-of-tree)** for the full process.
+Version-bump changelog tables go in the **PR description**, not a tracked file. The GitHub Release is the source of truth (also what the in-app update checker shows). See `docs/RELEASE.md` → **Release Notes (out-of-tree)**.
 
 ---
 
-## Key Dependencies
+## Dependencies
 
-| Dependency | Purpose | Version |
-|-----------|---------|---------|
-| [WhisperKit](https://github.com/argmaxinc/WhisperKit) | On-device speech-to-text via CoreML | 0.9.4+ |
+| Dependency | Purpose | Pin |
+|------------|---------|-----|
+| [WhisperKit](https://github.com/argmaxinc/WhisperKit) | Whisper CoreML | `from: "0.9.4"` |
+| [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.5")` (pre-1.0) |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | revision pin (SPM not in a tagged release; xcframework v1.13.4) |
 
-Keep dependencies minimal. This app values being lightweight and self-contained.
-
----
-
-## macOS-Specific Considerations
-
-- **Entitlements** (`VocaMac.entitlements`): App uses microphone access and accessibility APIs
-- **LSUIElement:** App runs as a menu bar agent (no dock icon)
-- **Code signing:** Release builds are Developer ID signed and notarized. Local development builds fall back to ad-hoc signing if no Developer ID cert is in the Keychain.
-- **Permissions:** With Developer ID signing, permissions persist across updates. Ad-hoc (local dev) builds will reset permissions on every rebuild.
-- **MenuBarExtra limitations:** The label only renders `Image` or `Text` — custom SwiftUI views like `Canvas` won't appear. Use `NSImage` with `isTemplate = false` for colored menu bar icons.
+Keep dependencies minimal. Do not bump FluidAudio across a minor without checking `AsrManager.loadModels` / TDT decoder APIs.
 
 ---
 
-## Common Pitfalls
+## macOS specifics
 
-1. **MenuBarExtra ignores SwiftUI colors** — Use `NSImage` with `sourceAtop` tinting and `isTemplate = false` for colored states
-2. **`Canvas` doesn't work in menu bar** — It renders in popovers but not in `MenuBarExtra` labels
-3. **Browser caches SVG/PNG aggressively** — When testing website changes, always hard refresh (`Cmd+Shift+R`)
-4. **Accessibility permission resets on rebuild** — Expected with ad-hoc signing; release builds are Developer ID signed so permissions persist
-5. **WhisperKit model download** — First run requires internet to download the whisper model; all subsequent runs are offline
+- **Entitlements** (`VocaMac.entitlements`): microphone. Accessibility and Input Monitoring are TCC, not entitlements.
+- **`LSUIElement`:** menu bar agent (no Dock icon). Settings / update windows use `DockVisibilityCoordinator` to show the Dock while a window needs focus.
+- **Signing:** release = Developer ID + notarization. Local builds fall back to ad-hoc if no Developer ID cert is in the Keychain.
+- **Permissions:** Developer ID persists TCC across updates. **Ad-hoc rebuilds reset Accessibility and Input Monitoring.**
+- **MenuBarExtra:** the label may only render `Image` or `Text`. Colored icons: `NSImage` with `sourceAtop` tint and `isTemplate = false`.
+
+---
+
+## Common pitfalls
+
+1. **MenuBarExtra ignores SwiftUI colors** — tint via `NSImage` + `sourceAtop`, `isTemplate = false`.
+2. **`Canvas` is invisible in the menu bar label** — it works in popovers only.
+3. **Browsers cache SVG/PNG aggressively** — hard-refresh (`Cmd+Shift+R`) when testing `web/`.
+4. **Ad-hoc signing resets TCC** on every rebuild; expected locally, not for Developer ID releases.
+5. **First download of extra models needs network** (Tiny is bundled). After that, engines run offline.
+6. **Do not ship an `.app` from `swift build`** — use `make build` / `scripts/build.sh`.

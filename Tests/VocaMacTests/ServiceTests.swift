@@ -445,6 +445,28 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testInputTapUsesLiveNodeFormat() {
+        XCTAssertNil(
+            AudioEngine.inputTapFormat(for: AudioEngine.whisperFormat),
+            "A nil tap format lets AVAudioEngine bind to the current hardware format"
+        )
+    }
+
+    func testNoAudioInputStartupFailsOnlyWhileRecordingWithoutSamples() {
+        XCTAssertTrue(AudioEngine.shouldFailNoAudioInputStartup(
+            isRecording: true,
+            hasCapturedSamples: false
+        ))
+        XCTAssertFalse(AudioEngine.shouldFailNoAudioInputStartup(
+            isRecording: true,
+            hasCapturedSamples: true
+        ))
+        XCTAssertFalse(AudioEngine.shouldFailNoAudioInputStartup(
+            isRecording: false,
+            hasCapturedSamples: false
+        ))
+    }
+
     func testStopRecordingWithoutStartReturnsEmpty() {
         let engine = AudioEngine()
         let samples = engine.stopRecording()

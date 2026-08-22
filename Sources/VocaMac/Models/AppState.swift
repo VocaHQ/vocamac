@@ -467,6 +467,19 @@ final class AppState: ObservableObject {
             }
         }
 
+        audioEngine.onAudioCaptureUnavailable = { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                let message = "No microphone audio received. Check that the selected microphone is connected and available in Settings → Audio."
+                VocaLogger.warning(.appState, message)
+                self.isRecording = false
+                self.audioLevel = 0.0
+                self.cursorOverlay.hide()
+                self.hotKeyManager.resetKeyState()
+                self.showTemporaryError(message)
+            }
+        }
+
         // Setup hotkey callbacks
         hotKeyManager.onRecordingStart = { [weak self] in
             Task { @MainActor in

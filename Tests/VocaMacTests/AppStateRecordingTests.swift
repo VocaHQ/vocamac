@@ -183,6 +183,20 @@ final class AppStateRecordingTests: XCTestCase {
                        "Silent capture should force-reset the engine so a dead route is not kept warm")
     }
 
+    func testNoAudioCaptureCallbackRecoversWithInputError() async {
+        let (appState, mocks) = AppState.makeTestState()
+        await appState.startRecording()
+
+        mocks.audioEngine.onAudioCaptureUnavailable?()
+        await Task.yield()
+
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertEqual(appState.appStatus, .error)
+        XCTAssertTrue(appState.errorMessage?.contains("No microphone audio received") == true)
+        XCTAssertEqual(mocks.cursorOverlay.hideCallCount, 1)
+        XCTAssertEqual(mocks.hotKeyManager.resetKeyStateCallCount, 1)
+    }
+
     func testSelectedModelSizeDefault() {
         let (appState, _) = AppState.makeTestState()
 

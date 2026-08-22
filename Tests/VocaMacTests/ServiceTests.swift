@@ -517,6 +517,16 @@ final class AudioEngineTests: XCTestCase {
         try skipWithoutRealAudioInput()
         let engine = AudioEngine()
 
+        // Wait for the hardware to actually deliver a buffer rather than
+        // guessing at a duration. How long a cold Core Audio start takes to
+        // produce its first buffer depends on the device and on what else in
+        // this process just released it, so any fixed sleep is either a race or
+        // dead time. `onAudioLevel` fires from the tap once per processed
+        // buffer, which is exactly the event this test is waiting for.
+        let firstBuffer = XCTestExpectation(description: "First audio buffer captured")
+        firstBuffer.assertForOverFulfill = false
+        engine.onAudioLevel = { _ in firstBuffer.fulfill() }
+
         engine.startRecording(
             silenceThreshold: 0.01,
             silenceDuration: 999.0,
@@ -528,11 +538,7 @@ final class AudioEngineTests: XCTestCase {
             return
         }
 
-        let expectation = XCTestExpectation(description: "Recording period")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 2.0)
+        wait(for: [firstBuffer], timeout: 5.0)
 
         let samples = engine.stopRecording()
 
@@ -1224,5 +1230,120 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
 
         XCTAssertFalse(deviceChangeCalled,
             "Device change callback should NOT fire during forceReset (only notification handler fires it)")
+    }
+}
+
+// MARK: - AudioEngine Input Route Fallback Tests
+
+final class AudioEngineInputRouteFallbackTests: XCTestCase {
+
+    func testCandidatesTryRequestedDeviceBeforeSystemDefault() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: 42, defaultDeviceID: 7),
+            [42, 7],
+            "The pinned microphone is tried first, with the system default as a fallback"
+        )
+    }
+
+    func testCandidatesCollapseAPinnedDefaultDevice() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: 42, defaultDeviceID: 42),
+            [42],
+            "Pinning the system default should not make us configure the same device twice"
+        )
+    }
+
+    func testCandidatesFallBackToDefaultWhenNothingIsPinned() {
+        XCTAssertEqual(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: nil, defaultDeviceID: 7),
+            [7]
+        )
+    }
+
+    func testCandidatesAreEmptyWhenNoInputExists() {
+        XCTAssertTrue(
+            AudioEngine.inputRouteCandidates(requestedDeviceID: nil, defaultDeviceID: nil).isEmpty,
+            "With no device to try, the caller must report the failure rather than record silence"
+        )
+    }
+
+    /// The input tap used to read `isCurrentlyRecording`, which hops through
+    /// `lifecycleQueue`. `stopRecording` holds that queue while `engine.stop()`
+    /// waits for the render thread, so a tap blocked on the queue deadlocks the
+    /// graph. Recording and stopping repeatedly must stay responsive.
+    func testStartStopCyclesDoNotDeadlock() throws {
+        try skipWithoutRealAudioInput()
+        let engine = AudioEngine()
+
+        let finished = XCTestExpectation(description: "Start/stop cycles completed")
+        DispatchQueue.global(qos: .userInitiated).async {
+            for _ in 0..<5 {
+                let didStart = engine.startRecording(
+                    silenceThreshold: 0.01,
+                    silenceDuration: 999.0,
+                    maxDuration: 60.0
+                )
+                guard didStart else { break }
+                Thread.sleep(forTimeInterval: 0.1)
+                _ = engine.stopRecording()
+            }
+            finished.fulfill()
+        }
+
+        wait(for: [finished], timeout: 20.0)
+        XCTAssertFalse(engine.isCurrentlyRecording)
+        engine.forceReset()
+    }
+}
+
+// MARK: - AudioDeviceMonitor Tests
+
+final class AudioDeviceMonitorTests: XCTestCase {
+
+    func testStartIsIdempotentAndStopIsSafe() {
+        let monitor = AudioDeviceMonitor()
+        monitor.start()
+        monitor.start()
+        monitor.stop()
+        monitor.stop()
+    }
+
+    func testChangeNotificationsAreCoalesced() {
+        XCTAssertGreaterThan(
+            AudioDeviceMonitor.coalesceInterval,
+            0,
+            "Bluetooth profile switches fire several property changes; the pickers should rebuild once"
+        )
+    }
+}
+
+// MARK: - AudioEngine Start Cancellation Tests
+
+final class AudioEngineStartCancellationTests: XCTestCase {
+
+    func testCancelPendingStartIsSafeWhenIdle() {
+        let engine = AudioEngine()
+        engine.cancelPendingStart()
+        XCTAssertFalse(engine.isCurrentlyRecording)
+    }
+
+    /// A cancel that lands after its start already finished must not leak into
+    /// the next one.
+    func testStaleCancelDoesNotPoisonTheNextStart() throws {
+        try skipWithoutRealAudioInput()
+        let engine = AudioEngine()
+        engine.cancelPendingStart()
+
+        let didStart = engine.startRecording(
+            silenceThreshold: 0.01,
+            silenceDuration: 999.0,
+            maxDuration: 60.0
+        )
+
+        try XCTSkipIf(!didStart, "No microphone available or Core Audio input could not start")
+        XCTAssertTrue(engine.isCurrentlyRecording)
+
+        _ = engine.stopRecording()
+        engine.forceReset()
     }
 }

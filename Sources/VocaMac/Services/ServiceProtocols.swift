@@ -15,6 +15,7 @@ protocol AudioRecording: AnyObject {
     var onSilenceDetected: (() -> Void)? { get set }
     var onMaxDurationReached: (() -> Void)? { get set }
     var onAudioDeviceChanged: (() -> Void)? { get set }
+    var onInputDeviceFallback: ((String) -> Void)? { get set }
 
     @discardableResult
     func startRecording(
@@ -24,6 +25,7 @@ protocol AudioRecording: AnyObject {
         preferredInputDeviceID: String?
     ) -> Bool
     @discardableResult func stopRecording() -> [Float]
+    func cancelPendingStart()
     func forceReset()
     func checkPermissionStatus() -> PermissionStatus
     func requestPermission(completion: @escaping (Bool) -> Void)
@@ -93,8 +95,11 @@ protocol PermissionManaging: AnyObject {
 
 @MainActor
 protocol CursorOverlayManaging: AnyObject {
+    /// Shows the overlay in its connecting state: visible, but explicit that
+    /// the microphone is not capturing yet.
     func show(style: OverlayStyle, position: OverlayPosition)
     func hide()
+    func transitionToRecording()
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
 }

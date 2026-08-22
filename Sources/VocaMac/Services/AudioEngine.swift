@@ -8,6 +8,7 @@ import Foundation
 import AVFoundation
 import AudioToolbox
 import CoreAudio
+import os
 import VocaMacObjC
 
 final class AudioEngine {
@@ -23,6 +24,27 @@ final class AudioEngine {
     private var pendingEngineRelease: DispatchWorkItem?
     private var audioBuffer: [Float] = []
     private var _isCurrentlyRecording = false
+    /// Realtime-safe mirror of `_isCurrentlyRecording` for the input tap.
+    ///
+    /// The tap runs on Core Audio's render thread and must never wait on
+    /// `lifecycleQueue`: `stopRecording` holds that queue while `engine.stop()`
+    /// waits for the render thread to finish, so a tap that blocks on the queue
+    /// deadlocks the audio graph — and with it the app, because AppState waits
+    /// on `stopRecording`.
+    private let captureActive = OSAllocatedUnfairLock(initialState: false)
+    /// Set by `cancelPendingStart()` when the user lets go of push-to-talk while
+    /// the input route is still being negotiated. Read from the settle loops,
+    /// which run inside `lifecycleQueue` — so this cannot live behind that queue.
+    private let startCancelled = OSAllocatedUnfairLock(initialState: false)
+    /// Set by the input tap the first time Core Audio hands us a buffer.
+    ///
+    /// `engine.isRunning` only says the graph started, not that the HAL actually
+    /// opened an input stream on the configured device. USB headsets (Apple's
+    /// USB-C EarPods among them) can report a fully applied route and a running
+    /// engine while never pulling a single input buffer, which surfaces as a
+    /// recording that silently transcribes nothing. Written from the render
+    /// thread, so it must be lock-free like `captureActive`.
+    private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
@@ -39,6 +61,11 @@ final class AudioEngine {
     /// HFP/SCO typically runs at 8/16/24 kHz; A2DP stays at 44.1/48 kHz.
     static let bluetoothHFPSampleRateThreshold: Double = 44100
     static let startupConfigurationChangeRecoveryWindow: TimeInterval = 1.0
+    /// How long to wait for the input tap's first buffer before declaring the
+    /// route dead. One 4096-frame buffer is ~85ms at 48kHz and ~256ms at 16kHz,
+    /// so this leaves room for a slow first pull without stranding the user.
+    static let firstInputBufferTimeout: TimeInterval = 0.75
+    static let firstInputBufferPollInterval: TimeInterval = 0.01
     static let idleEngineReleaseDelay: TimeInterval = 3.0
 
     var isCurrentlyRecording: Bool {
@@ -89,6 +116,10 @@ final class AudioEngine {
     /// (mic unplugged, Bluetooth disconnect, or a failed in-place restart).
     /// AppState should use this to recover from a stuck recording state.
     var onAudioDeviceChanged: (() -> Void)?
+
+    /// Called when the pinned microphone could not be configured and recording
+    /// continued on another device. The argument is a user-facing sentence.
+    var onInputDeviceFallback: ((String) -> Void)?
 
     // MARK: - Initialization
 
@@ -217,7 +248,7 @@ final class AudioEngine {
                 }
 
                 VocaLogger.warning(.audioEngine, "Failed to restart audio graph after configuration change")
-                self._isCurrentlyRecording = false
+                self.setRecordingActive(false)
                 self.silenceCallbackFired = false
                 self.maxDurationCallbackFired = false
                 self.removeInputTap(reason: "audio configuration change")
@@ -294,7 +325,22 @@ final class AudioEngine {
             return false
         }
 
-        return engine.isRunning
+        guard engine.isRunning else { return false }
+
+        // Same trap as a cold start: the rebuilt graph can run without the HAL
+        // ever opening an input stream. Treat that as a failed restart so the
+        // caller tears down and tells AppState, instead of leaving the user
+        // recording into nothing for the rest of the utterance.
+        guard waitForFirstInputBuffer() else {
+            VocaLogger.warning(
+                .audioEngine,
+                "Audio graph restarted but no input arrived within \(Self.firstInputBufferTimeout)s"
+            )
+            removeInputTap(reason: "silent restart")
+            return false
+        }
+
+        return true
     }
 
     // MARK: - Permission Handling
@@ -324,6 +370,21 @@ final class AudioEngine {
 
     // MARK: - Recording Control
 
+    /// Abandon a start that is still negotiating its input route.
+    ///
+    /// Bluetooth headsets take up to `bluetoothInputRouteConfigurationTimeout`
+    /// to switch from A2DP to HFP, and `startRecording` holds `lifecycleQueue`
+    /// for that whole time. A user who releases push-to-talk during it would
+    /// otherwise wait out the settle and then be handed an empty buffer. This
+    /// is deliberately lock-free so it can be called while the queue is busy.
+    func cancelPendingStart() {
+        startCancelled.withLock { $0 = true }
+    }
+
+    private var isStartCancelled: Bool {
+        startCancelled.withLock { $0 }
+    }
+
     /// Start recording audio from the microphone
     /// - Parameters:
     ///   - silenceThreshold: RMS energy threshold below which audio is considered silence
@@ -341,7 +402,16 @@ final class AudioEngine {
             guard !self._isCurrentlyRecording else { return true }
 
             self.setIsPreparingRecording(true)
-            defer { self.setIsPreparingRecording(false) }
+            // Cleared on both ends so a cancel can only ever apply to the start
+            // it was meant for: on entry against one that landed with no start in
+            // flight, and on exit against one that arrived after the last check
+            // (the caller stops the finished recording instead) — either would
+            // otherwise poison the next start or a mid-recording route restart.
+            self.startCancelled.withLock { $0 = false }
+            defer {
+                self.setIsPreparingRecording(false)
+                self.startCancelled.withLock { $0 = false }
+            }
 
             self.lastPreferredInputDeviceUID = preferredInputDeviceID
             self.silenceThreshold = silenceThreshold
@@ -351,6 +421,10 @@ final class AudioEngine {
             resetRecordingState()
 
             for attempt in 1...2 {
+                if isStartCancelled {
+                    return abandonCancelledStart()
+                }
+
                 let engine = acquireEngine()
                 let inputNode = engine.inputNode
                 guard let configuredInputDeviceID = configureInputRoute(
@@ -358,10 +432,20 @@ final class AudioEngine {
                     engine: engine,
                     inputNode: inputNode
                 ) else {
+                    if isStartCancelled {
+                        return abandonCancelledStart()
+                    }
                     recoverFromStartFailure(notifyAppState: false)
                     return false
                 }
                 self.configuredInputDeviceID = configuredInputDeviceID
+
+                // The route is up but the user has already let go. Starting now
+                // would capture only the silence after they stopped talking.
+                if isStartCancelled {
+                    return abandonCancelledStart()
+                }
+
                 let inputFormat = inputNode.outputFormat(forBus: 0)
 
                 guard isValidInputFormat(inputFormat) else {
@@ -377,6 +461,17 @@ final class AudioEngine {
                 // recording flag is false. Remove any stale tap before installing a
                 // fresh one; otherwise AVAudioEngine raises an uncaught NSException.
                 removeInputTap(reason: "pre-start cleanup")
+
+                VocaLogger.info(
+                    .audioEngine,
+                    "Installing input tap: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
+                )
+
+                // Keep buffers from the moment the graph starts. The recording
+                // flag is only set once the start is confirmed, and the first
+                // buffers arrive before that — dropping them clips the start of
+                // short push-to-talk utterances. Failure paths clear the buffer.
+                setCaptureActive(true)
 
                 var startError: Error?
                 let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
@@ -424,11 +519,33 @@ final class AudioEngine {
                     return false
                 }
 
+                // A running engine on an applied route still isn't capture. Wait
+                // for a real buffer before telling AppState the mic is live —
+                // otherwise the user talks into a route that never opened and
+                // gets back an empty recording with no indication why.
+                guard waitForFirstInputBuffer() else {
+                    if isStartCancelled {
+                        return abandonCancelledStart()
+                    }
+                    let deviceName = Self.audioDeviceName(for: configuredInputDeviceID) ?? "the input device"
+                    VocaLogger.warning(
+                        .audioEngine,
+                        "No audio arrived from \(deviceName) within \(Self.firstInputBufferTimeout)s of starting (attempt \(attempt)); the route applied but Core Audio never opened an input stream"
+                    )
+                    // Drops the engine entirely, so the retry cold-acquires a
+                    // fresh AUHAL rather than reusing the stuck one.
+                    recoverFromStartFailure(notifyAppState: false)
+                    if attempt == 1 {
+                        continue
+                    }
+                    return false
+                }
+
                 // Anchor max-duration / startup recovery to the moment capture
                 // actually begins, not the start of Bluetooth route settling.
                 recordingStartTime = Date()
                 lastSoundTime = Date()
-                _isCurrentlyRecording = true
+                setRecordingActive(true)
                 return true
             }
 
@@ -442,11 +559,16 @@ final class AudioEngine {
         lifecycleQueue.sync {
             guard _isCurrentlyRecording else { return [] }
 
-            _isCurrentlyRecording = false
+            setRecordingActive(false)
             removeInputTap(reason: "stop recording")
             engine?.stop()
 
             let samples = capturedSamplesAndResetBuffer()
+            let duration = Double(samples.count) / Self.whisperFormat.sampleRate
+            VocaLogger.info(
+                .audioEngine,
+                "Captured \(samples.count) samples (\(String(format: "%.2f", duration))s)"
+            )
 
             // Keep the stopped engine briefly so rapid push-to-talk recordings
             // don't cold-reacquire a silent input route, then release it so we
@@ -465,7 +587,7 @@ final class AudioEngine {
         lifecycleQueue.sync {
             VocaLogger.warning(.audioEngine, "Force reset requested (wasRecording=\(_isCurrentlyRecording))")
 
-            _isCurrentlyRecording = false
+            setRecordingActive(false)
             silenceCallbackFired = false
             maxDurationCallbackFired = false
 
@@ -491,6 +613,38 @@ final class AudioEngine {
         recordingStartTime = Date()
         silenceCallbackFired = false
         maxDurationCallbackFired = false
+    }
+
+    /// Updates the recording flag and its realtime-safe mirror together.
+    /// Must be called on `lifecycleQueue`.
+    private func setRecordingActive(_ active: Bool) {
+        _isCurrentlyRecording = active
+        captureActive.withLock { $0 = active }
+    }
+
+    /// Lets the input tap keep audio before `_isCurrentlyRecording` flips, so
+    /// the first buffers after `engine.start()` are not thrown away.
+    private func setCaptureActive(_ active: Bool) {
+        if active {
+            firstBufferSeen.withLock { $0 = false }
+        }
+        captureActive.withLock { $0 = active }
+    }
+
+    /// Blocks until the input tap delivers its first buffer, or the timeout
+    /// expires. A running engine on an applied route is not proof that Core
+    /// Audio opened an input stream; only a delivered buffer is.
+    /// Must be called on `lifecycleQueue`.
+    private func waitForFirstInputBuffer(
+        timeout: TimeInterval = firstInputBufferTimeout
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if firstBufferSeen.withLock({ $0 }) { return true }
+            if isStartCancelled { return false }
+            Thread.sleep(forTimeInterval: Self.firstInputBufferPollInterval)
+        }
+        return firstBufferSeen.withLock { $0 }
     }
 
     private func setIsPreparingRecording(_ isPreparing: Bool) {
@@ -542,6 +696,12 @@ final class AudioEngine {
         inputNode: AVAudioInputNode,
         inputFormat: AVAudioFormat
     ) -> String? {
+        VocaLogger.info(
+            .audioEngine,
+            "Installing input tap: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
+        )
+        // Capture from the first buffer; see the note in `startRecording`.
+        setCaptureActive(true)
         var startError: Error?
         let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
             guard let self else { return }
@@ -567,9 +727,35 @@ final class AudioEngine {
         return nil
     }
 
+    /// Tears down a start the user abandoned mid-negotiation.
+    ///
+    /// Unlike a failed start, the engine is kept for the idle window: the route
+    /// it just negotiated is the expensive part, and someone who released too
+    /// early is about to press again.
+    ///
+    /// A cancel can land either side of `engine.start()` — the route settle runs
+    /// before it, the first-buffer wait after — so the engine may or may not be
+    /// running here. Stop it when it is: `releaseEngine()` only drops the
+    /// reference and would otherwise leave a live engine holding the input
+    /// route (and Bluetooth headsets pinned to HFP) until ARC got to it.
+    /// Must be called on `lifecycleQueue`.
+    private func abandonCancelledStart() -> Bool {
+        setRecordingActive(false)
+        silenceCallbackFired = false
+        maxDurationCallbackFired = false
+        removeInputTap(reason: "cancelled start")
+        if engine?.isRunning == true {
+            engine?.stop()
+        }
+        clearAudioBuffer()
+        scheduleEngineRelease()
+        VocaLogger.info(.audioEngine, "Start cancelled before capture began — keeping the negotiated route warm")
+        return false
+    }
+
     /// Restores AudioEngine to a clean idle state after any failed start attempt.
     private func recoverFromStartFailure(notifyAppState: Bool) {
-        _isCurrentlyRecording = false
+        setRecordingActive(false)
         silenceCallbackFired = false
         maxDurationCallbackFired = false
         removeInputTap(reason: "start failure")
@@ -706,7 +892,16 @@ final class AudioEngine {
 
     /// Process an incoming audio buffer from AVAudioEngine
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
-        guard isCurrentlyRecording else { return }
+        // Deliberately not `isCurrentlyRecording`: that reads through
+        // `lifecycleQueue.sync`, which deadlocks the render thread. See
+        // `captureActive`.
+        guard captureActive.withLock({ $0 }) else { return }
+
+        // Record that the HAL is really pulling from this route, before any
+        // conversion that could fail. `waitForFirstInputBuffer` is asking
+        // whether the input stream opened at all — a buffer we then fail to
+        // convert is a different (and separately reported) problem.
+        firstBufferSeen.withLock { $0 = true }
 
         // Convert to whisper format (16kHz, mono, Float32)
         guard let convertedBuffer = convertToWhisperFormat(buffer, from: inputFormat) else {
@@ -868,13 +1063,9 @@ final class AudioEngine {
         let requestedDeviceID = requestedUID.flatMap(Self.inputAudioDeviceID(forUID:))
         let defaultDeviceID = Self.defaultInputAudioDeviceID()
 
-        if let requestedUID, !requestedUID.isEmpty, requestedDeviceID == nil {
+        let requestedDeviceMissing = (requestedUID?.isEmpty == false) && requestedDeviceID == nil
+        if requestedDeviceMissing, let requestedUID {
             VocaLogger.warning(.audioEngine, "Preferred input device unavailable, falling back to system default: \(requestedUID)")
-        }
-
-        guard let targetDeviceID = requestedDeviceID ?? defaultDeviceID else {
-            VocaLogger.warning(.audioEngine, "No input device is available")
-            return nil
         }
 
         guard let audioUnit = inputNode.audioUnit else {
@@ -882,6 +1073,74 @@ final class AudioEngine {
             return nil
         }
 
+        let candidates = Self.inputRouteCandidates(
+            requestedDeviceID: requestedDeviceID,
+            defaultDeviceID: defaultDeviceID
+        )
+        guard !candidates.isEmpty else {
+            VocaLogger.warning(.audioEngine, "No input device is available")
+            return nil
+        }
+
+        // Core Audio refuses a specific device more often than one would like —
+        // a Bluetooth headset mid-profile-switch, a device another app holds, a
+        // USB mic that just re-enumerated. Failing the whole start there is what
+        // users experience as "the mic just doesn't work", so fall back to the
+        // system default rather than recording nothing.
+        for (index, candidate) in candidates.enumerated() {
+            // Don't pay a second route negotiation for a start nobody is
+            // waiting for any more.
+            if isStartCancelled { return nil }
+
+            if let resolved = applyInputRoute(
+                targetDeviceID: candidate,
+                engine: engine,
+                audioUnit: audioUnit
+            ) {
+                if index > 0 || requestedDeviceMissing {
+                    let requestedName = requestedDeviceMissing
+                        ? "The selected microphone"
+                        : (Self.audioDeviceName(for: candidates[0]) ?? "The selected microphone")
+                    let resolvedName = Self.audioDeviceName(for: resolved) ?? "system default"
+                    VocaLogger.warning(
+                        .audioEngine,
+                        "Could not configure \(requestedName); recording from \(resolvedName) instead"
+                    )
+                    let fallbackNotice = "\(requestedName) is unavailable — recording from \(resolvedName)."
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onInputDeviceFallback?(fallbackNotice)
+                    }
+                }
+                return resolved
+            }
+        }
+
+        return nil
+    }
+
+    /// Ordered input devices to try: the pinned microphone first, then the
+    /// system default. Duplicates are collapsed so a pinned default device is
+    /// only attempted once.
+    static func inputRouteCandidates(
+        requestedDeviceID: AudioDeviceID?,
+        defaultDeviceID: AudioDeviceID?
+    ) -> [AudioDeviceID] {
+        var candidates: [AudioDeviceID] = []
+        for candidate in [requestedDeviceID, defaultDeviceID] {
+            guard let candidate, !candidates.contains(candidate) else { continue }
+            candidates.append(candidate)
+        }
+        return candidates
+    }
+
+    /// Points the input unit at one specific device and waits for Core Audio to
+    /// honour it. Returns the device actually in use (which may be a Bluetooth
+    /// HFP sibling of the request), or `nil` when the route could not be applied.
+    private func applyInputRoute(
+        targetDeviceID: AudioDeviceID,
+        engine: AVAudioEngine,
+        audioUnit: AudioUnit
+    ) -> AudioDeviceID? {
         let isBluetoothTarget = Self.isBluetoothDevice(targetDeviceID)
         let routeTimeout = Self.inputRouteTimeout(isBluetooth: isBluetoothTarget)
         let currentDeviceID = Self.currentInputDeviceID(for: audioUnit)
@@ -894,7 +1153,11 @@ final class AudioEngine {
             // Core Audio moves to an HFP sibling endpoint, return that ID so
             // later route-health checks match the live device.
             if isBluetoothTarget {
-                Self.waitForBluetoothHFPIfNeeded(deviceID: targetDeviceID, timeout: routeTimeout)
+                Self.waitForBluetoothHFPIfNeeded(
+                    deviceID: targetDeviceID,
+                    timeout: routeTimeout,
+                    isCancelled: { self.isStartCancelled }
+                )
                 if let settledDeviceID = Self.currentInputDeviceID(for: audioUnit),
                    settledDeviceID != targetDeviceID,
                    Self.isAcceptableBluetoothRouteSubstitute(
@@ -903,13 +1166,17 @@ final class AudioEngine {
                    ) {
                     // Match the cold path: settle against the live HFP endpoint
                     // before the tap format is read.
-                    Self.waitForBluetoothHFPIfNeeded(deviceID: settledDeviceID, timeout: routeTimeout)
+                    Self.waitForBluetoothHFPIfNeeded(
+                        deviceID: settledDeviceID,
+                        timeout: routeTimeout,
+                        isCancelled: { self.isStartCancelled }
+                    )
                     let substituteName = Self.audioDeviceName(for: settledDeviceID) ?? "bluetooth input"
                     VocaLogger.info(.audioEngine, "Warm Bluetooth route resolved to HFP endpoint: \(substituteName)")
                     return settledDeviceID
                 }
             }
-            let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? requestedUID ?? "system default"
+            let deviceName = Self.audioDeviceName(for: targetDeviceID) ?? "system default"
             VocaLogger.debug(.audioEngine, "Input device already configured: \(deviceName)")
             return targetDeviceID
         }
@@ -942,7 +1209,8 @@ final class AudioEngine {
             targetDeviceID,
             on: audioUnit,
             signal: routeChangeSignal,
-            timeout: routeTimeout
+            timeout: routeTimeout,
+            isCancelled: { self.isStartCancelled }
         )
         if !appliedBeforeReset {
             VocaLogger.debug(.audioEngine, "Requested input device not confirmed before graph rebuild; continuing with rebuild")
@@ -970,7 +1238,8 @@ final class AudioEngine {
                 targetDeviceID,
                 on: audioUnit,
                 signal: routeChangeSignal,
-                timeout: routeTimeout
+                timeout: routeTimeout,
+                isCancelled: { self.isStartCancelled }
             )
             deviceIDAfterReset = Self.currentInputDeviceID(for: audioUnit)
         }
@@ -1012,10 +1281,14 @@ final class AudioEngine {
         // Wait for A2DP → HFP/SCO after the route is confirmed so the tap is
         // installed against the headset mic format, not the stale A2DP rate.
         if isBluetoothTarget {
-            Self.waitForBluetoothHFPIfNeeded(deviceID: resolvedDeviceID, timeout: routeTimeout)
+            Self.waitForBluetoothHFPIfNeeded(
+                deviceID: resolvedDeviceID,
+                timeout: routeTimeout,
+                isCancelled: { self.isStartCancelled }
+            )
         }
 
-        let deviceName = Self.audioDeviceName(for: resolvedDeviceID) ?? requestedUID ?? "system default"
+        let deviceName = Self.audioDeviceName(for: resolvedDeviceID) ?? "system default"
         VocaLogger.info(.audioEngine, "Using input device: \(deviceName)")
         return resolvedDeviceID
     }
@@ -1135,13 +1408,15 @@ final class AudioEngine {
         _ targetDeviceID: AudioDeviceID,
         on audioUnit: AudioUnit,
         signal: DispatchSemaphore,
-        timeout: TimeInterval
+        timeout: TimeInterval,
+        isCancelled: () -> Bool = { false }
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if currentInputDeviceID(for: audioUnit) == targetDeviceID {
                 return true
             }
+            if isCancelled() { break }
             let remaining = deadline.timeIntervalSinceNow
             guard remaining > 0 else { break }
             let slice = min(inputRoutePollInterval, remaining)
@@ -1150,7 +1425,11 @@ final class AudioEngine {
         return currentInputDeviceID(for: audioUnit) == targetDeviceID
     }
 
-    private static func waitForBluetoothHFPIfNeeded(deviceID: AudioDeviceID, timeout: TimeInterval) {
+    private static func waitForBluetoothHFPIfNeeded(
+        deviceID: AudioDeviceID,
+        timeout: TimeInterval,
+        isCancelled: () -> Bool = { false }
+    ) {
         guard isBluetoothDevice(deviceID) else { return }
 
         let deadline = Date().addingTimeInterval(timeout)
@@ -1160,6 +1439,10 @@ final class AudioEngine {
             lastRate = rate
             if hasBluetoothHFPSettled(sampleRate: rate) {
                 VocaLogger.debug(.audioEngine, "Bluetooth HFP settled at \(Int(rate))Hz")
+                return
+            }
+            if isCancelled() {
+                VocaLogger.debug(.audioEngine, "Bluetooth HFP settle abandoned — start was cancelled")
                 return
             }
             Thread.sleep(forTimeInterval: inputRoutePollInterval)

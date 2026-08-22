@@ -16,6 +16,7 @@ final class MockAudioEngine: AudioRecording {
     var onSilenceDetected: (() -> Void)?
     var onMaxDurationReached: (() -> Void)?
     var onAudioDeviceChanged: (() -> Void)?
+    var onInputDeviceFallback: ((String) -> Void)?
 
     var lastSilenceThreshold: Float?
     var lastSilenceDuration: Double?
@@ -25,6 +26,11 @@ final class MockAudioEngine: AudioRecording {
     var forceResetCallCount = 0
     var startRecordingResult = true
     var startRecordingDelay: TimeInterval = 0
+    private(set) var cancelPendingStartCallCount = 0
+    /// Mirrors the real engine: a start cancelled while it is still negotiating
+    /// the input route is abandoned and reports failure.
+    private let cancelLock = NSLock()
+    private var startCancelled = false
 
     private var permissionStatus: PermissionStatus = .granted
 
@@ -35,15 +41,29 @@ final class MockAudioEngine: AudioRecording {
         maxDuration: TimeInterval,
         preferredInputDeviceID: String?
     ) -> Bool {
+        cancelLock.withLock { startCancelled = false }
         if startRecordingDelay > 0 {
             Thread.sleep(forTimeInterval: startRecordingDelay)
         }
-        isCurrentlyRecording = startRecordingResult
         lastSilenceThreshold = silenceThreshold
         lastSilenceDuration = silenceDuration
         lastMaxDuration = maxDuration
         lastPreferredInputDeviceID = preferredInputDeviceID
+
+        if cancelLock.withLock({ startCancelled }) {
+            isCurrentlyRecording = false
+            return false
+        }
+
+        isCurrentlyRecording = startRecordingResult
         return startRecordingResult
+    }
+
+    func cancelPendingStart() {
+        cancelLock.withLock {
+            cancelPendingStartCallCount += 1
+            startCancelled = true
+        }
     }
 
     @discardableResult
@@ -236,6 +256,7 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var showCallCount = 0
     var hideCallCount = 0
     var transitionCallCount = 0
+    var transitionToRecordingCallCount = 0
     var lastAudioLevel: Float?
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
@@ -248,6 +269,10 @@ final class MockCursorOverlay: CursorOverlayManaging {
 
     func hide() {
         hideCallCount += 1
+    }
+
+    func transitionToRecording() {
+        transitionToRecordingCallCount += 1
     }
 
     func transitionToProcessing() {

@@ -130,7 +130,9 @@ final class CursorOverlayManager {
 
         viewModel.style = style
         viewModel.position = position
-        viewModel.phase = .recording
+        // Capture has not begun yet — `transitionToRecording()` says when it has.
+        viewModel.phase = .connecting
+        viewModel.audioLevel = 0
         viewModel.elapsedSeconds = 0
         viewModel.isActive = true
 
@@ -172,6 +174,15 @@ final class CursorOverlayManager {
         startTimers()
 
         VocaLogger.debug(.cursorOverlay, "Overlay shown (style=\(style.rawValue), position=\(position.rawValue))")
+    }
+
+    /// The input route is live and the microphone is actually capturing.
+    func transitionToRecording() {
+        guard overlayPanel != nil, viewModel.phase == .connecting else { return }
+        viewModel.phase = .recording
+        viewModel.audioLevel = 0
+        viewModel.elapsedSeconds = 0
+        VocaLogger.debug(.cursorOverlay, "Overlay transitioned to recording")
     }
 
     /// Transitions the overlay from recording to batch transcription.
@@ -400,6 +411,10 @@ final class CursorOverlayManager {
 
 enum IndicatorPhase {
     case idle
+    /// The audio engine is negotiating its input route. Bluetooth headsets take
+    /// seconds to switch to their microphone, and nothing is captured until they
+    /// do — showing "recording" through that window loses the user's first words.
+    case connecting
     case recording
     case processing
 }
@@ -488,8 +503,36 @@ struct HandyOverlayView: View {
         isDark ? Color.white.opacity(0.22) : Color.black.opacity(0.14)
     }
 
+    /// Muted while the route comes up: the panel is visible but the microphone
+    /// is not live yet, and it should not look like it is.
+    private var connectingColor: Color {
+        isDark ? Color.white.opacity(0.55) : Color.black.opacity(0.45)
+    }
+
     private var waveformColor: Color {
-        viewModel.phase == .recording ? recordingColor : processingColor
+        switch viewModel.phase {
+        case .recording: return recordingColor
+        case .connecting: return connectingColor
+        case .idle, .processing: return processingColor
+        }
+    }
+
+    private var accentColor: Color { waveformColor }
+
+    private var statusTitle: String {
+        switch viewModel.phase {
+        case .connecting: return "Connecting"
+        case .recording: return "Listening"
+        case .idle, .processing: return "Transcribing"
+        }
+    }
+
+    private var statusDetail: String {
+        switch viewModel.phase {
+        case .connecting: return "Waiting for microphone…"
+        case .recording: return "Speak now"
+        case .idle, .processing: return "Transcribing…"
+        }
     }
 
     private var slideInOffset: CGFloat {
@@ -578,7 +621,7 @@ struct HandyOverlayView: View {
         HStack(spacing: 7) {
             recordingIndicatorIcon
 
-            Text(viewModel.phase == .recording ? "Listening" : "Transcribing")
+            Text(statusTitle)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(primaryText)
 
@@ -612,15 +655,15 @@ struct HandyOverlayView: View {
             if viewModel.phase == .recording {
                 waveform
 
-                Text("Speak now")
+                Text(statusDetail)
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(secondaryText)
             } else {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(processingColor)
+                    .tint(accentColor)
 
-                Text("Transcribing…")
+                Text(statusDetail)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(secondaryText)
             }
@@ -640,8 +683,8 @@ struct HandyOverlayView: View {
             } else {
                 ProgressView()
                     .controlSize(.small)
-                    .tint(processingColor)
-                    .accessibilityLabel("Transcribing")
+                    .tint(accentColor)
+                    .accessibilityLabel(statusTitle)
                     .frame(maxWidth: .infinity)
             }
         }
@@ -684,13 +727,13 @@ struct HandyOverlayView: View {
                     .opacity(isPulsing ? 0.55 : 0.9)
             }
 
-            Image(systemName: "mic.fill")
+            Image(systemName: viewModel.phase == .connecting ? "mic.slash.fill" : "mic.fill")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(viewModel.phase == .recording ? recordingColor : processingColor)
+                .foregroundStyle(accentColor)
                 .shadow(color: waveformColor.opacity(0.45), radius: 3)
         }
         .frame(width: 22, height: 22)
-        .accessibilityLabel(viewModel.phase == .recording ? "Recording" : "Transcribing")
+        .accessibilityLabel(viewModel.phase == .recording ? "Recording" : statusTitle)
     }
 
     private var formattedElapsed: String {

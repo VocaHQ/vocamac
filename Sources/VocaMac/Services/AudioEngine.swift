@@ -36,6 +36,15 @@ final class AudioEngine {
     /// the input route is still being negotiated. Read from the settle loops,
     /// which run inside `lifecycleQueue` — so this cannot live behind that queue.
     private let startCancelled = OSAllocatedUnfairLock(initialState: false)
+    /// Set by the input tap the first time Core Audio hands us a buffer.
+    ///
+    /// `engine.isRunning` only says the graph started, not that the HAL actually
+    /// opened an input stream on the configured device. USB headsets (Apple's
+    /// USB-C EarPods among them) can report a fully applied route and a running
+    /// engine while never pulling a single input buffer, which surfaces as a
+    /// recording that silently transcribes nothing. Written from the render
+    /// thread, so it must be lock-free like `captureActive`.
+    private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
@@ -52,6 +61,11 @@ final class AudioEngine {
     /// HFP/SCO typically runs at 8/16/24 kHz; A2DP stays at 44.1/48 kHz.
     static let bluetoothHFPSampleRateThreshold: Double = 44100
     static let startupConfigurationChangeRecoveryWindow: TimeInterval = 1.0
+    /// How long to wait for the input tap's first buffer before declaring the
+    /// route dead. One 4096-frame buffer is ~85ms at 48kHz and ~256ms at 16kHz,
+    /// so this leaves room for a slow first pull without stranding the user.
+    static let firstInputBufferTimeout: TimeInterval = 0.75
+    static let firstInputBufferPollInterval: TimeInterval = 0.01
     static let idleEngineReleaseDelay: TimeInterval = 3.0
 
     var isCurrentlyRecording: Bool {
@@ -311,7 +325,22 @@ final class AudioEngine {
             return false
         }
 
-        return engine.isRunning
+        guard engine.isRunning else { return false }
+
+        // Same trap as a cold start: the rebuilt graph can run without the HAL
+        // ever opening an input stream. Treat that as a failed restart so the
+        // caller tears down and tells AppState, instead of leaving the user
+        // recording into nothing for the rest of the utterance.
+        guard waitForFirstInputBuffer() else {
+            VocaLogger.warning(
+                .audioEngine,
+                "Audio graph restarted but no input arrived within \(Self.firstInputBufferTimeout)s"
+            )
+            removeInputTap(reason: "silent restart")
+            return false
+        }
+
+        return true
     }
 
     // MARK: - Permission Handling
@@ -433,6 +462,11 @@ final class AudioEngine {
                 // fresh one; otherwise AVAudioEngine raises an uncaught NSException.
                 removeInputTap(reason: "pre-start cleanup")
 
+                VocaLogger.info(
+                    .audioEngine,
+                    "Installing input tap: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
+                )
+
                 // Keep buffers from the moment the graph starts. The recording
                 // flag is only set once the start is confirmed, and the first
                 // buffers arrive before that — dropping them clips the start of
@@ -485,6 +519,28 @@ final class AudioEngine {
                     return false
                 }
 
+                // A running engine on an applied route still isn't capture. Wait
+                // for a real buffer before telling AppState the mic is live —
+                // otherwise the user talks into a route that never opened and
+                // gets back an empty recording with no indication why.
+                guard waitForFirstInputBuffer() else {
+                    if isStartCancelled {
+                        return abandonCancelledStart()
+                    }
+                    let deviceName = Self.audioDeviceName(for: configuredInputDeviceID) ?? "the input device"
+                    VocaLogger.warning(
+                        .audioEngine,
+                        "No audio arrived from \(deviceName) within \(Self.firstInputBufferTimeout)s of starting (attempt \(attempt)); the route applied but Core Audio never opened an input stream"
+                    )
+                    // Drops the engine entirely, so the retry cold-acquires a
+                    // fresh AUHAL rather than reusing the stuck one.
+                    recoverFromStartFailure(notifyAppState: false)
+                    if attempt == 1 {
+                        continue
+                    }
+                    return false
+                }
+
                 // Anchor max-duration / startup recovery to the moment capture
                 // actually begins, not the start of Bluetooth route settling.
                 recordingStartTime = Date()
@@ -508,6 +564,11 @@ final class AudioEngine {
             engine?.stop()
 
             let samples = capturedSamplesAndResetBuffer()
+            let duration = Double(samples.count) / Self.whisperFormat.sampleRate
+            VocaLogger.info(
+                .audioEngine,
+                "Captured \(samples.count) samples (\(String(format: "%.2f", duration))s)"
+            )
 
             // Keep the stopped engine briefly so rapid push-to-talk recordings
             // don't cold-reacquire a silent input route, then release it so we
@@ -564,7 +625,26 @@ final class AudioEngine {
     /// Lets the input tap keep audio before `_isCurrentlyRecording` flips, so
     /// the first buffers after `engine.start()` are not thrown away.
     private func setCaptureActive(_ active: Bool) {
+        if active {
+            firstBufferSeen.withLock { $0 = false }
+        }
         captureActive.withLock { $0 = active }
+    }
+
+    /// Blocks until the input tap delivers its first buffer, or the timeout
+    /// expires. A running engine on an applied route is not proof that Core
+    /// Audio opened an input stream; only a delivered buffer is.
+    /// Must be called on `lifecycleQueue`.
+    private func waitForFirstInputBuffer(
+        timeout: TimeInterval = firstInputBufferTimeout
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if firstBufferSeen.withLock({ $0 }) { return true }
+            if isStartCancelled { return false }
+            Thread.sleep(forTimeInterval: Self.firstInputBufferPollInterval)
+        }
+        return firstBufferSeen.withLock { $0 }
     }
 
     private func setIsPreparingRecording(_ isPreparing: Bool) {
@@ -616,6 +696,10 @@ final class AudioEngine {
         inputNode: AVAudioInputNode,
         inputFormat: AVAudioFormat
     ) -> String? {
+        VocaLogger.info(
+            .audioEngine,
+            "Installing input tap: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
+        )
         // Capture from the first buffer; see the note in `startRecording`.
         setCaptureActive(true)
         var startError: Error?
@@ -647,14 +731,22 @@ final class AudioEngine {
     ///
     /// Unlike a failed start, the engine is kept for the idle window: the route
     /// it just negotiated is the expensive part, and someone who released too
-    /// early is about to press again. No tap is installed on these paths, so
-    /// there is nothing to stop — only state to clear.
+    /// early is about to press again.
+    ///
+    /// A cancel can land either side of `engine.start()` — the route settle runs
+    /// before it, the first-buffer wait after — so the engine may or may not be
+    /// running here. Stop it when it is: `releaseEngine()` only drops the
+    /// reference and would otherwise leave a live engine holding the input
+    /// route (and Bluetooth headsets pinned to HFP) until ARC got to it.
     /// Must be called on `lifecycleQueue`.
     private func abandonCancelledStart() -> Bool {
         setRecordingActive(false)
         silenceCallbackFired = false
         maxDurationCallbackFired = false
         removeInputTap(reason: "cancelled start")
+        if engine?.isRunning == true {
+            engine?.stop()
+        }
         clearAudioBuffer()
         scheduleEngineRelease()
         VocaLogger.info(.audioEngine, "Start cancelled before capture began — keeping the negotiated route warm")
@@ -804,6 +896,12 @@ final class AudioEngine {
         // `lifecycleQueue.sync`, which deadlocks the render thread. See
         // `captureActive`.
         guard captureActive.withLock({ $0 }) else { return }
+
+        // Record that the HAL is really pulling from this route, before any
+        // conversion that could fail. `waitForFirstInputBuffer` is asking
+        // whether the input stream opened at all — a buffer we then fail to
+        // convert is a different (and separately reported) problem.
+        firstBufferSeen.withLock { $0 = true }
 
         // Convert to whisper format (16kHz, mono, Float32)
         guard let convertedBuffer = convertToWhisperFormat(buffer, from: inputFormat) else {

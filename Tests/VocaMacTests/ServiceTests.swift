@@ -517,6 +517,16 @@ final class AudioEngineTests: XCTestCase {
         try skipWithoutRealAudioInput()
         let engine = AudioEngine()
 
+        // Wait for the hardware to actually deliver a buffer rather than
+        // guessing at a duration. How long a cold Core Audio start takes to
+        // produce its first buffer depends on the device and on what else in
+        // this process just released it, so any fixed sleep is either a race or
+        // dead time. `onAudioLevel` fires from the tap once per processed
+        // buffer, which is exactly the event this test is waiting for.
+        let firstBuffer = XCTestExpectation(description: "First audio buffer captured")
+        firstBuffer.assertForOverFulfill = false
+        engine.onAudioLevel = { _ in firstBuffer.fulfill() }
+
         engine.startRecording(
             silenceThreshold: 0.01,
             silenceDuration: 999.0,
@@ -528,14 +538,7 @@ final class AudioEngineTests: XCTestCase {
             return
         }
 
-        // A cold Core Audio start does not guarantee a buffer within 300 ms,
-        // especially with other tests in this process cycling the same device.
-        // One second is still a tight assertion and no longer races the hardware.
-        let expectation = XCTestExpectation(description: "Recording period")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 3.0)
+        wait(for: [firstBuffer], timeout: 5.0)
 
         let samples = engine.stopRecording()
 

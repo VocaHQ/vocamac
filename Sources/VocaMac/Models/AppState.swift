@@ -1483,6 +1483,12 @@ final class AppState: ObservableObject {
     }
 
     func performStartup() async {
+        // `vocamac.logLevel` was stored but never applied, so the level was
+        // pinned at .info and every VocaLogger.debug call — including the
+        // input-route tracing that explains a failed start — was discarded.
+        if let level = LogLevel(rawValue: logLevel.uppercased()) {
+            VocaLogger.setLogLevel(level)
+        }
         VocaLogger.info(.appState, "performStartup beginning...")
 
         // 1. Detect hardware

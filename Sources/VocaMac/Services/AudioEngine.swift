@@ -11,6 +11,12 @@ import CoreAudio
 import os
 import VocaMacObjC
 
+enum ApplicationInputMuteRecovery: Equatable {
+    case noAction
+    case clearMute
+    case unavailable
+}
+
 final class AudioEngine {
 
     // MARK: - Properties
@@ -67,6 +73,28 @@ final class AudioEngine {
     static let firstInputBufferTimeout: TimeInterval = 0.75
     static let firstInputBufferPollInterval: TimeInterval = 0.01
     static let idleEngineReleaseDelay: TimeInterval = 3.0
+
+    /// Mirrors AVAudioApplication's mute state for the realtime input tap.
+    private static let applicationInputMuted = OSAllocatedUnfairLock(initialState: false)
+
+    /// macOS requires an input-mute handler before an app can clear a mute set
+    /// by a supported headset gesture or another application-level mute action.
+    /// The handler must implement the mute itself, so the input tap zeroes the
+    /// captured samples while this state is active.
+    private static let inputMuteHandlerInstalled: Bool = {
+        do {
+            try AVAudioApplication.shared.setInputMuteStateChangeHandler { shouldMute in
+                applyApplicationInputMuteChange(shouldMute)
+            }
+            return true
+        } catch {
+            VocaLogger.warning(
+                .audioEngine,
+                "Could not register application input-mute handler: \(error.localizedDescription)"
+            )
+            return false
+        }
+    }()
 
     var isCurrentlyRecording: Bool {
         lifecycleQueue.sync { _isCurrentlyRecording }
@@ -347,12 +375,12 @@ final class AudioEngine {
 
     /// Check current microphone permission status (tri-state)
     func checkPermissionStatus() -> PermissionStatus {
-        switch AVCaptureDevice.authorizationStatus(for: .audio) {
-        case .authorized:
+        switch AVAudioApplication.shared.recordPermission {
+        case .granted:
             return .granted
-        case .notDetermined:
+        case .undetermined:
             return .notDetermined
-        case .denied, .restricted:
+        case .denied:
             return .denied
         @unknown default:
             return .denied
@@ -361,7 +389,7 @@ final class AudioEngine {
 
     /// Request microphone permission from the user
     func requestPermission(completion: @escaping (Bool) -> Void) {
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
+        AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
                 completion(granted)
             }
@@ -417,6 +445,10 @@ final class AudioEngine {
             self.silenceThreshold = silenceThreshold
             self.silenceDuration = silenceDuration
             self.maxDuration = maxDuration
+
+            guard Self.prepareApplicationInputForRecording() else {
+                return false
+            }
 
             resetRecordingState()
 
@@ -780,6 +812,62 @@ final class AudioEngine {
         return OSStatus(truncatingIfNeeded: (error as NSError).code) == kAudioHardwareNotRunningError
     }
 
+    /// Starting dictation is an explicit request to use the microphone. Clear
+    /// any per-application mute left by a headset gesture before opening the
+    /// route, otherwise Core Audio deliberately supplies zero-filled buffers.
+    private static func prepareApplicationInputForRecording() -> Bool {
+        let handlerAvailable = inputMuteHandlerInstalled
+        switch inputMuteRecovery(
+            isMuted: AVAudioApplication.shared.isInputMuted,
+            handlerAvailable: handlerAvailable
+        ) {
+        case .noAction:
+            return true
+        case .unavailable:
+            VocaLogger.warning(.audioEngine, "Application input is muted and no mute handler is available")
+            return false
+        case .clearMute:
+            break
+        }
+
+        do {
+            try AVAudioApplication.shared.setInputMuted(false)
+            let isStillMuted = AVAudioApplication.shared.isInputMuted
+            if isStillMuted {
+                VocaLogger.warning(.audioEngine, "Application input remained muted after the unmute request")
+                return false
+            }
+            VocaLogger.info(.audioEngine, "Cleared application input mute before recording")
+            return true
+        } catch {
+            VocaLogger.warning(
+                .audioEngine,
+                "Could not clear application input mute: \(error.localizedDescription)"
+            )
+            return false
+        }
+    }
+
+    static func inputMuteRecovery(
+        isMuted: Bool,
+        handlerAvailable: Bool
+    ) -> ApplicationInputMuteRecovery {
+        guard isMuted else { return .noAction }
+        return handlerAvailable ? .clearMute : .unavailable
+    }
+
+    /// Applies a mute-state callback from AVAudioApplication. Returning true
+    /// confirms that this process will zero its microphone samples.
+    @discardableResult
+    static func applyApplicationInputMuteChange(_ shouldMute: Bool) -> Bool {
+        applicationInputMuted.withLock { $0 = shouldMute }
+        return true
+    }
+
+    static func isApplicationInputMutedForCapture() -> Bool {
+        applicationInputMuted.withLock { $0 }
+    }
+
     static func shouldIgnoreConfigurationChange(
         occurredDuringRecordingPreparation: Bool = false,
         isStillPreparingRecording: Bool = false,
@@ -908,8 +996,11 @@ final class AudioEngine {
             return
         }
 
-        // Calculate audio energy for level reporting and silence detection
-        let energy = calculateRMSEnergy(convertedBuffer)
+        // On macOS the process that registers AVAudioApplication's mute handler
+        // must implement the mute. Preserve timing while ensuring no microphone
+        // samples escape during a headset/application mute.
+        let isApplicationInputMuted = Self.isApplicationInputMutedForCapture()
+        let energy = isApplicationInputMuted ? 0 : calculateRMSEnergy(convertedBuffer)
 
         // Report audio level (throttled)
         let now = Date()
@@ -927,7 +1018,7 @@ final class AudioEngine {
             bufferQueue.sync {
                 audioBuffer.reserveCapacity(audioBuffer.count + frameCount)
                 for i in 0..<frameCount {
-                    audioBuffer.append(channelData[0][i])
+                    audioBuffer.append(isApplicationInputMuted ? 0 : channelData[0][i])
                 }
             }
         }
@@ -1068,6 +1159,27 @@ final class AudioEngine {
             VocaLogger.warning(.audioEngine, "Preferred input device unavailable, falling back to system default: \(requestedUID)")
         }
 
+        // Let AVAudioEngine follow Core Audio's default route without writing
+        // kAudioOutputUnitProperty_CurrentDevice. Some current systems reject
+        // that redundant write with 'nope', or accept it while leaving AUHAL on
+        // a zero-filled input stream. Explicit non-default selections still use
+        // the device property below.
+        if Self.shouldFollowSystemDefaultInput(
+            requestedDeviceID: requestedDeviceID,
+            defaultDeviceID: defaultDeviceID
+        ), let defaultDeviceID {
+            let deviceName = Self.audioDeviceName(for: defaultDeviceID) ?? "system default"
+            VocaLogger.info(.audioEngine, "Following system default input device: \(deviceName)")
+
+            if requestedDeviceMissing {
+                let fallbackNotice = "The selected microphone is unavailable — recording from \(deviceName)."
+                DispatchQueue.main.async { [weak self] in
+                    self?.onInputDeviceFallback?(fallbackNotice)
+                }
+            }
+            return defaultDeviceID
+        }
+
         guard let audioUnit = inputNode.audioUnit else {
             VocaLogger.warning(.audioEngine, "Input node has no AudioUnit; unable to verify the requested input route")
             return nil
@@ -1116,6 +1228,17 @@ final class AudioEngine {
         }
 
         return nil
+    }
+
+    /// System Default and a pinned device that is already the default should be
+    /// left to AVAudioEngine. Setting CurrentDevice is reserved for a real
+    /// non-default override.
+    static func shouldFollowSystemDefaultInput(
+        requestedDeviceID: AudioDeviceID?,
+        defaultDeviceID: AudioDeviceID?
+    ) -> Bool {
+        guard let defaultDeviceID else { return false }
+        return requestedDeviceID == nil || requestedDeviceID == defaultDeviceID
     }
 
     /// Ordered input devices to try: the pinned microphone first, then the

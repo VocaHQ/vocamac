@@ -1237,6 +1237,64 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
 
 final class AudioEngineInputRouteFallbackTests: XCTestCase {
 
+    func testApplicationInputMuteRecoveryDecision() {
+        XCTAssertEqual(
+            AudioEngine.inputMuteRecovery(isMuted: false, handlerAvailable: false),
+            .noAction
+        )
+        XCTAssertEqual(
+            AudioEngine.inputMuteRecovery(isMuted: true, handlerAvailable: true),
+            .clearMute
+        )
+        XCTAssertEqual(
+            AudioEngine.inputMuteRecovery(isMuted: true, handlerAvailable: false),
+            .unavailable
+        )
+    }
+
+    func testApplicationInputMuteChangeControlsCaptureState() {
+        defer { AudioEngine.applyApplicationInputMuteChange(false) }
+
+        XCTAssertTrue(AudioEngine.applyApplicationInputMuteChange(true))
+        XCTAssertTrue(AudioEngine.isApplicationInputMutedForCapture())
+
+        XCTAssertTrue(AudioEngine.applyApplicationInputMuteChange(false))
+        XCTAssertFalse(AudioEngine.isApplicationInputMutedForCapture())
+    }
+
+    func testSystemDefaultRouteDoesNotRequireCurrentDeviceMutation() {
+        XCTAssertTrue(
+            AudioEngine.shouldFollowSystemDefaultInput(
+                requestedDeviceID: nil,
+                defaultDeviceID: 42
+            ),
+            "System Default should let AVAudioEngine own the route"
+        )
+        XCTAssertTrue(
+            AudioEngine.shouldFollowSystemDefaultInput(
+                requestedDeviceID: 42,
+                defaultDeviceID: 42
+            ),
+            "Pinning the current default should not perform a redundant CurrentDevice write"
+        )
+    }
+
+    func testNonDefaultRouteStillRequiresExplicitConfiguration() {
+        XCTAssertFalse(
+            AudioEngine.shouldFollowSystemDefaultInput(
+                requestedDeviceID: 41,
+                defaultDeviceID: 42
+            )
+        )
+        XCTAssertFalse(
+            AudioEngine.shouldFollowSystemDefaultInput(
+                requestedDeviceID: nil,
+                defaultDeviceID: nil
+            ),
+            "No input device must remain a startup failure"
+        )
+    }
+
     func testCandidatesTryRequestedDeviceBeforeSystemDefault() {
         XCTAssertEqual(
             AudioEngine.inputRouteCandidates(requestedDeviceID: 42, defaultDeviceID: 7),

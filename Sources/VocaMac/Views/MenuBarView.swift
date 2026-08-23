@@ -115,6 +115,12 @@ struct MenuBarView: View {
             // Microphone selection
             microphoneSection
 
+            // Writing style for the app currently in front
+            if appState.writingStyleEnabled {
+                Divider()
+                writingStyleSection
+            }
+
             // Last Transcription
             if let transcription = appState.lastTranscription {
                 Divider()
@@ -134,6 +140,52 @@ struct MenuBarView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .onAppear {
+            // Recompute once when the popover opens rather than on a timer.
+            appState.refreshActiveWritingStyle()
+        }
+    }
+
+    // MARK: - Writing Style
+
+    /// Shows which style the next dictation will use, and lets the user
+    /// re-bind the frontmost app in one step when it looks wrong.
+    private var writingStyleSection: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label("Style", systemImage: appState.activeWritingStyle.style.systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Menu {
+                ForEach(WritingStyle.allCases) { style in
+                    Button {
+                        appState.bindFrontmostApp(to: style)
+                    } label: {
+                        if style == appState.activeWritingStyle.style {
+                            Label(style.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(style.displayName)
+                        }
+                    }
+                }
+            } label: {
+                Text(writingStyleLabel)
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Choose the writing style for the app in front")
+        }
+    }
+
+    private var writingStyleLabel: String {
+        let style = appState.activeWritingStyle.style.displayName
+        if let app = appState.activeWritingStyle.matchedAppName {
+            return "\(style) — \(app)"
+        }
+        return "\(style) (default)"
     }
 
     // MARK: - Header

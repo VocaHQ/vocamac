@@ -161,6 +161,17 @@ protocol TextInjecting: AnyObject {
     func inject(text: String, preserveClipboard: Bool)
 }
 
+// MARK: - FrontmostAppResolving
+
+/// Identifies the app that will receive injected text, so writing styles can
+/// be chosen for it. Injectable so style resolution is testable without a
+/// window server.
+protocol FrontmostAppResolving: AnyObject {
+    /// The frontmost application, or `nil` when it cannot be determined or is
+    /// VocaMac itself.
+    func currentFrontmostApp() -> RunningAppSnapshot?
+}
+
 // MARK: - StatsManaging
 
 @MainActor

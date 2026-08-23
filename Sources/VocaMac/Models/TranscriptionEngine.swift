@@ -19,6 +19,10 @@ enum PreferenceKey {
     static let modelKeepAliveEnabled = "vocamac.modelKeepAlive.enabled"
     static let modelKeepAliveIdleTimeout = "vocamac.modelKeepAlive.idleTimeoutSeconds"
     static let dictationTone = "vocamac.dictationTone"
+    static let writingStyleEnabled = "vocamac.writingStyle.enabled"
+    static let writingStyleDefault = "vocamac.writingStyle.defaultStyle"
+    static let writingStyleBindings = "vocamac.writingStyle.bindings"
+    static let writingStyleCatalogSeeded = "vocamac.writingStyle.catalogSeeded"
 }
 
 /// The on-device inference engine backing a model in the catalog.

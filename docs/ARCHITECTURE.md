@@ -89,6 +89,8 @@ VocaMacApp (entry point)
     │     │     └── ModelManager
     │     │           └── SystemInfo
     │     ├── UpdateChecker
+    │     ├── FrontmostAppResolver
+    │     │     └── WritingStyleResolver → WritingStyleEngine → SpokenSymbolTransformer
     │     └── TextInjector
     │     └── SoundManager
     ├── MenuBarView

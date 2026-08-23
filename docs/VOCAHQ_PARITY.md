@@ -38,6 +38,7 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 | Settings IA | Persistent status / mic / test footer | Yes | Yes (Test Dictation; no inject) | Keep |
 | Output | Trailing space after utterance | Yes | Yes | Keep |
 | Output | Auto-capitalize after sentence ends | Yes (esp. VOSK path) | Yes | Keep |
+| Output | Per-app writing styles | No | Yes (Code / Terminal / Chat / Slack / Email / Notes) | Keep Mac lead; feed Linux later |
 | Output | Voice commands | Yes (engine-gated) | No | Later / optional |
 | Output | Custom vocabulary | No | Yes (Whisper) | Keep; feed Linux later |
 | Output | Translation | No | Yes (Whisper) | Keep |
@@ -57,7 +58,8 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 ## 3. Settings IA (shipped)
 
 ```
-Dictation       Hotkey, mode, output formatting (trailing space, auto-capitalize)
+Dictation       Hotkey, mode, global output formatting (trailing space, auto-capitalize)
+Writing Styles  Master toggle, default style, per-app rules, rule editor, live preview
 Speech Model    Engine/model picker, downloads, language, translation/vocab (engine-gated)
 Audio           Device, silence/VAD, sound effects
 Performance     Model status, auto-pause apps, idle unload
@@ -131,6 +133,32 @@ Voice commands remain out of scope for now.
 
 ---
 
+## 5.1 Writing styles (Mac-first)
+
+Per-app output shaping applied between transcription and injection. `plain` is
+byte-for-byte the pre-feature pipeline, so the feature is non-breaking.
+
+| Preference | Default | Behavior |
+|------------|---------|----------|
+| `writingStyle.enabled` | `true` | Master toggle; off restores the global-only pipeline |
+| `writingStyle.defaultStyle` | `plain` | Used when the frontmost app has no rule |
+| `writingStyle.bindings` | seeded | Versioned JSON of app → style rules |
+
+**Resolution:** the frontmost app is read at injection time (`FrontmostAppResolver`),
+with a record-start snapshot as the fallback for when VocaMac's own window has
+focus. Matching reuses the auto-pause contract — bundle ID or normalized process
+name — via the shared `AppIdentityMatching`.
+
+**Symbol substitution** is tiered by confidence. Tier A is context-locked (known
+file extensions, spoken case commands, explicit bracket commands) and safe in
+prose. Tier B is heuristic (path slashes, identifier joiners) and enabled only
+for Code and Terminal. Saying "literally" before a word suppresses substitution.
+
+**Not ported / deferred:** on-device LLM refinement (`FoundationModels`),
+user-authored named styles, window-title matching for browser tabs.
+
+---
+
 ## 6. Phased delivery
 
 Phases 1–3 and the language half of Phase 4 shipped in PR #207. Remaining Phase 4 and Phase 5 stay deferred.
@@ -193,6 +221,9 @@ A reviewer can open Settings and:
 4. Enable auto-pause, pick a running app, confirm unload while it runs and reload after
 5. Enable idle unload, wait past the timeout, confirm unload + next-dictation reload
 6. Dictate twice with trailing space on and get a clean space between utterances
+7. Search "style" or "filename" and land on Writing Styles
+8. Dictate "open config dot json" into a Code-bound app and get `open config.json`
+9. Dictate the same phrase into a Chat-bound app and get it unchanged
 
 ---
 

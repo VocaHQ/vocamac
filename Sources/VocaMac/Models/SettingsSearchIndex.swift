@@ -63,6 +63,43 @@ enum SettingsSearchIndex {
             keywords: ["capitalize", "output", "sentence", "punctuation"]
         ),
 
+        // Writing Styles
+        SettingsSearchEntry(
+            id: "writing-styles",
+            page: .writingStyles,
+            title: "Writing Styles",
+            subtitle: "Shape dictation for the target app",
+            keywords: ["style", "per-app", "app", "formatting", "output", "shape"]
+        ),
+        SettingsSearchEntry(
+            id: "default-writing-style",
+            page: .writingStyles,
+            title: "Default Style",
+            subtitle: "Used when an app has no rule",
+            keywords: ["default", "style", "plain", "fallback"]
+        ),
+        SettingsSearchEntry(
+            id: "app-style-rules",
+            page: .writingStyles,
+            title: "App Rules",
+            subtitle: "Per-app style bindings",
+            keywords: ["cursor", "vscode", "slack", "terminal", "messages", "email", "notes", "binding"]
+        ),
+        SettingsSearchEntry(
+            id: "spoken-symbols",
+            page: .writingStyles,
+            title: "Spoken Filenames and Paths",
+            subtitle: "Turn \"config dot json\" into config.json",
+            keywords: ["filename", "path", "dot", "slash", "camel case", "snake case", "identifier", "symbols"]
+        ),
+        SettingsSearchEntry(
+            id: "writing-style-preview",
+            page: .writingStyles,
+            title: "Style Preview",
+            subtitle: "See what each style does",
+            keywords: ["preview", "sample", "test", "try"]
+        ),
+
         // Speech Model
         SettingsSearchEntry(
             id: "models",

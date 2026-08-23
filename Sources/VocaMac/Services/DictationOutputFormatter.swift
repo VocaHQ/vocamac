@@ -11,15 +11,20 @@ enum DictationOutputFormatter {
 
     /// Capitalize the first letter of each sentence.
     ///
-    /// Uppercases the first character of the string and any lowercase letter
+    /// Uppercases the first letter of the string and any lowercase letter
     /// that follows sentence-ending punctuation (`.`, `!`, `?`) plus whitespace.
     /// Leaves URLs (`example.com`), decimals (`3.14`), and abbreviations without
     /// trailing space untouched. Idempotent on already-capitalized text.
     static func capitalizeSentences(_ text: String) -> String {
         guard !text.isEmpty else { return text }
 
-        // Capitalize the first character without assuming a single Unicode scalar.
-        var result = String(text.prefix(1)).uppercased() + text.dropFirst()
+        // Capitalize the first *letter*, not the first character. A style may
+        // have prefixed the text with markup ("- ", "**"), and uppercasing a
+        // marker would silently leave the sentence lowercase.
+        var result = text
+        if let firstLetter = result.firstIndex(where: { $0.isLetter }) {
+            result.replaceSubrange(firstLetter...firstLetter, with: result[firstLetter].uppercased())
+        }
 
         // Capitalize after sentence-ending punctuation + whitespace.
         // Mirrors VocaLinux: ([.!?])(\s+)([a-z]). ASCII lowercase only so
@@ -50,6 +55,30 @@ enum DictationOutputFormatter {
             return text
         }
         return text + " "
+    }
+
+    /// Remove a single trailing period.
+    ///
+    /// Editors and shells almost never want the sentence period a speech
+    /// engine adds. Only one `.` is removed, and only when it is the last
+    /// character, so an ellipsis or a filename keeps its dots.
+    static func stripTrailingPeriod(_ text: String) -> String {
+        guard text.count > 1, text.hasSuffix(".") else { return text }
+        // Leave "..." and decimals like "3." alone.
+        let withoutPeriod = String(text.dropLast())
+        guard let last = withoutPeriod.last, last != "." else { return text }
+        return withoutPeriod
+    }
+
+    /// Append `.` when the text does not already end in terminal punctuation.
+    ///
+    /// Skips empty text and text already ending in `.` `!` `?` `:` or a
+    /// closing bracket, so lists and quoted fragments are left alone.
+    static func ensureTerminalPeriod(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard let last = trimmed.last else { return text }
+        guard !".!?:;)]}\"'".contains(last) else { return text }
+        return trimmed + "."
     }
 
     /// Apply capitalization and/or trailing-space polish in that order.

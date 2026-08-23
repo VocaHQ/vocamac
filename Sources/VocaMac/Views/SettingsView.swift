@@ -114,6 +114,8 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .writingStyles:
+                WritingStylesSettingsTab()
             case .speechModel:
                 SpeechModelSettingsPage()
             case .audio:
@@ -348,6 +350,10 @@ struct DictationSettingsPage: View {
                 Toggle("Auto-Capitalize Sentences", isOn: $appState.autoCapitalize)
 
                 Text("Capitalizes the start of each utterance and letters after . ! or ?. Skips text that is already capitalized.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("These are the global defaults. Writing Styles can override them per app — for example, no sentence case in a code editor.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

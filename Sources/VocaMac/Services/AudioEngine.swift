@@ -17,6 +17,15 @@ enum ApplicationInputMuteRecovery: Equatable {
     case unavailable
 }
 
+enum AudioCapturePhase: Equatable {
+    case stopped
+    case preparing
+    case recording
+
+    var acceptsInputBuffers: Bool { self != .stopped }
+    var evaluatesStopConditions: Bool { self == .recording }
+}
+
 final class AudioEngine {
 
     // MARK: - Properties
@@ -30,14 +39,14 @@ final class AudioEngine {
     private var pendingEngineRelease: DispatchWorkItem?
     private var audioBuffer: [Float] = []
     private var _isCurrentlyRecording = false
-    /// Realtime-safe mirror of `_isCurrentlyRecording` for the input tap.
+    /// Realtime-safe capture lifecycle for the input tap.
     ///
     /// The tap runs on Core Audio's render thread and must never wait on
     /// `lifecycleQueue`: `stopRecording` holds that queue while `engine.stop()`
     /// waits for the render thread to finish, so a tap that blocks on the queue
-    /// deadlocks the audio graph — and with it the app, because AppState waits
-    /// on `stopRecording`.
-    private let captureActive = OSAllocatedUnfairLock(initialState: false)
+    /// deadlocks the audio graph. The preparing phase keeps the first buffers
+    /// without allowing silence/max-duration callbacks before the mic is live.
+    private let capturePhase = OSAllocatedUnfairLock(initialState: AudioCapturePhase.stopped)
     /// Set by `cancelPendingStart()` when the user lets go of push-to-talk while
     /// the input route is still being negotiated. Read from the settle loops,
     /// which run inside `lifecycleQueue` — so this cannot live behind that queue.
@@ -49,7 +58,7 @@ final class AudioEngine {
     /// USB-C EarPods among them) can report a fully applied route and a running
     /// engine while never pulling a single input buffer, which surfaces as a
     /// recording that silently transcribes nothing. Written from the render
-    /// thread, so it must be lock-free like `captureActive`.
+    /// thread, so it must use the same realtime-safe state as `capturePhase`.
     private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
@@ -364,10 +373,16 @@ final class AudioEngine {
                 .audioEngine,
                 "Audio graph restarted but no input arrived within \(Self.firstInputBufferTimeout)s"
             )
+            setCaptureActive(false)
             removeInputTap(reason: "silent restart")
+            engine.stop()
             return false
         }
 
+        // `installTapAndStart` arms the tap in preparing mode. This was already
+        // a live recording before the route change, so re-enable silence and
+        // max-duration checks once the replacement route proves it can capture.
+        setRecordingActive(true)
         return true
     }
 
@@ -651,7 +666,7 @@ final class AudioEngine {
     /// Must be called on `lifecycleQueue`.
     private func setRecordingActive(_ active: Bool) {
         _isCurrentlyRecording = active
-        captureActive.withLock { $0 = active }
+        capturePhase.withLock { $0 = active ? .recording : .stopped }
     }
 
     /// Lets the input tap keep audio before `_isCurrentlyRecording` flips, so
@@ -659,8 +674,9 @@ final class AudioEngine {
     private func setCaptureActive(_ active: Bool) {
         if active {
             firstBufferSeen.withLock { $0 = false }
+            lastSoundTime = Date()
         }
-        captureActive.withLock { $0 = active }
+        capturePhase.withLock { $0 = active ? .preparing : .stopped }
     }
 
     /// Blocks until the input tap delivers its first buffer, or the timeout
@@ -982,8 +998,8 @@ final class AudioEngine {
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
         // Deliberately not `isCurrentlyRecording`: that reads through
         // `lifecycleQueue.sync`, which deadlocks the render thread. See
-        // `captureActive`.
-        guard captureActive.withLock({ $0 }) else { return }
+        // `capturePhase`.
+        guard capturePhase.withLock({ $0.acceptsInputBuffers }) else { return }
 
         // Record that the HAL is really pulling from this route, before any
         // conversion that could fail. `waitForFirstInputBuffer` is asking
@@ -1022,6 +1038,12 @@ final class AudioEngine {
                 }
             }
         }
+
+        // Capture buffers during startup so the first word is preserved, but
+        // do not treat the Bluetooth/USB settle interval as user silence or
+        // recording duration. The live transition resets the timing anchors
+        // before changing this phase to `.recording`.
+        guard capturePhase.withLock({ $0.evaluatesStopConditions }) else { return }
 
         // Check max duration (fire callback only once)
         let elapsed = now.timeIntervalSince(recordingStartTime)

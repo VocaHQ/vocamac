@@ -445,6 +445,20 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testPreparingCaptureAcceptsBuffersWithoutEvaluatingStopConditions() {
+        XCTAssertFalse(AudioCapturePhase.stopped.acceptsInputBuffers)
+        XCTAssertFalse(AudioCapturePhase.stopped.evaluatesStopConditions)
+
+        XCTAssertTrue(AudioCapturePhase.preparing.acceptsInputBuffers)
+        XCTAssertFalse(
+            AudioCapturePhase.preparing.evaluatesStopConditions,
+            "Bluetooth startup buffers must not fire silence or max-duration callbacks"
+        )
+
+        XCTAssertTrue(AudioCapturePhase.recording.acceptsInputBuffers)
+        XCTAssertTrue(AudioCapturePhase.recording.evaluatesStopConditions)
+    }
+
     func testStopRecordingWithoutStartReturnsEmpty() {
         let engine = AudioEngine()
         let samples = engine.stopRecording()

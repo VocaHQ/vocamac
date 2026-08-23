@@ -547,6 +547,8 @@ extension AppState {
         // UserDefaults, so reset them here rather than in each test.
         UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.autoCapitalize)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoPauseEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelKeepAliveEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)

@@ -60,6 +60,32 @@ enum SpokenSymbolTransformer {
     /// Leading filler words removed when a style asks for it.
     static let leadingFillers: Set<String> = ["um", "uh", "erm", "ah", "eh", "hmm", "like", "so", "okay", "ok", "right", "well"]
 
+    /// Symbol words that some engines glue onto the following word.
+    ///
+    /// Apple Speech in particular emits "slashcomponents" rather than
+    /// "slash components", which hides the symbol from every whitespace-based
+    /// rule below. Each prefix carries the tier its split belongs to.
+    private static let gluedSymbolPrefixes: [(word: String, tier: SpokenSymbolTiers)] = [
+        ("dot", .tierA),
+        ("slash", .tierB),
+        ("underscore", .tierB),
+        ("dash", .tierB),
+        ("hyphen", .tierB)
+    ]
+
+    /// Ordinary English words that merely begin with a symbol word. Splitting
+    /// "dashboard" into "dash board" would be a bad and very visible failure.
+    private static let gluedSplitDenylist: Set<String> = [
+        "dashboard", "dashboards", "dashed", "dashing", "dasher",
+        "dotted", "dotting", "dote", "doted", "dotcom", "dotnet",
+        "slashed", "slashing", "slasher", "slashes",
+        "underscored", "underscores", "underscoring",
+        "hyphenate", "hyphenated", "hyphenation"
+    ]
+
+    /// Shortest remainder a glued split may leave behind.
+    private static let minGluedRemainder = 3
+
     /// Bracket and quote commands. Each carries an explicit open/close word,
     /// which is what makes them safe: prose does not say "open paren".
     private static let bracketCommands: [[String]: BracketToken] = [
@@ -180,6 +206,10 @@ enum SpokenSymbolTransformer {
         var tokens = tokenize(line)
         guard !tokens.isEmpty else { return line }
 
+        // Must run first: every rule below matches whole tokens, so a symbol
+        // fused to its neighbour is invisible until it is separated.
+        splitGluedSymbolWords(&tokens, tiers: tiers)
+
         if caseCommandsEnabled {
             applyCaseCommands(&tokens)
         }
@@ -254,6 +284,93 @@ enum SpokenSymbolTransformer {
 
     private static func lineHasIdentifierSignal(_ tokens: [Token]) -> Bool {
         tokens.contains { $0.isIdentifier }
+    }
+
+    // MARK: - Glued symbol words
+
+    /// Separate a symbol word that an engine fused to the word after it, so
+    /// "slashcomponents" becomes "slash" + "components".
+    ///
+    /// Gated hard, because the split is a guess about a single token:
+    ///
+    /// - A `dot` split requires the remainder to be a known file extension
+    ///   ("dotjson" → `.json`), which prose cannot produce by accident.
+    /// - The other prefixes are Tier B and additionally require corroboration
+    ///   on the line — a second symbol occurrence or a path cue — so an
+    ///   isolated "dashboard" is never touched.
+    /// - A denylist covers ordinary words that begin with a symbol word.
+    private static func splitGluedSymbolWords(_ tokens: inout [Token], tiers: SpokenSymbolTiers) {
+        guard !tiers.isEmpty else { return }
+        let allowTierBSplit = tiers.contains(.tierB) && gluedSplitIsCorroborated(tokens)
+
+        var index = 0
+        while index < tokens.count {
+            guard !tokens[index].isProtected,
+                  let split = gluedSplit(
+                      of: tokens[index].text,
+                      tiers: tiers,
+                      allowTierBSplit: allowTierBSplit
+                  ) else {
+                index += 1
+                continue
+            }
+
+            tokens.replaceSubrange(index...index, with: [
+                Token(text: split.symbol),
+                Token(text: split.remainder)
+            ])
+            // Re-examine the remainder: "slashsrcslashutils" splits repeatedly.
+            index += 1
+        }
+    }
+
+    /// Split one token, or `nil` when no rule applies.
+    private static func gluedSplit(
+        of token: String,
+        tiers: SpokenSymbolTiers,
+        allowTierBSplit: Bool
+    ) -> (symbol: String, remainder: String)? {
+        let (core, suffix) = splitTrailingPunctuation(token)
+        let lowered = core.lowercased()
+        guard !gluedSplitDenylist.contains(lowered) else { return nil }
+
+        for (word, tier) in gluedSymbolPrefixes {
+            guard lowered.hasPrefix(word), lowered.count > word.count else { continue }
+            guard tiers.contains(tier) else { continue }
+
+            let remainderCore = String(core.dropFirst(word.count))
+            guard let first = remainderCore.first, first.isLetter else { continue }
+
+            switch tier {
+            case .tierA:
+                // Only a real extension justifies splitting on "dot".
+                guard knownExtensions.contains(remainderCore.lowercased()) else { continue }
+            default:
+                guard allowTierBSplit,
+                      remainderCore.count >= minGluedRemainder else { continue }
+            }
+
+            return (symbol: word, remainder: remainderCore + suffix)
+        }
+        return nil
+    }
+
+    /// Whether the line carries enough evidence to risk a Tier B glued split.
+    private static func gluedSplitIsCorroborated(_ tokens: [Token]) -> Bool {
+        var occurrences = 0
+        for token in tokens where !token.isProtected {
+            let lowered = core(of: token.text).lowercased()
+            if gluedSymbolPrefixes.contains(where: { $0.word == lowered }) {
+                occurrences += 1
+            } else if !gluedSplitDenylist.contains(lowered),
+                      gluedSymbolPrefixes.contains(where: { lowered.hasPrefix($0.word) && lowered.count > $0.word.count }) {
+                occurrences += 1
+            }
+            if pathCues.contains(lowered) {
+                return true
+            }
+        }
+        return occurrences >= 2
     }
 
     // MARK: - Tier A: case commands
@@ -435,7 +552,6 @@ enum SpokenSymbolTransformer {
             let rightIndex = index + commandLength
             guard leftIndex >= 0, rightIndex < tokens.count,
                   !tokens[index].isProtected,
-                  isPlainWordOrPath(tokens[leftIndex]),
                   !tokens[rightIndex].isProtected else {
                 index += 1
                 continue
@@ -443,6 +559,22 @@ enum SpokenSymbolTransformer {
 
             let (rightCore, rightSuffix) = splitTrailingPunctuation(tokens[rightIndex].text)
             guard !rightCore.isEmpty, rightCore.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-" }) else {
+                index += 1
+                continue
+            }
+
+            // A path cue is a verb or preposition, not a path component:
+            // "open slash utils" means `/utils`, not `open/utils`. Absorbing
+            // the cue would glue an English word onto the path.
+            let leftIsCue = pathCues.contains(core(of: tokens[leftIndex].text).lowercased())
+            guard !leftIsCue else {
+                let leading = "/" + rightCore.lowercased() + rightSuffix
+                tokens.replaceSubrange(index...rightIndex, with: [Token(text: leading, isIdentifier: true)])
+                index += 1
+                continue
+            }
+
+            guard isPlainWordOrPath(tokens[leftIndex]) else {
                 index += 1
                 continue
             }

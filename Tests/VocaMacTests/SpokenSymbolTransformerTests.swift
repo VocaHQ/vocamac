@@ -125,6 +125,11 @@ final class SpokenSymbolTransformerTests: XCTestCase {
         XCTAssertEqual(all("open src slash utils"), "open src/utils")
     }
 
+    func testPathCueIsNotAbsorbedAsAPathComponent() {
+        // "open slash utils" means `/utils`, not `open/utils`.
+        XCTAssertEqual(all("open slash utils"), "open /utils")
+    }
+
     func testSingleSlashInProseIsUntouched() {
         XCTAssertEqual(all("that was slash and burn"), "that was slash and burn")
     }
@@ -204,5 +209,78 @@ final class SpokenSymbolTransformerTests: XCTestCase {
                 "\(domain) must not be treated as a file extension"
             )
         }
+    }
+}
+
+// MARK: - Glued symbol words
+//
+// Some engines fuse a symbol word onto the next word. Apple Speech emits
+// "slashcomponents" where Parakeet emits "slash components", which used to
+// hide the symbol from every whitespace-based rule.
+
+extension SpokenSymbolTransformerTests {
+
+    private func allTiers(_ text: String) -> String {
+        SpokenSymbolTransformer.apply(text, tiers: .all, pathStitching: true, caseCommandsEnabled: true)
+    }
+
+    private func tierAOnly(_ text: String) -> String {
+        SpokenSymbolTransformer.apply(text, tiers: .tierA, pathStitching: true, caseCommandsEnabled: true)
+    }
+
+    func testGluedSlashIsSplitAndJoined() {
+        XCTAssertEqual(
+            allTiers("edit source slashcomponents slashbutton"),
+            "edit source/components/button"
+        )
+    }
+
+    func testAppleSpeechShapedOutputIsRecovered() {
+        // Verbatim shape observed from SpeechTranscriber.
+        XCTAssertEqual(
+            allTiers("edit source slashcomponents slashbutton.cax"),
+            "edit source/components/button.cax"
+        )
+    }
+
+    func testGluedDotWithKnownExtensionSplits() {
+        XCTAssertEqual(tierAOnly("open config dotjson"), "open config.json")
+    }
+
+    func testGluedDotWithoutKnownExtensionIsLeftAlone() {
+        XCTAssertEqual(tierAOnly("open config dotnonsense"), "open config dotnonsense")
+    }
+
+    func testDashboardIsNeverSplit() {
+        XCTAssertEqual(allTiers("open the dashboard"), "open the dashboard")
+    }
+
+    func testDenylistedWordsSurvive() {
+        for word in ["dashboard", "dashed", "slashed", "dotted", "underscored"] {
+            XCTAssertEqual(allTiers(word), word, "\(word) must not be split")
+        }
+    }
+
+    func testIsolatedGluedCandidateWithoutCorroborationIsLeftAlone() {
+        // One candidate, no second symbol and no path cue — not enough
+        // evidence to risk splitting a real word.
+        XCTAssertEqual(allTiers("we discussed slashfiction"), "we discussed slashfiction")
+    }
+
+    func testPathCueCorroboratesASingleGluedSlash() {
+        XCTAssertEqual(allTiers("open slashutils"), "open /utils")
+    }
+
+    func testGluedSplitDoesNotFireWithoutTierB() {
+        XCTAssertEqual(tierAOnly("edit source slashcomponents slashbutton"), "edit source slashcomponents slashbutton")
+    }
+
+    func testGluedSplitRespectsLiterally() {
+        XCTAssertEqual(allTiers("say literally slashcomponents and slashbutton"), "say slashcomponents and slashbutton")
+    }
+
+    func testGluedSplitIsIdempotent() {
+        let once = allTiers("edit source slashcomponents slashbutton.cax")
+        XCTAssertEqual(allTiers(once), once)
     }
 }

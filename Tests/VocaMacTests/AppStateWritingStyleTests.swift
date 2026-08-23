@@ -143,6 +143,40 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "run the tests")
     }
 
+    /// Writing styles live between the router and the injector, so the engine
+    /// that produced a transcript must not change how it is formatted. Pinned
+    /// because "styles only work on Whisper" is an easy conclusion to draw:
+    /// Whisper normalizes spoken symbols itself, so it has less left to do.
+    func testFormattingIsIndependentOfTheEngineThatProducedTheText() async {
+        let transcript = "open config dot json"
+        var injected: [String] = []
+
+        for engine in [ModelSize.tiny, .parakeetV3, .appleSpeech] {
+            let (appState, mocks) = AppState.makeTestState()
+            appState.appendTrailingSpace = false
+            appState.autoCapitalize = true
+            appState.writingStyleEnabled = true
+            appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
+            mocks.frontmostAppResolver.frontmostApp = cursor
+
+            mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+            mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+                text: transcript,
+                duration: 1.0,
+                detectedLanguage: "en",
+                audioLengthSeconds: 1.0,
+                modelUsed: engine
+            )
+            appState.isRecording = true
+            appState.appStatus = .recording
+            await appState.stopRecordingAndTranscribe()
+
+            injected.append(mocks.textInjector.lastInjectedText ?? "")
+        }
+
+        XCTAssertEqual(injected, Array(repeating: "open config.json", count: 3))
+    }
+
     // MARK: - Test Dictation
 
     func testTestDictationUsesThePreviewStyleAndDoesNotInject() async {

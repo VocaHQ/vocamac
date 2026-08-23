@@ -154,6 +154,13 @@ file extensions, spoken case commands, explicit bracket commands) and safe in
 prose. Tier B is heuristic (path slashes, identifier joiners) and enabled only
 for Code and Terminal. Saying "literally" before a word suppresses substitution.
 
+Engines differ in what they emit for the same speech, so the transformer
+normalizes before matching. Whisper converts spoken symbols itself ("slash" →
+`/`); Parakeet emits the literal word; Apple Speech fuses it to the next word
+("slashcomponents"). A glued split runs first so every rule sees whole tokens.
+Formatting is a pure function of the transcript, so it is identical across all
+four engines — pinned by a regression test.
+
 **Not ported / deferred:** on-device LLM refinement (`FoundationModels`),
 user-authored named styles, window-title matching for browser tabs.
 

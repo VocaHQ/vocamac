@@ -1040,12 +1040,17 @@ final class AppState: ObservableObject {
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
-                let expandedText = expandSnippets(in: trimmedText)
-                let polished = DictationOutputFormatter.apply(
-                    expandedText,
+                // Polish first, expand second. Snippet expansions are literal
+                // text the user authored, so auto-capitalization must not
+                // rewrite them (an email snippet would become Me@example.com).
+                // Trigger matching is case-insensitive, so capitalizing the
+                // trigger beforehand still matches.
+                let polishedSource = DictationOutputFormatter.apply(
+                    trimmedText,
                     autoCapitalize: autoCapitalize,
                     appendTrailingSpace: appendTrailingSpace
                 )
+                let polished = expandSnippets(in: polishedSource)
                 if injectResult {
                     textInjector.inject(
                         text: polished,

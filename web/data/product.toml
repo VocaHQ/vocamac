@@ -2,22 +2,22 @@
 #
 # Status and OS floor follow VocaHQ/vocahq PRODUCT.md (verified 2026-08-14):
 # Beta, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
-# Version/artifact figures were verified against the tagged v0.8.0 release.
+# Version/artifact figures were verified against the tagged v0.9.0 release.
 # Re-verify this file before publishing a website change.
 #
-# Verified: 2026-08-18 against v0.8.0 and its tagged release assets.
+# Verified: 2026-08-24 against v0.9.0 and its tagged release assets.
 
 [stable]
-version = "0.8.0"
-tag = "v0.8.0"
+version = "0.9.0"
+tag = "v0.9.0"
 status = "Beta"
-released = "2026-08-18"
-releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.8.0"
+released = "2026-08-24"
+releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.9.0"
 releasesURL = "https://github.com/VocaHQ/vocamac/releases"
 latestURL = "https://github.com/VocaHQ/vocamac/releases/latest"
-dmg = "VocaMac-0.8.0-arm64.dmg"
-dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.8.0/VocaMac-0.8.0-arm64.dmg"
-dmgSize = "90 MB"
+dmg = "VocaMac-0.9.0-arm64.dmg"
+dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.9.0/VocaMac-0.9.0-arm64.dmg"
+dmgSize = "99 MB"
 
 [requirements]
 os = "macOS 14 Sonoma or later"
@@ -27,7 +27,7 @@ archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
 permissions = ["Microphone", "Accessibility", "Input Monitoring"]
 
-# Languages that can actually be pinned in Settings in v0.8.0, verified by
+# Languages that can actually be pinned in Settings in v0.9.0, verified by
 # counting the tags in the Transcription Language picker in SettingsView.swift.
 # The Whisper model is trained on ~99 languages, but only these are selectable,
 # so the site must not claim "99+ languages".
@@ -43,7 +43,7 @@ runtime = "CoreML"
 modelRepo = "argmaxinc/whisperkit-coreml"
 modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
 
-# The WhisperKit model picker shown in Settings in v0.8.0 (ModelSize.standardCatalog).
+# The WhisperKit model picker shown in Settings in v0.9.0 (ModelSize.standardCatalog).
 # size/ram are the values the app itself reports.
 [[models]]
 id = "tiny"
@@ -109,7 +109,7 @@ ram = "10 GB"
 quality = "Best"
 note = "Highest accuracy. Wants a 16 GB Mac and patience."
 
-# Additional engines and models in v0.8.0. Sizes and notes follow the shipped
+# Additional engines and models in v0.9.0. Sizes and notes follow the shipped
 # catalogs in WhisperModel.swift and SherpaModelCatalog.swift.
 [[releaseModels]]
 id = "parakeet-v3"

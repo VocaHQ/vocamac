@@ -498,15 +498,24 @@ final class MockTextInjector: TextInjecting {
 
 final class MockFrontmostAppResolver: FrontmostAppResolving {
     var frontmostApp: RunningAppSnapshot?
+    /// Stands in for the app the user came from when VocaMac has focus.
+    var previousApp: RunningAppSnapshot?
     var callCount = 0
+    var lastActiveCallCount = 0
 
-    init(frontmostApp: RunningAppSnapshot? = nil) {
+    init(frontmostApp: RunningAppSnapshot? = nil, previousApp: RunningAppSnapshot? = nil) {
         self.frontmostApp = frontmostApp
+        self.previousApp = previousApp
     }
 
     func currentFrontmostApp() -> RunningAppSnapshot? {
         callCount += 1
         return frontmostApp
+    }
+
+    func lastActiveApp() -> RunningAppSnapshot? {
+        lastActiveCallCount += 1
+        return previousApp
     }
 }
 

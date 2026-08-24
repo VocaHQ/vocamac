@@ -170,6 +170,21 @@ protocol FrontmostAppResolving: AnyObject {
     /// The frontmost application, or `nil` when it cannot be determined or is
     /// VocaMac itself.
     func currentFrontmostApp() -> RunningAppSnapshot?
+
+    /// The last application other than VocaMac to be activated.
+    ///
+    /// Needed because VocaMac's own popover and Settings window take focus:
+    /// while either is open the frontmost app *is* VocaMac, and "which style
+    /// applies here" has to be answered about the app the user came from.
+    func lastActiveApp() -> RunningAppSnapshot?
+}
+
+extension FrontmostAppResolving {
+    /// The app a dictation should be styled for: whatever is in front, falling
+    /// back to the last app that was.
+    func styleTargetApp() -> RunningAppSnapshot? {
+        currentFrontmostApp() ?? lastActiveApp()
+    }
 }
 
 // MARK: - StatsManaging
@@ -186,4 +201,16 @@ protocol StatsManaging: AnyObject {
 
 protocol SnippetExpanding: AnyObject {
     func expand(in text: String, using snippets: [Snippet]) -> String
+
+    /// Expand triggers, but leave each expansion masked as a single opaque
+    /// character so later formatting cannot reshape user-authored text.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText
+}
+
+extension SnippetExpanding {
+    /// Conformances that only implement `expand` still work; their expansions
+    /// are simply not protected from formatting.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText {
+        MaskedText(text: expand(in: text, using: snippets))
+    }
 }

@@ -43,7 +43,13 @@ final class WritingStyleEngineTests: XCTestCase {
     // MARK: - Code
 
     func testCodeStyleProducesFilenameWithoutSentenceCase() {
-        XCTAssertEqual(format("open config dot json", .code), "open config.json ")
+        XCTAssertEqual(format("open config dot json", .code), "open config.json")
+    }
+
+    func testCodeStyleNeverAddsTrailingSpace() {
+        // A trailing space in a source file is trailing whitespace, which is
+        // exactly what every linter in the editor is there to complain about.
+        XCTAssertEqual(format("run the build", .code, space: true), "run the build")
     }
 
     func testCodeStyleStripsTrailingPeriod() {

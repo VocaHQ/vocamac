@@ -275,6 +275,135 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(appState.writingStylePreview("thanks", style: .email), "Thanks.")
     }
 
+    // MARK: - VocaMac's own window has focus
+
+    func testStyleFallsBackToTheLastActiveAppWhenVocaMacIsInFront() {
+        // Opening the menu bar popover activates VocaMac, so the frontmost app
+        // is VocaMac and `currentFrontmostApp()` returns nil. The style row is
+        // asking about the app the user came from.
+        let (appState, mocks) = AppState.makeTestState()
+        appState.writingStyleEnabled = true
+        appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
+        mocks.frontmostAppResolver.frontmostApp = nil
+        mocks.frontmostAppResolver.previousApp = cursor
+
+        appState.refreshActiveWritingStyle()
+
+        XCTAssertEqual(appState.activeWritingStyle.style, .code)
+        XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Cursor")
+    }
+
+    func testBindFrontmostAppUsesTheLastActiveAppWhenVocaMacIsInFront() {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = nil
+        mocks.frontmostAppResolver.previousApp = cursor
+
+        XCTAssertEqual(appState.bindFrontmostApp(to: .code), "Cursor")
+        XCTAssertEqual(appState.writingStyleBindings.first?.style, .code)
+    }
+
+    func testInjectionFallsBackToTheLastActiveApp() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.appendTrailingSpace = false
+        appState.writingStyleEnabled = true
+        appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
+        mocks.frontmostAppResolver.frontmostApp = nil
+        mocks.frontmostAppResolver.previousApp = cursor
+
+        await dictate("open config dot json", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "open config.json")
+    }
+
+    // MARK: - Clearing a rule
+
+    func testUnbindFrontmostAppRemovesTheRule() {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
+
+        XCTAssertEqual(appState.unbindFrontmostApp(), "Cursor")
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+    }
+
+    func testUnbindWithNoRuleIsHarmless() {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        XCTAssertEqual(appState.unbindFrontmostApp(), "Cursor")
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+    }
+
+    func testRemoveAllBindings() {
+        let (appState, _) = AppState.makeTestState()
+        appState.writingStyleBindings = [
+            AppStyleBinding.from(snapshot: cursor, style: .code),
+            AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal", bundleIdentifier: "com.apple.Terminal", style: .terminal)
+        ]
+
+        appState.removeAllWritingStyleBindings()
+
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+    }
+
+    // MARK: - Preview honors per-app overrides
+
+    func testPreviewCanTargetASavedRuleWithOverrides() {
+        let (appState, _) = AppState.makeTestState()
+        appState.autoCapitalize = true
+        appState.appendTrailingSpace = false
+
+        var overrides = WritingStyle.code.defaultRules
+        overrides.capitalization = .sentences
+        var binding = AppStyleBinding.from(snapshot: cursor, style: .code)
+        binding.ruleOverrides = overrides
+        appState.writingStyleBindings = [binding]
+        appState.settingsPreviewBindingID = binding.id
+
+        XCTAssertEqual(
+            appState.writingStylePreview("open config dot json", rules: appState.settingsPreviewRules),
+            "Open config.json",
+            "the preview must use the rule's overrides, not the bare preset"
+        )
+    }
+
+    func testPreviewFallsBackToThePresetWhenTheRuleIsGone() {
+        let (appState, _) = AppState.makeTestState()
+        appState.settingsPreviewStyle = .email
+        appState.settingsPreviewBindingID = "com.deleted.app"
+
+        XCTAssertEqual(appState.settingsPreviewRules, WritingStyle.email.defaultRules)
+    }
+
+    func testTestDictationUsesTheSelectedRuleOverrides() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = true
+
+        var overrides = WritingStyle.code.defaultRules
+        overrides.capitalization = .sentences
+        var binding = AppStyleBinding.from(snapshot: cursor, style: .code)
+        binding.ruleOverrides = overrides
+        appState.writingStyleBindings = [binding]
+        appState.settingsPreviewBindingID = binding.id
+
+        await dictate("open config dot json", on: appState, mocks: mocks, injectResult: false)
+
+        XCTAssertEqual(appState.settingsTestResultText, "Open config.json")
+    }
+
+    // MARK: - Binding cache
+
+    func testBindingsAreRereadWhenTheStoredJSONChangesUnderneath() {
+        let (appState, _) = AppState.makeTestState()
+        appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
+        XCTAssertEqual(appState.writingStyleBindings.count, 1)
+
+        appState.writingStyleBindingsJSON = WritingStyleBindingStore(bindings: []).encodedJSON()
+
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty, "the cache must key off the stored JSON")
+    }
+
     func testRefreshActiveWritingStyleReadsTheFrontmostApp() {
         let (appState, mocks) = AppState.makeTestState()
         appState.writingStyleEnabled = true

@@ -91,6 +91,7 @@ VocaMacApp (entry point)
     │     ├── UpdateChecker
     │     ├── FrontmostAppResolver
     │     │     └── WritingStyleResolver → WritingStyleEngine → SpokenSymbolTransformer
+    │     ├── SnippetExpander (expands into TextPlaceholder masks, pre-styling)
     │     └── TextInjector
     │     └── SoundManager
     ├── MenuBarView

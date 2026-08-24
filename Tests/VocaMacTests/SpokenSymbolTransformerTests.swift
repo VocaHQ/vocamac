@@ -111,8 +111,13 @@ final class SpokenSymbolTransformerTests: XCTestCase {
         XCTAssertEqual(tierA("call open paren value close paren"), "call (value)")
     }
 
-    func testBacktickCommand() {
-        XCTAssertEqual(tierA("wrap backtick here"), "wrap ` here")
+    func testBacktickCommandNeedsAnExplicitOpenAndClose() {
+        XCTAssertEqual(tierA("wrap open backtick code close backtick"), "wrap `code`")
+    }
+
+    func testBareBacktickStaysSpoken() {
+        // Programmers say the word in prose: "wrap it in a backtick".
+        XCTAssertEqual(tierA("wrap it in a backtick"), "wrap it in a backtick")
     }
 
     // MARK: - Tier B: paths

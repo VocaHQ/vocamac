@@ -20,7 +20,9 @@ enum WritingStyleEngine {
     /// shape.
     ///
     /// - Parameters:
-    ///   - text: The trimmed utterance from the transcription engine.
+    ///   - text: The trimmed utterance from the transcription engine. Spans
+    ///     that must not be reshaped (an expanded snippet) may arrive masked
+    ///     as `TextPlaceholder` scalars; they pass through untouched.
     ///   - rules: The resolved rules for the target app.
     ///   - globalAutoCapitalize: The Dictation preference, used by `.inherit`.
     ///   - globalTrailingSpace: The Dictation preference, used by `.inherit`.
@@ -47,13 +49,16 @@ enum WritingStyleEngine {
             result = applyListMarkers(result)
         }
 
-        // 3. Symbols, identifiers, and paths.
-        result = SpokenSymbolTransformer.apply(
+        // 3. Symbols, identifiers, and paths. Everything this pass produces
+        //    stays masked until the polish below has run, so sentence case
+        //    cannot rewrite a filename into a different filename.
+        let symbols = SpokenSymbolTransformer.applyMasking(
             result,
             tiers: rules.spokenSymbols,
             pathStitching: rules.pathStitching,
             caseCommandsEnabled: rules.caseCommands
         )
+        result = symbols.text
 
         // 4. Emphasis markup.
         if rules.emphasisDialect != .none {
@@ -92,7 +97,9 @@ enum WritingStyleEngine {
             result = DictationOutputFormatter.appendTrailingSpace(result)
         }
 
-        return result
+        // 8. Unmask the spans from step 3. Masks the caller supplied (snippet
+        //    expansions) are left in place for the caller to restore.
+        return symbols.restore(in: result)
     }
 
     /// Convenience overload taking a style rather than pre-resolved rules.

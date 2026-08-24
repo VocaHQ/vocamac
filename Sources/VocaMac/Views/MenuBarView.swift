@@ -89,6 +89,9 @@ final class ProcessMonitor: ObservableObject {
 }
 
 struct MenuBarView: View {
+    /// Confirmation text after binding or clearing a style, if any.
+    @State private var bindNotice: String?
+
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
@@ -142,6 +145,7 @@ struct MenuBarView: View {
         .frame(width: 380)
         .onAppear {
             // Recompute once when the popover opens rather than on a timer.
+            bindNotice = nil
             appState.refreshActiveWritingStyle()
         }
     }
@@ -151,6 +155,13 @@ struct MenuBarView: View {
     /// Shows which style the next dictation will use, and lets the user
     /// re-bind the frontmost app in one step when it looks wrong.
     private var writingStyleSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            writingStyleRow
+            writingStyleNotice
+        }
+    }
+
+    private var writingStyleRow: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Label("Style", systemImage: appState.activeWritingStyle.style.systemImage)
                 .font(.caption)
@@ -161,13 +172,21 @@ struct MenuBarView: View {
             Menu {
                 ForEach(WritingStyle.allCases) { style in
                     Button {
-                        appState.bindFrontmostApp(to: style)
+                        bindNotice = appState.bindFrontmostApp(to: style)
+                            .map { "\(style.displayName) for \($0)" }
                     } label: {
                         if style == appState.activeWritingStyle.style {
                             Label(style.displayName, systemImage: "checkmark")
                         } else {
                             Text(style.displayName)
                         }
+                    }
+                }
+
+                if appState.activeWritingStyle.matchedAppName != nil {
+                    Divider()
+                    Button("Use Default Style") {
+                        bindNotice = appState.unbindFrontmostApp().map { "Default style for \($0)" }
                     }
                 }
             } label: {
@@ -177,6 +196,18 @@ struct MenuBarView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Choose the writing style for the app in front")
+        }
+    }
+
+    /// Confirmation for the last style change, cleared when the popover closes.
+    private var writingStyleNotice: some View {
+        Group {
+            if let bindNotice {
+                Text(bindNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
         }
     }
 

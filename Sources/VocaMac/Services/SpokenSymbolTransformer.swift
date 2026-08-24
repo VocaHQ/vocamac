@@ -100,8 +100,27 @@ enum SpokenSymbolTransformer {
         ["open", "angle"]:        BracketToken(literal: "<", attaches: .toNext),
         ["close", "angle"]:       BracketToken(literal: ">", attaches: .toPrevious),
         ["open", "backtick"]:     BracketToken(literal: "`", attaches: .toNext),
-        ["close", "backtick"]:    BracketToken(literal: "`", attaches: .toPrevious),
-        ["backtick"]:             BracketToken(literal: "`", attaches: .none)
+        ["close", "backtick"]:    BracketToken(literal: "`", attaches: .toPrevious)
+    ]
+
+    /// Words that only ever act as commands next to another word, never on
+    /// their own. "backtick" is deliberately absent from `bracketCommands` as a
+    /// solo entry: programmers say it in prose ("wrap it in a backtick"), so it
+    /// needs the same open/close proof every other bracket carries.
+    ///
+    /// Used to decide whether a spoken "literally" is an escape or just a word.
+    private static let escapableCommandWords: Set<String> = [
+        "dot", "slash", "underscore", "dash", "hyphen", "backtick", "forward",
+        "open", "close", "paren", "parenthesis", "bracket", "brace", "angle",
+        "camel", "pascal", "snake", "kebab", "screaming", "constant", "upper"
+    ]
+
+    /// Symbol words that end a case command's word run.
+    ///
+    /// Without this "camel case handle user input dot swift" swallows the
+    /// filename separator and yields `handleUserInputDotSwift`.
+    private static let identifierBoundaryWords: Set<String> = [
+        "dot", "slash", "underscore", "dash", "hyphen", "backtick"
     ]
 
     /// Case-conversion commands, longest phrase first so "screaming snake
@@ -179,32 +198,74 @@ enum SpokenSymbolTransformer {
         pathStitching: Bool,
         caseCommandsEnabled: Bool
     ) -> String {
-        guard !text.isEmpty else { return text }
-        guard !tiers.isEmpty || caseCommandsEnabled else { return text }
+        let masked = applyMasking(
+            text,
+            tiers: tiers,
+            pathStitching: pathStitching,
+            caseCommandsEnabled: caseCommandsEnabled
+        )
+        return masked.restore(in: masked.text)
+    }
+
+    /// Apply substitution, leaving every token this pass produced masked as one
+    /// opaque character.
+    ///
+    /// The style pipeline runs sentence case and punctuation polish after this
+    /// pass, and neither should touch a filename or identifier the pass just
+    /// built — capitalizing `readme.md` into `Readme.md` names a different
+    /// file. Masking says "this span is settled" without threading string
+    /// ranges through passes that rewrite the string.
+    static func applyMasking(
+        _ text: String,
+        tiers: SpokenSymbolTiers,
+        pathStitching: Bool,
+        caseCommandsEnabled: Bool
+    ) -> MaskedText {
+        let unmasked = MaskedText(text: text, base: TextPlaceholder.identifierBase)
+        guard !text.isEmpty else { return unmasked }
+        guard !tiers.isEmpty || caseCommandsEnabled else { return unmasked }
 
         // Newline commands run before this pass, so operate per line and keep
         // the line structure intact.
-        let lines = text.components(separatedBy: "\n")
-        let transformed = lines.map { line -> String in
-            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else { return line }
-            return applyToLine(
-                line,
-                tiers: tiers,
-                pathStitching: pathStitching,
-                caseCommandsEnabled: caseCommandsEnabled
+        var masks: [String] = []
+        var transformed: [String] = []
+        for line in text.components(separatedBy: "\n") {
+            guard !line.trimmingCharacters(in: .whitespaces).isEmpty else {
+                transformed.append(line)
+                continue
+            }
+            transformed.append(
+                applyToLine(
+                    line,
+                    tiers: tiers,
+                    pathStitching: pathStitching,
+                    caseCommandsEnabled: caseCommandsEnabled,
+                    masks: &masks
+                )
             )
         }
-        return transformed.joined(separator: "\n")
+
+        return MaskedText(
+            text: transformed.joined(separator: "\n"),
+            replacements: masks,
+            base: TextPlaceholder.identifierBase
+        )
     }
 
     private static func applyToLine(
         _ line: String,
         tiers: SpokenSymbolTiers,
         pathStitching: Bool,
-        caseCommandsEnabled: Bool
+        caseCommandsEnabled: Bool,
+        masks: inout [String]
     ) -> String {
         var tokens = tokenize(line)
         guard !tokens.isEmpty else { return line }
+        // Whitespace between words is the user's, not ours: only re-render the
+        // line when a rule actually fired, so untouched dictation keeps its
+        // original spacing byte for byte.
+        let wordCount = line.split(separator: " ", omittingEmptySubsequences: true).count
+        let originalTokens = tokens.map(\.text)
 
         // Must run first: every rule below matches whole tokens, so a symbol
         // fused to its neighbour is invisible until it is separated.
@@ -223,36 +284,85 @@ enum SpokenSymbolTransformer {
             applyJoinerRule(&tokens)
         }
 
-        return render(tokens)
+        let unchanged = tokens.count == wordCount
+            && tokens.map(\.text) == originalTokens
+            && !tokens.contains(where: { $0.glueLeft })
+        guard !unchanged else { return line }
+
+        return render(tokens, masks: &masks)
     }
 
     // MARK: - Tokenizing
 
     /// Split on whitespace and consume the "literally" escape hatch.
+    ///
+    /// The escape is only honored in front of a word that would actually be
+    /// substituted. "literally" is an ordinary English adverb, and silently
+    /// deleting it from "I literally cannot" would be a far worse failure than
+    /// a missed escape.
     private static func tokenize(_ line: String) -> [Token] {
         let raw = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
         var tokens: [Token] = []
         var protectNext = false
 
-        for word in raw {
-            if core(of: word).lowercased() == "literally" {
+        for (index, word) in raw.enumerated() {
+            if !protectNext,
+               core(of: word).lowercased() == "literally",
+               index + 1 < raw.count,
+               isEscapable(raw[index + 1]) {
                 protectNext = true
                 continue
             }
-            tokens.append(Token(text: word, isProtected: protectNext))
+            // A masked span (an already-expanded snippet) is user-authored
+            // text, not dictation: never substitute inside it.
+            let isMasked = TextPlaceholder.containsPlaceholder(word)
+            tokens.append(Token(text: word, isProtected: protectNext || isMasked))
             protectNext = false
         }
         return tokens
     }
 
-    /// Reassemble tokens, honoring glue flags.
-    private static func render(_ tokens: [Token]) -> String {
+    /// Whether a word is one the transformer might rewrite, and so one that
+    /// "literally" can meaningfully protect.
+    private static func isEscapable(_ word: String) -> Bool {
+        let lowered = core(of: word).lowercased()
+        guard !lowered.isEmpty else { return false }
+        if escapableCommandWords.contains(lowered) { return true }
+        if knownExtensions.contains(lowered) { return true }
+        // A symbol word an engine fused to the next word ("slashcomponents").
+        if !gluedSplitDenylist.contains(lowered),
+           gluedSymbolPrefixes.contains(where: { lowered.hasPrefix($0.word) && lowered.count > $0.word.count }) {
+            return true
+        }
+        return false
+    }
+
+    /// Reassemble tokens, honoring glue flags and masking substituted spans.
+    ///
+    /// Only the token's core is masked — trailing punctuation stays visible so
+    /// the pipeline's sentence-ending rules can still strip or keep it.
+    private static func render(_ tokens: [Token], masks: inout [String]) -> String {
         var result = ""
         for (index, token) in tokens.enumerated() {
             if index > 0 && !token.glueLeft {
                 result += " "
             }
-            result += token.text
+            guard token.isIdentifier else {
+                result += token.text
+                continue
+            }
+            let (core, suffix) = splitTrailingPunctuation(token.text)
+            guard !core.isEmpty,
+                  let placeholder = TextPlaceholder.character(
+                      at: masks.count,
+                      base: TextPlaceholder.identifierBase
+                  ) else {
+                result += token.text
+                continue
+            }
+            masks.append(core)
+            result.append(placeholder)
+            result += suffix
         }
         return result
     }
@@ -389,7 +499,8 @@ enum SpokenSymbolTransformer {
             var wordsEnd = wordsStart
             while wordsEnd < tokens.count,
                   wordsEnd - wordsStart < maxCaseCommandWords,
-                  isPlainWord(tokens[wordsEnd]) {
+                  isPlainWord(tokens[wordsEnd]),
+                  !identifierBoundaryWords.contains(tokens[wordsEnd].text.lowercased()) {
                 wordsEnd += 1
             }
 
@@ -462,7 +573,10 @@ enum SpokenSymbolTransformer {
             }
 
             let nameStart = pathStitching ? filenameLookbackStart(tokens, endingBefore: index) : index - 1
-            let nameWords = tokens[nameStart..<index].map { $0.text.lowercased() }
+            // Keep the case the engine produced: `Info.plist` and `README.md`
+            // are the names on disk, and lowercasing them is not recoverable.
+            // Only the extension is normalized, since it is matched lowercased.
+            let nameWords = tokens[nameStart..<index].map(\.text)
             let filename = nameWords.joined() + "." + extCore.lowercased() + extSuffix
 
             tokens.replaceSubrange(
@@ -568,7 +682,7 @@ enum SpokenSymbolTransformer {
             // the cue would glue an English word onto the path.
             let leftIsCue = pathCues.contains(core(of: tokens[leftIndex].text).lowercased())
             guard !leftIsCue else {
-                let leading = "/" + rightCore.lowercased() + rightSuffix
+                let leading = "/" + rightCore + rightSuffix
                 tokens.replaceSubrange(index...rightIndex, with: [Token(text: leading, isIdentifier: true)])
                 index += 1
                 continue
@@ -579,7 +693,7 @@ enum SpokenSymbolTransformer {
                 continue
             }
 
-            let merged = tokens[leftIndex].text.lowercased() + "/" + rightCore.lowercased() + rightSuffix
+            let merged = tokens[leftIndex].text + "/" + rightCore + rightSuffix
             tokens.replaceSubrange(leftIndex...rightIndex, with: [Token(text: merged, isIdentifier: true)])
             index = leftIndex + 1
         }
@@ -643,7 +757,7 @@ enum SpokenSymbolTransformer {
                 continue
             }
 
-            let merged = tokens[index - 1].text + separator + rightCore.lowercased() + rightSuffix
+            let merged = tokens[index - 1].text + separator + rightCore + rightSuffix
             tokens.replaceSubrange((index - 1)...(index + 1), with: [Token(text: merged, isIdentifier: true)])
             index = max(index - 1, 0) + 1
         }

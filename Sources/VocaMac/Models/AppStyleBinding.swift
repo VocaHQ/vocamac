@@ -111,23 +111,51 @@ struct WritingStyleBindingStore: Codable, Hashable {
 
     static let empty = WritingStyleBindingStore()
 
-    /// Decode a stored JSON payload, recovering to `empty` on any failure.
+    /// Decode a stored JSON payload, keeping every binding that still reads.
+    ///
+    /// Recovery is per binding on purpose: one unreadable rule must not cost a
+    /// user the other twenty. Only a payload that is not JSON at all, or one
+    /// written by a newer VocaMac, degrades to `empty`.
     static func decode(json: String) -> WritingStyleBindingStore {
         let trimmed = json.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let data = trimmed.data(using: .utf8) else { return .empty }
-        guard let decoded = try? JSONDecoder().decode(WritingStyleBindingStore.self, from: data) else {
+
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let payload = object as? [String: Any] else {
             VocaLogger.warning(.appState, "Writing style bindings could not be decoded — falling back to none")
             return .empty
         }
-        guard decoded.schemaVersion <= currentSchemaVersion else {
+
+        let schemaVersion = payload["schemaVersion"] as? Int ?? currentSchemaVersion
+        guard schemaVersion <= currentSchemaVersion else {
             // Written by a newer VocaMac. Do not guess at the shape.
             VocaLogger.warning(
                 .appState,
-                "Writing style bindings use schema \(decoded.schemaVersion); this build understands \(currentSchemaVersion)"
+                "Writing style bindings use schema \(schemaVersion); this build understands \(currentSchemaVersion)"
             )
             return .empty
         }
-        return decoded
+
+        guard let rawBindings = payload["bindings"] as? [Any] else {
+            VocaLogger.warning(.appState, "Writing style bindings payload has no binding list")
+            return WritingStyleBindingStore(schemaVersion: schemaVersion, bindings: [])
+        }
+
+        let decoder = JSONDecoder()
+        var bindings: [AppStyleBinding] = []
+        var dropped = 0
+        for raw in rawBindings {
+            guard let element = try? JSONSerialization.data(withJSONObject: raw),
+                  let binding = try? decoder.decode(AppStyleBinding.self, from: element) else {
+                dropped += 1
+                continue
+            }
+            bindings.append(binding)
+        }
+        if dropped > 0 {
+            VocaLogger.warning(.appState, "Dropped \(dropped) unreadable writing style rule(s); kept \(bindings.count)")
+        }
+        return WritingStyleBindingStore(schemaVersion: schemaVersion, bindings: bindings)
     }
 
     /// Encode for persistence. Returns the empty payload if encoding fails.

@@ -161,12 +161,28 @@ final class AppState: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings) }
     }
 
+    /// Last decode of `writingStyleBindingsJSON`, keyed by the JSON it came
+    /// from. SwiftUI reads the binding list several times per `body`, and
+    /// re-parsing the whole store on each read is pure waste; keying on the
+    /// source string keeps an external write (tests, another window) honest.
+    private var decodedBindingsCache: (json: String, bindings: [AppStyleBinding])?
+
     /// Per-app writing style rules. A corrupt payload decodes to an empty list
     /// so dictation falls back to the default style rather than failing.
     var writingStyleBindings: [AppStyleBinding] {
-        get { WritingStyleBindingStore.decode(json: writingStyleBindingsJSON).bindings }
+        get {
+            let json = writingStyleBindingsJSON
+            if let cache = decodedBindingsCache, cache.json == json {
+                return cache.bindings
+            }
+            let bindings = WritingStyleBindingStore.decode(json: json).bindings
+            decodedBindingsCache = (json, bindings)
+            return bindings
+        }
         set {
-            writingStyleBindingsJSON = WritingStyleBindingStore(bindings: newValue).encodedJSON()
+            let json = WritingStyleBindingStore(bindings: newValue).encodedJSON()
+            writingStyleBindingsJSON = json
+            decodedBindingsCache = (json, newValue)
             refreshActiveWritingStyle()
             objectWillChange.send()
         }
@@ -213,6 +229,19 @@ final class AppState: ObservableObject {
     /// Style used by the Settings preview and by Test Dictation, where the
     /// frontmost app is VocaMac's own window.
     @Published var settingsPreviewStyle: WritingStyle = .plain
+
+    /// Optional app rule the preview targets instead of the bare preset, so a
+    /// user who customized a rule can see what that rule actually does.
+    @Published var settingsPreviewBindingID: String?
+
+    /// Rules the Settings preview and Test Dictation run with.
+    var settingsPreviewRules: WritingStyleRules {
+        if let id = settingsPreviewBindingID,
+           let binding = writingStyleBindings.first(where: { $0.id == id }) {
+            return binding.effectiveRules
+        }
+        return settingsPreviewStyle.defaultRules
+    }
 
     /// Approximate process RSS (MB) sampled just before the last unload.
     @Published var processMemoryBeforeUnloadMB: Double?
@@ -895,21 +924,30 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Recompute `activeWritingStyle` from whatever app is in front now.
+    /// Recompute `activeWritingStyle` for the app the user is working in.
     ///
     /// Called when the menu bar popover appears and after settings changes —
-    /// deliberately not on a timer.
+    /// deliberately not on a timer. Uses `styleTargetApp()` rather than the
+    /// bare frontmost app: opening the popover activates VocaMac, so by the
+    /// time this runs the frontmost app usually *is* VocaMac.
     func refreshActiveWritingStyle() {
-        activeWritingStyle = resolveWritingStyle(for: frontmostAppResolver.currentFrontmostApp())
+        activeWritingStyle = resolveWritingStyle(for: frontmostAppResolver.styleTargetApp())
     }
 
-    /// Bind the frontmost app to a style, replacing any existing rule for it.
+    /// The app a menu bar action should apply to: whatever is in front, or the
+    /// app the user came from when VocaMac's own window has focus.
+    var writingStyleTargetApp: RunningAppSnapshot? {
+        frontmostAppResolver.styleTargetApp()
+    }
+
+    /// Bind the target app to a style, replacing any existing rule for it.
     ///
     /// This is the menu bar's one-tap fix for "that came out wrong".
     @discardableResult
     func bindFrontmostApp(to style: WritingStyle) -> String? {
-        guard let target = frontmostAppResolver.currentFrontmostApp() else {
-            VocaLogger.warning(.appState, "Cannot bind writing style: no frontmost app")
+        guard let target = writingStyleTargetApp else {
+            VocaLogger.warning(.appState, "Cannot bind writing style: no target app")
+            showTemporaryError("No app to bind — switch to the app you want to style, then try again.")
             return nil
         }
         var bindings = writingStyleBindings
@@ -918,6 +956,29 @@ final class AppState: ObservableObject {
         writingStyleBindings = bindings
         VocaLogger.info(.appState, "Bound \(target.displayName) to writing style '\(style.rawValue)'")
         return target.displayName
+    }
+
+    /// Remove the target app's rule so it falls back to the default style.
+    @discardableResult
+    func unbindFrontmostApp() -> String? {
+        guard let target = writingStyleTargetApp else {
+            VocaLogger.warning(.appState, "Cannot clear writing style: no target app")
+            showTemporaryError("No app to clear — switch to the app you want to reset, then try again.")
+            return nil
+        }
+        let bindings = writingStyleBindings
+        let remaining = bindings.filter { !$0.matches(target) }
+        guard remaining.count != bindings.count else { return target.displayName }
+        writingStyleBindings = remaining
+        VocaLogger.info(.appState, "Cleared writing style rule for \(target.displayName)")
+        return target.displayName
+    }
+
+    /// Delete every app rule, leaving the default style in charge.
+    func removeAllWritingStyleBindings() {
+        guard !writingStyleBindings.isEmpty else { return }
+        writingStyleBindings = []
+        VocaLogger.info(.appState, "Removed all writing style rules")
     }
 
     /// Add the suggested rules for apps installed on this Mac, once.
@@ -970,12 +1031,20 @@ final class AppState: ObservableObject {
     /// Format sample text the way the given style would, for the Settings
     /// preview. Uses the same engine as the real pipeline.
     func writingStylePreview(_ sample: String, style: WritingStyle) -> String {
-        WritingStyleEngine.format(
-            sample.trimmingCharacters(in: .whitespacesAndNewlines),
-            rules: style.defaultRules,
+        writingStylePreview(sample, rules: style.defaultRules)
+    }
+
+    /// Preview a specific rule set — a preset, or one app rule's overrides.
+    func writingStylePreview(_ sample: String, rules: WritingStyleRules) -> String {
+        let trimmed = sample.trimmingCharacters(in: .whitespacesAndNewlines)
+        let masked = snippetExpander.expandMasked(in: trimmed, using: snippets)
+        let styled = WritingStyleEngine.format(
+            masked.text,
+            rules: rules,
             globalAutoCapitalize: autoCapitalize,
             globalTrailingSpace: appendTrailingSpace
         )
+        return masked.restore(in: styled)
     }
 
     // MARK: - Force Recovery
@@ -1183,27 +1252,33 @@ final class AppState: ObservableObject {
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
+                // Expand first, style second, with every expansion masked while
+                // the style runs. Triggers are then matched against the raw
+                // transcript — a style that trims a leading "so" or joins "dot"
+                // to the next word can no longer break one — and the expansion
+                // itself, being text the user authored, is never reshaped (an
+                // email snippet must not become Me@example.com).
+                let masked = snippetExpander.expandMasked(in: trimmedText, using: snippets)
+
                 if injectResult {
                     // Resolve against the app in front right now: that is where
                     // the text lands. `pendingTargetApp` covers the case where
-                    // VocaMac's own window took focus mid-dictation.
-                    let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
+                    // VocaMac's own window took focus mid-dictation, and the
+                    // last active app covers the case where it was already in
+                    // front when recording started.
+                    let target = frontmostAppResolver.currentFrontmostApp()
+                        ?? pendingTargetApp
+                        ?? frontmostAppResolver.lastActiveApp()
                     let resolved = resolveWritingStyle(for: target)
                     activeWritingStyle = resolved
 
-                    // Style first, expand second. Snippet expansions are
-                    // literal text the user authored, so the style's
-                    // auto-capitalization must not rewrite them (an email
-                    // snippet would become Me@example.com). Trigger matching is
-                    // case-insensitive, so styling the trigger beforehand still
-                    // matches.
                     let styled = WritingStyleEngine.format(
-                        trimmedText,
+                        masked.text,
                         rules: resolved.rules,
                         globalAutoCapitalize: autoCapitalize,
                         globalTrailingSpace: appendTrailingSpace
                     )
-                    let polished = expandSnippets(in: styled)
+                    let polished = masked.restore(in: styled)
                     VocaLogger.debug(
                         .appState,
                         "Writing style '\(resolved.style.rawValue)' applied for \(resolved.matchedAppName ?? "default")"
@@ -1214,15 +1289,15 @@ final class AppState: ObservableObject {
                     )
                 } else {
                     // Settings Test Dictation: the frontmost app is VocaMac's
-                    // own window, so preview against the style the user picked
+                    // own window, so preview against the rules the user picked
                     // in Settings instead of resolving from the workspace.
                     let styled = WritingStyleEngine.format(
-                        trimmedText,
-                        rules: settingsPreviewStyle.defaultRules,
+                        masked.text,
+                        rules: settingsPreviewRules,
                         globalAutoCapitalize: autoCapitalize,
                         globalTrailingSpace: appendTrailingSpace
                     )
-                    settingsTestResultText = expandSnippets(in: styled)
+                    settingsTestResultText = masked.restore(in: styled)
                 }
             } else {
                 VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")

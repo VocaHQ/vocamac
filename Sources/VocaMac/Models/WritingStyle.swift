@@ -174,12 +174,45 @@ struct WritingStyleRules: Codable, Hashable {
     /// defer both toggles to the global Dictation preferences and change
     /// nothing else.
     static let passthrough = WritingStyleRules()
+
+    // MARK: - Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case capitalization, terminalPunctuation, trailingSpace, spokenSymbols
+        case pathStitching, caseCommands, emphasisDialect, listMarkers
+        case newlineCommands, filler
+    }
+
+    /// Every field is optional on the way in, defaulting to the memberwise
+    /// value.
+    ///
+    /// Synthesized decoding would throw on a payload written before a field
+    /// existed, and one throwing override takes its whole binding — and, in the
+    /// old store decoder, every other binding with it. A rule set that predates
+    /// a field should gain that field's default, not erase the user's rules.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        capitalization = try container.decodeIfPresent(CapitalizationPolicy.self, forKey: .capitalization) ?? .inherit
+        terminalPunctuation = try container.decodeIfPresent(TerminalPunctuationPolicy.self, forKey: .terminalPunctuation) ?? .leaveAsIs
+        trailingSpace = try container.decodeIfPresent(TrailingSpacePolicy.self, forKey: .trailingSpace) ?? .inherit
+        spokenSymbols = try container.decodeIfPresent(SpokenSymbolTiers.self, forKey: .spokenSymbols) ?? .none
+        pathStitching = try container.decodeIfPresent(Bool.self, forKey: .pathStitching) ?? false
+        caseCommands = try container.decodeIfPresent(Bool.self, forKey: .caseCommands) ?? false
+        emphasisDialect = try container.decodeIfPresent(EmphasisDialect.self, forKey: .emphasisDialect) ?? .none
+        listMarkers = try container.decodeIfPresent(Bool.self, forKey: .listMarkers) ?? false
+        newlineCommands = try container.decodeIfPresent(Bool.self, forKey: .newlineCommands) ?? false
+        filler = try container.decodeIfPresent(FillerPolicy.self, forKey: .filler) ?? .keep
+    }
 }
 
 // MARK: - Style
 
-/// Built-in output styles. Users bind these to apps; `plain` is the fallback
-/// and is byte-for-byte identical to the pre-feature pipeline.
+/// Built-in output styles. Users bind these to apps; `plain` is the fallback.
+///
+/// `plain` is the lightest style, not a no-op: it adds Tier A symbol rules
+/// (spoken file extensions and explicit bracket commands) on top of the global
+/// Dictation settings. `WritingStyleRules.passthrough` — used when the feature
+/// is switched off — is the true pre-feature pipeline.
 enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     case plain
     case code
@@ -209,11 +242,11 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     var shortDescription: String {
         switch self {
         case .plain:
-            return "No shaping. Uses only the global Dictation settings."
+            return "Sentences as dictated, plus spoken filenames and brackets. Everything else follows the global Dictation settings."
         case .code:
-            return "Filenames, paths, and identifiers. No sentence case, no trailing period."
+            return "Filenames, paths, and identifiers. No sentence case, no trailing period, no trailing space."
         case .terminal:
-            return "Like Code, but never adds a trailing space that would break shell history."
+            return "Like Code, tuned for shells: nothing is appended that would end up in your history."
         case .chat:
             return "Sentence case, no forced punctuation, no code shaping."
         case .slack:
@@ -248,6 +281,7 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
             return WritingStyleRules(
                 capitalization: .off,
                 terminalPunctuation: .stripTrailingPeriod,
+                trailingSpace: .off,
                 spokenSymbols: .all,
                 pathStitching: true,
                 caseCommands: true,

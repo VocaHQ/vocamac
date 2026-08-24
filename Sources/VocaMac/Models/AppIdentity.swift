@@ -83,9 +83,12 @@ enum AppIdentityMatching {
     }
 
     /// Convert one `NSRunningApplication` into a snapshot, or `nil` when it is
-    /// VocaMac itself or has no usable name.
-    static func snapshot(for app: NSRunningApplication) -> RunningAppSnapshot? {
-        if app.bundleIdentifier == Bundle.main.bundleIdentifier {
+    /// VocaMac itself, has no usable name, or is missing.
+    static func snapshot(for app: NSRunningApplication?) -> RunningAppSnapshot? {
+        guard let app else { return nil }
+        // Compare only when we have an identifier of our own: in an unbundled
+        // dev build both sides are nil, which would hide every unbundled app.
+        if let ownBundleID = Bundle.main.bundleIdentifier, app.bundleIdentifier == ownBundleID {
             return nil
         }
         let display = app.localizedName ?? app.bundleIdentifier ?? app.executableURL?.lastPathComponent

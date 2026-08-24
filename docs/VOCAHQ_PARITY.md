@@ -135,8 +135,12 @@ Voice commands remain out of scope for now.
 
 ## 5.1 Writing styles (Mac-first)
 
-Per-app output shaping applied between transcription and injection. `plain` is
-byte-for-byte the pre-feature pipeline, so the feature is non-breaking.
+Per-app output shaping applied between transcription and injection.
+
+`plain` is the lightest style, not a no-op: on top of the global Dictation
+settings it applies Tier A symbol rules (spoken file extensions, explicit
+bracket commands). Switching the feature off uses `WritingStyleRules.passthrough`,
+which *is* byte-for-byte the pre-feature pipeline.
 
 | Preference | Default | Behavior |
 |------------|---------|----------|
@@ -145,14 +149,33 @@ byte-for-byte the pre-feature pipeline, so the feature is non-breaking.
 | `writingStyle.bindings` | seeded | Versioned JSON of app → style rules |
 
 **Resolution:** the frontmost app is read at injection time (`FrontmostAppResolver`),
-with a record-start snapshot as the fallback for when VocaMac's own window has
-focus. Matching reuses the auto-pause contract — bundle ID or normalized process
-name — via the shared `AppIdentityMatching`.
+with a record-start snapshot, then the last activated app, as fallbacks for when
+VocaMac's own window has focus. That last fallback is what the menu bar row
+depends on: `.menuBarExtraStyle(.window)` activates VocaMac, so while the
+popover is open the frontmost app *is* VocaMac. Matching reuses the auto-pause
+contract — bundle ID or normalized process name — via the shared
+`AppIdentityMatching`.
 
 **Symbol substitution** is tiered by confidence. Tier A is context-locked (known
-file extensions, spoken case commands, explicit bracket commands) and safe in
-prose. Tier B is heuristic (path slashes, identifier joiners) and enabled only
-for Code and Terminal. Saying "literally" before a word suppresses substitution.
+file extensions, spoken case commands, bracket commands that carry an explicit
+"open"/"close") and safe in prose. Tier B is heuristic (path slashes, identifier
+joiners) and enabled only for Code and Terminal.
+
+Saying "literally" before a **command word** suppresses that substitution
+("literally dot json"). In front of anything else it is left alone, because
+"literally" is an ordinary English adverb and silently deleting it from "I
+literally cannot" is a worse failure than a missed escape.
+
+Substitution preserves the case the engine produced — `Info.plist` and
+`README.md` are the names on disk — and a line where no rule fires is returned
+untouched, so ordinary dictation keeps its own spacing.
+
+**Ordering with snippets:** snippet expansion runs *before* styling, with each
+expansion masked as one `TextPlaceholder` scalar. Triggers are therefore matched
+against the raw transcript (a style that trims a leading "so" cannot break one),
+and the expansion — text the user authored — is never re-cased, re-punctuated,
+or reshaped by symbol rules. The style engine masks the identifiers it builds
+the same way, so sentence case cannot turn `readme.md` into `Readme.md`.
 
 Engines differ in what they emit for the same speech, so the transformer
 normalizes before matching. Whisper converts spoken symbols itself ("slash" →

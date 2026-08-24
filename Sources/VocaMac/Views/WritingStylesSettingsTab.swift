@@ -6,6 +6,7 @@
 
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 struct WritingStylesSettingsTab: View {
     @EnvironmentObject var appState: AppState
@@ -66,7 +67,20 @@ struct WritingStylesSettingsTab: View {
 
                 HStack {
                     Button("Choose Running App…") { showingAppPicker = true }
+                    Button("Choose Installed App…") { chooseInstalledApp() }
                     Button("Add Suggested Apps…") { addSuggestions() }
+                }
+
+                HStack {
+                    Button("Export Rules…") { exportRules() }
+                        .disabled(appState.writingStyleBindings.isEmpty)
+                    Button("Import Rules…") { importRules() }
+                    Spacer()
+                    Button("Remove All", role: .destructive) {
+                        appState.removeAllWritingStyleBindings()
+                        suggestionNotice = "Removed every app rule. All apps use the default style."
+                    }
+                    .disabled(appState.writingStyleBindings.isEmpty)
                 }
 
                 if let suggestionNotice {
@@ -79,9 +93,19 @@ struct WritingStylesSettingsTab: View {
             .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
             Section("Preview") {
-                Picker("Style", selection: $appState.settingsPreviewStyle) {
-                    ForEach(WritingStyle.allCases) { style in
-                        Text(style.displayName).tag(style)
+                Picker("Style", selection: previewTarget) {
+                    Section("Presets") {
+                        ForEach(WritingStyle.allCases) { style in
+                            Text(style.displayName).tag(PreviewTarget.preset(style))
+                        }
+                    }
+                    if !appState.writingStyleBindings.isEmpty {
+                        Section("Your App Rules") {
+                            ForEach(appState.writingStyleBindings) { binding in
+                                Text("\(binding.displayName) — \(binding.style.displayName)")
+                                    .tag(PreviewTarget.binding(binding.id))
+                            }
+                        }
                     }
                 }
 
@@ -133,7 +157,38 @@ struct WritingStylesSettingsTab: View {
     }
 
     private var previewResult: String {
-        appState.writingStylePreview(previewSample, style: appState.settingsPreviewStyle)
+        appState.writingStylePreview(previewSample, rules: appState.settingsPreviewRules)
+    }
+
+    /// What the preview is showing: a bare preset, or one saved app rule
+    /// including its overrides.
+    private enum PreviewTarget: Hashable {
+        case preset(WritingStyle)
+        case binding(String)
+    }
+
+    private var previewTarget: Binding<PreviewTarget> {
+        Binding(
+            get: {
+                if let id = appState.settingsPreviewBindingID,
+                   appState.writingStyleBindings.contains(where: { $0.id == id }) {
+                    return .binding(id)
+                }
+                return .preset(appState.settingsPreviewStyle)
+            },
+            set: { target in
+                switch target {
+                case .preset(let style):
+                    appState.settingsPreviewBindingID = nil
+                    appState.settingsPreviewStyle = style
+                case .binding(let id):
+                    appState.settingsPreviewBindingID = id
+                    if let binding = appState.writingStyleBindings.first(where: { $0.id == id }) {
+                        appState.settingsPreviewStyle = binding.style
+                    }
+                }
+            }
+        )
     }
 
     private func update(_ binding: AppStyleBinding, _ mutate: (inout AppStyleBinding) -> Void) {
@@ -141,6 +196,79 @@ struct WritingStylesSettingsTab: View {
         guard let index = bindings.firstIndex(where: { $0.id == binding.id }) else { return }
         mutate(&bindings[index])
         appState.writingStyleBindings = bindings
+    }
+
+    /// Bind an app that is installed but not running, picked from disk.
+    ///
+    /// The running-app list cannot offer an editor the user has quit, and
+    /// launching an app just to configure it is a silly thing to ask.
+    private func chooseInstalledApp() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose an Application"
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let bundle = Bundle(url: url)
+        let name = (bundle?.infoDictionary?["CFBundleName"] as? String)
+            ?? url.deletingPathExtension().lastPathComponent
+        let snapshot = RunningAppSnapshot(
+            displayName: name,
+            bundleIdentifier: bundle?.bundleIdentifier,
+            processName: (bundle?.infoDictionary?["CFBundleExecutable"] as? String)
+                ?? url.deletingPathExtension().lastPathComponent
+        )
+
+        var bindings = appState.writingStyleBindings
+        bindings.removeAll { $0.matches(snapshot) }
+        bindings.append(AppStyleBinding.from(snapshot: snapshot, style: .code))
+        appState.writingStyleBindings = bindings
+        suggestionNotice = "Added a rule for \(name). Edit it to change the style."
+    }
+
+    private func exportRules() {
+        let panel = NSSavePanel()
+        panel.title = "Export Writing Style Rules"
+        panel.nameFieldStringValue = "vocamac-writing-styles.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let json = WritingStyleBindingStore(bindings: appState.writingStyleBindings).encodedJSON()
+        do {
+            try json.write(to: url, atomically: true, encoding: .utf8)
+            suggestionNotice = "Exported \(appState.writingStyleBindings.count) rule(s)."
+        } catch {
+            suggestionNotice = "Could not write that file: \(error.localizedDescription)"
+        }
+    }
+
+    private func importRules() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Writing Style Rules"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        guard let json = try? String(contentsOf: url, encoding: .utf8) else {
+            suggestionNotice = "Could not read that file."
+            return
+        }
+        let imported = WritingStyleBindingStore.decode(json: json).bindings
+        guard !imported.isEmpty else {
+            suggestionNotice = "No readable rules in that file."
+            return
+        }
+
+        // Imported rules win over existing ones for the same app, the way
+        // re-binding does; everything else is left alone.
+        var bindings = appState.writingStyleBindings
+        for rule in imported {
+            bindings.removeAll { $0.id == rule.id }
+        }
+        appState.writingStyleBindings = bindings + imported
+        suggestionNotice = "Imported \(imported.count) rule(s)."
     }
 
     private func addSuggestions() {
@@ -338,12 +466,12 @@ struct WritingStyleRuleEditor: View {
 
                 Section("Code and Paths") {
                     Toggle("Spoken filenames and commands", isOn: tierBinding(.tierA))
-                    Text("Turns \"config dot json\" into config.json and honors \"open paren\". Safe in prose.")
+                    Text("Turns \"config dot json\" into config.json and honors \"open paren\" / \"close paren\". Safe in prose. Say \"literally\" before a command word — \"literally dot json\" — to keep it spoken.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     Toggle("Spoken paths and identifiers", isOn: tierBinding(.tierB))
-                    Text("Also joins \"src slash utils\" and \"max underscore retries\". More aggressive — best in editors and terminals. Say \"literally\" before a word to keep it spoken.")
+                    Text("Also joins \"src slash utils\" and \"max underscore retries\". More aggressive — best in editors and terminals.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 

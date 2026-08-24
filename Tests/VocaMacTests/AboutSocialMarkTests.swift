@@ -19,7 +19,7 @@ final class AboutSocialMarkTests: XCTestCase {
             XCTAssertTrue(text.contains("fill=\"currentColor\""), mark.rawValue)
             XCTAssertFalse(
                 text.localizedCaseInsensitiveContains("#0F6B57"),
-                "\(mark.rawValue).svg must keep currentColor; do not bake Settings teal into the file"
+                "\(mark.rawValue).svg must keep currentColor; macOS applies the control tint"
             )
             let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             XCTAssertEqual(digest, mark.expectedSHA256, mark.rawValue)

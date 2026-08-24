@@ -10,21 +10,13 @@ struct AboutTab: View {
     @State private var showingUpdateSheet = false
     @State private var updateInfoForSheet: UpdateInfo?
 
-    private static let familySites: [(host: String, url: URL)] = [
-        ("vocahq.com", URL(string: "https://vocahq.com")!),
-        ("vocalinux.com", URL(string: "https://vocalinux.com")!),
-        ("vocamac.com", URL(string: "https://vocamac.com")!),
-        ("vocaphone.vocahq.com", URL(string: "https://vocaphone.vocahq.com")!),
-        ("vocagateway.vocahq.com", URL(string: "https://vocagateway.vocahq.com")!),
-    ]
-
     var body: some View {
         Form {
             identitySection
             thisMacSection
             familySection
             talkToUsSection
-            creditSection
+            contributorsSection
         }
         .formStyle(.grouped)
         .sheet(isPresented: $showingUpdateSheet) {
@@ -116,36 +108,60 @@ struct AboutTab: View {
 
     private var familySection: some View {
         Section("Part of VocaHQ") {
-            Text("VocaMac is one of the VocaHQ apps (VocaLinux, VocaMac, VocaPhone, VocaGateway). VocaGateway is optional self-hosted compute, not on-device.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Link(destination: AboutLinks.headquarters) {
+                    BrandMarkView(size: 23)
+                        .frame(minWidth: 36, minHeight: 30)
+                }
+                .buttonStyle(.bordered)
+                .help("vocahq.com")
+                .accessibilityLabel("VocaHQ")
 
-            ForEach(Self.familySites, id: \.host) { site in
-                Link(site.host, destination: site.url)
+                ForEach(AboutFamilyProduct.all) { product in
+                    familyProductLink(product)
+                }
+                Spacer(minLength: 0)
             }
         }
     }
 
-    private var talkToUsSection: some View {
-        Section("Talk to us") {
-            Text("Bugs and ideas open a GitHub issue. Discord, X, and email are next to that.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            // Official marks from VocaDesign in VocaHQ/.github
-            // brand/vocahq/social @ 61c8eee. github.svg is for Report a bug
-            // only. Discord / X / Email hug their labels. Do not stretch.
-            Link(destination: AboutSocialMark.github.url) {
-                HStack(spacing: 6) {
-                    AboutSocialMarkImage(mark: .github, size: 16, tint: nil)
-                    Text(AboutSocialMark.github.visibleLabel)
+    private func familyProductLink(_ product: AboutFamilyProduct) -> some View {
+        Link(destination: product.url) {
+            HStack(spacing: 4) {
+                ForEach(product.marks) { mark in
+                    AboutPlatformMarkImage(
+                        mark: mark,
+                        size: product.marks.count > 1 ? 19 : 23
+                    )
+                }
+                if let systemImage = product.systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 21))
+                        .accessibilityHidden(true)
                 }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(BrandAssets.settingsTeal)
-            .help("Open GitHub issues")
+            .frame(
+                minWidth: product.marks.count > 1 ? 50 : 36,
+                minHeight: 30
+            )
+        }
+        .buttonStyle(.bordered)
+        .help(product.url.absoluteString)
+        .accessibilityLabel("\(product.title), \(product.platform)")
+    }
 
+    private var talkToUsSection: some View {
+        Section("Talk to us") {
             HStack(spacing: 8) {
+                Link(destination: AboutSocialMark.github.url) {
+                    HStack(spacing: 6) {
+                        AboutSocialMarkImage(mark: .github, size: 16)
+                        Text(AboutSocialMark.github.visibleLabel)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .help("Open GitHub issues")
+
                 ForEach(AboutSocialMark.talkRowMarks) { mark in
                     talkButton(mark)
                 }
@@ -156,27 +172,20 @@ struct AboutTab: View {
 
     private func talkButton(_ mark: AboutSocialMark) -> some View {
         Link(destination: mark.url) {
-            HStack(spacing: 6) {
-                AboutSocialMarkImage(mark: mark, size: 16)
-                Text(mark.visibleLabel)
-            }
-            .foregroundStyle(BrandAssets.settingsTeal)
+            AboutSocialMarkImage(mark: mark, size: mark == .discord ? 19 : 16)
+                .frame(width: 22, height: 20)
         }
         .buttonStyle(.bordered)
-        .tint(BrandAssets.settingsTeal)
-        .help(mark.url.absoluteString)
+        .help(mark.visibleLabel)
         .accessibilityLabel(mark.visibleLabel)
     }
 
-    private var creditSection: some View {
+    private var contributorsSection: some View {
         Section {
             HStack(spacing: 0) {
                 Text("Made with ❤️ by ")
                     .foregroundStyle(.tertiary)
-                Link(
-                    "Jatin Kumar Malik",
-                    destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!
-                )
+                Link("Our contributors", destination: AboutLinks.contributors)
             }
             .font(.caption2)
         }

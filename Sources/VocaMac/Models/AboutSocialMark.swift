@@ -15,7 +15,7 @@ import SwiftUI
 /// Files live in `Resources/social/` and are the exact SVG bytes from
 /// VocaHQ/.github `brand/vocahq/social`. On disk, `fill` stays
 /// `currentColor`. AppKit does not honor that, so drawing substitutes
-/// black in memory, rasters a template image, and tints it Settings teal.
+/// black in memory, rasters a template image, and lets macOS tint it.
 enum AboutSocialMark: String, CaseIterable, Identifiable {
     case github
     case discord
@@ -81,30 +81,17 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
         return String(text[range])
     }
 
-    /// Template image so Settings teal can tint the official mark.
+    /// Template image so the current macOS control style can tint the mark.
     ///
-    /// Loads the official bytes, swaps `currentColor` to `#000000` in
-    /// memory only, rasters that, and caches the result. If AppKit still
-    /// returns an empty image, rasters the official path `d` instead.
+    /// Rasters the official path directly and caches the result. This avoids
+    /// CoreSVG's inconsistent `currentColor` handling at small control sizes.
+    /// The full SVG remains a fallback if the path parser cannot load a mark.
     func templateImage() -> NSImage? {
         Self.cacheLock.lock()
         defer { Self.cacheLock.unlock() }
         if let cached = Self.imageCache[rawValue] {
             return cached
         }
-        guard let official = svgData(),
-              let svg = String(data: official, encoding: .utf8),
-              let drawable = svg.replacingOccurrences(of: "currentColor", with: "#000000").data(using: .utf8)
-        else {
-            return nil
-        }
-
-        if let image = Self.rasterizedTemplate(fromSVG: drawable), Self.hasVisiblePixels(image) {
-            image.isTemplate = true
-            Self.imageCache[rawValue] = image
-            return image
-        }
-
         if let d = officialPathData(),
            let image = Self.rasterizedTemplate(fromPath: d),
            Self.hasVisiblePixels(image) {
@@ -113,7 +100,17 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
             return image
         }
 
-        return nil
+        guard let official = svgData(),
+              let svg = String(data: official, encoding: .utf8),
+              let drawable = svg.replacingOccurrences(of: "currentColor", with: "#000000").data(using: .utf8),
+              let image = Self.rasterizedTemplate(fromSVG: drawable),
+              Self.hasVisiblePixels(image)
+        else {
+            return nil
+        }
+        image.isTemplate = true
+        Self.imageCache[rawValue] = image
+        return image
     }
 
     private static let cacheLock = NSLock()
@@ -202,25 +199,13 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
     }
 }
 
-/// Official VocaDesign mark, drawn at 16pt in a text button.
-///
-/// Talk-to-us icons tint with Settings teal `#0F6B57` through template
-/// rendering so they match About links. Pass `tint: nil` on a filled
-/// control so the button label color wins. Do not bake `#0F6B57` into
-/// the SVG files.
+/// Official VocaDesign mark, drawn as a macOS template image.
 struct AboutSocialMarkImage: View {
     let mark: AboutSocialMark
     var size: CGFloat = 16
-    var tint: Color? = BrandAssets.settingsTeal
 
     var body: some View {
-        Group {
-            if let tint {
-                markImage.foregroundStyle(tint)
-            } else {
-                markImage
-            }
-        }
+        markImage
     }
 
     @ViewBuilder
@@ -234,7 +219,7 @@ struct AboutSocialMarkImage: View {
                 .accessibilityHidden(true)
         } else if let d = mark.officialPathData() {
             OfficialSVGPathShape(d: d)
-                .fill(tint ?? Color.primary)
+                .fill(Color.primary)
                 .frame(width: size, height: size)
                 .accessibilityHidden(true)
         } else {

@@ -219,8 +219,8 @@ enum SettingsSearchIndex {
             id: "family",
             page: .about,
             title: "Part of VocaHQ",
-            subtitle: "VocaLinux, VocaMac, VocaPhone, VocaGateway",
-            keywords: ["family", "vocahq", "vocalinux", "vocamac", "vocaphone", "vocagateway"]
+            subtitle: "VocaLinux, VocaMac, VocaWin, VocaPhone, VocaGateway",
+            keywords: ["family", "vocahq", "vocalinux", "vocamac", "vocawin", "windows", "vocaphone", "vocagateway"]
         ),
         SettingsSearchEntry(
             id: "github-issues",

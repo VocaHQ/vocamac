@@ -76,10 +76,18 @@ enum AppIdentityMatching {
     }
 
     /// Snapshot the currently running applications, excluding VocaMac itself.
+    ///
+    /// Deduplicated: helper processes of one app can share a name and bundle
+    /// ID, and a list with two identical rows is both confusing in the picker
+    /// and ambiguous as a SwiftUI identity.
     static func workspaceRunningApps() -> [RunningAppSnapshot] {
-        NSWorkspace.shared.runningApplications.compactMap { app in
-            snapshot(for: app)
+        var seen = Set<RunningAppSnapshot>()
+        var result: [RunningAppSnapshot] = []
+        for app in NSWorkspace.shared.runningApplications {
+            guard let snapshot = snapshot(for: app), seen.insert(snapshot).inserted else { continue }
+            result.append(snapshot)
         }
+        return result
     }
 
     /// Convert one `NSRunningApplication` into a snapshot, or `nil` when it is

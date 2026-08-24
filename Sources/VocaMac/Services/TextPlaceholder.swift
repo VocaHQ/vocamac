@@ -100,13 +100,25 @@ struct MaskedText: Equatable {
 
         var result = ""
         result.reserveCapacity(formatted.count)
+        // A replacement that already ends in whitespace swallows the space a
+        // trailing-space rule appended after its mask: the rule skips text that
+        // ends in whitespace, and the mask is what hid that from it.
+        var swallowNextSpace = false
+
         for character in formatted {
             guard let index = TextPlaceholder.index(of: character, base: base),
                   index < replacements.count else {
+                if swallowNextSpace, character == " " {
+                    swallowNextSpace = false
+                    continue
+                }
+                swallowNextSpace = false
                 result.append(character)
                 continue
             }
-            result += replacements[index]
+            let replacement = replacements[index]
+            result += replacement
+            swallowNextSpace = replacement.last?.isWhitespace == true
         }
         return result
     }

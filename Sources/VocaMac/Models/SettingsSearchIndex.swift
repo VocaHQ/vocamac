@@ -93,6 +93,13 @@ enum SettingsSearchIndex {
             keywords: ["filename", "path", "dot", "slash", "camel case", "snake case", "identifier", "symbols"]
         ),
         SettingsSearchEntry(
+            id: "writing-style-rule-transfer",
+            page: .writingStyles,
+            title: "Export and Import Rules",
+            subtitle: "Move app rules between Macs",
+            keywords: ["export", "import", "backup", "share", "json", "transfer", "remove all"]
+        ),
+        SettingsSearchEntry(
             id: "writing-style-preview",
             page: .writingStyles,
             title: "Style Preview",

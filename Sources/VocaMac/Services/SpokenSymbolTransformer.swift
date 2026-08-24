@@ -88,6 +88,10 @@ enum SpokenSymbolTransformer {
 
     /// Bracket and quote commands. Each carries an explicit open/close word,
     /// which is what makes them safe: prose does not say "open paren".
+    ///
+    /// A solo "backtick" is deliberately not in this table. Programmers say the
+    /// word in prose ("wrap it in a backtick"), so it needs the same open/close
+    /// proof every other bracket carries.
     private static let bracketCommands: [[String]: BracketToken] = [
         ["open", "paren"]:        BracketToken(literal: "(", attaches: .toNext),
         ["open", "parenthesis"]:  BracketToken(literal: "(", attaches: .toNext),
@@ -101,18 +105,6 @@ enum SpokenSymbolTransformer {
         ["close", "angle"]:       BracketToken(literal: ">", attaches: .toPrevious),
         ["open", "backtick"]:     BracketToken(literal: "`", attaches: .toNext),
         ["close", "backtick"]:    BracketToken(literal: "`", attaches: .toPrevious)
-    ]
-
-    /// Words that only ever act as commands next to another word, never on
-    /// their own. "backtick" is deliberately absent from `bracketCommands` as a
-    /// solo entry: programmers say it in prose ("wrap it in a backtick"), so it
-    /// needs the same open/close proof every other bracket carries.
-    ///
-    /// Used to decide whether a spoken "literally" is an escape or just a word.
-    private static let escapableCommandWords: Set<String> = [
-        "dot", "slash", "underscore", "dash", "hyphen", "backtick", "forward",
-        "open", "close", "paren", "parenthesis", "bracket", "brace", "angle",
-        "camel", "pascal", "snake", "kebab", "screaming", "constant", "upper"
     ]
 
     /// Symbol words that end a case command's word run.
@@ -174,6 +166,11 @@ enum SpokenSymbolTransformer {
     /// One whitespace-delimited token plus the flags the passes need.
     private struct Token {
         var text: String
+        /// Index of the spoken word this token still *is*. Rules that rewrite
+        /// a token build a fresh one, so a `nil` origin means "a rule fired
+        /// here" — which is how the escape check knows whether saying
+        /// "literally" prevented anything.
+        var origin: Int? = nil
         /// Preceded by "literally" — never substitute using this token.
         var isProtected: Bool = false
         /// Produced by a substitution. Marks the line as identifier-ish, which
@@ -259,13 +256,43 @@ enum SpokenSymbolTransformer {
         caseCommandsEnabled: Bool,
         masks: inout [String]
     ) -> String {
-        var tokens = tokenize(line)
-        guard !tokens.isEmpty else { return line }
+        let words = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+        guard !words.isEmpty else { return line }
+
+        let escapes = escapeIndices(in: words)
+        let protecting = effectiveEscapes(
+            among: escapes,
+            in: words,
+            tiers: tiers,
+            pathStitching: pathStitching,
+            caseCommandsEnabled: caseCommandsEnabled
+        )
+        let tokens = runRules(
+            tokenize(words, droppingAt: protecting, protectingAt: protecting),
+            tiers: tiers,
+            pathStitching: pathStitching,
+            caseCommandsEnabled: caseCommandsEnabled
+        )
+
         // Whitespace between words is the user's, not ours: only re-render the
         // line when a rule actually fired, so untouched dictation keeps its
         // original spacing byte for byte.
-        let wordCount = line.split(separator: " ", omittingEmptySubsequences: true).count
-        let originalTokens = tokens.map(\.text)
+        let unchanged = tokens.count == words.count
+            && zip(tokens, words).allSatisfy { $0.text == $1 }
+            && !tokens.contains(where: { $0.glueLeft })
+        guard !unchanged else { return line }
+
+        return render(tokens, masks: &masks)
+    }
+
+    /// Run every enabled rule over a token list.
+    private static func runRules(
+        _ tokens: [Token],
+        tiers: SpokenSymbolTiers,
+        pathStitching: Bool,
+        caseCommandsEnabled: Bool
+    ) -> [Token] {
+        var tokens = tokens
 
         // Must run first: every rule below matches whole tokens, so a symbol
         // fused to its neighbour is invisible until it is separated.
@@ -283,58 +310,104 @@ enum SpokenSymbolTransformer {
             applyIdentifierDotRule(&tokens)
             applyJoinerRule(&tokens)
         }
+        return tokens
+    }
 
-        let unchanged = tokens.count == wordCount
-            && tokens.map(\.text) == originalTokens
-            && !tokens.contains(where: { $0.glueLeft })
-        guard !unchanged else { return line }
-
-        return render(tokens, masks: &masks)
+    /// Token text only, for comparing two runs of the same line.
+    private static func plainText(_ tokens: [Token]) -> String {
+        var result = ""
+        for (index, token) in tokens.enumerated() {
+            if index > 0 && !token.glueLeft { result += " " }
+            result += token.text
+        }
+        return result
     }
 
     // MARK: - Tokenizing
 
-    /// Split on whitespace and consume the "literally" escape hatch.
+    /// Positions of a spoken "literally" that could be an escape.
     ///
-    /// The escape is only honored in front of a word that would actually be
-    /// substituted. "literally" is an ordinary English adverb, and silently
-    /// deleting it from "I literally cannot" would be a far worse failure than
-    /// a missed escape.
-    private static func tokenize(_ line: String) -> [Token] {
-        let raw = line.split(separator: " ", omittingEmptySubsequences: true).map(String.init)
+    /// Whether one *is* an escape is decided by `effectiveEscapes`, not by a
+    /// word list: any list would have to include "open", "close", "go", "dash"
+    /// and "forward", all of which are ordinary English.
+    private static func escapeIndices(in words: [String]) -> [Int] {
+        words.indices.filter { index in
+            core(of: words[index]).lowercased() == "literally"
+                && index + 1 < words.count
+                && core(of: words[index + 1]).lowercased() != "literally"
+        }
+    }
+
+    /// Which candidates actually suppress a substitution.
+    ///
+    /// Answers the user's own question — "would this word have been rewritten
+    /// if I had not said it?" — from a single extra pass over the line with no
+    /// protection at all. A word that survives that pass unchanged had nothing
+    /// to be protected from, so its "literally" was the adverb, not a command.
+    ///
+    /// One pass, not one per candidate: an utterance can contain the word many
+    /// times, and re-running the line for each was quadratic.
+    private static func effectiveEscapes(
+        among candidates: [Int],
+        in words: [String],
+        tiers: SpokenSymbolTiers,
+        pathStitching: Bool,
+        caseCommandsEnabled: Bool
+    ) -> Set<Int> {
+        guard !candidates.isEmpty else { return [] }
+
+        // One baseline pass with every candidate dropped and nothing protected:
+        // the line as if the word had never been said. A word that comes
+        // through it untouched had nothing to be protected from.
+        let baseline = runRules(
+            tokenize(words, droppingAt: Set(candidates), protectingAt: []),
+            tiers: tiers,
+            pathStitching: pathStitching,
+            caseCommandsEnabled: caseCommandsEnabled
+        )
+
+        var survived: [Int: Token] = [:]
+        for token in baseline {
+            guard let origin = token.origin else { continue }
+            survived[origin] = token
+        }
+
+        return Set(
+            candidates.filter { candidate in
+                guard let token = survived[candidate + 1] else { return true }
+                return token.text != words[candidate + 1] || token.glueLeft
+            }
+        )
+    }
+
+    /// Build the token list for one line.
+    ///
+    /// - Parameters:
+    ///   - words: The whitespace-split line.
+    ///   - dropped: Positions of "literally" to leave out of the output.
+    ///   - protectingAt: The subset of those whose next word is protected
+    ///     from substitution. A position that is dropped but not protecting
+    ///     yields the control run: the line as if the word had never been said.
+    private static func tokenize(
+        _ words: [String],
+        droppingAt dropped: Set<Int>,
+        protectingAt protecting: Set<Int>
+    ) -> [Token] {
         var tokens: [Token] = []
         var protectNext = false
 
-        for (index, word) in raw.enumerated() {
-            if !protectNext,
-               core(of: word).lowercased() == "literally",
-               index + 1 < raw.count,
-               isEscapable(raw[index + 1]) {
-                protectNext = true
+        for (index, word) in words.enumerated() {
+            if dropped.contains(index) {
+                protectNext = protecting.contains(index)
                 continue
             }
             // A masked span (an already-expanded snippet) is user-authored
             // text, not dictation: never substitute inside it.
             let isMasked = TextPlaceholder.containsPlaceholder(word)
-            tokens.append(Token(text: word, isProtected: protectNext || isMasked))
+            tokens.append(Token(text: word, origin: index, isProtected: protectNext || isMasked))
             protectNext = false
         }
         return tokens
-    }
-
-    /// Whether a word is one the transformer might rewrite, and so one that
-    /// "literally" can meaningfully protect.
-    private static func isEscapable(_ word: String) -> Bool {
-        let lowered = core(of: word).lowercased()
-        guard !lowered.isEmpty else { return false }
-        if escapableCommandWords.contains(lowered) { return true }
-        if knownExtensions.contains(lowered) { return true }
-        // A symbol word an engine fused to the next word ("slashcomponents").
-        if !gluedSplitDenylist.contains(lowered),
-           gluedSymbolPrefixes.contains(where: { lowered.hasPrefix($0.word) && lowered.count > $0.word.count }) {
-            return true
-        }
-        return false
     }
 
     /// Reassemble tokens, honoring glue flags and masking substituted spans.
@@ -352,11 +425,13 @@ enum SpokenSymbolTransformer {
                 continue
             }
             let (core, suffix) = splitTrailingPunctuation(token.text)
-            guard !core.isEmpty,
+            guard core.contains(where: { $0.isLetter || $0.isNumber }),
                   let placeholder = TextPlaceholder.character(
                       at: masks.count,
                       base: TextPlaceholder.identifierBase
                   ) else {
+                // Punctuation-only output — a bracket literal — stays visible:
+                // masking it would hide the sentence start behind it.
                 result += token.text
                 continue
             }

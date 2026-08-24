@@ -161,10 +161,13 @@ file extensions, spoken case commands, bracket commands that carry an explicit
 "open"/"close") and safe in prose. Tier B is heuristic (path slashes, identifier
 joiners) and enabled only for Code and Terminal.
 
-Saying "literally" before a **command word** suppresses that substitution
-("literally dot json"). In front of anything else it is left alone, because
-"literally" is an ordinary English adverb and silently deleting it from "I
-literally cannot" is a worse failure than a missed escape.
+Saying "literally" before a word suppresses the substitution that word would
+otherwise have taken part in ("literally dot json"). Whether the word is
+consumed as a command is decided by re-running the line without it: if nothing
+would have been rewritten, "literally" stays in the text. No word list can make
+that call — it would have to contain "open", "close", "go", "dash" and
+"forward" — and silently deleting an ordinary adverb from "I literally cannot"
+is a worse failure than a missed escape.
 
 Substitution preserves the case the engine produced — `Info.plist` and
 `README.md` are the names on disk — and a line where no rule fires is returned

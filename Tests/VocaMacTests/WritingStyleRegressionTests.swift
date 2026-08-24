@@ -52,6 +52,51 @@ final class WritingStyleRegressionTests: XCTestCase {
         )
     }
 
+    func testLiterallySurvivesBeforeWordsThatAreAlsoCommands() {
+        // "open", "close", "go", "dash" and "forward" are command words in some
+        // context and ordinary English everywhere else. Whether the escape
+        // fires is decided by whether it prevents a substitution, not by a
+        // word list.
+        let prose = [
+            "I literally open the door",
+            "I literally close it now",
+            "we literally go there daily",
+            "she literally dash to the door",
+            "move literally forward now",
+            "it is literally upper management",
+            "a literally constant reminder",
+            "he was literally screaming loudly"
+        ]
+        for line in prose {
+            XCTAssertEqual(format(line, .code, capitalize: false), line)
+            XCTAssertEqual(format(line, .plain, capitalize: false), line)
+        }
+    }
+
+    func testEscapeStillFiresWhereItPreventsSomething() {
+        XCTAssertEqual(format("say config literally dot json", .code), "say config dot json")
+        XCTAssertEqual(format("config dot literally json", .code), "config dot json")
+        XCTAssertEqual(format("say literally camel case handle input", .code), "say camel case handle input")
+        XCTAssertEqual(format("say literally open paren now", .code), "say open paren now")
+    }
+
+    func testLiterallyWithNothingAfterItIsJustAWord() {
+        XCTAssertEqual(format("literally", .code, capitalize: false), "literally")
+        XCTAssertEqual(format("literally literally", .code, capitalize: false), "literally literally")
+    }
+
+    func testEscapeCheckingStaysLinear() {
+        // The per-candidate check used to re-run the whole line once per
+        // "literally", which took 13 seconds on a long utterance — on the main
+        // actor, mid-dictation. The bound is deliberately loose; it only has to
+        // catch a return to quadratic.
+        let line = Array(repeating: "config dot json literally slash open paren", count: 400)
+            .joined(separator: " ")
+        let start = Date()
+        _ = format(line, .code)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5.0)
+    }
+
     func testTrailingLiterallyIsNotSwallowed() {
         // Nothing follows it, so it cannot be an escape.
         XCTAssertEqual(format("that is true literally", .plain), "That is true literally")
@@ -147,6 +192,17 @@ final class WritingStyleRegressionTests: XCTestCase {
 
     func testBacktickInProseIsLeftAlone() {
         XCTAssertEqual(format("wrap it in a backtick", .plain), "Wrap it in a backtick")
+    }
+
+    // MARK: - Bracket literals are not opaque
+
+    func testSentenceCaseSurvivesALeadingBracket() {
+        // The bracket is punctuation, not an identifier: masking it would hide
+        // the start of the sentence from the capitalization pass.
+        XCTAssertEqual(
+            format("open paren value close paren is here", .plain),
+            "(Value) is here"
+        )
     }
 
     // MARK: - Code style leaves no trailing whitespace

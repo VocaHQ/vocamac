@@ -223,9 +223,13 @@ struct WritingStylesSettingsTab: View {
 
         var bindings = appState.writingStyleBindings
         bindings.removeAll { $0.matches(snapshot) }
-        bindings.append(AppStyleBinding.from(snapshot: snapshot, style: .code))
+        let binding = AppStyleBinding.from(snapshot: snapshot, style: .code)
+        bindings.append(binding)
         appState.writingStyleBindings = bindings
-        suggestionNotice = "Added a rule for \(name). Edit it to change the style."
+        suggestionNotice = "Added a rule for \(name)."
+        // Open the editor straight away: the panel could not ask which style
+        // the app should use, and Code is only a guess.
+        editingBinding = binding
     }
 
     private func exportRules() {
@@ -466,7 +470,7 @@ struct WritingStyleRuleEditor: View {
 
                 Section("Code and Paths") {
                     Toggle("Spoken filenames and commands", isOn: tierBinding(.tierA))
-                    Text("Turns \"config dot json\" into config.json and honors \"open paren\" / \"close paren\". Safe in prose. Say \"literally\" before a command word — \"literally dot json\" — to keep it spoken.")
+                    Text("Turns \"config dot json\" into config.json and honors \"open paren\" / \"close paren\". Safe in prose. Say \"literally\" before a word — \"literally dot json\" — to keep it spoken.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 

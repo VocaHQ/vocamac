@@ -144,6 +144,32 @@ final class SnippetWritingStyleInteractionTests: XCTestCase {
         XCTAssertEqual(pipeline("thanks for the update", style: .email), "Thanks for the update.")
     }
 
+    func testNoTrailingSpaceAfterAnExpansionThatEndsInOne() {
+        // The trailing-space rule skips text that already ends in whitespace.
+        // The mask is what hid that from it, so restoring has to put it back.
+        let snippets = [Snippet(trigger: "sig", expansion: "Jane Doe\nCEO\n")]
+        let masked = expander.expandMasked(in: "regards sig", using: snippets)
+        let styled = WritingStyleEngine.format(
+            masked.text,
+            style: .chat,
+            globalAutoCapitalize: true,
+            globalTrailingSpace: true
+        )
+        XCTAssertEqual(masked.restore(in: styled), "Regards Jane Doe\nCEO\n")
+    }
+
+    func testTrailingSpaceStillFollowsAnInlineExpansion() {
+        let snippets = [Snippet(trigger: "brb", expansion: "be right back")]
+        let masked = expander.expandMasked(in: "brb", using: snippets)
+        let styled = WritingStyleEngine.format(
+            masked.text,
+            style: .chat,
+            globalAutoCapitalize: true,
+            globalTrailingSpace: true
+        )
+        XCTAssertEqual(masked.restore(in: styled), "be right back ")
+    }
+
     func testTextWithoutTriggersIsUnchangedByMasking() {
         let masked = expander.expandMasked(in: "nothing to expand here", using: snippets)
         XCTAssertEqual(masked.text, "nothing to expand here")

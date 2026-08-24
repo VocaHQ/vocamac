@@ -27,6 +27,14 @@ enum BrandAssets {
 
     /// Brand green `#0F6B57`.
     static let brandGreen = NSColor(red: 0.059, green: 0.420, blue: 0.341, alpha: 1.0)
+
+    /// Settings / Talk-to-us teal `#0F6B57`. Tint template marks and About
+    /// links with this. Do not bake the hex into official SVG files.
+    static let settingsTeal = Color(
+        red: 15.0 / 255.0,
+        green: 107.0 / 255.0,
+        blue: 87.0 / 255.0
+    )
 }
 
 /// Which artwork the menu bar should show for a given app status.

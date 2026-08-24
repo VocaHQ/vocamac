@@ -116,6 +116,8 @@ struct SettingsView: View {
                 DictationSettingsPage()
             case .writingStyles:
                 WritingStylesSettingsTab()
+            case .snippets:
+                SnippetsSettingsTab()
             case .speechModel:
                 SpeechModelSettingsPage()
             case .audio:
@@ -415,6 +417,177 @@ struct ApplicationSettingsPage: View {
 struct SpeechModelSettingsPage: View {
     var body: some View {
         ModelSettingsTab(showsLanguageHints: true)
+    }
+}
+
+// MARK: - Snippets Settings
+
+struct SnippetsSettingsTab: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showingAddSnippet = false
+
+    var body: some View {
+        Form {
+            Section("Custom Snippets") {
+                Text("Speak the trigger phrase and VocaMac will replace it with the expansion text. Matching ignores case.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if appState.snippets.isEmpty {
+                    Text("No snippets yet. Use Add Snippet… to create one.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(appState.snippets) { snippet in
+                        SnippetRow(snippet: snippet)
+                    }
+                }
+
+                Button("Add Snippet…") {
+                    showingAddSnippet = true
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .sheet(isPresented: $showingAddSnippet) {
+            AddSnippetView(isPresented: $showingAddSnippet)
+        }
+    }
+}
+
+struct SnippetRow: View {
+    @EnvironmentObject var appState: AppState
+    let snippet: Snippet
+    @State private var isEditing = false
+    @State private var editedTrigger: String
+    @State private var editedExpansion: String
+
+    init(snippet: Snippet) {
+        self.snippet = snippet
+        _editedTrigger = State(initialValue: snippet.trigger)
+        _editedExpansion = State(initialValue: snippet.expansion)
+    }
+
+    private var isEditValid: Bool {
+        !editedTrigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !editedExpansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        if isEditing {
+            VStack(alignment: .leading, spacing: 8) {
+                TextField("Trigger", text: $editedTrigger, prompt: Text("e.g. My Mail"))
+                    .textFieldStyle(.roundedBorder)
+                TextField("Expansion", text: $editedExpansion, prompt: Text("e.g. me@example.com"))
+                    .textFieldStyle(.roundedBorder)
+
+                HStack {
+                    Spacer()
+                    Button("Cancel") {
+                        editedTrigger = snippet.trigger
+                        editedExpansion = snippet.expansion
+                        isEditing = false
+                    }
+                    Button("Save") {
+                        updateSnippet()
+                        isEditing = false
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isEditValid)
+                }
+            }
+            .padding(.vertical, 4)
+        } else {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(snippet.trigger)
+                    Text(snippet.expansion)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Button {
+                    editedTrigger = snippet.trigger
+                    editedExpansion = snippet.expansion
+                    isEditing = true
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .help("Edit Snippet")
+                .accessibilityLabel("Edit Snippet")
+
+                Button(role: .destructive) {
+                    appState.snippets.removeAll { $0.id == snippet.id }
+                } label: {
+                    Image(systemName: "minus.circle.fill")
+                }
+                .buttonStyle(.borderless)
+                .help("Remove Snippet")
+                .accessibilityLabel("Remove Snippet")
+            }
+        }
+    }
+
+    private func updateSnippet() {
+        if let index = appState.snippets.firstIndex(where: { $0.id == snippet.id }) {
+            // Trim the trigger for matching, but keep the expansion as entered —
+            // leading/trailing whitespace can be intentional formatting.
+            appState.snippets[index].trigger = editedTrigger.trimmingCharacters(in: .whitespacesAndNewlines)
+            appState.snippets[index].expansion = editedExpansion
+        }
+    }
+}
+
+struct AddSnippetView: View {
+    @EnvironmentObject var appState: AppState
+    @Binding var isPresented: Bool
+    @State private var trigger = ""
+    @State private var expansion = ""
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Add New Snippet")
+                .font(.headline)
+
+            Form {
+                TextField("Trigger Phrase", text: $trigger, prompt: Text("e.g. My Mail"))
+                TextField("Expansion Text", text: $expansion, prompt: Text("e.g. me@example.com"))
+            }
+            .formStyle(.grouped)
+            .frame(height: 120)
+
+            Text("VocaMac will listen for the trigger phrase and replace it with the expansion text.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            HStack {
+                Button("Cancel") {
+                    isPresented = false
+                }
+                .keyboardShortcut(.escape, modifiers: [])
+
+                Spacer()
+
+                Button("Add Snippet") {
+                    // Trim the trigger for matching, but keep the expansion as entered —
+                    // leading/trailing whitespace can be intentional formatting.
+                    let trimmedTrigger = trigger.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let newSnippet = Snippet(trigger: trimmedTrigger, expansion: expansion)
+                    appState.snippets.append(newSnippet)
+                    isPresented = false
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(trigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 400)
     }
 }
 
@@ -1294,176 +1467,6 @@ struct AudioSettingsTab: View {
     }
 }
 
-// MARK: - About Tab
-
-struct AboutTab: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showingUpdateSheet = false
-    @State private var updateInfoForSheet: UpdateInfo?
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                BrandLogoView(size: 64)
-
-                Text("VocaMac")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                Text("Your voice, your Mac, your privacy.\nOpen-source dictation powered by AI.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text("Version \(appVersionDisplay) (\(buildChannelLabel))")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-
-                Button {
-                    Task { @MainActor in
-                        await appState.updateChecker.checkForUpdates()
-                        switch appState.updateChecker.updateState {
-                        case .updateAvailable(let info), .updateAvailableViaHomebrew(let info, _):
-                            updateInfoForSheet = info
-                            showingUpdateSheet = true
-                        default:
-                            break
-                        }
-                    }
-                } label: {
-                    if case .checking = appState.updateChecker.updateState {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Checking for Updates...")
-                        }
-                        .font(.caption)
-                    } else {
-                        Label("Check for Updates...", systemImage: "arrow.triangle.2.circlepath")
-                            .font(.caption)
-                    }
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-
-                Text(updateStatusText)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-
-                Divider()
-                    .frame(width: 200)
-
-                GroupBox {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if let capabilities = appState.systemCapabilities {
-                            InfoRow2(label: "Device", value: capabilities.processorName)
-                            InfoRow2(label: "Architecture", value: capabilities.isAppleSilicon ? "Apple Silicon (ARM64)" : "Intel (x86_64)")
-                            InfoRow2(label: "Neural Engine", value: capabilities.supportsMetalAcceleration ? "Available" : "Not Available")
-                        }
-                        InfoRow2(label: "Engine", value: activeEngineLabel)
-                        InfoRow2(label: "Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
-                        InfoRow2(label: "Storage", value: appState.modelManager.diskUsageDescription())
-                    }
-                    .font(.caption)
-                    .padding(4)
-                }
-                .frame(maxWidth: 340)
-
-                Divider()
-                    .frame(width: 200)
-
-                HStack(spacing: 16) {
-                    Link(destination: URL(string: "https://vocamac.com")!) {
-                        Label("Website", systemImage: "globe")
-                    }
-                    Link(destination: URL(string: "https://github.com/VocaHQ/vocamac")!) {
-                        Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-                    }
-                    Link(destination: URL(string: "https://github.com/argmaxinc/WhisperKit")!) {
-                        Label("WhisperKit", systemImage: "waveform")
-                    }
-                }
-                .font(.caption)
-
-                Divider()
-                    .frame(width: 200)
-
-                Button {
-                    NotificationCenter.default.post(name: .showOnboarding, object: nil)
-                } label: {
-                    Label("Show Setup Wizard…", systemImage: "wand.and.stars")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.blue)
-                .help("Re-run the first-launch setup wizard")
-
-                HStack(spacing: 0) {
-                    Text("Made with ❤️ by ")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                    Link("Jatin Kumar Malik", destination: URL(string: "https://x.com/intent/user?screen_name=jatinkrmalik")!)
-                        .font(.caption2)
-                }
-                .padding(.top, 8)
-            }
-            .frame(maxWidth: 420)
-            .frame(maxWidth: .infinity)
-            .padding(24)
-        }
-        .sheet(isPresented: $showingUpdateSheet) {
-            if let info = updateInfoForSheet {
-                UpdateDetailView(info: info, isPresented: $showingUpdateSheet)
-                    .environmentObject(appState)
-            }
-        }
-    }
-
-    private var activeEngineLabel: String {
-        if let engine = appState.currentModel?.size.engine {
-            return engine.displayName
-        }
-        if let name = appState.whisperService.loadedModelName,
-           let size = appState.modelManager.modelSize(from: name) {
-            return size.engine.displayName
-        }
-        return "-"
-    }
-
-    private var appVersionDisplay: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Unknown"
-    }
-
-    private var buildChannelLabel: String {
-        appVersionDisplay.contains("nightly") ? "Nightly" : "Beta"
-    }
-
-    private var updateStatusText: String {
-        switch appState.updateChecker.updateState {
-        case .upToDate:
-            return "You are on the latest version."
-        case .updateAvailable(let info):
-            return "Update available: \(info.tagName)"
-        case .updateAvailableViaHomebrew(_, let install):
-            return "Update available via Homebrew. Run: \(install.upgradeCommand)"
-        case .error(let message):
-            return message
-        case .downloading(let progress, _, _, _):
-            return "Downloading update... \(Int(progress * 100))%"
-        case .verifying:
-            return "Verifying download integrity..."
-        case .readyToInstall:
-            return "Update downloaded. Open the DMG to install."
-        case .checking:
-            return "Checking for updates..."
-        case .idle:
-            return ""
-        }
-    }
-}
-
 // MARK: - Debug Tab
 
 struct DebugTab: View {
@@ -1719,18 +1722,3 @@ struct DebugTab: View {
     }
 }
 
-struct InfoRow2: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        HStack {
-            Text(label)
-                .foregroundStyle(.secondary)
-                .frame(width: 100, alignment: .trailing)
-            Text(value)
-                .fontWeight(.medium)
-            Spacer()
-        }
-    }
-}

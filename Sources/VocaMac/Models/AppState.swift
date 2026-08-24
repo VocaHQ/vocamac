@@ -231,6 +231,9 @@ final class AppState: ObservableObject {
         selectedAudioDeviceName = device?.name ?? ""
     }
 
+    /// Custom text snippets for expansion
+    @Published var snippets: [Snippet] = []
+
     // MARK: - Services
 
     let audioEngine: AudioRecording
@@ -241,6 +244,7 @@ final class AppState: ObservableObject {
     let soundManager: SoundPlaying
     let cursorOverlay: CursorOverlayManaging
     let statsManager: StatsManaging
+    let snippetExpander: SnippetExpanding
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
@@ -323,6 +327,7 @@ final class AppState: ObservableObject {
         soundManager: SoundPlaying = SoundManager(),
         cursorOverlay: CursorOverlayManaging,
         statsManager: StatsManaging,
+        snippetExpander: SnippetExpanding = SnippetExpander(),
         permissionManager: (any PermissionManaging)? = nil,
         frontmostAppResolver: FrontmostAppResolving = FrontmostAppResolver(),
         skipSystemIntegration: Bool = false
@@ -336,10 +341,12 @@ final class AppState: ObservableObject {
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
         self.frontmostAppResolver = frontmostAppResolver
+        self.snippetExpander = snippetExpander
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
 
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
+        loadSnippets()
         if !skipSystemIntegration {
             syncLaunchAtLogin()
         }
@@ -570,6 +577,16 @@ final class AppState: ObservableObject {
         // Forward PermissionManager state changes to trigger SwiftUI updates
         permissionManager.objectWillChangePublisher
             .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+
+        // Auto-save snippets when changed. @Published emits on willSet, so
+        // persist the emitted array — reading self.snippets here would save
+        // the previous state and leave the latest change unsaved.
+        $snippets
+            .dropFirst()  // skip the subscription replay of the just-loaded value
+            .sink { [weak self] snippets in
+                self?.saveSnippets(snippets)
+            }
             .store(in: &cancellables)
 
         // Check permissions
@@ -1174,12 +1191,19 @@ final class AppState: ObservableObject {
                     let resolved = resolveWritingStyle(for: target)
                     activeWritingStyle = resolved
 
-                    let polished = WritingStyleEngine.format(
+                    // Style first, expand second. Snippet expansions are
+                    // literal text the user authored, so the style's
+                    // auto-capitalization must not rewrite them (an email
+                    // snippet would become Me@example.com). Trigger matching is
+                    // case-insensitive, so styling the trigger beforehand still
+                    // matches.
+                    let styled = WritingStyleEngine.format(
                         trimmedText,
                         rules: resolved.rules,
                         globalAutoCapitalize: autoCapitalize,
                         globalTrailingSpace: appendTrailingSpace
                     )
+                    let polished = expandSnippets(in: styled)
                     VocaLogger.debug(
                         .appState,
                         "Writing style '\(resolved.style.rawValue)' applied for \(resolved.matchedAppName ?? "default")"
@@ -1192,12 +1216,13 @@ final class AppState: ObservableObject {
                     // Settings Test Dictation: the frontmost app is VocaMac's
                     // own window, so preview against the style the user picked
                     // in Settings instead of resolving from the workspace.
-                    settingsTestResultText = WritingStyleEngine.format(
+                    let styled = WritingStyleEngine.format(
                         trimmedText,
                         rules: settingsPreviewStyle.defaultRules,
                         globalAutoCapitalize: autoCapitalize,
                         globalTrailingSpace: appendTrailingSpace
                     )
+                    settingsTestResultText = expandSnippets(in: styled)
                 }
             } else {
                 VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")
@@ -1737,5 +1762,34 @@ final class AppState: ObservableObject {
         }
         hasCompletedOnboarding = true
         VocaLogger.info(.appState, "Onboarding completed")
+    }
+
+    // MARK: - Snippets Management
+
+    private func loadSnippets() {
+        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets") {
+            do {
+                snippets = try JSONDecoder().decode([Snippet].self, from: data)
+            } catch {
+                VocaLogger.error(.appState, "Failed to decode snippets: \(error)")
+            }
+        }
+    }
+
+    func saveSnippets() {
+        saveSnippets(snippets)
+    }
+
+    private func saveSnippets(_ snippets: [Snippet]) {
+        do {
+            let encoded = try JSONEncoder().encode(snippets)
+            UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")
+        } catch {
+            VocaLogger.error(.appState, "Failed to encode snippets: \(error)")
+        }
+    }
+
+    func expandSnippets(in text: String) -> String {
+        return snippetExpander.expand(in: text, using: snippets)
     }
 }

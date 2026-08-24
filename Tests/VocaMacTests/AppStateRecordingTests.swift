@@ -230,6 +230,33 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .idle)
     }
 
+    func testSnippetExpansionIsNotRewrittenByAutoCapitalize() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "my mail is the one to use",
+            duration: 1.0,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1.0,
+            modelUsed: .tiny
+        )
+        appState.snippets = [Snippet(trigger: "my mail", expansion: "me@example.com")]
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = true
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        await appState.stopRecordingAndTranscribe()
+
+        // Polishing runs before expansion, so the literal expansion survives
+        // verbatim even when the trigger sits at the start of a sentence.
+        // Expanding first would have produced "Me@example.com is the one to use".
+        XCTAssertEqual(
+            mocks.textInjector.lastInjectedText,
+            "me@example.com is the one to use"
+        )
+    }
+
     func testSettingsTestDictationDoesNotInject() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)

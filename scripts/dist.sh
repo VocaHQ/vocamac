@@ -83,12 +83,39 @@ cp -R VocaMac.app "$STAGING_DIR/"
 # Applications symlink
 ln -sf /Applications "$STAGING_DIR/Applications"
 
+# Finder uses PNG density to convert the DMG background from pixels to points.
+# If a raster editor drops these files to 72 DPI, the artwork renders at 2×
+# while the Finder icons stay correctly positioned on the 660 × 520 window.
+validate_dmg_background() {
+    local path="$1"
+    local expected_width="$2"
+    local expected_height="$3"
+    local metadata pixel_width pixel_height dpi_width dpi_height
+
+    metadata="$(sips -g pixelWidth -g pixelHeight -g dpiWidth -g dpiHeight "$path")"
+    pixel_width="$(echo "$metadata" | awk '/pixelWidth:/ { print $2 }')"
+    pixel_height="$(echo "$metadata" | awk '/pixelHeight:/ { print $2 }')"
+    dpi_width="$(echo "$metadata" | awk '/dpiWidth:/ { print $2 }')"
+    dpi_height="$(echo "$metadata" | awk '/dpiHeight:/ { print $2 }')"
+
+    if [ "$pixel_width" != "$expected_width" ] ||
+       [ "$pixel_height" != "$expected_height" ] ||
+       [ "$dpi_width" != "144.000" ] ||
+       [ "$dpi_height" != "144.000" ]; then
+        echo "❌ Invalid DMG background metadata: $path" >&2
+        echo "   Expected ${expected_width}×${expected_height} at 144 DPI; got ${pixel_width}×${pixel_height} at ${dpi_width}×${dpi_height} DPI." >&2
+        exit 1
+    fi
+}
+
 # Copy branded background (hidden folder — standard DMG convention)
 mkdir -p "$STAGING_DIR/.background"
 if [ -f "Sources/VocaMac/Resources/dmg-background.png" ]; then
+    validate_dmg_background "Sources/VocaMac/Resources/dmg-background.png" 1320 1040
     cp "Sources/VocaMac/Resources/dmg-background.png"    "$STAGING_DIR/.background/background.png"
 fi
 if [ -f "Sources/VocaMac/Resources/dmg-background@2x.png" ]; then
+    validate_dmg_background "Sources/VocaMac/Resources/dmg-background@2x.png" 2640 2080
     cp "Sources/VocaMac/Resources/dmg-background@2x.png" "$STAGING_DIR/.background/background@2x.png"
 fi
 

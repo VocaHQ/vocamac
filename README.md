@@ -4,7 +4,7 @@
 
 <h1 align="center">VocaMac</h1>
 
-<p align="center"><strong>Your voice, your Mac, your privacy. Open-source dictation powered by AI.</strong></p>
+<p align="center"><strong>Your voice, your Mac, your privacy. Open-source, on-device dictation.</strong></p>
 
 <div align="center">
   
@@ -17,25 +17,24 @@
 
 [![Speech engines](https://img.shields.io/badge/Speech%20engines-Whisper%20%7C%20Parakeet%20%7C%20Apple%20Speech%20%7C%20ONNX-6C5CE7.svg)](#-models)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-Optimized-black.svg?logo=apple&logoColor=white)](https://github.com/VocaHQ/vocamac)
-[![Privacy](https://img.shields.io/badge/Privacy-100%25%20Local-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
-[![Works Offline](https://img.shields.io/badge/Works-Offline-success.svg)](https://github.com/VocaHQ/vocamac)
+[![Privacy](https://img.shields.io/badge/Privacy-on--device%20after%20model%20download-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
 
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/VocaHQ/vocamac/pulls)
 [![GitHub Issues](https://img.shields.io/github/issues/VocaHQ/vocamac)](https://github.com/VocaHQ/vocamac/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/VocaHQ/vocamac?style=social)](https://github.com/VocaHQ/vocamac/stargazers)
-[![Twitter Follow](https://img.shields.io/twitter/follow/vocahq?style=social)](https://x.com/vocahq)
+[![Follow on X](https://img.shields.io/badge/Follow%20%40vocahq-000000?style=flat&logo=x&logoColor=white)](https://x.com/vocahq)
 [![Discord](https://img.shields.io/discord/1538633755877580810?logo=discord&logoColor=white&label=Discord)](https://discord.gg/t6muquAJbm)
 [![VocaHQ](https://img.shields.io/badge/VocaHQ-vocahq.com-1a7f4e)](https://vocahq.com)
 
 </div>
 
-<p align="center">Speak. It types. 100% offline, open-source voice-to-text for macOS. Choose from local Whisper, Parakeet, Apple Speech, and specialized ONNX models. No cloud, no subscriptions, and no dictation audio leaves your device. Hold a hotkey, speak, and your words appear wherever your cursor is.</p>
+<p align="center">Speak. It types. Open-source, on-device voice-to-text for macOS. Choose from local Whisper, Parakeet, Apple Speech, and specialized ONNX models. After the model is downloaded, dictation audio stays on your Mac. The Tiny Whisper model ships bundled; larger models need a one-time download. No cloud speech service, no subscriptions, and no required Voca account. Hold a hotkey, speak, and your words appear wherever your cursor is.</p>
 
 ---
 
 ## ✨ Features
 
-- **🔒 100% Local** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline.
+- **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
 - **👆 Double-Tap Toggle** - Double-tap the hotkey to start/stop recording.
@@ -550,17 +549,17 @@ After one successful check, VocaMac caches the response's `ETag` and sends it as
 
 ## 🌐 Cross-Platform
 
-VocaMac is the macOS member of the Voca family:
+VocaMac is the macOS member of the Voca family. Start at [vocahq.com](https://vocahq.com) for the map.
 
-| Platform | Project | Status |
-|----------|---------|--------|
-|  Linux | [VocaLinux](https://github.com/VocaHQ/vocalinux) | ✅ Available |
-|  macOS | [VocaMac](https://github.com/VocaHQ/vocamac) | 🚀 Beta |
-| 🪟 Windows | [VocaWin](https://vocawin.com) | 📋 Planned |
-| 📱 Phone | [VocaPhone](https://vocaphone.vocahq.com) | Android beta / iOS source build |
-| 🔌 Gateway | [VocaGateway](https://github.com/VocaHQ/vocagateway) | Early |
+| Platform | Project | Website | GitHub | Status |
+|----------|---------|---------|--------|--------|
+| Linux | **VocaLinux** | [vocalinux.com](https://vocalinux.com) | [VocaHQ/vocalinux](https://github.com/VocaHQ/vocalinux) | Available now (`v0.16.0`) |
+| macOS | **VocaMac** | [vocamac.com](https://vocamac.com) | [VocaHQ/vocamac](https://github.com/VocaHQ/vocamac) | Beta (`v0.9.0`) |
+| Windows | **VocaWin** | [vocawin.com](https://vocawin.com) | [VocaHQ/vocawin](https://github.com/VocaHQ/vocawin) | Beta — unsigned `v0.1.0-beta.1` |
+| Phone | **VocaPhone** | [vocaphone.vocahq.com](https://vocaphone.vocahq.com) | [VocaHQ/vocaphone](https://github.com/VocaHQ/vocaphone) | Android beta / iOS [TestFlight](https://testflight.apple.com/join/wd85wQ3W) |
+| Gateway | **VocaGateway** | [vocagateway.vocahq.com](https://vocagateway.vocahq.com) | [VocaHQ/vocagateway](https://github.com/VocaHQ/vocagateway) | Early, optional, not on-device |
 
-Each platform uses native technologies for the best possible integration, while sharing the same UX patterns and Whisper model family.
+Each platform uses native technologies for the best possible integration, while sharing the same UX patterns. VocaGateway is optional self-hosted compute; do not treat that path as on-device.
 
 ---
 
@@ -615,7 +614,7 @@ AGPL-3.0 License - see [LICENSE](LICENSE) for details.
   
 Made with ❤️ for the macOS community!
 
-Join [Discord](https://discord.gg/t6muquAJbm) to talk with us, or follow
-[@vocahq](https://x.com/vocahq) on X.
+Join [Discord](https://discord.gg/t6muquAJbm) to talk with us, follow
+[@vocahq](https://x.com/vocahq) on X, or email [hello@vocahq.com](mailto:hello@vocahq.com).
 
 </div>

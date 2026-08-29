@@ -39,7 +39,7 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
         case .github:
             return URL(string: "https://github.com/VocaHQ/vocamac/issues")!
         case .discord:
-            return URL(string: "https://discord.gg/UMJduhcqn")!
+            return URL(string: "https://discord.gg/t6muquAJbm")!
         case .x:
             return URL(string: "https://x.com/vocahq")!
         case .mail:

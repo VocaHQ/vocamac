@@ -120,6 +120,12 @@ final class SnippetWritingStyleInteractionTests: XCTestCase {
         XCTAssertEqual(masked.restore(in: masked.text), expander.expand(in: "hello sig", using: snippets))
     }
 
+    func testExpansionEndingInWhitespaceKeepsOneFollowingSeparator() {
+        let snippets = [Snippet(trigger: "sign", expansion: "Kind regards, ")]
+        let masked = expander.expandMasked(in: "sign Jane", using: snippets)
+        XCTAssertEqual(masked.restore(in: masked.text), "Kind regards, Jane")
+    }
+
     func testTriggerSurvivesAStyleThatTrimsLeadingFiller() {
         // Code style trims a leading "so", which used to eat the trigger's own
         // first word before the expander ever saw it.

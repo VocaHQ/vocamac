@@ -137,10 +137,9 @@ Voice commands remain out of scope for now.
 
 Per-app output shaping applied between transcription and injection.
 
-`plain` is the lightest style, not a no-op: on top of the global Dictation
-settings it applies Tier A symbol rules (spoken file extensions, explicit
-bracket commands). Switching the feature off uses `WritingStyleRules.passthrough`,
-which *is* byte-for-byte the pre-feature pipeline.
+`plain` performs no additional shaping: it follows the global Dictation
+settings and is byte-for-byte the pre-feature pipeline. Switching the feature
+off resolves to the same formatting rules while disabling per-app selection.
 
 | Preference | Default | Behavior |
 |------------|---------|----------|

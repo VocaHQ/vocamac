@@ -140,11 +140,20 @@ enum DictationOutputFormatter {
     /// bracket, and text ending in a masked snippet expansion — a signature
     /// block ends the way the user wrote it, not with a bolted-on period.
     static func ensureTerminalPeriod(_ text: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        // Structural voice commands may leave one or more trailing newlines.
+        // Punctuate the final content before them, then put the exact line
+        // ending back instead of producing `content\n.`.
+        let contentEnd = text.lastIndex(where: { $0 != "\n" && $0 != "\r" })
+            .map { text.index(after: $0) }
+            ?? text.startIndex
+        let trailingNewlines = text[contentEnd...]
+        let trimmed = text[..<contentEnd].trimmingCharacters(in: .whitespaces)
         guard let last = trimmed.last else { return text }
         guard !TextPlaceholder.isPlaceholder(last) else { return text }
-        guard !".!?:;)]}\"'".contains(last) else { return text }
-        return trimmed + "."
+        guard !".!?:;)]}\"'".contains(last) else {
+            return trimmed + trailingNewlines
+        }
+        return trimmed + "." + trailingNewlines
     }
 
     /// Apply capitalization and/or trailing-space polish in that order.

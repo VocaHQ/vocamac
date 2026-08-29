@@ -129,6 +129,16 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.writingStyleDefault) var writingStyleDefault: WritingStyle = .plain
     @AppStorage(PreferenceKey.writingStyleCatalogSeeded) private var writingStyleCatalogSeeded: Bool = false
 
+    /// In-memory guard for the asynchronous first-run catalog lookup. The
+    /// persisted marker is written only after the lookup completes so an app
+    /// termination during discovery retries safely on the next launch.
+    private var isWritingStyleCatalogSeedInFlight = false
+
+    /// Changes whenever this instance writes the bindings payload. The seed
+    /// captures it before leaving the main actor so a delayed result cannot
+    /// undo an Add, Remove, or Remove All action made while discovery runs.
+    private(set) var writingStyleBindingsRevision: UInt64 = 0
+
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
         get { UserDefaults.standard.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
@@ -158,7 +168,10 @@ final class AppState: ObservableObject {
     /// JSON-encoded `WritingStyleBindingStore` (complex value not stored via `@AppStorage`).
     var writingStyleBindingsJSON: String {
         get { UserDefaults.standard.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings) }
+        set {
+            UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings)
+            writingStyleBindingsRevision &+= 1
+        }
     }
 
     /// Last decode of `writingStyleBindingsJSON`, keyed by the JSON it came
@@ -991,17 +1004,47 @@ final class AppState: ObservableObject {
     /// per catalog entry, so they run off the launch path — a menu bar app must
     /// not stall its first paint on a few dozen disk-backed queries.
     func seedWritingStyleCatalogIfNeeded() {
-        guard !writingStyleCatalogSeeded else { return }
-        // Claim the marker on the main actor before detaching, so a second
-        // call cannot start a duplicate seed.
-        writingStyleCatalogSeeded = true
+        guard let context = beginWritingStyleCatalogSeedIfNeeded() else { return }
 
         let running = AppIdentityMatching.workspaceRunningApps()
         Task.detached(priority: .utility) { [weak self] in
             let suggestions = WritingStyleCatalog.suggestionsForInstalledApps(running: running)
             guard let self else { return }
-            await self.applyWritingStyleSeed(suggestions)
+            await self.completeWritingStyleCatalogSeed(
+                suggestions,
+                bindingsRevisionAtStart: context.bindingsRevision,
+                bindingsJSONAtStart: context.bindingsJSON
+            )
         }
+    }
+
+    /// Claim the in-memory seed slot without claiming the persisted marker.
+    /// Split out to keep the launch lifecycle deterministic under test.
+    func beginWritingStyleCatalogSeedIfNeeded() -> (bindingsRevision: UInt64, bindingsJSON: String)? {
+        guard !writingStyleCatalogSeeded, !isWritingStyleCatalogSeedInFlight else { return nil }
+        isWritingStyleCatalogSeedInFlight = true
+        return (writingStyleBindingsRevision, writingStyleBindingsJSON)
+    }
+
+    /// Finish first-run discovery on the main actor. If bindings changed while
+    /// LaunchServices was queried, preserve the user's newer state and merely
+    /// complete the one-shot seed lifecycle.
+    func completeWritingStyleCatalogSeed(
+        _ suggestions: [WritingStyleCatalog.Suggestion],
+        bindingsRevisionAtStart: UInt64,
+        bindingsJSONAtStart: String
+    ) {
+        defer {
+            isWritingStyleCatalogSeedInFlight = false
+            writingStyleCatalogSeeded = true
+        }
+
+        guard writingStyleBindingsRevision == bindingsRevisionAtStart,
+              writingStyleBindingsJSON == bindingsJSONAtStart else {
+            VocaLogger.info(.appState, "Skipped writing style seed because bindings changed during discovery")
+            return
+        }
+        applyWritingStyleSeed(suggestions)
     }
 
     /// Merge a computed seed into the binding list. Split out so tests can

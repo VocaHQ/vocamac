@@ -209,10 +209,8 @@ struct WritingStyleRules: Codable, Hashable {
 
 /// Built-in output styles. Users bind these to apps; `plain` is the fallback.
 ///
-/// `plain` is the lightest style, not a no-op: it adds Tier A symbol rules
-/// (spoken file extensions and explicit bracket commands) on top of the global
-/// Dictation settings. `WritingStyleRules.passthrough` — used when the feature
-/// is switched off — is the true pre-feature pipeline.
+/// `plain` preserves the pre-writing-styles pipeline: it follows the global
+/// Dictation settings and performs no additional shaping.
 enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     case plain
     case code
@@ -242,7 +240,7 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     var shortDescription: String {
         switch self {
         case .plain:
-            return "Sentences as dictated, plus spoken filenames and brackets. Everything else follows the global Dictation settings."
+            return "No additional shaping. Follows the global Dictation settings."
         case .code:
             return "Filenames, paths, and identifiers. No sentence case, no trailing period, no trailing space."
         case .terminal:
@@ -274,9 +272,7 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     var defaultRules: WritingStyleRules {
         switch self {
         case .plain:
-            return WritingStyleRules(
-                spokenSymbols: .tierA
-            )
+            return .passthrough
         case .code:
             return WritingStyleRules(
                 capitalization: .off,

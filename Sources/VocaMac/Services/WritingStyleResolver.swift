@@ -20,8 +20,9 @@ struct ResolvedWritingStyle: Equatable {
         matchedAppName: nil
     )
 
-    /// Passthrough used when the feature is switched off. Distinct from
-    /// `plain` because it must not apply even Tier A symbol rules.
+    /// Passthrough used when the feature is switched off. It intentionally
+    /// matches Plain's formatting contract while retaining disabled state for
+    /// resolution and UI reporting.
     static let disabled = ResolvedWritingStyle(
         style: .plain,
         rules: .passthrough,

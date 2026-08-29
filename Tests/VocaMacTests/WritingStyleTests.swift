@@ -35,6 +35,7 @@ final class WritingStyleTests: XCTestCase {
         XCTAssertEqual(rules.capitalization, .inherit)
         XCTAssertEqual(rules.trailingSpace, .inherit)
         XCTAssertEqual(rules.terminalPunctuation, .leaveAsIs)
+        XCTAssertEqual(rules, .passthrough)
     }
 
     func testTerminalNeverAddsTrailingSpace() {
@@ -237,6 +238,14 @@ final class WritingStyleResolverTests: XCTestCase {
 // MARK: - Catalog
 
 final class WritingStyleCatalogTests: XCTestCase {
+
+    func testCatalogIncludesCurrentChatGPTBundleIdentifier() {
+        XCTAssertTrue(
+            WritingStyleCatalog.chat.contains {
+                $0.bundleIdentifier == "com.openai.codex" && $0.style == .chat
+            }
+        )
+    }
 
     func testNoDuplicateIdentifiers() {
         let ids = WritingStyleCatalog.suggestions.map(\.id)

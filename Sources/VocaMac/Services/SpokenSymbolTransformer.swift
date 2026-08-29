@@ -374,6 +374,16 @@ enum SpokenSymbolTransformer {
 
         return Set(
             candidates.filter { candidate in
+                // Inserting the escape between the two words of `forward
+                // slash` protects that command even when an earlier path has
+                // already been completed and no longer supplies local context
+                // in the baseline pass.
+                if tiers.contains(.tierB), pathStitching,
+                   candidate > 0,
+                   core(of: words[candidate - 1]).lowercased() == "forward",
+                   core(of: words[candidate + 1]).lowercased() == "slash" {
+                    return true
+                }
                 guard let token = survived[candidate + 1] else { return true }
                 return token.text != words[candidate + 1] || token.glueLeft
             }
@@ -467,8 +477,17 @@ enum SpokenSymbolTransformer {
         return text.allSatisfy { $0.isLetter || $0.isNumber }
     }
 
-    private static func lineHasIdentifierSignal(_ tokens: [Token]) -> Bool {
-        tokens.contains { $0.isIdentifier }
+    /// Whether this token itself is strong evidence that an adjacent spoken
+    /// joiner belongs to an identifier. Keeping this local is important: a
+    /// filename near the start of an utterance must not turn unrelated prose
+    /// near the end into code.
+    private static func hasIdentifierSignal(_ token: Token) -> Bool {
+        if token.isIdentifier { return true }
+        let text = core(of: token.text)
+        return text.contains("/")
+            || text.contains("_")
+            || text.contains(".")
+            || text.dropFirst().contains(where: \Character.isUppercase)
     }
 
     // MARK: - Glued symbol words
@@ -543,16 +562,22 @@ enum SpokenSymbolTransformer {
     /// Whether the line carries enough evidence to risk a Tier B glued split.
     private static func gluedSplitIsCorroborated(_ tokens: [Token]) -> Bool {
         var occurrences = 0
-        for token in tokens where !token.isProtected {
+        for (index, token) in tokens.enumerated() where !token.isProtected {
             let lowered = core(of: token.text).lowercased()
             if gluedSymbolPrefixes.contains(where: { $0.word == lowered }) {
                 occurrences += 1
             } else if !gluedSplitDenylist.contains(lowered),
                       gluedSymbolPrefixes.contains(where: { lowered.hasPrefix($0.word) && lowered.count > $0.word.count }) {
                 occurrences += 1
-            }
-            if pathCues.contains(lowered) {
-                return true
+                // A path cue corroborates only a nearby fused symbol. A cue
+                // later in ordinary prose ("slashfiction in class") is not
+                // evidence for the earlier token.
+                let contextStart = max(index - 2, 0)
+                if tokens[contextStart..<index].contains(where: {
+                    pathCues.contains(core(of: $0.text).lowercased())
+                }) {
+                    return true
+                }
             }
         }
         return occurrences >= 2
@@ -725,22 +750,18 @@ enum SpokenSymbolTransformer {
     /// like it is about a path.
     private static func applySlashRule(_ tokens: inout [Token], pathStitching: Bool) {
         guard pathStitching else { return }
-        guard slashRuleApplies(tokens) else { return }
 
         var index = 0
         while index < tokens.count {
-            let word = core(of: tokens[index].text).lowercased()
-            guard word == "slash" || word == "forward" && isFollowedBySlash(tokens, at: index) else {
+            guard let commandLength = slashCommandLength(tokens, at: index),
+                  slashRuleApplies(tokens, at: index, commandLength: commandLength) else {
                 index += 1
                 continue
             }
 
-            // "forward slash" spans two tokens.
-            let commandLength = (word == "forward") ? 2 : 1
             let leftIndex = index - 1
             let rightIndex = index + commandLength
             guard leftIndex >= 0, rightIndex < tokens.count,
-                  !tokens[index].isProtected,
                   !tokens[rightIndex].isProtected else {
                 index += 1
                 continue
@@ -774,9 +795,19 @@ enum SpokenSymbolTransformer {
         }
     }
 
-    private static func isFollowedBySlash(_ tokens: [Token], at index: Int) -> Bool {
-        guard index + 1 < tokens.count else { return false }
-        return core(of: tokens[index + 1].text).lowercased() == "slash"
+    /// Length of a slash command at `index`, provided every word in the
+    /// command is unprotected. This makes `forward literally slash` protect
+    /// the complete two-word command rather than only its first token.
+    private static func slashCommandLength(_ tokens: [Token], at index: Int) -> Int? {
+        guard index < tokens.count, !tokens[index].isProtected else { return nil }
+        let word = core(of: tokens[index].text).lowercased()
+        if word == "slash" { return 1 }
+        guard word == "forward", index + 1 < tokens.count,
+              !tokens[index + 1].isProtected,
+              core(of: tokens[index + 1].text).lowercased() == "slash" else {
+            return nil
+        }
+        return 2
     }
 
     /// A token that can sit on either side of a path separator.
@@ -785,28 +816,46 @@ enum SpokenSymbolTransformer {
         return token.text.allSatisfy { $0.isLetter || $0.isNumber || $0 == "." || $0 == "_" || $0 == "-" || $0 == "/" }
     }
 
-    /// Gate for the slash rule: two or more slashes, a path cue, or a filename
-    /// already produced by Tier A.
-    private static func slashRuleApplies(_ tokens: [Token]) -> Bool {
-        let slashCount = tokens.filter { core(of: $0.text).lowercased() == "slash" && !$0.isProtected }.count
-        guard slashCount > 0 else { return false }
-        if slashCount >= 2 { return true }
-        if lineHasIdentifierSignal(tokens) { return true }
-        return tokens.contains { pathCues.contains(core(of: $0.text).lowercased()) }
+    /// Gate one slash command using only its immediate path run. Accepted
+    /// evidence is an adjacent identifier, a cue immediately before the path,
+    /// or another separator after the next component. Evidence elsewhere in
+    /// the line is deliberately ignored.
+    private static func slashRuleApplies(
+        _ tokens: [Token],
+        at index: Int,
+        commandLength: Int
+    ) -> Bool {
+        let leftIndex = index - 1
+        let rightIndex = index + commandLength
+        guard leftIndex >= 0, rightIndex < tokens.count else { return false }
+
+        if hasIdentifierSignal(tokens[leftIndex]) || hasIdentifierSignal(tokens[rightIndex]) {
+            return true
+        }
+
+        let leftWord = core(of: tokens[leftIndex].text).lowercased()
+        if pathCues.contains(leftWord) { return true }
+        if leftIndex > 0,
+           pathCues.contains(core(of: tokens[leftIndex - 1].text).lowercased()) {
+            return true
+        }
+
+        // `src slash components slash button`: the first separator is proven
+        // by the next one; after it merges, the produced path proves the next.
+        return slashCommandLength(tokens, at: rightIndex + 1) != nil
     }
 
     // MARK: - Tier B: identifier joiners
 
     /// `user dot name` → `user.name`, only once the line is known to be about
-    /// code (a filename, path, or case command already fired).
+    /// code immediately beside this joiner.
     private static func applyIdentifierDotRule(_ tokens: inout [Token]) {
-        guard lineHasIdentifierSignal(tokens) else { return }
         mergeAround(&tokens, commandWords: ["dot"], separator: ".")
     }
 
-    /// `max underscore retries` → `max_retries`, same gating as above.
+    /// Joiners extend a path or identifier produced next to them. They never
+    /// inherit evidence from an unrelated token elsewhere in the utterance.
     private static func applyJoinerRule(_ tokens: inout [Token]) {
-        guard lineHasIdentifierSignal(tokens) else { return }
         mergeAround(&tokens, commandWords: ["underscore"], separator: "_")
         mergeAround(&tokens, commandWords: ["dash", "hyphen"], separator: "-")
     }
@@ -820,6 +869,8 @@ enum SpokenSymbolTransformer {
                   !tokens[index].isProtected,
                   index > 0, index + 1 < tokens.count,
                   isPlainWordOrPath(tokens[index - 1]),
+                  hasIdentifierSignal(tokens[index - 1])
+                      || hasIdentifierSignal(tokens[index + 1]),
                   !tokens[index + 1].isProtected else {
                 index += 1
                 continue

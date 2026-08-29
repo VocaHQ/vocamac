@@ -148,10 +148,15 @@ final class AppStateWritingStyleTests: XCTestCase {
     /// because "styles only work on Whisper" is an easy conclusion to draw:
     /// Whisper normalizes spoken symbols itself, so it has less left to do.
     func testFormattingIsIndependentOfTheEngineThatProducedTheText() async {
-        let transcript = "open config dot json"
+        let fixtures: [(model: ModelSize, transcript: String)] = [
+            (.tiny, "open config.json"),
+            (.parakeetV3, "open config dot json"),
+            (.appleSpeech, "open config dotjson"),
+            (.moonshineTiny, "open config dot json")
+        ]
         var injected: [String] = []
 
-        for engine in [ModelSize.tiny, .parakeetV3, .appleSpeech] {
+        for fixture in fixtures {
             let (appState, mocks) = AppState.makeTestState()
             appState.appendTrailingSpace = false
             appState.autoCapitalize = true
@@ -161,11 +166,11 @@ final class AppStateWritingStyleTests: XCTestCase {
 
             mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
             mocks.whisperService.mockTranscriptionResult = VocaTranscription(
-                text: transcript,
+                text: fixture.transcript,
                 duration: 1.0,
                 detectedLanguage: "en",
                 audioLengthSeconds: 1.0,
-                modelUsed: engine
+                modelUsed: fixture.model
             )
             appState.isRecording = true
             appState.appStatus = .recording
@@ -174,7 +179,7 @@ final class AppStateWritingStyleTests: XCTestCase {
             injected.append(mocks.textInjector.lastInjectedText ?? "")
         }
 
-        XCTAssertEqual(injected, Array(repeating: "open config.json", count: 3))
+        XCTAssertEqual(injected, Array(repeating: "open config.json", count: fixtures.count))
     }
 
     // MARK: - Test Dictation
@@ -262,6 +267,50 @@ final class AppStateWritingStyleTests: XCTestCase {
         let (appState, _) = AppState.makeTestState()
         appState.applyWritingStyleSeed([])
         XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+    }
+
+    func testCompletingWritingStyleSeedMarksCatalogAfterMerging() {
+        let (appState, _) = AppState.makeTestState()
+        let revision = appState.writingStyleBindingsRevision
+        let json = appState.writingStyleBindingsJSON
+
+        appState.completeWritingStyleCatalogSeed(
+            [WritingStyleCatalog.terminals[0]],
+            bindingsRevisionAtStart: revision,
+            bindingsJSONAtStart: json
+        )
+
+        XCTAssertEqual(appState.writingStyleBindings.count, 1)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
+    }
+
+    func testBeginningWritingStyleSeedDoesNotPersistCompletionEarly() {
+        let (appState, _) = AppState.makeTestState()
+
+        let context = appState.beginWritingStyleCatalogSeedIfNeeded()
+
+        XCTAssertNotNil(context)
+        XCTAssertFalse(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
+        XCTAssertNil(appState.beginWritingStyleCatalogSeedIfNeeded(), "an in-flight lookup must not start twice")
+    }
+
+    func testDelayedWritingStyleSeedDoesNotUndoRemoveAll() {
+        let (appState, _) = AppState.makeTestState()
+        appState.writingStyleBindings = [
+            AppStyleBinding.from(snapshot: cursor, style: .code)
+        ]
+        let revision = appState.writingStyleBindingsRevision
+        let json = appState.writingStyleBindingsJSON
+
+        appState.removeAllWritingStyleBindings()
+        appState.completeWritingStyleCatalogSeed(
+            WritingStyleCatalog.terminals,
+            bindingsRevisionAtStart: revision,
+            bindingsJSONAtStart: json
+        )
+
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+        XCTAssertTrue(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
     }
 
     // MARK: - Preview

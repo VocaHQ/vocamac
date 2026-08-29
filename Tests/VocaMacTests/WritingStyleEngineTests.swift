@@ -23,11 +23,18 @@ final class WritingStyleEngineTests: XCTestCase {
         let text = "hello there. this is fine"
         let viaStyle = format(text, .plain)
         let viaFormatter = DictationOutputFormatter.apply(
-            SpokenSymbolTransformer.apply(text, tiers: .tierA, pathStitching: false, caseCommandsEnabled: false),
+            text,
             autoCapitalize: true,
             appendTrailingSpace: true
         )
         XCTAssertEqual(viaStyle, viaFormatter)
+    }
+
+    func testPlainDoesNotShapeSpokenSymbols() {
+        XCTAssertEqual(
+            format("open config dot json", .plain, capitalize: false, space: false),
+            "open config dot json"
+        )
     }
 
     func testPassthroughRulesChangeNothingButGlobals() {
@@ -106,6 +113,14 @@ final class WritingStyleEngineTests: XCTestCase {
 
     func testEmailDoesNotDoublePunctuate() {
         XCTAssertEqual(format("are you free tomorrow?", .email, space: false), "Are you free tomorrow?")
+    }
+
+    func testEmailPunctuatesBeforeATrailingNewline() {
+        XCTAssertEqual(format("hello new line", .email, space: false), "Hello.\n")
+    }
+
+    func testEmailPunctuatesBeforeATrailingParagraph() {
+        XCTAssertEqual(format("hello new paragraph", .email, space: false), "Hello.\n\n")
     }
 
     // MARK: - Notes

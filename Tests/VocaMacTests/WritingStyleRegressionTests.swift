@@ -200,7 +200,7 @@ final class WritingStyleRegressionTests: XCTestCase {
         // The bracket is punctuation, not an identifier: masking it would hide
         // the start of the sentence from the capitalization pass.
         XCTAssertEqual(
-            format("open paren value close paren is here", .plain),
+            format("open paren value close paren is here", .notes),
             "(Value) is here"
         )
     }

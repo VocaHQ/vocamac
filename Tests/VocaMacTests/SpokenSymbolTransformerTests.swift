@@ -139,6 +139,24 @@ final class SpokenSymbolTransformerTests: XCTestCase {
         XCTAssertEqual(all("that was slash and burn"), "that was slash and burn")
     }
 
+    func testLaterPathCueDoesNotRewriteAnEarlierProseSlash() {
+        XCTAssertEqual(
+            all("we discussed slash fiction in class"),
+            "we discussed slash fiction in class"
+        )
+    }
+
+    func testLiterallyProtectsAForwardSlashCommand() {
+        XCTAssertEqual(
+            all("open src forward literally slash docs"),
+            "open src forward slash docs"
+        )
+        XCTAssertEqual(
+            all("open src slash utils and forward literally slash docs"),
+            "open src/utils and forward slash docs"
+        )
+    }
+
     func testPathCombinedWithExtension() {
         XCTAssertEqual(
             all("edit src slash components slash button dot tsx"),
@@ -157,10 +175,24 @@ final class SpokenSymbolTransformerTests: XCTestCase {
         XCTAssertEqual(all("max underscore retries"), "max underscore retries")
     }
 
-    func testUnderscoreJoinsAfterAnIdentifierSignal() {
+    func testUnderscoreExtendsAnAdjacentIdentifier() {
         XCTAssertEqual(
-            all("open config dot json and set max underscore retries"),
-            "open config.json and set max_retries"
+            all("camel case max retries underscore count"),
+            "maxRetries_count"
+        )
+    }
+
+    func testIdentifierSignalDoesNotRewriteLaterProseDot() {
+        XCTAssertEqual(
+            all("open config dot json and compute the dot product"),
+            "open config.json and compute the dot product"
+        )
+    }
+
+    func testIdentifierSignalDoesNotRewriteLaterProseDash() {
+        XCTAssertEqual(
+            all("open config dot json and dash to the store"),
+            "open config.json and dash to the store"
         )
     }
 
@@ -270,6 +302,13 @@ extension SpokenSymbolTransformerTests {
         // One candidate, no second symbol and no path cue — not enough
         // evidence to risk splitting a real word.
         XCTAssertEqual(allTiers("we discussed slashfiction"), "we discussed slashfiction")
+    }
+
+    func testLaterPathCueDoesNotCorroborateAnEarlierGluedCandidate() {
+        XCTAssertEqual(
+            allTiers("we discussed slashfiction in class"),
+            "we discussed slashfiction in class"
+        )
     }
 
     func testPathCueCorroboratesASingleGluedSlash() {

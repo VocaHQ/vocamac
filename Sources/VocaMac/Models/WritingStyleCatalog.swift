@@ -105,6 +105,7 @@ enum WritingStyleCatalog {
         Suggestion("Element", bundleIdentifier: "im.riot.app", style: .chat),
         Suggestion("Claude", bundleIdentifier: "com.anthropic.claudefordesktop", style: .chat),
         Suggestion("ChatGPT", bundleIdentifier: "com.openai.chat", style: .chat),
+        Suggestion("ChatGPT", bundleIdentifier: "com.openai.codex", style: .chat),
         Suggestion("Slack (Beta)", bundleIdentifier: "com.tinyspeck.slackmacgap.beta", style: .slack)
     ]
 

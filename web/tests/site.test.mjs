@@ -190,6 +190,10 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.match(script, /aria-live", "polite"/);
   assert.match(script, /announceCopy\("Copied"\)/);
   assert.match(script, /announceCopy\("Press ⌘C"\)/);
+
+  const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
+  assert.match(ogSvg, /v0\.9\.0/);
+  assert.doesNotMatch(ogSvg, /v0\.8\.0/);
 });
 
 test("all rendered local references resolve", async () => {

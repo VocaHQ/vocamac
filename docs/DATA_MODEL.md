@@ -306,7 +306,6 @@ struct UserSettings {
     var writingStyleEnabled: Bool = true
     var writingStyleDefault: WritingStyle = .plain
     var writingStyleBindings: [AppStyleBinding] = []  // JSON envelope in UserDefaults
-    var writingStyleCatalogSeeded: Bool = false       // one-shot seed marker (opt-in, not set at launch)
 
     // Performance / power
     var autoPauseEnabled: Bool = false
@@ -337,7 +336,6 @@ vocamac.modelKeepAlive.idleTimeoutSeconds = 300
 vocamac.writingStyle.enabled = true
 vocamac.writingStyle.defaultStyle = "plain"
 vocamac.writingStyle.bindings = "{\"schemaVersion\":1,\"bindings\":[...]}"
-vocamac.writingStyle.catalogSeeded = false
 ...
 ```
 

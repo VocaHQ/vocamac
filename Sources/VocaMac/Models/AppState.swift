@@ -127,18 +127,6 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.modelKeepAliveIdleTimeout) var modelKeepAliveIdleTimeoutSeconds: Double = 300
     @AppStorage(PreferenceKey.writingStyleEnabled) var writingStyleEnabled: Bool = true
     @AppStorage(PreferenceKey.writingStyleDefault) var writingStyleDefault: WritingStyle = .plain
-    @AppStorage(PreferenceKey.writingStyleCatalogSeeded) private var writingStyleCatalogSeeded: Bool = false
-
-    /// In-memory guard for the asynchronous first-run catalog lookup. The
-    /// persisted marker is written only after the lookup completes so an app
-    /// termination during discovery retries safely on the next launch.
-    private var isWritingStyleCatalogSeedInFlight = false
-
-    /// Changes whenever this instance writes the bindings payload. The seed
-    /// captures it before leaving the main actor so a delayed result cannot
-    /// undo an Add, Remove, or Remove All action made while discovery runs.
-    private(set) var writingStyleBindingsRevision: UInt64 = 0
-
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
         get { UserDefaults.standard.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
@@ -170,7 +158,6 @@ final class AppState: ObservableObject {
         get { UserDefaults.standard.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
         set {
             UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings)
-            writingStyleBindingsRevision &+= 1
         }
     }
 
@@ -991,86 +978,34 @@ final class AppState: ObservableObject {
         VocaLogger.info(.appState, "Removed all writing style rules")
     }
 
-    /// Add the suggested rules for apps installed on this Mac, once.
-    ///
-    /// Deliberately **not** called at launch. Seeding writes app rules, and an
-    /// app rule changes the shape of the text an existing user gets — no
-    /// sentence case in their editor, Slack markup in Slack — which is not
-    /// something an upgrade should decide for them. Writing styles therefore
-    /// ship inert: the default style is Plain and there are no rules until the
-    /// user asks for them from Settings ("Add Suggested Apps…") or binds an app
-    /// from the menu bar.
-    ///
-    /// The one-shot machinery is kept because it is the same work either way —
-    /// the LaunchServices lookups behind `suggestionsForInstalledApps` are one
-    /// per catalog entry, too slow for a menu bar app's first paint, so they
-    /// stay off whatever path calls them.
-    func seedWritingStyleCatalogIfNeeded() {
-        guard let context = beginWritingStyleCatalogSeedIfNeeded() else { return }
-
-        let running = AppIdentityMatching.workspaceRunningApps()
-        Task.detached(priority: .utility) { [weak self] in
-            let suggestions = WritingStyleCatalog.suggestionsForInstalledApps(running: running)
-            guard let self else { return }
-            await self.completeWritingStyleCatalogSeed(
-                suggestions,
-                bindingsRevisionAtStart: context.bindingsRevision,
-                bindingsJSONAtStart: context.bindingsJSON
-            )
-        }
-    }
-
-    /// Claim the in-memory seed slot without claiming the persisted marker.
-    /// Split out to keep the launch lifecycle deterministic under test.
-    func beginWritingStyleCatalogSeedIfNeeded() -> (bindingsRevision: UInt64, bindingsJSON: String)? {
-        guard !writingStyleCatalogSeeded, !isWritingStyleCatalogSeedInFlight else { return nil }
-        isWritingStyleCatalogSeedInFlight = true
-        return (writingStyleBindingsRevision, writingStyleBindingsJSON)
-    }
-
-    /// Finish first-run discovery on the main actor. If bindings changed while
-    /// LaunchServices was queried, preserve the user's newer state and merely
-    /// complete the one-shot seed lifecycle.
-    func completeWritingStyleCatalogSeed(
-        _ suggestions: [WritingStyleCatalog.Suggestion],
-        bindingsRevisionAtStart: UInt64,
-        bindingsJSONAtStart: String
-    ) {
-        defer {
-            isWritingStyleCatalogSeedInFlight = false
-            writingStyleCatalogSeeded = true
-        }
-
-        guard writingStyleBindingsRevision == bindingsRevisionAtStart,
-              writingStyleBindingsJSON == bindingsJSONAtStart else {
-            VocaLogger.info(.appState, "Skipped writing style seed because bindings changed during discovery")
-            return
-        }
-        applyWritingStyleSeed(suggestions)
-    }
-
-    /// Merge a computed seed into the binding list. Split out so tests can
-    /// supply suggestions directly instead of querying LaunchServices.
-    func applyWritingStyleSeed(_ suggestions: [WritingStyleCatalog.Suggestion]) {
-        guard !suggestions.isEmpty else {
-            VocaLogger.info(.appState, "No writing style suggestions matched installed apps")
-            return
-        }
-        writingStyleBindings = WritingStyleCatalog.merging(writingStyleBindings, with: suggestions)
-        VocaLogger.info(.appState, "Seeded \(suggestions.count) writing style rules")
-    }
-
     /// Add every suggestion for an installed app that is not already bound.
-    /// Returns how many rules were added.
+    ///
+    /// Discovery is one LaunchServices lookup per catalog entry — a few dozen
+    /// disk-backed queries — so it runs off the main actor and the caller shows
+    /// a loading state while it does. Nothing is created without this being
+    /// asked for: writing styles ship inert, because an app rule changes the
+    /// shape of an existing user's dictation and an upgrade does not get to
+    /// decide that for them.
+    ///
+    /// Returns how many rules were added. Bindings are re-read after the
+    /// lookup, so a rule the user added or removed while it ran is preserved.
     @discardableResult
-    func addSuggestedWritingStyles() -> Int {
+    func addSuggestedWritingStyles() async -> Int {
+        let running = AppIdentityMatching.workspaceRunningApps()
+        let suggestions = await Task.detached(priority: .userInitiated) {
+            WritingStyleCatalog.suggestionsForInstalledApps(running: running)
+        }.value
+
         let existing = writingStyleBindings
-        let merged = WritingStyleCatalog.merging(
-            existing,
-            with: WritingStyleCatalog.suggestionsForInstalledApps()
-        )
+        let merged = WritingStyleCatalog.merging(existing, with: suggestions)
+        guard merged.count != existing.count else {
+            VocaLogger.info(.appState, "No new writing style suggestions matched installed apps")
+            return 0
+        }
         writingStyleBindings = merged
-        return merged.count - existing.count
+        let added = merged.count - existing.count
+        VocaLogger.info(.appState, "Added \(added) suggested writing style rule(s)")
+        return added
     }
 
     /// Format sample text the way the given style would, for the Settings

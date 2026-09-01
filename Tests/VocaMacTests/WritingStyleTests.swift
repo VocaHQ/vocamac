@@ -308,3 +308,70 @@ final class WritingStyleCatalogTests: XCTestCase {
         XCTAssertTrue(suggestions.contains { $0.displayName == "Ghostty" })
     }
 }
+
+final class AppIdentityMatchingTests: XCTestCase {
+
+    private func matches(_ binding: AppStyleBinding, _ snapshot: RunningAppSnapshot) -> Bool {
+        binding.matches(snapshot)
+    }
+
+    /// Two apps that ship the same executable name are still two apps. Falling
+    /// through to the basename after a bundle-ID mismatch handed a fork the
+    /// rule the user wrote for the original.
+    func testDifferentBundleIDsNeverMatchOnExecutableName() {
+        let ghostty = RunningAppSnapshot(
+            displayName: "Ghostty",
+            bundleIdentifier: "com.mitchellh.ghostty",
+            processName: "ghostty"
+        )
+        let fork = RunningAppSnapshot(
+            displayName: "Ghostty Fork",
+            bundleIdentifier: "com.example.ghostty-fork",
+            processName: "ghostty"
+        )
+        let binding = AppStyleBinding.from(snapshot: ghostty, style: .terminal)
+
+        XCTAssertTrue(matches(binding, ghostty))
+        XCTAssertFalse(matches(binding, fork), "a bundle ID mismatch is decisive")
+    }
+
+    func testCodeEditionsSharingAnElectronBinaryStaySeparate() {
+        let code = RunningAppSnapshot(displayName: "Code", bundleIdentifier: "com.microsoft.VSCode", processName: "Electron")
+        let insiders = RunningAppSnapshot(displayName: "Code - Insiders", bundleIdentifier: "com.microsoft.VSCodeInsiders", processName: "Electron")
+        let binding = AppStyleBinding.from(snapshot: code, style: .code)
+
+        XCTAssertTrue(matches(binding, code))
+        XCTAssertFalse(matches(binding, insiders))
+    }
+
+    /// The basename fallback is what CLI tools and hand-typed auto-pause
+    /// entries rely on, so it has to survive the tightening.
+    func testExecutableNameStillMatchesWhenAnIdentifierIsMissing() {
+        let binding = AppStyleBinding(
+            id: "ghostty", displayName: "ghostty", processName: "ghostty", style: .terminal
+        )
+        let bundleless = RunningAppSnapshot(displayName: "ghostty", bundleIdentifier: nil, processName: "ghostty")
+        let bundled = RunningAppSnapshot(displayName: "Ghostty", bundleIdentifier: "com.mitchellh.ghostty", processName: "ghostty")
+
+        XCTAssertTrue(matches(binding, bundleless))
+        XCTAssertTrue(matches(binding, bundled), "a rule with no ID of its own still matches on the executable")
+    }
+
+    /// Auto-pause lets a user type a bundle ID into the name field.
+    func testAHandTypedBundleIDStillMatches() {
+        XCTAssertTrue(AppIdentityMatching.matches(
+            configuredBundleIdentifier: nil,
+            configuredProcessName: nil,
+            configuredID: "com.apple.Terminal",
+            snapshot: RunningAppSnapshot(displayName: "Terminal", bundleIdentifier: "com.apple.Terminal", processName: "Terminal")
+        ))
+    }
+
+    /// Auto-pause shares these rules, so it inherits the same tightening.
+    func testAutoPauseAgreesWithWritingStyles() {
+        let configured = [AutoPauseAppEntry(id: "com.microsoft.VSCode", displayName: "Code", bundleIdentifier: "com.microsoft.VSCode")]
+        let insiders = [RunningAppSnapshot(displayName: "Code - Insiders", bundleIdentifier: "com.microsoft.VSCodeInsiders", processName: "Electron")]
+
+        XCTAssertNil(AutoPauseMatching.firstMatchingConfiguredApp(configured: configured, running: insiders))
+    }
+}

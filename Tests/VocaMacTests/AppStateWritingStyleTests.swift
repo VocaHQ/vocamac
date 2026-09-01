@@ -21,7 +21,6 @@ final class AppStateWritingStyleTests: XCTestCase {
             PreferenceKey.writingStyleEnabled,
             PreferenceKey.writingStyleDefault,
             PreferenceKey.writingStyleBindings,
-            PreferenceKey.writingStyleCatalogSeeded,
             PreferenceKey.appendTrailingSpace,
             PreferenceKey.autoCapitalize
         ] {
@@ -80,17 +79,13 @@ final class AppStateWritingStyleTests: XCTestCase {
             appState.writingStyleBindings.isEmpty,
             "launch must not create app rules; seeding is an explicit action in Settings"
         )
-        XCTAssertFalse(
-            UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded),
-            "no seed lifecycle should have run at launch"
-        )
     }
 
-    /// The seed still works — it just has to be asked for.
-    func testSuggestionsAreAddedOnRequest() {
+    /// Suggestions still work — they just have to be asked for.
+    func testSuggestionsAreAddedOnRequest() async {
         let (appState, _) = AppState.makeTestState()
-        appState.applyWritingStyleSeed(WritingStyleCatalog.terminals)
-        XCTAssertFalse(appState.writingStyleBindings.isEmpty)
+        let added = await appState.addSuggestedWritingStyles()
+        XCTAssertEqual(added, appState.writingStyleBindings.count)
     }
 
     // MARK: - The master toggle really reverts everything
@@ -312,79 +307,48 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertTrue(appState.writingStyleBindings.isEmpty)
     }
 
-    func testAddSuggestedStylesDoesNotDuplicate() {
+    func testAddSuggestedStylesDoesNotDuplicate() async {
         let (appState, _) = AppState.makeTestState()
-        let first = appState.addSuggestedWritingStyles()
-        let second = appState.addSuggestedWritingStyles()
+        let first = await appState.addSuggestedWritingStyles()
+        let second = await appState.addSuggestedWritingStyles()
 
         XCTAssertGreaterThanOrEqual(first, 0)
         XCTAssertEqual(second, 0, "re-running suggestions must not add duplicates")
     }
 
-    func testApplyWritingStyleSeedMergesWithoutClobbering() {
+    /// Discovery re-reads bindings after the lookup, so a rule added while it
+    /// ran survives. This is what the removed seed-revision guard protected,
+    /// now a property of the merge rather than a lifecycle.
+    func testSuggestionsPreserveARuleAddedDuringDiscovery() async {
         let (appState, _) = AppState.makeTestState()
-        appState.writingStyleBindings = [
+        async let discovery: Int = appState.addSuggestedWritingStyles()
+        appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .chat)]
+        _ = await discovery
+
+        XCTAssertEqual(
+            appState.writingStyleBindings.first { $0.matches(cursor) }?.style,
+            .chat,
+            "a rule the user set during discovery must not be overwritten"
+        )
+    }
+
+    func testSuggestionsDoNotClobberAnExistingUserRule() {
+        let existing = [
             AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal", bundleIdentifier: "com.apple.Terminal", style: .chat)
         ]
 
-        appState.applyWritingStyleSeed(WritingStyleCatalog.terminals)
+        let merged = WritingStyleCatalog.merging(existing, with: WritingStyleCatalog.terminals)
 
         XCTAssertEqual(
-            appState.writingStyleBindings.first { $0.id == "com.apple.Terminal" }?.style,
+            merged.first { $0.id == "com.apple.Terminal" }?.style,
             .chat,
-            "an existing user rule must not be overwritten by the seed"
+            "an existing user rule must not be overwritten by a suggestion"
         )
-        XCTAssertTrue(appState.writingStyleBindings.contains { $0.displayName == "Ghostty" })
+        XCTAssertTrue(merged.contains { $0.displayName == "Ghostty" })
     }
 
-    func testApplyWritingStyleSeedWithNoSuggestionsIsANoOp() {
-        let (appState, _) = AppState.makeTestState()
-        appState.applyWritingStyleSeed([])
-        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
-    }
-
-    func testCompletingWritingStyleSeedMarksCatalogAfterMerging() {
-        let (appState, _) = AppState.makeTestState()
-        let revision = appState.writingStyleBindingsRevision
-        let json = appState.writingStyleBindingsJSON
-
-        appState.completeWritingStyleCatalogSeed(
-            [WritingStyleCatalog.terminals[0]],
-            bindingsRevisionAtStart: revision,
-            bindingsJSONAtStart: json
-        )
-
-        XCTAssertEqual(appState.writingStyleBindings.count, 1)
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
-    }
-
-    func testBeginningWritingStyleSeedDoesNotPersistCompletionEarly() {
-        let (appState, _) = AppState.makeTestState()
-
-        let context = appState.beginWritingStyleCatalogSeedIfNeeded()
-
-        XCTAssertNotNil(context)
-        XCTAssertFalse(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
-        XCTAssertNil(appState.beginWritingStyleCatalogSeedIfNeeded(), "an in-flight lookup must not start twice")
-    }
-
-    func testDelayedWritingStyleSeedDoesNotUndoRemoveAll() {
-        let (appState, _) = AppState.makeTestState()
-        appState.writingStyleBindings = [
-            AppStyleBinding.from(snapshot: cursor, style: .code)
-        ]
-        let revision = appState.writingStyleBindingsRevision
-        let json = appState.writingStyleBindingsJSON
-
-        appState.removeAllWritingStyleBindings()
-        appState.completeWritingStyleCatalogSeed(
-            WritingStyleCatalog.terminals,
-            bindingsRevisionAtStart: revision,
-            bindingsJSONAtStart: json
-        )
-
-        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded))
+    func testMergingNoSuggestionsIsANoOp() {
+        XCTAssertTrue(WritingStyleCatalog.merging([], with: []).isEmpty)
     }
 
     // MARK: - Preview

@@ -15,6 +15,8 @@ struct WritingStylesSettingsTab: View {
     @State private var editingBinding: AppStyleBinding?
     @State private var previewSample = WritingStylesSettingsTab.sampleChips[0].text
     @State private var suggestionNotice: String?
+    /// True while the LaunchServices sweep behind "Add Suggested Apps" runs.
+    @State private var isDiscoveringApps = false
 
     /// Ready-made phrases that show what each style does in one click.
     static let sampleChips: [(label: String, text: String)] = [
@@ -76,7 +78,17 @@ struct WritingStylesSettingsTab: View {
                 HStack {
                     Button("Choose Running App…") { showingAppPicker = true }
                     Button("Choose Installed App…") { chooseInstalledApp() }
-                    Button("Add Suggested Apps…") { addSuggestions() }
+                    Button("Add Suggested Apps…") {
+                        Task { await addSuggestions() }
+                    }
+                    .disabled(isDiscoveringApps)
+                    if isDiscoveringApps {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Checking which apps you have installed…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 HStack {
@@ -283,8 +295,15 @@ struct WritingStylesSettingsTab: View {
         suggestionNotice = "Imported \(imported.count) rule(s)."
     }
 
-    private func addSuggestions() {
-        let added = appState.addSuggestedWritingStyles()
+    /// Discovery is a few dozen LaunchServices lookups, so it runs off the main
+    /// actor and the button shows a progress view instead of freezing the
+    /// Settings window.
+    private func addSuggestions() async {
+        isDiscoveringApps = true
+        suggestionNotice = nil
+        defer { isDiscoveringApps = false }
+
+        let added = await appState.addSuggestedWritingStyles()
         suggestionNotice = added == 0
             ? "No new suggestions — every supported app you have installed already has a rule."
             : "Added \(added) rule\(added == 1 ? "" : "s") for apps installed on this Mac."

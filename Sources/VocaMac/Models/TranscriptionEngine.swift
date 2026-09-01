@@ -22,7 +22,6 @@ enum PreferenceKey {
     static let writingStyleEnabled = "vocamac.writingStyle.enabled"
     static let writingStyleDefault = "vocamac.writingStyle.defaultStyle"
     static let writingStyleBindings = "vocamac.writingStyle.bindings"
-    static let writingStyleCatalogSeeded = "vocamac.writingStyle.catalogSeeded"
 }
 
 /// The on-device inference engine backing a model in the catalog.

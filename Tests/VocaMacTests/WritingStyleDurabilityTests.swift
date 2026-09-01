@@ -152,6 +152,43 @@ final class SnippetWritingStyleInteractionTests: XCTestCase {
         )
     }
 
+    /// The one place Plain / feature-off output legitimately differs from the
+    /// previous release, pinned so the difference stays deliberate.
+    ///
+    /// The old pipeline polished before expanding, so it appended its trailing
+    /// space *after* an expansion that already ended in one. Expanding first
+    /// and masking the expansion collapses that, which is the wanted result —
+    /// but it means "byte-for-byte the old pipeline" holds for everything
+    /// except a whitespace-ending snippet.
+    func testPassthroughDiffersFromTheOldPipelineOnlyForWhitespaceEndingSnippets() {
+        let snippets = [Snippet(trigger: "sign", expansion: "Kind regards, ")]
+
+        func old(_ utterance: String) -> String {
+            expander.expand(
+                in: DictationOutputFormatter.apply(
+                    utterance, autoCapitalize: true, appendTrailingSpace: true),
+                using: snippets)
+        }
+        func new(_ utterance: String) -> String {
+            let masked = expander.expandMasked(in: utterance, using: snippets)
+            return masked.restore(in: WritingStyleEngine.format(
+                masked.text, rules: .passthrough,
+                globalAutoCapitalize: true, globalTrailingSpace: true))
+        }
+
+        // The exception, wherever the expansion sits: the old pipeline left a
+        // double space, because it appended its own after the expansion's.
+        XCTAssertEqual(old("hello sign"), "Hello Kind regards,  ")
+        XCTAssertEqual(new("hello sign"), "Hello Kind regards, ")
+        XCTAssertEqual(old("sign"), "Kind regards,  ")
+        XCTAssertEqual(new("sign"), "Kind regards, ")
+
+        // Utterances without a whitespace-ending expansion are unchanged.
+        for utterance in ["hello there", "just words", "nothing to expand"] {
+            XCTAssertEqual(old(utterance), new(utterance), "parity broke for: \(utterance)")
+        }
+    }
+
     func testTriggerSurvivesAStyleThatTrimsLeadingFiller() {
         // Code style trims a leading "so", which used to eat the trigger's own
         // first word before the expander ever saw it.

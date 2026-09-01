@@ -40,7 +40,13 @@ final class FrontmostAppResolver: FrontmostAppResolving {
         ) { [weak self] notification in
             guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
                   let snapshot = AppIdentityMatching.snapshot(for: app) else { return }
-            self?.lastActive = snapshot
+            // The observer is registered on `.main`, so this really is the main
+            // actor — assert that rather than hopping. A `Task { @MainActor }`
+            // would defer the write past a dictation that starts in the same
+            // turn, which is exactly when the cache is read.
+            MainActor.assumeIsolated {
+                self?.lastActive = snapshot
+            }
         }
     }
 

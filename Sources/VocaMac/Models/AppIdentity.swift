@@ -40,9 +40,16 @@ enum AppIdentityMatching {
 
     /// Whether a configured entry identifies the same app as a running snapshot.
     ///
-    /// Matches on case-insensitive bundle identifier equality **or** normalized
-    /// executable basename equality. `configuredID` is the fallback used when
-    /// the entry carries no explicit process name.
+    /// A bundle identifier is decisive when both sides have one: equal means
+    /// yes, different means no. Falling through to the executable basename
+    /// after a mismatch would bind two different apps that happen to ship the
+    /// same binary name — a fork or a second edition of an editor would inherit
+    /// the rule the user wrote for the original.
+    ///
+    /// The basename comparison is the fallback for when an identifier is
+    /// missing, which is the case for CLI tools and for auto-pause entries the
+    /// user typed by hand. `configuredID` stands in when the entry carries no
+    /// explicit process name.
     static func matches(
         configuredBundleIdentifier: String?,
         configuredProcessName: String?,
@@ -50,9 +57,8 @@ enum AppIdentityMatching {
         snapshot: RunningAppSnapshot
     ) -> Bool {
         if let configuredBundle = configuredBundleIdentifier?.lowercased(),
-           let snapshotBundle = snapshot.bundleIdentifier?.lowercased(),
-           configuredBundle == snapshotBundle {
-            return true
+           let snapshotBundle = snapshot.bundleIdentifier?.lowercased() {
+            return configuredBundle == snapshotBundle
         }
 
         let configuredProcess = configuredProcessName.map { normalizeProcessName($0) }

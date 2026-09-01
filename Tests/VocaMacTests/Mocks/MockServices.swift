@@ -562,7 +562,6 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleCatalogSeeded)
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()

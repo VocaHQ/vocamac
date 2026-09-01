@@ -15,8 +15,16 @@ enum DictationOutputFormatter {
         /// lowercase ASCII letter after `.` `!` `?` plus whitespace.
         ///
         /// Kept so the writing-styles master toggle — and the Plain style,
-        /// which promises the same thing — really are byte-for-byte the old
-        /// pipeline, rather than the old pipeline plus two silent upgrades.
+        /// which promises the same thing — reproduce the old pipeline rather
+        /// than the old pipeline plus two silent upgrades.
+        ///
+        /// One deliberate exception remains, and it is not this rule's: the old
+        /// pipeline polished *before* expanding snippets, so an expansion
+        /// ending in whitespace could pick up a second space or a stray column
+        /// of indent. Expanding first and masking the expansion fixes that, and
+        /// the fix is wanted, so a whitespace-ending snippet is the one place
+        /// where output legitimately differs from the previous release.
+        /// `SnippetWritingStyleInteractionTests` pins both halves.
         case legacy
         /// Adds line starts, identifier protection, and placeholder awareness.
         /// Used by every style that actually shapes its output.
@@ -165,40 +173,108 @@ enum DictationOutputFormatter {
         return text + " "
     }
 
+    /// Sentence-ending marks, across the scripts a dictation can arrive in.
+    ///
+    /// A speech engine transcribing Hindi emits a danda, and one transcribing
+    /// Chinese emits an ideographic full stop. Recognising only ASCII made
+    /// `ensureTerminalPeriod` treat those sentences as unpunctuated and bolt a
+    /// second, wrong mark onto them ("धन्यवाद।." / "谢谢。.").
+    private static let terminalPunctuation: Set<Character> = [
+        // Latin and shared.
+        ".", "!", "?", ":", ";", "\u{2026}",
+        // Devanagari and the Indic scripts that share the danda.
+        "\u{0964}", "\u{0965}",
+        // Arabic.
+        "\u{06D4}", "\u{061F}", "\u{061B}",
+        // Armenian, Ethiopic, Thai-adjacent, Tibetan.
+        "\u{0589}", "\u{055C}", "\u{055E}", "\u{1362}", "\u{0F0D}",
+        // CJK and full-width forms.
+        "\u{3002}", "\u{FF01}", "\u{FF1F}", "\u{FF0E}", "\u{FF1A}", "\u{FF1B}"
+    ]
+
+    /// Closing marks that end a sentence when they follow one.
+    private static let closingMarks: Set<Character> = [
+        ")", "]", "}", "\"", "'",
+        // Curly quotes a speech engine or a snippet can produce.
+        "\u{2019}", "\u{201D}", "\u{00BB}", "\u{203A}",
+        // CJK brackets and quotes.
+        "\u{3001}", "\u{300D}", "\u{300F}", "\u{FF09}", "\u{3011}", "\u{3009}"
+    ]
+
     /// Remove a single trailing period.
     ///
     /// Editors and shells almost never want the sentence period a speech
-    /// engine adds. Only one `.` is removed, and only when it is the last
-    /// character, so an ellipsis or a filename keeps its dots.
+    /// engine adds. Only one `.` is removed, and only when it ends the
+    /// content, so an ellipsis or a filename keeps its dots.
+    ///
+    /// Trailing newlines are preserved exactly, mirroring
+    /// `ensureTerminalPeriod`: a structural command leaves "run tests.\n", and
+    /// the period is still the thing to remove.
     static func stripTrailingPeriod(_ text: String) -> String {
-        guard text.count > 1, text.hasSuffix(".") else { return text }
+        let (content, lineEnding) = splitTrailingLineEndings(text)
+        guard content.count > 1, content.hasSuffix(".") else { return text }
         // Leave "..." and decimals like "3." alone.
-        let withoutPeriod = String(text.dropLast())
+        let withoutPeriod = content.dropLast()
         guard let last = withoutPeriod.last, last != "." else { return text }
-        return withoutPeriod
+        return withoutPeriod + lineEnding
     }
 
     /// Append `.` when the text does not already end in terminal punctuation.
     ///
-    /// Skips empty text, text already ending in terminal punctuation
-    /// (`.` `!` `?` `:` `;`), a closing bracket or quote, and text ending in a
-    /// masked snippet expansion — a signature block ends the way the user
-    /// wrote it, not with a bolted-on period.
+    /// Skips empty text, text already ending in terminal punctuation or a
+    /// closing bracket or quote in any script, and text ending in a masked
+    /// snippet expansion — a signature block ends the way the user wrote it,
+    /// not with a bolted-on period.
+    ///
+    /// It also declines to punctuate a script whose full stop is not `.`.
+    /// Guessing that a Hindi or Chinese sentence wants an ASCII period is a
+    /// visible error, and this rule has no language signal to do better with —
+    /// leaving the sentence as dictated is the recoverable answer.
     static func ensureTerminalPeriod(_ text: String) -> String {
         // Structural voice commands may leave one or more trailing newlines.
         // Punctuate the final content before them, then put the exact line
         // ending back instead of producing `content\n.`.
-        let contentEnd = text.lastIndex(where: { $0 != "\n" && $0 != "\r" })
-            .map { text.index(after: $0) }
-            ?? text.startIndex
-        let trailingNewlines = text[contentEnd...]
-        let trimmed = text[..<contentEnd].trimmingCharacters(in: .whitespaces)
+        let (content, lineEnding) = splitTrailingLineEndings(text)
+        let trimmed = content.trimmingCharacters(in: .whitespaces)
         guard let last = trimmed.last else { return text }
         guard !TextPlaceholder.isPlaceholder(last) else { return text }
-        guard !".!?:;)]}\"'".contains(last) else {
-            return trimmed + trailingNewlines
+        guard !terminalPunctuation.contains(last), !closingMarks.contains(last) else {
+            return trimmed + lineEnding
         }
-        return trimmed + "." + trailingNewlines
+        guard usesFullStop(trimmed) else { return text }
+        return trimmed + "." + lineEnding
+    }
+
+    /// Split trailing CR/LF off the content, so a rule can rewrite the content
+    /// and put the exact line ending back.
+    private static func splitTrailingLineEndings(_ text: String) -> (content: String, lineEnding: String) {
+        // `isNewline`, not a comparison against "\n" and "\r": Swift treats
+        // CRLF as one Character, so testing the two separately reads a "\r\n"
+        // ending as ordinary content and leaves the rule with nothing to do.
+        let contentEnd = text.lastIndex(where: { !$0.isNewline })
+            .map { text.index(after: $0) }
+            ?? text.startIndex
+        return (String(text[..<contentEnd]), String(text[contentEnd...]))
+    }
+
+    /// Whether this text is written in a script that ends sentences with `.`.
+    ///
+    /// Decided from the last letter, which is the one the mark would follow.
+    /// True for Latin, Greek and Cyrillic; false for Devanagari, Arabic, CJK
+    /// and everything else, which either use their own mark or none.
+    private static func usesFullStop(_ text: String) -> Bool {
+        guard let lastLetter = text.last(where: { $0.isLetter || $0.isNumber }) else {
+            // Digits and symbols only — "." is as good an answer as any.
+            return true
+        }
+        guard let scalar = lastLetter.unicodeScalars.first else { return true }
+        let value = scalar.value
+        // Everything below Armenian is Latin, Greek or Cyrillic, plus the
+        // Latin extended blocks that carry accented and Vietnamese letters.
+        return value < 0x0530
+            || (0x1E00...0x1EFF).contains(value)
+            || (0x2C60...0x2C7F).contains(value)
+            || (0xA720...0xA7FF).contains(value)
     }
 
     /// Apply capitalization and/or trailing-space polish in that order.

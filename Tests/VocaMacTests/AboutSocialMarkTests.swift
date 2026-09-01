@@ -39,7 +39,7 @@ final class AboutSocialMarkTests: XCTestCase {
         )
         XCTAssertEqual(
             AboutSocialMark.discord.url.absoluteString,
-            "https://discord.gg/UMJduhcqn"
+            "https://discord.gg/t6muquAJbm"
         )
         XCTAssertEqual(AboutSocialMark.x.url.absoluteString, "https://x.com/vocahq")
         XCTAssertEqual(AboutSocialMark.mail.url.absoluteString, "mailto:hello@vocahq.com")

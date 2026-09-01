@@ -313,16 +313,6 @@ enum SpokenSymbolTransformer {
         return tokens
     }
 
-    /// Token text only, for comparing two runs of the same line.
-    private static func plainText(_ tokens: [Token]) -> String {
-        var result = ""
-        for (index, token) in tokens.enumerated() {
-            if index > 0 && !token.glueLeft { result += " " }
-            result += token.text
-        }
-        return result
-    }
-
     // MARK: - Tokenizing
 
     /// Positions of a spoken "literally" that could be an escape.

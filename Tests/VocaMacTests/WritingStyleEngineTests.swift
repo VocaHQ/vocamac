@@ -102,7 +102,10 @@ final class WritingStyleEngineTests: XCTestCase {
     }
 
     func testSlackBulletMarker() {
-        XCTAssertEqual(format("bullet fix the tests", .slack, space: false), "- Fix the tests")
+        XCTAssertEqual(
+            format("bullet fix the tests new line bullet ship it", .slack, space: false),
+            "- Fix the tests\n- Ship it"
+        )
     }
 
     // MARK: - Email
@@ -146,8 +149,10 @@ final class WritingStyleEngineTests: XCTestCase {
     }
 
     func testNewParagraphIsNotEatenByNewLine() {
-        let result = WritingStyleEngine.applyNewlineCommands("a new paragraph b new line c")
-        XCTAssertEqual(result, "a\n\nb\nc")
+        // Neutral placeholder words: a literal "a"/"b" would be read as the
+        // determiner that suppresses the command.
+        let result = WritingStyleEngine.applyNewlineCommands("alpha new paragraph beta new line gamma")
+        XCTAssertEqual(result, "alpha\n\nbeta\ngamma")
     }
 
     func testBulletMarkersApplyPerLine() {

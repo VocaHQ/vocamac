@@ -23,6 +23,7 @@ import AppKit
 ///
 /// This is a single `NSWorkspace` read per dictation. It deliberately does not
 /// poll.
+@MainActor
 final class FrontmostAppResolver: FrontmostAppResolving {
 
     /// Last non-VocaMac app to be activated. Written from the activation

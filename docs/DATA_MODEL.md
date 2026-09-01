@@ -306,7 +306,7 @@ struct UserSettings {
     var writingStyleEnabled: Bool = true
     var writingStyleDefault: WritingStyle = .plain
     var writingStyleBindings: [AppStyleBinding] = []  // JSON envelope in UserDefaults
-    var writingStyleCatalogSeeded: Bool = false       // one-shot seed marker
+    var writingStyleCatalogSeeded: Bool = false       // one-shot seed marker (opt-in, not set at launch)
 
     // Performance / power
     var autoPauseEnabled: Bool = false

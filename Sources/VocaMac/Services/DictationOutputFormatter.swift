@@ -9,15 +9,29 @@ import Foundation
 /// Formats completed dictation utterances for injection at the cursor.
 enum DictationOutputFormatter {
 
+    /// How much context `capitalizeSentences` is allowed to take into account.
+    enum CapitalizationScope {
+        /// Pre-writing-styles behavior: first character of the string, then any
+        /// lowercase ASCII letter after `.` `!` `?` plus whitespace.
+        ///
+        /// Kept so the writing-styles master toggle — and the Plain style,
+        /// which promises the same thing — really are byte-for-byte the old
+        /// pipeline, rather than the old pipeline plus two silent upgrades.
+        case legacy
+        /// Adds line starts, identifier protection, and placeholder awareness.
+        /// Used by every style that actually shapes its output.
+        case styleAware
+    }
+
     /// Capitalize the first letter of each sentence.
     ///
-    /// Uppercases the first letter of the string, the first letter of every
-    /// line, and any letter that follows sentence-ending punctuation (`.`,
-    /// `!`, `?`) plus whitespace. Leaves URLs (`example.com`), decimals
-    /// (`3.14`), and abbreviations without trailing space untouched.
-    /// Idempotent on already-capitalized text.
+    /// Under `.styleAware`, uppercases the first letter of the string, the
+    /// first letter of every line, and any letter that follows sentence-ending
+    /// punctuation (`.`, `!`, `?`) plus whitespace. Leaves URLs
+    /// (`example.com`), decimals (`3.14`), and abbreviations without trailing
+    /// space untouched. Idempotent on already-capitalized text.
     ///
-    /// Two things are deliberately never re-cased:
+    /// Two things are then deliberately never re-cased:
     ///
     /// - a `TextPlaceholder` scalar (a masked snippet expansion or a filename
     ///   the writing-style engine just built) — it carries the case the user
@@ -25,8 +39,14 @@ enum DictationOutputFormatter {
     /// - a word that already looks like an identifier (`readme.md`,
     ///   `src/utils`, `handleInput`), whether this pass built it or the speech
     ///   engine emitted it. `Readme.md` names a different file.
-    static func capitalizeSentences(_ text: String) -> String {
+    ///
+    /// Under `.legacy` none of that applies; see `CapitalizationScope`.
+    static func capitalizeSentences(
+        _ text: String,
+        scope: CapitalizationScope = .styleAware
+    ) -> String {
         guard !text.isEmpty else { return text }
+        guard scope == .styleAware else { return capitalizeSentencesLegacy(text) }
 
         let characters = Array(text)
         var result = ""
@@ -76,6 +96,30 @@ enum DictationOutputFormatter {
             } else {
                 afterTerminator = false
             }
+        }
+
+        return result
+    }
+
+    /// The capitalization pass exactly as it stood before writing styles.
+    ///
+    /// Mirrors VocaLinux: `([.!?])(\s+)([a-z])`, ASCII lowercase only, so URLs
+    /// and decimals without a space stay untouched.
+    private static func capitalizeSentencesLegacy(_ text: String) -> String {
+        // Capitalize the first character without assuming a single Unicode scalar.
+        var result = String(text.prefix(1)).uppercased() + text.dropFirst()
+
+        let pattern = #"([.!?])(\s+)([a-z])"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return result
+        }
+
+        let nsRange = NSRange(result.startIndex..<result.endIndex, in: result)
+        let matches = regex.matches(in: result, range: nsRange)
+        // Apply from the end so earlier ranges stay valid.
+        for match in matches.reversed() {
+            guard let letterRange = Range(match.range(at: 3), in: result) else { continue }
+            result.replaceSubrange(letterRange, with: result[letterRange].uppercased())
         }
 
         return result
@@ -136,9 +180,10 @@ enum DictationOutputFormatter {
 
     /// Append `.` when the text does not already end in terminal punctuation.
     ///
-    /// Skips empty text, text already ending in `.` `!` `?` `:` or a closing
-    /// bracket, and text ending in a masked snippet expansion — a signature
-    /// block ends the way the user wrote it, not with a bolted-on period.
+    /// Skips empty text, text already ending in terminal punctuation
+    /// (`.` `!` `?` `:` `;`), a closing bracket or quote, and text ending in a
+    /// masked snippet expansion — a signature block ends the way the user
+    /// wrote it, not with a bolted-on period.
     static func ensureTerminalPeriod(_ text: String) -> String {
         // Structural voice commands may leave one or more trailing newlines.
         // Punctuate the final content before them, then put the exact line
@@ -169,7 +214,9 @@ enum DictationOutputFormatter {
     ) -> String {
         var result = text
         if autoCapitalize {
-            result = capitalizeSentences(result)
+            // The pre-writing-styles entry point keeps the pre-writing-styles
+            // capitalization; styled output goes through `WritingStyleEngine`.
+            result = capitalizeSentences(result, scope: .legacy)
         }
         if appendTrailingSpace {
             result = self.appendTrailingSpace(result)

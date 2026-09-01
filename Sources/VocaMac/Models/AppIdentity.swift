@@ -64,9 +64,12 @@ enum AppIdentityMatching {
             return true
         }
 
-        // A configured entry stored as a bare process name should still match an
-        // app whose bundle ID ends in that name (e.g. `ghostty` vs the app's
-        // bundle path basename).
+        // Auto-pause lets a user type an app's bundle ID into the same field
+        // that normally holds a process name. Compare the configured name
+        // against the snapshot's bundle ID too, so `com.apple.Terminal` typed
+        // by hand still matches. Whole-string equality, not a suffix test:
+        // matching `code` against `com.microsoft.VSCode` would bind an app the
+        // user never named.
         if let snapshotBundle = snapshot.bundleIdentifier.map({ normalizeProcessName($0) }),
            configuredProcess == snapshotBundle {
             return true

@@ -290,7 +290,7 @@ final class AppState: ObservableObject {
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
-    let frontmostAppResolver: FrontmostAppResolving
+    let frontmostAppResolver: any FrontmostAppResolving
 
     /// Polls configured apps and pauses dictation while they run.
     let autoPauseMonitor = AutoPauseMonitor()
@@ -371,7 +371,10 @@ final class AppState: ObservableObject {
         statsManager: StatsManaging,
         snippetExpander: SnippetExpanding = SnippetExpander(),
         permissionManager: (any PermissionManaging)? = nil,
-        frontmostAppResolver: FrontmostAppResolving = FrontmostAppResolver(),
+        // Not a default expression: `FrontmostAppResolver` is @MainActor and
+        // default arguments are evaluated outside the initializer's isolation,
+        // the same reason `cursorOverlay` has no default either.
+        frontmostAppResolver: (any FrontmostAppResolving)? = nil,
         skipSystemIntegration: Bool = false
     ) {
         self.audioEngine = audioEngine
@@ -382,7 +385,7 @@ final class AppState: ObservableObject {
         self.soundManager = soundManager
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
-        self.frontmostAppResolver = frontmostAppResolver
+        self.frontmostAppResolver = frontmostAppResolver ?? FrontmostAppResolver()
         self.snippetExpander = snippetExpander
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
@@ -487,12 +490,6 @@ final class AppState: ObservableObject {
     private func setupServices() {
         // Detect system capabilities
         systemCapabilities = SystemInfo.detect()
-
-        // One-shot writing style seeding. Skipped in tests and the CLI, which
-        // must not touch LaunchServices.
-        if !skipSystemIntegration {
-            seedWritingStyleCatalogIfNeeded()
-        }
 
         // Get WhisperKit's device recommendation.
         // WhisperKit's `.default` may not be in the supported list for some
@@ -996,13 +993,18 @@ final class AppState: ObservableObject {
 
     /// Add the suggested rules for apps installed on this Mac, once.
     ///
-    /// Runs on first launch after upgrading. Existing bindings are never
-    /// touched, and the marker means a user who deletes every rule does not
-    /// get them back on the next launch.
+    /// Deliberately **not** called at launch. Seeding writes app rules, and an
+    /// app rule changes the shape of the text an existing user gets — no
+    /// sentence case in their editor, Slack markup in Slack — which is not
+    /// something an upgrade should decide for them. Writing styles therefore
+    /// ship inert: the default style is Plain and there are no rules until the
+    /// user asks for them from Settings ("Add Suggested Apps…") or binds an app
+    /// from the menu bar.
     ///
-    /// The LaunchServices lookups behind `suggestionsForInstalledApps` are one
-    /// per catalog entry, so they run off the launch path — a menu bar app must
-    /// not stall its first paint on a few dozen disk-backed queries.
+    /// The one-shot machinery is kept because it is the same work either way —
+    /// the LaunchServices lookups behind `suggestionsForInstalledApps` are one
+    /// per catalog entry, too slow for a menu bar app's first paint, so they
+    /// stay off whatever path calls them.
     func seedWritingStyleCatalogIfNeeded() {
         guard let context = beginWritingStyleCatalogSeedIfNeeded() else { return }
 

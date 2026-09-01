@@ -48,8 +48,16 @@ struct WritingStylesSettingsTab: View {
 
             Section("App Rules") {
                 if appState.writingStyleBindings.isEmpty {
-                    Text("No app rules yet. Every app uses the default style.")
-                        .foregroundStyle(.secondary)
+                    // Rules are never created without being asked for, so this
+                    // empty state is what every user sees first. It has to say
+                    // how to leave it, not just that it is empty.
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("No app rules yet. Every app uses the default style.")
+                            .foregroundStyle(.secondary)
+                        Text("Add Suggested Apps sets up the editors, terminals, chat and mail apps you already have installed. Nothing is added until you ask.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 } else {
                     ForEach(appState.writingStyleBindings) { binding in
                         AppStyleBindingRow(

@@ -145,7 +145,12 @@ off resolves to the same formatting rules while disabling per-app selection.
 |------------|---------|----------|
 | `writingStyle.enabled` | `true` | Master toggle; off restores the global-only pipeline |
 | `writingStyle.defaultStyle` | `plain` | Used when the frontmost app has no rule |
-| `writingStyle.bindings` | seeded | Versioned JSON of app → style rules |
+| `writingStyle.bindings` | empty | Versioned JSON of app → style rules |
+
+Writing styles ship inert: Plain default, no app rules. Rules are only ever
+created by an explicit action — "Add Suggested Apps…" in Settings, or binding
+an app from the menu bar — so upgrading cannot change the shape of anyone's
+dictation without them asking.
 
 **Resolution:** the frontmost app is read at injection time (`FrontmostAppResolver`),
 with a record-start snapshot, then the last activated app, as fallbacks for when

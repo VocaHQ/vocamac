@@ -496,6 +496,7 @@ final class MockTextInjector: TextInjecting {
 
 // MARK: - MockFrontmostAppResolver
 
+@MainActor
 final class MockFrontmostAppResolver: FrontmostAppResolving {
     var frontmostApp: RunningAppSnapshot?
     /// Stands in for the app the user came from when VocaMac has focus.

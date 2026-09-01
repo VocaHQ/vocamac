@@ -166,6 +166,12 @@ protocol TextInjecting: AnyObject {
 /// Identifies the app that will receive injected text, so writing styles can
 /// be chosen for it. Injectable so style resolution is testable without a
 /// window server.
+///
+/// Main-actor bound, like `StatsManaging`: the concrete resolver caches the
+/// last activated app from an `NSWorkspace` notification delivered on the main
+/// queue, and every caller reads it from `AppState`, which is `@MainActor`.
+/// Stating that here is what keeps it true once strict concurrency is on.
+@MainActor
 protocol FrontmostAppResolving: AnyObject {
     /// The frontmost application, or `nil` when it cannot be determined or is
     /// VocaMac itself.
@@ -182,6 +188,7 @@ protocol FrontmostAppResolving: AnyObject {
 extension FrontmostAppResolving {
     /// The app a dictation should be styled for: whatever is in front, falling
     /// back to the last app that was.
+    @MainActor
     func styleTargetApp() -> RunningAppSnapshot? {
         currentFrontmostApp() ?? lastActiveApp()
     }

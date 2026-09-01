@@ -59,6 +59,80 @@ final class AppStateWritingStyleTests: XCTestCase {
         await appState.stopRecordingAndTranscribe(injectResult: injectResult)
     }
 
+    // MARK: - Nothing is configured without being asked
+
+    /// Writing styles ship inert: default style Plain, no app rules, so an
+    /// upgrade cannot change the shape of an existing user's dictation.
+    ///
+    /// Startup here runs with `skipSystemIntegration`, so this cannot catch a
+    /// seed call reintroduced *inside* that guard — the guarantee that no such
+    /// call site exists is enforced by the doc comment on
+    /// `seedWritingStyleCatalogIfNeeded()`. What it does catch is a seed that
+    /// ignores the guard, and the defaults being anything but inert.
+    func testStartupLeavesTheFeatureInert() async {
+        let (appState, _) = AppState.makeTestState()
+        XCTAssertEqual(appState.writingStyleDefault, .plain)
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+
+        await appState.performStartup()
+
+        XCTAssertTrue(
+            appState.writingStyleBindings.isEmpty,
+            "launch must not create app rules; seeding is an explicit action in Settings"
+        )
+        XCTAssertFalse(
+            UserDefaults.standard.bool(forKey: PreferenceKey.writingStyleCatalogSeeded),
+            "no seed lifecycle should have run at launch"
+        )
+    }
+
+    /// The seed still works — it just has to be asked for.
+    func testSuggestionsAreAddedOnRequest() {
+        let (appState, _) = AppState.makeTestState()
+        appState.applyWritingStyleSeed(WritingStyleCatalog.terminals)
+        XCTAssertFalse(appState.writingStyleBindings.isEmpty)
+    }
+
+    // MARK: - The master toggle really reverts everything
+
+    /// With the feature off, output must match the pre-writing-styles pipeline
+    /// byte for byte — including its capitalization, which the style-aware
+    /// pass would otherwise quietly improve.
+    func testDisabledStylesReproduceTheOldPipeline() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.writingStyleEnabled = false
+        appState.autoCapitalize = true
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        let transcript = "readme.md was updated"
+        await dictate(transcript, on: appState, mocks: mocks)
+
+        XCTAssertEqual(
+            mocks.textInjector.lastInjectedText,
+            DictationOutputFormatter.apply(
+                transcript,
+                autoCapitalize: true,
+                appendTrailingSpace: false
+            )
+        )
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Readme.md was updated")
+    }
+
+    /// Plain makes the same promise as the master toggle and must keep it.
+    func testPlainStyleReproducesTheOldPipeline() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.writingStyleEnabled = true
+        appState.writingStyleDefault = .plain
+        appState.autoCapitalize = true
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        await dictate("readme.md was updated", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Readme.md was updated")
+    }
+
     // MARK: - Resolution drives injection
 
     func testBoundAppGetsItsStyle() async {

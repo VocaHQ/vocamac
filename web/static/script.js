@@ -61,8 +61,24 @@
   /* ---------- Copy buttons ---------- */
 
   var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
+  var copyBlocks = document.querySelectorAll("[data-copy]");
+  var copyStatus = null;
 
-  document.querySelectorAll("[data-copy]").forEach(function (block) {
+  if (canCopy && copyBlocks.length) {
+    copyStatus = document.createElement("div");
+    copyStatus.className = "sr-only";
+    copyStatus.setAttribute("aria-live", "polite");
+    copyStatus.setAttribute("aria-atomic", "true");
+    document.body.appendChild(copyStatus);
+  }
+
+  var announceCopy = function (message) {
+    if (!copyStatus) { return; }
+    copyStatus.textContent = "";
+    copyStatus.textContent = message;
+  };
+
+  copyBlocks.forEach(function (block) {
     var source = block.querySelector("code");
     if (!source || !canCopy) { return; }
 
@@ -84,16 +100,19 @@
       var restore = function () {
         button.textContent = "Copy";
         button.classList.remove("is-copied");
+        announceCopy("");
       };
 
       navigator.clipboard.writeText(text).then(
         function () {
           button.textContent = "Copied";
           button.classList.add("is-copied");
+          announceCopy("Copied");
           setTimeout(restore, 2000);
         },
         function () {
           button.textContent = "Press ⌘C";
+          announceCopy("Press ⌘C");
           setTimeout(restore, 2000);
         }
       );

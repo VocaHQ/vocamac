@@ -164,6 +164,34 @@ test("every rendered page has one heading and image alternatives", async () => {
   }
 });
 
+test("keeps the site-audit copy and a11y fixes", async () => {
+  assert.match(index, /Selected on-device engine/);
+  assert.match(index, /WhisperKit\/CoreML, Parakeet, Apple Speech, ONNX/);
+  assert.doesNotMatch(
+    index,
+    /<span class="route-name">WhisperKit \/ CoreML<\/span>/,
+  );
+
+  const clipboard = await readFile(
+    join(outputRoot, "features/clipboard-preservation/index.html"),
+    "utf8",
+  );
+  assert.match(clipboard, /On-device transcription after model download/);
+  assert.doesNotMatch(clipboard, /Works offline/);
+
+  for (const page of pages) {
+    const rel = relative(outputRoot, page);
+    if (!rel.startsWith("features/") || rel === "features/index.html") continue;
+    const html = await readFile(page, "utf8");
+    assert.doesNotMatch(html, /aria-labelledby="feature-content-title"/);
+    assert.doesNotMatch(html, /id="feature-content-title"/);
+  }
+
+  assert.match(script, /aria-live", "polite"/);
+  assert.match(script, /announceCopy\("Copied"\)/);
+  assert.match(script, /announceCopy\("Press ⌘C"\)/);
+});
+
 test("all rendered local references resolve", async () => {
   const references = new Set();
   for (const page of pages) {

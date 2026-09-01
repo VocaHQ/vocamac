@@ -63,11 +63,10 @@ final class AppStateWritingStyleTests: XCTestCase {
     /// Writing styles ship inert: default style Plain, no app rules, so an
     /// upgrade cannot change the shape of an existing user's dictation.
     ///
-    /// Startup here runs with `skipSystemIntegration`, so this cannot catch a
-    /// seed call reintroduced *inside* that guard — the guarantee that no such
-    /// call site exists is enforced by the doc comment on
-    /// `seedWritingStyleCatalogIfNeeded()`. What it does catch is a seed that
-    /// ignores the guard, and the defaults being anything but inert.
+    /// Startup here runs with `skipSystemIntegration`, so this cannot catch
+    /// discovery reintroduced *inside* that guard. What it does catch is
+    /// discovery that ignores the guard, and the defaults being anything but
+    /// inert — which is the part that matters on upgrade.
     func testStartupLeavesTheFeatureInert() async {
         let (appState, _) = AppState.makeTestState()
         XCTAssertEqual(appState.writingStyleDefault, .plain)

@@ -197,8 +197,10 @@ enum DictationOutputFormatter {
         ")", "]", "}", "\"", "'",
         // Curly quotes a speech engine or a snippet can produce.
         "\u{2019}", "\u{201D}", "\u{00BB}", "\u{203A}",
-        // CJK brackets and quotes.
-        "\u{3001}", "\u{300D}", "\u{300F}", "\u{FF09}", "\u{3011}", "\u{3009}"
+        // CJK brackets and quotes. The ideographic comma is deliberately not
+        // here: it separates clauses, so a sentence ending in one is still
+        // unfinished.
+        "\u{300D}", "\u{300F}", "\u{FF09}", "\u{3011}", "\u{3009}"
     ]
 
     /// Remove a single trailing period.

@@ -126,6 +126,32 @@ final class SnippetWritingStyleInteractionTests: XCTestCase {
         XCTAssertEqual(masked.restore(in: masked.text), "Kind regards, Jane")
     }
 
+    /// The newline counterpart of the test above, and the case a review flagged
+    /// as a lost separator. The expansion's own "\n" ends the line, so the
+    /// following word starts the next one at column zero — restoring the user's
+    /// space would indent it by a stray column instead.
+    func testExpansionEndingInNewlineStartsFollowingTextAtColumnZero() {
+        let snippets = [Snippet(trigger: "sig", expansion: "Jane Doe\nCEO\n")]
+        let masked = expander.expandMasked(in: "sig thanks for the review", using: snippets)
+        let styled = WritingStyleEngine.format(
+            masked.text,
+            style: .chat,
+            globalAutoCapitalize: true,
+            globalTrailingSpace: false
+        )
+        XCTAssertEqual(masked.restore(in: styled), "Jane Doe\nCEO\nthanks for the review")
+    }
+
+    /// Back-to-back expansions must not lose the boundary between them.
+    func testAdjacentNewlineEndingExpansionsKeepTheirBoundaries() {
+        let snippets = [Snippet(trigger: "sig", expansion: "Jane Doe\nCEO\n")]
+        let masked = expander.expandMasked(in: "sig sig done", using: snippets)
+        XCTAssertEqual(
+            masked.restore(in: masked.text),
+            "Jane Doe\nCEO\nJane Doe\nCEO\ndone"
+        )
+    }
+
     func testTriggerSurvivesAStyleThatTrimsLeadingFiller() {
         // Code style trims a leading "so", which used to eat the trigger's own
         // first word before the expander ever saw it.

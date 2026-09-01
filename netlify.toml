@@ -1,0 +1,6 @@
+# Pin the same Hugo GitHub Actions uses (peaceiris hugo-version 0.165.0).
+# Netlify UI still owns base=web, command=hugo, publish=web/public.
+# Older default Hugo does not read hugo.toml, so deploy-preview fails with
+# "Unable to locate config file".
+[build.environment]
+  HUGO_VERSION = "0.165.0"

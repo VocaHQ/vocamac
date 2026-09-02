@@ -99,6 +99,9 @@ final class AudioEngine {
     private var configuredInputDeviceID: AudioDeviceID?
     /// Zero-based input channel chosen by the user for multi-channel devices.
     private var preferredInputChannel = 0
+    /// Device layout the persisted input-channel index belongs to.
+    private var preferredInputChannelDeviceUID: String?
+    private var preferredInputChannelCount = 0
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
     private var lastPreferredInputDeviceUID: String?
@@ -396,6 +399,10 @@ final class AudioEngine {
             )
             return false
         }
+        syncPreferredInputChannel(
+            with: configuredInputDeviceID,
+            channelCount: Int(inputFormat.channelCount)
+        )
 
         if let startFailure = installTapAndStart(engine: engine, inputNode: inputNode, inputFormat: inputFormat) {
             VocaLogger.error(.audioEngine, "Failed to restart audio engine after configuration change: \(startFailure)")
@@ -475,6 +482,8 @@ final class AudioEngine {
     ///   - silenceDuration: Seconds of silence before triggering silence detection callback
     ///   - maxDuration: Maximum recording duration in seconds
     ///   - preferredInputChannel: Zero-based channel to capture from a multi-channel device
+    ///   - preferredInputChannelDeviceID: Device UID the saved channel belongs to
+    ///   - preferredInputChannelCount: Channel count when the selection was saved
     /// - Returns: `true` when the engine is recording, otherwise `false`.
     @discardableResult
     func startRecording(
@@ -482,7 +491,9 @@ final class AudioEngine {
         silenceDuration: Double = 2.0,
         maxDuration: TimeInterval = 60.0,
         preferredInputDeviceID: String? = nil,
-        preferredInputChannel: Int = 0
+        preferredInputChannel: Int = 0,
+        preferredInputChannelDeviceID: String? = nil,
+        preferredInputChannelCount: Int = 0
     ) -> Bool {
         lifecycleQueue.sync {
             guard !self._isCurrentlyRecording else { return true }
@@ -504,6 +515,8 @@ final class AudioEngine {
             self.silenceDuration = SilenceDetectionSettings.clampedDuration(silenceDuration)
             self.maxDuration = maxDuration
             self.preferredInputChannel = max(0, preferredInputChannel)
+            self.preferredInputChannelDeviceUID = preferredInputChannelDeviceID
+            self.preferredInputChannelCount = max(0, preferredInputChannelCount)
 
             guard Self.prepareApplicationInputForRecording() else {
                 return false
@@ -547,6 +560,10 @@ final class AudioEngine {
                     recoverFromStartFailure(notifyAppState: false)
                     return false
                 }
+                self.syncPreferredInputChannel(
+                    with: configuredInputDeviceID,
+                    channelCount: Int(inputFormat.channelCount)
+                )
 
                 // A previous failed start can leave a tap installed even when our
                 // recording flag is false. Remove any stale tap before installing a
@@ -1201,6 +1218,50 @@ final class AudioEngine {
         return outputBuffer
     }
 
+    /// Keeps a channel selection only while it still describes the live device layout.
+    private func syncPreferredInputChannel(
+        with deviceID: AudioDeviceID,
+        channelCount: Int
+    ) {
+        let activeDeviceUID = Self.audioDeviceUID(for: deviceID)
+        let resolvedChannel = Self.resolvedInputChannel(
+            requestedChannel: preferredInputChannel,
+            mappedDeviceUID: preferredInputChannelDeviceUID,
+            mappedChannelCount: preferredInputChannelCount,
+            activeDeviceUID: activeDeviceUID,
+            activeChannelCount: channelCount
+        )
+        if resolvedChannel != preferredInputChannel {
+            VocaLogger.warning(
+                .audioEngine,
+                "Saved input channel no longer matches the active device layout; using channel 1"
+            )
+        }
+        preferredInputChannel = resolvedChannel
+        preferredInputChannelDeviceUID = activeDeviceUID
+        preferredInputChannelCount = channelCount
+    }
+
+    /// Returns the saved channel only when its device identity and topology are still current.
+    static func resolvedInputChannel(
+        requestedChannel: Int,
+        mappedDeviceUID: String?,
+        mappedChannelCount: Int,
+        activeDeviceUID: String?,
+        activeChannelCount: Int
+    ) -> Int {
+        guard activeChannelCount > 0,
+              requestedChannel >= 0,
+              requestedChannel < activeChannelCount,
+              let mappedDeviceUID,
+              !mappedDeviceUID.isEmpty,
+              mappedDeviceUID == activeDeviceUID,
+              mappedChannelCount == activeChannelCount else {
+            return 0
+        }
+        return requestedChannel
+    }
+
     /// Copies one selected channel into a mono Float32 buffer without attenuation.
     static func monoBuffer(
         from buffer: AVAudioPCMBuffer,
@@ -1228,7 +1289,9 @@ final class AudioEngine {
             return nil
         }
 
-        let selectedChannel = min(max(requestedChannel, 0), channelCount - 1)
+        let selectedChannel = requestedChannel >= 0 && requestedChannel < channelCount
+            ? requestedChannel
+            : 0
 
         for frame in 0..<frameCount {
             monoData[frame] = format.isInterleaved

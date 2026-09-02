@@ -1366,11 +1366,11 @@ struct AudioSettingsTab: View {
                 }
                 .onChange(of: appState.selectedAudioDeviceID) {
                     syncSelectedAudioDeviceName()
-                    clampSelectedAudioChannel()
+                    syncSelectedAudioChannel()
                 }
 
                 if activeInputChannelCount > 1 {
-                    Picker("Input channel", selection: $appState.selectedAudioChannel) {
+                    Picker("Input channel", selection: selectedAudioChannelBinding) {
                         ForEach(0..<activeInputChannelCount, id: \.self) { channel in
                             Text("Channel \(channel + 1)").tag(channel)
                         }
@@ -1469,7 +1469,7 @@ struct AudioSettingsTab: View {
     private func refreshAudioDevices() {
         audioDevices = AudioEngine.availableInputDevices()
         syncSelectedAudioDeviceName()
-        clampSelectedAudioChannel()
+        syncSelectedAudioChannel()
     }
 
     private func syncSelectedAudioDeviceName() {
@@ -1483,16 +1483,18 @@ struct AudioSettingsTab: View {
         }
     }
 
-    private func clampSelectedAudioChannel() {
-        guard activeInputChannelCount > 0 else {
-            if appState.selectedAudioDeviceID.isEmpty {
-                appState.selectedAudioChannel = 0
+    private func syncSelectedAudioChannel() {
+        guard let activeAudioDevice else { return }
+        appState.syncSelectedAudioChannel(with: activeAudioDevice)
+    }
+
+    private var selectedAudioChannelBinding: Binding<Int> {
+        Binding(
+            get: { appState.selectedAudioChannel },
+            set: { channel in
+                guard let activeAudioDevice else { return }
+                appState.selectAudioChannel(channel, for: activeAudioDevice)
             }
-            return
-        }
-        appState.selectedAudioChannel = min(
-            max(appState.selectedAudioChannel, 0),
-            activeInputChannelCount - 1
         )
     }
 

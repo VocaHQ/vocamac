@@ -518,6 +518,58 @@ final class AudioEngineTests: XCTestCase {
         }
 
         XCTAssertEqual(peak, 0.1, accuracy: 0.01)
+
+        let fallback = try XCTUnwrap(
+            AudioEngine.convertToWhisperFormat(
+                input,
+                from: input.format,
+                inputChannel: 99
+            )
+        )
+        let fallbackSamples = try XCTUnwrap(fallback.floatChannelData?[0])
+        let fallbackPeak = (0..<Int(fallback.frameLength)).reduce(Float.zero) {
+            max($0, abs(fallbackSamples[$1]))
+        }
+        XCTAssertLessThan(
+            fallbackPeak,
+            0.01,
+            "An invalid saved index must fall back to channel 1, not the last channel"
+        )
+    }
+
+    func testInputChannelSelectionExpiresWhenDeviceLayoutChanges() {
+        XCTAssertEqual(
+            AudioEngine.resolvedInputChannel(
+                requestedChannel: 1,
+                mappedDeviceUID: "interface-a",
+                mappedChannelCount: 4,
+                activeDeviceUID: "interface-a",
+                activeChannelCount: 4
+            ),
+            1
+        )
+        XCTAssertEqual(
+            AudioEngine.resolvedInputChannel(
+                requestedChannel: 3,
+                mappedDeviceUID: "interface-a",
+                mappedChannelCount: 4,
+                activeDeviceUID: "interface-b",
+                activeChannelCount: 4
+            ),
+            0,
+            "A system-default device change must fall back to channel 1"
+        )
+        XCTAssertEqual(
+            AudioEngine.resolvedInputChannel(
+                requestedChannel: 1,
+                mappedDeviceUID: "interface-a",
+                mappedChannelCount: 4,
+                activeDeviceUID: "interface-a",
+                activeChannelCount: 2
+            ),
+            0,
+            "A topology change must fall back to channel 1"
+        )
     }
 
     func testSilenceDurationRestartsAfterSpeech() {

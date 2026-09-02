@@ -4,6 +4,7 @@
 // Tests for services: KeyCodeReference, TextInjector, SoundManager, AudioEngine.
 
 import XCTest
+import AVFoundation
 import CoreAudio
 @testable import VocaMac
 
@@ -445,6 +446,94 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testInputTapUsesLiveHardwareFormat() {
+        XCTAssertNil(
+            AudioEngine.inputTapFormat,
+            "A nil tap format follows the device format that is live when the tap starts"
+        )
+    }
+
+    func testFourChannelInputConvertsSpeechOutsideChannelZero() throws {
+        let layoutTag = kAudioChannelLayoutTag_DiscreteInOrder | AudioChannelLayoutTag(4)
+        let layout = try XCTUnwrap(AVAudioChannelLayout(layoutTag: layoutTag))
+        let format = AVAudioFormat(
+            standardFormatWithSampleRate: 44_100,
+            channelLayout: layout
+        )
+        let input = try XCTUnwrap(
+            AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096)
+        )
+        input.frameLength = 4_096
+
+        let activeChannel = 3
+        for frame in 0..<Int(input.frameLength) {
+            input.floatChannelData?[activeChannel][frame] = 0.25
+        }
+
+        let converted = try XCTUnwrap(
+            AudioEngine.convertToWhisperFormat(input, from: input.format)
+        )
+        let samples = try XCTUnwrap(converted.floatChannelData?[0])
+        let peak = (0..<Int(converted.frameLength)).reduce(Float.zero) {
+            max($0, abs(samples[$1]))
+        }
+
+        XCTAssertGreaterThan(
+            peak,
+            0.01,
+            "Speech on any physical interface channel must survive the mono conversion"
+        )
+    }
+
+    func testSilenceDurationRestartsAfterSpeech() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+
+        XCTAssertFalse(detector.observe(
+            energy: 0,
+            threshold: 0.01,
+            duration: 5,
+            at: start.addingTimeInterval(4)
+        ))
+        XCTAssertFalse(detector.observe(
+            energy: 0.2,
+            threshold: 0.01,
+            duration: 5,
+            at: start.addingTimeInterval(4.5)
+        ))
+        XCTAssertFalse(detector.observe(
+            energy: 0,
+            threshold: 0.01,
+            duration: 5,
+            at: start.addingTimeInterval(9)
+        ))
+        XCTAssertTrue(detector.observe(
+            energy: 0,
+            threshold: 0.01,
+            duration: 5,
+            at: start.addingTimeInterval(9.5)
+        ))
+        XCTAssertFalse(
+            detector.observe(
+                energy: 0,
+                threshold: 0.01,
+                duration: 5,
+                at: start.addingTimeInterval(15)
+            ),
+            "A continuous silent period should notify only once"
+        )
+    }
+
+    func testCustomSilenceDurationIsClampedToSupportedRange() {
+        XCTAssertEqual(SilenceDetectionSettings.clampedDuration(60), 60)
+        XCTAssertEqual(SilenceDetectionSettings.clampedDuration(0), 0.5)
+        XCTAssertEqual(SilenceDetectionSettings.clampedDuration(600), 300)
+        XCTAssertEqual(
+            SilenceDetectionSettings.clampedDuration(.nan),
+            SilenceDetectionSettings.defaultDuration
+        )
+    }
+
     func testPreparingCaptureAcceptsBuffersWithoutEvaluatingStopConditions() {
         XCTAssertFalse(AudioCapturePhase.stopped.acceptsInputBuffers)
         XCTAssertFalse(AudioCapturePhase.stopped.evaluatesStopConditions)
@@ -492,7 +581,7 @@ final class AudioEngineTests: XCTestCase {
 
         let _ = engine.stopRecording()
 
-        // The callback should have fired at most once due to the silenceCallbackFired guard
+        // The detector should notify at most once for one continuous silent period.
         XCTAssertLessThanOrEqual(silenceCallCount, 1,
             "Silence callback should fire at most once, but fired \(silenceCallCount) times")
     }

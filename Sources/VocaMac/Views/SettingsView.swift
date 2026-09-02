@@ -1313,17 +1313,21 @@ struct AudioSettingsTab: View {
 
                 HStack {
                     Text("Auto-stop after silence")
-                    Slider(
-                        value: $appState.silenceDuration,
-                        in: 0.5...5.0,
-                        step: 0.5
+                    Spacer()
+                    TextField(
+                        "Seconds",
+                        value: silenceDurationBinding,
+                        format: .number.precision(.fractionLength(0...1))
                     )
-                    Text("\(String(format: "%.1f", appState.silenceDuration))s")
-                        .monospacedDigit()
-                        .frame(width: 35)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 72)
+                    Text("seconds")
+                        .foregroundStyle(.secondary)
                 }
 
-                Text("In double-tap mode, recording auto-stops after this duration of silence. In push-to-talk mode, you control when to stop by releasing the key.")
+                Text("In double-tap mode, recording auto-stops after 0.5 to 300 seconds of continuous silence. In push-to-talk mode, you control when to stop by releasing the key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1452,6 +1456,15 @@ struct AudioSettingsTab: View {
         if let selectedAudioDevice {
             appState.selectAudioDevice(selectedAudioDevice)
         }
+    }
+
+    private var silenceDurationBinding: Binding<Double> {
+        Binding(
+            get: { appState.silenceDuration },
+            set: {
+                appState.silenceDuration = SilenceDetectionSettings.clampedDuration($0)
+            }
+        )
     }
 
     private var sensitivityLabel: String {
@@ -1715,4 +1728,3 @@ struct DebugTab: View {
         }
     }
 }
-

@@ -26,6 +26,42 @@ enum AudioCapturePhase: Equatable {
     var evaluatesStopConditions: Bool { self == .recording }
 }
 
+/// Tracks continuous silence independently of total recording time.
+struct SilenceDetector {
+    private(set) var lastSoundTime: Date
+    private(set) var hasReportedSilence = false
+
+    init(now: Date = Date()) {
+        lastSoundTime = now
+    }
+
+    mutating func reset(at now: Date = Date()) {
+        lastSoundTime = now
+        hasReportedSilence = false
+    }
+
+    mutating func observe(
+        energy: Float,
+        threshold: Float,
+        duration: TimeInterval,
+        at now: Date
+    ) -> Bool {
+        if energy > threshold {
+            lastSoundTime = now
+            hasReportedSilence = false
+            return false
+        }
+
+        guard !hasReportedSilence,
+              now.timeIntervalSince(lastSoundTime) >= duration else {
+            return false
+        }
+
+        hasReportedSilence = true
+        return true
+    }
+}
+
 final class AudioEngine {
 
     // MARK: - Properties
@@ -82,6 +118,9 @@ final class AudioEngine {
     static let firstInputBufferTimeout: TimeInterval = 0.75
     static let firstInputBufferPollInterval: TimeInterval = 0.01
     static let idleEngineReleaseDelay: TimeInterval = 3.0
+    /// A nil format asks AVAudioEngine to bind the tap to the input node's live
+    /// hardware format. The format can change while USB and Bluetooth routes settle.
+    static let inputTapFormat: AVAudioFormat? = nil
 
     /// Mirrors AVAudioApplication's mute state for the realtime input tap.
     private static let applicationInputMuted = OSAllocatedUnfairLock(initialState: false)
@@ -120,7 +159,7 @@ final class AudioEngine {
     }
 
     // Silence detection
-    private var lastSoundTime: Date = Date()
+    private let silenceDetector = OSAllocatedUnfairLock(initialState: SilenceDetector())
     private var silenceThreshold: Float = 0.01
     private var silenceDuration: Double = 2.0
     private var maxDuration: TimeInterval = 60.0
@@ -286,7 +325,7 @@ final class AudioEngine {
 
                 VocaLogger.warning(.audioEngine, "Failed to restart audio graph after configuration change")
                 self.setRecordingActive(false)
-                self.silenceCallbackFired = false
+                self.silenceDetector.withLock { $0.reset() }
                 self.maxDurationCallbackFired = false
                 self.removeInputTap(reason: "audio configuration change")
                 self.retireEngineAfterConfigurationChange()
@@ -458,7 +497,7 @@ final class AudioEngine {
 
             self.lastPreferredInputDeviceUID = preferredInputDeviceID
             self.silenceThreshold = silenceThreshold
-            self.silenceDuration = silenceDuration
+            self.silenceDuration = SilenceDetectionSettings.clampedDuration(silenceDuration)
             self.maxDuration = maxDuration
 
             guard Self.prepareApplicationInputForRecording() else {
@@ -524,8 +563,12 @@ final class AudioEngine {
                 let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
                     guard let self = self else { return }
 
-                    inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                        self?.processAudioBuffer(buffer, inputFormat: inputFormat)
+                    inputNode.installTap(
+                        onBus: 0,
+                        bufferSize: 4096,
+                        format: Self.inputTapFormat
+                    ) { [weak self] buffer, _ in
+                        self?.processAudioBuffer(buffer, inputFormat: buffer.format)
                     }
 
                     engine.prepare()
@@ -591,7 +634,7 @@ final class AudioEngine {
                 // Anchor max-duration / startup recovery to the moment capture
                 // actually begins, not the start of Bluetooth route settling.
                 recordingStartTime = Date()
-                lastSoundTime = Date()
+                silenceDetector.withLock { $0.reset() }
                 setRecordingActive(true)
                 return true
             }
@@ -635,7 +678,7 @@ final class AudioEngine {
             VocaLogger.warning(.audioEngine, "Force reset requested (wasRecording=\(_isCurrentlyRecording))")
 
             setRecordingActive(false)
-            silenceCallbackFired = false
+            silenceDetector.withLock { $0.reset() }
             maxDurationCallbackFired = false
 
             removeInputTap(reason: "force reset")
@@ -656,9 +699,8 @@ final class AudioEngine {
     /// Resets per-recording state before a new capture attempt.
     private func resetRecordingState() {
         clearAudioBuffer()
-        lastSoundTime = Date()
+        silenceDetector.withLock { $0.reset() }
         recordingStartTime = Date()
-        silenceCallbackFired = false
         maxDurationCallbackFired = false
     }
 
@@ -674,7 +716,7 @@ final class AudioEngine {
     private func setCaptureActive(_ active: Bool) {
         if active {
             firstBufferSeen.withLock { $0 = false }
-            lastSoundTime = Date()
+            silenceDetector.withLock { $0.reset() }
         }
         capturePhase.withLock { $0 = active ? .preparing : .stopped }
     }
@@ -753,8 +795,12 @@ final class AudioEngine {
         var startError: Error?
         let exception = VocaObjCExceptionCatcher.catchException { [weak self] in
             guard let self else { return }
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer, inputFormat: inputFormat)
+            inputNode.installTap(
+                onBus: 0,
+                bufferSize: 4096,
+                format: Self.inputTapFormat
+            ) { [weak self] buffer, _ in
+                self?.processAudioBuffer(buffer, inputFormat: buffer.format)
             }
             engine.prepare()
             do {
@@ -789,7 +835,7 @@ final class AudioEngine {
     /// Must be called on `lifecycleQueue`.
     private func abandonCancelledStart() -> Bool {
         setRecordingActive(false)
-        silenceCallbackFired = false
+        silenceDetector.withLock { $0.reset() }
         maxDurationCallbackFired = false
         removeInputTap(reason: "cancelled start")
         if engine?.isRunning == true {
@@ -804,7 +850,7 @@ final class AudioEngine {
     /// Restores AudioEngine to a clean idle state after any failed start attempt.
     private func recoverFromStartFailure(notifyAppState: Bool) {
         setRecordingActive(false)
-        silenceCallbackFired = false
+        silenceDetector.withLock { $0.reset() }
         maxDurationCallbackFired = false
         removeInputTap(reason: "start failure")
         engine?.stop()
@@ -988,9 +1034,6 @@ final class AudioEngine {
 
     // MARK: - Audio Processing
 
-    /// Whether silence detection has already fired (prevents repeated callbacks)
-    private var silenceCallbackFired = false
-
     /// Whether max duration callback has already fired
     private var maxDurationCallbackFired = false
 
@@ -1008,7 +1051,7 @@ final class AudioEngine {
         firstBufferSeen.withLock { $0 = true }
 
         // Convert to whisper format (16kHz, mono, Float32)
-        guard let convertedBuffer = convertToWhisperFormat(buffer, from: inputFormat) else {
+        guard let convertedBuffer = Self.convertToWhisperFormat(buffer, from: inputFormat) else {
             return
         }
 
@@ -1055,41 +1098,64 @@ final class AudioEngine {
             return
         }
 
-        // Silence detection
-        if energy > silenceThreshold {
-            lastSoundTime = now
-            silenceCallbackFired = false  // Reset so silence can be detected again after speech resumes
-        } else if now.timeIntervalSince(lastSoundTime) >= silenceDuration && !silenceCallbackFired {
-            silenceCallbackFired = true
+        let didDetectSilence = silenceDetector.withLock {
+            $0.observe(
+                energy: energy,
+                threshold: silenceThreshold,
+                duration: silenceDuration,
+                at: now
+            )
+        }
+        if didDetectSilence {
             DispatchQueue.main.async { [weak self] in
                 self?.onSilenceDetected?()
             }
         }
     }
 
-    /// Convert an audio buffer to whisper.cpp's required format (16kHz, mono, Float32)
-    private func convertToWhisperFormat(
+    /// Converts an audio buffer to Whisper's required 16 kHz mono Float32 format.
+    ///
+    /// AVAudioConverter's implicit multi-channel downmix only reads channel 0
+    /// for stereo input and can emit all-zero output for devices with more than
+    /// two channels. Select the channel carrying the strongest signal first so
+    /// interfaces such as the four-channel EVO4 do not turn speech into silence.
+    static func convertToWhisperFormat(
         _ buffer: AVAudioPCMBuffer,
         from inputFormat: AVAudioFormat
     ) -> AVAudioPCMBuffer? {
-        let whisperFormat = AudioEngine.whisperFormat
+        let sourceBuffer: AVAudioPCMBuffer
+        if inputFormat.channelCount > 1 {
+            guard let monoBuffer = monoBufferSelectingLoudestChannel(buffer) else {
+                VocaLogger.error(.audioEngine, "Failed to read multi-channel microphone samples")
+                return nil
+            }
+            sourceBuffer = monoBuffer
+        } else {
+            sourceBuffer = buffer
+        }
+
+        let sourceFormat = sourceBuffer.format
+        let whisperFormat = Self.whisperFormat
 
         // If input is already in the right format, return as-is
-        if inputFormat.sampleRate == whisperFormat.sampleRate
-            && inputFormat.channelCount == whisperFormat.channelCount
-            && inputFormat.commonFormat == whisperFormat.commonFormat {
-            return buffer
+        if sourceFormat.sampleRate == whisperFormat.sampleRate
+            && sourceFormat.channelCount == whisperFormat.channelCount
+            && sourceFormat.commonFormat == whisperFormat.commonFormat {
+            return sourceBuffer
         }
 
         // Create a converter
-        guard let converter = AVAudioConverter(from: inputFormat, to: whisperFormat) else {
+        guard let converter = AVAudioConverter(from: sourceFormat, to: whisperFormat) else {
             VocaLogger.error(.audioEngine, "Failed to create audio format converter")
             return nil
         }
 
         // Calculate output frame capacity based on sample rate ratio
-        let ratio = whisperFormat.sampleRate / inputFormat.sampleRate
-        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
+        let ratio = whisperFormat.sampleRate / sourceFormat.sampleRate
+        let outputFrameCapacity = max(
+            1,
+            AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio))
+        )
 
         guard let outputBuffer = AVAudioPCMBuffer(
             pcmFormat: whisperFormat,
@@ -1098,20 +1164,80 @@ final class AudioEngine {
             return nil
         }
 
-        var error: NSError?
+        var didProvideInput = false
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
+            guard !didProvideInput else {
+                outStatus.pointee = .endOfStream
+                return nil
+            }
+            didProvideInput = true
             outStatus.pointee = .haveData
-            return buffer
+            return sourceBuffer
         }
 
-        converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
+        var error: NSError?
+        let status = converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
 
-        if let error = error {
+        if let error {
             VocaLogger.error(.audioEngine, "Conversion error: \(error)")
             return nil
         }
+        guard status != .error else { return nil }
 
         return outputBuffer
+    }
+
+    /// Copies the loudest channel into a mono Float32 buffer without attenuating it.
+    /// Audio interfaces commonly expose several physical and loopback channels,
+    /// while dictation uses one microphone source at a time.
+    static func monoBufferSelectingLoudestChannel(
+        _ buffer: AVAudioPCMBuffer
+    ) -> AVAudioPCMBuffer? {
+        let format = buffer.format
+        let channelCount = Int(format.channelCount)
+        let frameCount = Int(buffer.frameLength)
+
+        guard channelCount > 0,
+              frameCount > 0,
+              format.commonFormat == .pcmFormatFloat32,
+              let channelData = buffer.floatChannelData,
+              let monoFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: format.sampleRate,
+                channels: 1,
+                interleaved: false
+              ),
+              let monoBuffer = AVAudioPCMBuffer(
+                pcmFormat: monoFormat,
+                frameCapacity: buffer.frameLength
+              ),
+              let monoData = monoBuffer.floatChannelData?[0] else {
+            return nil
+        }
+
+        var loudestChannel = 0
+        var loudestEnergy: Double = -1
+        for channel in 0..<channelCount {
+            var sumSquares = 0.0
+            for frame in 0..<frameCount {
+                let sample = format.isInterleaved
+                    ? channelData[0][frame * channelCount + channel]
+                    : channelData[channel][frame]
+                sumSquares += Double(sample * sample)
+            }
+            if sumSquares > loudestEnergy {
+                loudestChannel = channel
+                loudestEnergy = sumSquares
+            }
+        }
+
+        for frame in 0..<frameCount {
+            monoData[frame] = format.isInterleaved
+                ? channelData[0][frame * channelCount + loudestChannel]
+                : channelData[loudestChannel][frame]
+        }
+        monoBuffer.frameLength = buffer.frameLength
+        return monoBuffer
     }
 
     /// Calculate the RMS (root mean square) energy of an audio buffer

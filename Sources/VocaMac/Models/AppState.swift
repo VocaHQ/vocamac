@@ -101,7 +101,7 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.hotKeyModifiers") var hotKeyModifiers: HotKeyModifiers = []
     @AppStorage("vocamac.doubleTapThreshold") var doubleTapThreshold: Double = 0.4
     @AppStorage("vocamac.silenceThreshold") var silenceThreshold: Double = 0.01
-    @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = 2.0
+    @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = SilenceDetectionSettings.defaultDuration
     @AppStorage("vocamac.maxRecordingDuration") var maxRecordingDuration: Int = 60
     @AppStorage("vocamac.selectedAudioDeviceID") var selectedAudioDeviceID: String = ""
     @AppStorage("vocamac.selectedAudioDeviceName") var selectedAudioDeviceName: String = ""

@@ -97,6 +97,8 @@ final class AudioEngine {
     /// thread, so it must use the same realtime-safe state as `capturePhase`.
     private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
+    /// Zero-based input channel chosen by the user for multi-channel devices.
+    private var preferredInputChannel = 0
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
     private var lastPreferredInputDeviceUID: String?
@@ -472,13 +474,15 @@ final class AudioEngine {
     ///   - silenceThreshold: RMS energy threshold below which audio is considered silence
     ///   - silenceDuration: Seconds of silence before triggering silence detection callback
     ///   - maxDuration: Maximum recording duration in seconds
+    ///   - preferredInputChannel: Zero-based channel to capture from a multi-channel device
     /// - Returns: `true` when the engine is recording, otherwise `false`.
     @discardableResult
     func startRecording(
         silenceThreshold: Float = 0.01,
         silenceDuration: Double = 2.0,
         maxDuration: TimeInterval = 60.0,
-        preferredInputDeviceID: String? = nil
+        preferredInputDeviceID: String? = nil,
+        preferredInputChannel: Int = 0
     ) -> Bool {
         lifecycleQueue.sync {
             guard !self._isCurrentlyRecording else { return true }
@@ -499,6 +503,7 @@ final class AudioEngine {
             self.silenceThreshold = silenceThreshold
             self.silenceDuration = SilenceDetectionSettings.clampedDuration(silenceDuration)
             self.maxDuration = maxDuration
+            self.preferredInputChannel = max(0, preferredInputChannel)
 
             guard Self.prepareApplicationInputForRecording() else {
                 return false
@@ -1051,7 +1056,11 @@ final class AudioEngine {
         firstBufferSeen.withLock { $0 = true }
 
         // Convert to whisper format (16kHz, mono, Float32)
-        guard let convertedBuffer = Self.convertToWhisperFormat(buffer, from: inputFormat) else {
+        guard let convertedBuffer = Self.convertToWhisperFormat(
+            buffer,
+            from: inputFormat,
+            inputChannel: preferredInputChannel
+        ) else {
             return
         }
 
@@ -1117,15 +1126,20 @@ final class AudioEngine {
     ///
     /// AVAudioConverter's implicit multi-channel downmix only reads channel 0
     /// for stereo input and can emit all-zero output for devices with more than
-    /// two channels. Select the channel carrying the strongest signal first so
-    /// interfaces such as the four-channel EVO4 do not turn speech into silence.
+    /// two channels. Extract the user's selected input first so interfaces such
+    /// as the four-channel EVO4 preserve the intended microphone without mixing
+    /// in loopback or unrelated physical inputs.
     static func convertToWhisperFormat(
         _ buffer: AVAudioPCMBuffer,
-        from inputFormat: AVAudioFormat
+        from inputFormat: AVAudioFormat,
+        inputChannel: Int = 0
     ) -> AVAudioPCMBuffer? {
         let sourceBuffer: AVAudioPCMBuffer
         if inputFormat.channelCount > 1 {
-            guard let monoBuffer = monoBufferSelectingLoudestChannel(buffer) else {
+            guard let monoBuffer = monoBuffer(
+                from: buffer,
+                selecting: inputChannel
+            ) else {
                 VocaLogger.error(.audioEngine, "Failed to read multi-channel microphone samples")
                 return nil
             }
@@ -1187,11 +1201,10 @@ final class AudioEngine {
         return outputBuffer
     }
 
-    /// Copies the loudest channel into a mono Float32 buffer without attenuating it.
-    /// Audio interfaces commonly expose several physical and loopback channels,
-    /// while dictation uses one microphone source at a time.
-    static func monoBufferSelectingLoudestChannel(
-        _ buffer: AVAudioPCMBuffer
+    /// Copies one selected channel into a mono Float32 buffer without attenuation.
+    static func monoBuffer(
+        from buffer: AVAudioPCMBuffer,
+        selecting requestedChannel: Int
     ) -> AVAudioPCMBuffer? {
         let format = buffer.format
         let channelCount = Int(format.channelCount)
@@ -1215,26 +1228,12 @@ final class AudioEngine {
             return nil
         }
 
-        var loudestChannel = 0
-        var loudestEnergy: Double = -1
-        for channel in 0..<channelCount {
-            var sumSquares = 0.0
-            for frame in 0..<frameCount {
-                let sample = format.isInterleaved
-                    ? channelData[0][frame * channelCount + channel]
-                    : channelData[channel][frame]
-                sumSquares += Double(sample * sample)
-            }
-            if sumSquares > loudestEnergy {
-                loudestChannel = channel
-                loudestEnergy = sumSquares
-            }
-        }
+        let selectedChannel = min(max(requestedChannel, 0), channelCount - 1)
 
         for frame in 0..<frameCount {
             monoData[frame] = format.isInterleaved
-                ? channelData[0][frame * channelCount + loudestChannel]
-                : channelData[loudestChannel][frame]
+                ? channelData[0][frame * channelCount + selectedChannel]
+                : channelData[selectedChannel][frame]
         }
         monoBuffer.frameLength = buffer.frameLength
         return monoBuffer

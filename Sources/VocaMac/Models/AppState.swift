@@ -105,6 +105,7 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.maxRecordingDuration") var maxRecordingDuration: Int = 60
     @AppStorage("vocamac.selectedAudioDeviceID") var selectedAudioDeviceID: String = ""
     @AppStorage("vocamac.selectedAudioDeviceName") var selectedAudioDeviceName: String = ""
+    @AppStorage("vocamac.selectedAudioChannel") var selectedAudioChannel: Int = 0
     @AppStorage(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
     @AppStorage(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
@@ -194,7 +195,11 @@ final class AppState: ObservableObject {
     /// Persist the microphone VocaMac should use for future recordings.
     /// Passing nil restores the system-default input behavior.
     func selectAudioDevice(_ device: AudioDevice?) {
-        selectedAudioDeviceID = device?.id ?? ""
+        let newDeviceID = device?.id ?? ""
+        if selectedAudioDeviceID != newDeviceID {
+            selectedAudioChannel = 0
+        }
+        selectedAudioDeviceID = newDeviceID
         selectedAudioDeviceName = device?.name ?? ""
     }
 
@@ -254,13 +259,15 @@ final class AppState: ObservableObject {
             silenceThreshold: Float,
             silenceDuration: Double,
             maxDuration: TimeInterval,
-            preferredInputDeviceID: String?
+            preferredInputDeviceID: String?,
+            preferredInputChannel: Int
         ) -> Bool {
             audioEngine.startRecording(
                 silenceThreshold: silenceThreshold,
                 silenceDuration: silenceDuration,
                 maxDuration: maxDuration,
-                preferredInputDeviceID: preferredInputDeviceID
+                preferredInputDeviceID: preferredInputDeviceID,
+                preferredInputChannel: preferredInputChannel
             )
         }
 
@@ -939,7 +946,8 @@ final class AppState: ObservableObject {
             silenceThreshold: Float(silenceThreshold),
             silenceDuration: silenceDuration,
             maxDuration: TimeInterval(maxRecordingDuration),
-            preferredInputDeviceID: selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID
+            preferredInputDeviceID: selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID,
+            preferredInputChannel: selectedAudioChannel
         )
         isStartingAudio = false
 
@@ -1143,7 +1151,8 @@ final class AppState: ObservableObject {
         silenceThreshold: Float,
         silenceDuration: Double,
         maxDuration: TimeInterval,
-        preferredInputDeviceID: String?
+        preferredInputDeviceID: String?,
+        preferredInputChannel: Int
     ) async -> Bool {
         let worker = AudioEngineWorker(audioEngine: audioEngine)
         return await withCheckedContinuation { continuation in
@@ -1152,7 +1161,8 @@ final class AppState: ObservableObject {
                     silenceThreshold: silenceThreshold,
                     silenceDuration: silenceDuration,
                     maxDuration: maxDuration,
-                    preferredInputDeviceID: preferredInputDeviceID
+                    preferredInputDeviceID: preferredInputDeviceID,
+                    preferredInputChannel: preferredInputChannel
                 )
                 continuation.resume(returning: didStart)
             }

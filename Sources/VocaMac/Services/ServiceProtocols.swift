@@ -22,7 +22,8 @@ protocol AudioRecording: AnyObject {
         silenceThreshold: Float,
         silenceDuration: Double,
         maxDuration: TimeInterval,
-        preferredInputDeviceID: String?
+        preferredInputDeviceID: String?,
+        preferredInputChannel: Int
     ) -> Bool
     @discardableResult func stopRecording() -> [Float]
     func cancelPendingStart()

@@ -1366,6 +1366,19 @@ struct AudioSettingsTab: View {
                 }
                 .onChange(of: appState.selectedAudioDeviceID) {
                     syncSelectedAudioDeviceName()
+                    clampSelectedAudioChannel()
+                }
+
+                if activeInputChannelCount > 1 {
+                    Picker("Input channel", selection: $appState.selectedAudioChannel) {
+                        ForEach(0..<activeInputChannelCount, id: \.self) { channel in
+                            Text("Channel \(channel + 1)").tag(channel)
+                        }
+                    }
+
+                    Text("Choose the interface input where your microphone is connected. VocaMac keeps this channel fixed so loopback or other inputs cannot replace it during recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if audioDevices.isEmpty {
@@ -1427,6 +1440,17 @@ struct AudioSettingsTab: View {
         return audioDevices.first { $0.id == appState.selectedAudioDeviceID }
     }
 
+    private var activeAudioDevice: AudioDevice? {
+        if appState.selectedAudioDeviceID.isEmpty {
+            return audioDevices.first(where: { $0.isDefault })
+        }
+        return selectedAudioDevice
+    }
+
+    private var activeInputChannelCount: Int {
+        activeAudioDevice?.channelCount ?? 0
+    }
+
     private var selectedAudioDeviceIsUnavailable: Bool {
         !appState.selectedAudioDeviceID.isEmpty && selectedAudioDevice == nil
     }
@@ -1445,6 +1469,7 @@ struct AudioSettingsTab: View {
     private func refreshAudioDevices() {
         audioDevices = AudioEngine.availableInputDevices()
         syncSelectedAudioDeviceName()
+        clampSelectedAudioChannel()
     }
 
     private func syncSelectedAudioDeviceName() {
@@ -1456,6 +1481,19 @@ struct AudioSettingsTab: View {
         if let selectedAudioDevice {
             appState.selectAudioDevice(selectedAudioDevice)
         }
+    }
+
+    private func clampSelectedAudioChannel() {
+        guard activeInputChannelCount > 0 else {
+            if appState.selectedAudioDeviceID.isEmpty {
+                appState.selectedAudioChannel = 0
+            }
+            return
+        }
+        appState.selectedAudioChannel = min(
+            max(appState.selectedAudioChannel, 0),
+            activeInputChannelCount - 1
+        )
     }
 
     private var silenceDurationBinding: Binding<Double> {

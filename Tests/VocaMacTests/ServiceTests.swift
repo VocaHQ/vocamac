@@ -453,7 +453,7 @@ final class AudioEngineTests: XCTestCase {
         )
     }
 
-    func testFourChannelInputConvertsSpeechOutsideChannelZero() throws {
+    func testFourChannelInputConvertsSelectedChannel() throws {
         let layoutTag = kAudioChannelLayoutTag_DiscreteInOrder | AudioChannelLayoutTag(4)
         let layout = try XCTUnwrap(AVAudioChannelLayout(layoutTag: layoutTag))
         let format = AVAudioFormat(
@@ -471,7 +471,11 @@ final class AudioEngineTests: XCTestCase {
         }
 
         let converted = try XCTUnwrap(
-            AudioEngine.convertToWhisperFormat(input, from: input.format)
+            AudioEngine.convertToWhisperFormat(
+                input,
+                from: input.format,
+                inputChannel: activeChannel
+            )
         )
         let samples = try XCTUnwrap(converted.floatChannelData?[0])
         let peak = (0..<Int(converted.frameLength)).reduce(Float.zero) {
@@ -481,8 +485,39 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertGreaterThan(
             peak,
             0.01,
-            "Speech on any physical interface channel must survive the mono conversion"
+            "Speech on the selected physical interface channel must survive mono conversion"
         )
+    }
+
+    func testSelectedInputChannelDoesNotSwitchToLouderLoopbackChannel() throws {
+        let layoutTag = kAudioChannelLayoutTag_DiscreteInOrder | AudioChannelLayoutTag(4)
+        let layout = try XCTUnwrap(AVAudioChannelLayout(layoutTag: layoutTag))
+        let format = try XCTUnwrap(
+            AVAudioFormat(standardFormatWithSampleRate: 44_100, channelLayout: layout)
+        )
+        let input = try XCTUnwrap(
+            AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096)
+        )
+        input.frameLength = 4_096
+
+        for frame in 0..<Int(input.frameLength) {
+            input.floatChannelData?[1][frame] = 0.1
+            input.floatChannelData?[3][frame] = 0.9
+        }
+
+        let converted = try XCTUnwrap(
+            AudioEngine.convertToWhisperFormat(
+                input,
+                from: input.format,
+                inputChannel: 1
+            )
+        )
+        let samples = try XCTUnwrap(converted.floatChannelData?[0])
+        let peak = (0..<Int(converted.frameLength)).reduce(Float.zero) {
+            max($0, abs(samples[$1]))
+        }
+
+        XCTAssertEqual(peak, 0.1, accuracy: 0.01)
     }
 
     func testSilenceDurationRestartsAfterSpeech() {

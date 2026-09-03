@@ -9,6 +9,7 @@ import SwiftUI
 /// Top-level settings topics shown in the left sidebar.
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictation
+    case writingStyles
     case snippets
     case speechModel
     case audio
@@ -23,6 +24,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dictation: return "Dictation"
+        case .writingStyles: return "Writing Styles"
         case .snippets: return "Snippets"
         case .speechModel: return "Speech Model"
         case .audio: return "Audio"
@@ -37,6 +39,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .dictation: return "mic"
+        case .writingStyles: return "textformat"
         case .snippets: return "text.quote"
         case .speechModel: return "brain"
         case .audio: return "waveform"

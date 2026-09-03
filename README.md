@@ -34,6 +34,8 @@
 
 ## ✨ Features
 
+- **🔒 100% Local** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline.
+- **✍️ Per-App Writing Styles** - Dictation is shaped for the app receiving it: filenames and paths in Cursor or VS Code, `*bold*` in Slack, plain sentences in Messages, full stops in Mail. Runs on-device with deterministic rules — no LLM, no network.
 - **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.

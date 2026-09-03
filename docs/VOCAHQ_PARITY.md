@@ -38,6 +38,7 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 | Settings IA | Persistent status / mic / test footer | Yes | Yes (Test Dictation; no inject) | Keep |
 | Output | Trailing space after utterance | Yes | Yes | Keep |
 | Output | Auto-capitalize after sentence ends | Yes (esp. VOSK path) | Yes | Keep |
+| Output | Per-app writing styles | No | Yes (Code / Terminal / Chat / Slack / Email / Notes) | Keep Mac lead; feed Linux later |
 | Output | Voice commands | Yes (engine-gated) | No | Later / optional |
 | Output | Custom vocabulary | No | Yes (Whisper) | Keep; feed Linux later |
 | Output | Translation | No | Yes (Whisper) | Keep |
@@ -57,7 +58,8 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 ## 3. Settings IA (shipped)
 
 ```
-Dictation       Hotkey, mode, output formatting (trailing space, auto-capitalize)
+Dictation       Hotkey, mode, global output formatting (trailing space, auto-capitalize)
+Writing Styles  Master toggle, default style, per-app rules, rule editor, live preview
 Speech Model    Engine/model picker, downloads, language, translation/vocab (engine-gated)
 Audio           Device, silence/VAD, sound effects
 Performance     Model status, auto-pause apps, idle unload
@@ -131,6 +133,69 @@ Voice commands remain out of scope for now.
 
 ---
 
+## 5.1 Writing styles (Mac-first)
+
+Per-app output shaping applied between transcription and injection.
+
+`plain` performs no additional shaping: it follows the global Dictation
+settings and is byte-for-byte the pre-feature pipeline. Switching the feature
+off resolves to the same formatting rules while disabling per-app selection.
+
+| Preference | Default | Behavior |
+|------------|---------|----------|
+| `writingStyle.enabled` | `true` | Master toggle; off restores the global-only pipeline |
+| `writingStyle.defaultStyle` | `plain` | Used when the frontmost app has no rule |
+| `writingStyle.bindings` | empty | Versioned JSON of app → style rules |
+
+Writing styles ship inert: Plain default, no app rules. Rules are only ever
+created by an explicit action — "Add Suggested Apps…" in Settings, or binding
+an app from the menu bar — so upgrading cannot change the shape of anyone's
+dictation without them asking.
+
+**Resolution:** the frontmost app is read at injection time (`FrontmostAppResolver`),
+with a record-start snapshot, then the last activated app, as fallbacks for when
+VocaMac's own window has focus. That last fallback is what the menu bar row
+depends on: `.menuBarExtraStyle(.window)` activates VocaMac, so while the
+popover is open the frontmost app *is* VocaMac. Matching reuses the auto-pause
+contract — bundle ID or normalized process name — via the shared
+`AppIdentityMatching`.
+
+**Symbol substitution** is tiered by confidence. Tier A is context-locked (known
+file extensions, spoken case commands, bracket commands that carry an explicit
+"open"/"close") and safe in prose. Tier B is heuristic (path slashes, identifier
+joiners) and enabled only for Code and Terminal.
+
+Saying "literally" before a word suppresses the substitution that word would
+otherwise have taken part in ("literally dot json"). Whether the word is
+consumed as a command is decided by re-running the line without it: if nothing
+would have been rewritten, "literally" stays in the text. No word list can make
+that call — it would have to contain "open", "close", "go", "dash" and
+"forward" — and silently deleting an ordinary adverb from "I literally cannot"
+is a worse failure than a missed escape.
+
+Substitution preserves the case the engine produced — `Info.plist` and
+`README.md` are the names on disk — and a line where no rule fires is returned
+untouched, so ordinary dictation keeps its own spacing.
+
+**Ordering with snippets:** snippet expansion runs *before* styling, with each
+expansion masked as one `TextPlaceholder` scalar. Triggers are therefore matched
+against the raw transcript (a style that trims a leading "so" cannot break one),
+and the expansion — text the user authored — is never re-cased, re-punctuated,
+or reshaped by symbol rules. The style engine masks the identifiers it builds
+the same way, so sentence case cannot turn `readme.md` into `Readme.md`.
+
+Engines differ in what they emit for the same speech, so the transformer
+normalizes before matching. Whisper converts spoken symbols itself ("slash" →
+`/`); Parakeet emits the literal word; Apple Speech fuses it to the next word
+("slashcomponents"). A glued split runs first so every rule sees whole tokens.
+Formatting is a pure function of the transcript, so it is identical across all
+four engines — pinned by a regression test.
+
+**Not ported / deferred:** on-device LLM refinement (`FoundationModels`),
+user-authored named styles, window-title matching for browser tabs.
+
+---
+
 ## 6. Phased delivery
 
 Phases 1–3 and the language half of Phase 4 shipped in PR #207. Remaining Phase 4 and Phase 5 stay deferred.
@@ -193,6 +258,9 @@ A reviewer can open Settings and:
 4. Enable auto-pause, pick a running app, confirm unload while it runs and reload after
 5. Enable idle unload, wait past the timeout, confirm unload + next-dictation reload
 6. Dictate twice with trailing space on and get a clean space between utterances
+7. Search "style" or "filename" and land on Writing Styles
+8. Dictate "open config dot json" into a Code-bound app and get `open config.json`
+9. Dictate the same phrase into a Chat-bound app and get it unchanged
 
 ---
 

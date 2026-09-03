@@ -503,6 +503,32 @@ final class MockTextInjector: TextInjecting {
     }
 }
 
+// MARK: - MockFrontmostAppResolver
+
+@MainActor
+final class MockFrontmostAppResolver: FrontmostAppResolving {
+    var frontmostApp: RunningAppSnapshot?
+    /// Stands in for the app the user came from when VocaMac has focus.
+    var previousApp: RunningAppSnapshot?
+    var callCount = 0
+    var lastActiveCallCount = 0
+
+    init(frontmostApp: RunningAppSnapshot? = nil, previousApp: RunningAppSnapshot? = nil) {
+        self.frontmostApp = frontmostApp
+        self.previousApp = previousApp
+    }
+
+    func currentFrontmostApp() -> RunningAppSnapshot? {
+        callCount += 1
+        return frontmostApp
+    }
+
+    func lastActiveApp() -> RunningAppSnapshot? {
+        lastActiveCallCount += 1
+        return previousApp
+    }
+}
+
 // MARK: - MockStatsManager
 
 @MainActor
@@ -539,6 +565,15 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelCount")
         UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        // Output polish defaults leak between test *processes* via
+        // UserDefaults, so reset them here rather than in each test.
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoCapitalize)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoPauseEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelKeepAliveEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()
@@ -547,6 +582,7 @@ extension AppState {
         let cursorOverlay = MockCursorOverlay()
         let textInjector = MockTextInjector()
         let statsManager = MockStatsManager()
+        let frontmostAppResolver = MockFrontmostAppResolver()
 
         let mocks = TestMocks(
             audioEngine: audioEngine,
@@ -557,7 +593,8 @@ extension AppState {
             modelManager: modelManager,
             whisperService: whisperService,
             textInjector: textInjector,
-            statsManager: statsManager
+            statsManager: statsManager,
+            frontmostAppResolver: frontmostAppResolver
         )
         let appState = AppState(
             audioEngine: audioEngine,
@@ -570,6 +607,7 @@ extension AppState {
             statsManager: statsManager,
             snippetExpander: SnippetExpander(),
             permissionManager: permissionManager,
+            frontmostAppResolver: frontmostAppResolver,
             skipSystemIntegration: true
         )
         return (appState, mocks)
@@ -586,4 +624,5 @@ struct TestMocks {
     let whisperService: MockWhisperService
     let textInjector: MockTextInjector
     let statsManager: MockStatsManager
+    let frontmostAppResolver: MockFrontmostAppResolver
 }

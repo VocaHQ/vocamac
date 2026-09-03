@@ -298,9 +298,14 @@ struct UserSettings {
     var selectedModelSize: ModelSize = .tiny
     var selectedLanguage: String = "auto"       // "auto" or ISO 639-1 code
 
-    // Output polish
+    // Output polish (global defaults)
     var appendTrailingSpace: Bool = true        // Space after each completed utterance
     var autoCapitalize: Bool = true             // Capitalize sentence starts
+
+    // Writing styles (per-app output shaping; overrides the polish defaults)
+    var writingStyleEnabled: Bool = true
+    var writingStyleDefault: WritingStyle = .plain
+    var writingStyleBindings: [AppStyleBinding] = []  // JSON envelope in UserDefaults
 
     // Performance / power
     var autoPauseEnabled: Bool = false
@@ -328,8 +333,27 @@ vocamac.autoPause.enabled = false
 vocamac.autoPause.apps = "[]"
 vocamac.modelKeepAlive.enabled = false
 vocamac.modelKeepAlive.idleTimeoutSeconds = 300
+vocamac.writingStyle.enabled = true
+vocamac.writingStyle.defaultStyle = "plain"
+vocamac.writingStyle.bindings = "{\"schemaVersion\":1,\"bindings\":[...]}"
 ...
 ```
+
+**Writing style bindings** are stored as a versioned JSON envelope rather than a
+bare array, so the shape can change without a lossy migration.
+
+Decoding is deliberately forgiving, because the failure mode it prevents is a
+user losing every rule they configured:
+
+- **Missing fields** in a `WritingStyleRules` payload take that field's default.
+  A rule set written before a field existed keeps working when the field is
+  added; synthesized `Codable` would throw instead.
+- **One unreadable rule** is dropped and logged. The rest of the list survives.
+- **A payload that is not JSON**, or one whose `schemaVersion` is newer than
+  this build understands, degrades to "no bindings" — the default style, never
+  a guess at an unknown shape.
+
+See `WritingStyleBindingStore.decode(json:)` and `WritingStyleRules.init(from:)`.
 
 ### 3.8 `SystemCapabilities` — Hardware Detection Result
 

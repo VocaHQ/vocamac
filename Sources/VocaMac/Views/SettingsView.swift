@@ -1313,17 +1313,21 @@ struct AudioSettingsTab: View {
 
                 HStack {
                     Text("Auto-stop after silence")
-                    Slider(
-                        value: $appState.silenceDuration,
-                        in: 0.5...5.0,
-                        step: 0.5
+                    Spacer()
+                    TextField(
+                        "Seconds",
+                        value: silenceDurationBinding,
+                        format: .number.precision(.fractionLength(0...1))
                     )
-                    Text("\(String(format: "%.1f", appState.silenceDuration))s")
-                        .monospacedDigit()
-                        .frame(width: 35)
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.trailing)
+                    .monospacedDigit()
+                    .frame(width: 72)
+                    Text("seconds")
+                        .foregroundStyle(.secondary)
                 }
 
-                Text("In double-tap mode, recording auto-stops after this duration of silence. In push-to-talk mode, you control when to stop by releasing the key.")
+                Text("In double-tap mode, recording auto-stops after 0.5 to 300 seconds of continuous silence. In push-to-talk mode, you control when to stop by releasing the key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1362,6 +1366,19 @@ struct AudioSettingsTab: View {
                 }
                 .onChange(of: appState.selectedAudioDeviceID) {
                     syncSelectedAudioDeviceName()
+                    syncSelectedAudioChannel()
+                }
+
+                if activeInputChannelCount > 1 {
+                    Picker("Input channel", selection: selectedAudioChannelBinding) {
+                        ForEach(0..<activeInputChannelCount, id: \.self) { channel in
+                            Text("Channel \(channel + 1)").tag(channel)
+                        }
+                    }
+
+                    Text("Choose the interface input where your microphone is connected. VocaMac keeps this channel fixed so loopback or other inputs cannot replace it during recording.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 if audioDevices.isEmpty {
@@ -1423,6 +1440,17 @@ struct AudioSettingsTab: View {
         return audioDevices.first { $0.id == appState.selectedAudioDeviceID }
     }
 
+    private var activeAudioDevice: AudioDevice? {
+        if appState.selectedAudioDeviceID.isEmpty {
+            return audioDevices.first(where: { $0.isDefault })
+        }
+        return selectedAudioDevice
+    }
+
+    private var activeInputChannelCount: Int {
+        activeAudioDevice?.channelCount ?? 0
+    }
+
     private var selectedAudioDeviceIsUnavailable: Bool {
         !appState.selectedAudioDeviceID.isEmpty && selectedAudioDevice == nil
     }
@@ -1441,6 +1469,7 @@ struct AudioSettingsTab: View {
     private func refreshAudioDevices() {
         audioDevices = AudioEngine.availableInputDevices()
         syncSelectedAudioDeviceName()
+        syncSelectedAudioChannel()
     }
 
     private func syncSelectedAudioDeviceName() {
@@ -1452,6 +1481,30 @@ struct AudioSettingsTab: View {
         if let selectedAudioDevice {
             appState.selectAudioDevice(selectedAudioDevice)
         }
+    }
+
+    private func syncSelectedAudioChannel() {
+        guard let activeAudioDevice else { return }
+        appState.syncSelectedAudioChannel(with: activeAudioDevice)
+    }
+
+    private var selectedAudioChannelBinding: Binding<Int> {
+        Binding(
+            get: { appState.selectedAudioChannel },
+            set: { channel in
+                guard let activeAudioDevice else { return }
+                appState.selectAudioChannel(channel, for: activeAudioDevice)
+            }
+        )
+    }
+
+    private var silenceDurationBinding: Binding<Double> {
+        Binding(
+            get: { appState.silenceDuration },
+            set: {
+                appState.silenceDuration = SilenceDetectionSettings.clampedDuration($0)
+            }
+        )
     }
 
     private var sensitivityLabel: String {
@@ -1715,4 +1768,3 @@ struct DebugTab: View {
         }
     }
 }
-

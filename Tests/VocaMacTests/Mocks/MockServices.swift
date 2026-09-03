@@ -22,6 +22,9 @@ final class MockAudioEngine: AudioRecording {
     var lastSilenceDuration: Double?
     var lastMaxDuration: TimeInterval?
     var lastPreferredInputDeviceID: String?
+    var lastPreferredInputChannel: Int?
+    var lastPreferredInputChannelDeviceID: String?
+    var lastPreferredInputChannelCount: Int?
     var stopRecordingResult: [Float] = []
     var forceResetCallCount = 0
     var startRecordingResult = true
@@ -39,7 +42,10 @@ final class MockAudioEngine: AudioRecording {
         silenceThreshold: Float,
         silenceDuration: Double,
         maxDuration: TimeInterval,
-        preferredInputDeviceID: String?
+        preferredInputDeviceID: String?,
+        preferredInputChannel: Int,
+        preferredInputChannelDeviceID: String?,
+        preferredInputChannelCount: Int
     ) -> Bool {
         cancelLock.withLock { startCancelled = false }
         if startRecordingDelay > 0 {
@@ -49,6 +55,9 @@ final class MockAudioEngine: AudioRecording {
         lastSilenceDuration = silenceDuration
         lastMaxDuration = maxDuration
         lastPreferredInputDeviceID = preferredInputDeviceID
+        lastPreferredInputChannel = preferredInputChannel
+        lastPreferredInputChannelDeviceID = preferredInputChannelDeviceID
+        lastPreferredInputChannelCount = preferredInputChannelCount
 
         if cancelLock.withLock({ startCancelled }) {
             isCurrentlyRecording = false
@@ -526,6 +535,9 @@ extension AppState {
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
+        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannel")
+        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelDeviceID")
+        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelCount")
         UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
 
         let audioEngine = MockAudioEngine()

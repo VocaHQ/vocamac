@@ -345,6 +345,10 @@ final class AppStateRecordingTests: XCTestCase {
                       "Default audio input should follow the system default")
         XCTAssertEqual(appState.selectedAudioDeviceName, "",
                       "No device name should be persisted for system default")
+        XCTAssertEqual(appState.selectedAudioChannel, 0,
+                      "Audio interfaces should default to their first input channel")
+        XCTAssertEqual(appState.selectedAudioChannelDeviceID, "")
+        XCTAssertEqual(appState.selectedAudioChannelCount, 0)
     }
 
     func testSelectingAudioDevicePersistsIDAndName() {
@@ -354,7 +358,7 @@ final class AppStateRecordingTests: XCTestCase {
             name: "USB Microphone",
             isDefault: false,
             sampleRate: 48_000,
-            channelCount: 1
+            channelCount: 4
         )
 
         appState.selectAudioDevice(device)
@@ -362,10 +366,52 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(appState.selectedAudioDeviceID, device.id)
         XCTAssertEqual(appState.selectedAudioDeviceName, device.name)
 
+        appState.selectAudioChannel(2, for: device)
+        appState.selectAudioDevice(device)
+        XCTAssertEqual(appState.selectedAudioChannel, 2,
+                       "Refreshing the same device should preserve its selected channel")
+
         appState.selectAudioDevice(nil)
 
         XCTAssertEqual(appState.selectedAudioDeviceID, "")
         XCTAssertEqual(appState.selectedAudioDeviceName, "")
+        XCTAssertEqual(appState.selectedAudioChannel, 0,
+                       "Changing devices should reset to the first input channel")
+        XCTAssertEqual(appState.selectedAudioChannelDeviceID, "")
+        XCTAssertEqual(appState.selectedAudioChannelCount, 0)
+    }
+
+    func testSelectedAudioChannelResetsWhenDeviceOrTopologyChanges() {
+        let (appState, _) = AppState.makeTestState()
+        let originalDevice = AudioDevice(
+            id: "interface-a",
+            name: "Interface A",
+            isDefault: true,
+            sampleRate: 48_000,
+            channelCount: 4
+        )
+
+        appState.selectAudioChannel(1, for: originalDevice)
+        appState.syncSelectedAudioChannel(with: AudioDevice(
+            id: "interface-b",
+            name: "Interface B",
+            isDefault: true,
+            sampleRate: 48_000,
+            channelCount: 4
+        ))
+        XCTAssertEqual(appState.selectedAudioChannel, 0)
+        XCTAssertEqual(appState.selectedAudioChannelDeviceID, "interface-b")
+
+        appState.selectAudioChannel(1, for: originalDevice)
+        appState.syncSelectedAudioChannel(with: AudioDevice(
+            id: originalDevice.id,
+            name: originalDevice.name,
+            isDefault: true,
+            sampleRate: 48_000,
+            channelCount: 2
+        ))
+        XCTAssertEqual(appState.selectedAudioChannel, 0)
+        XCTAssertEqual(appState.selectedAudioChannelCount, 2)
     }
 
     func testActivationModeDefault() {
@@ -459,11 +505,19 @@ final class AppStateRecordingTests: XCTestCase {
     func testStartRecordingPassesSelectedAudioDeviceID() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.selectedAudioDeviceID = "coreaudio-device-uid"
+        appState.selectedAudioChannel = 3
+        appState.selectedAudioChannelDeviceID = "coreaudio-device-uid"
+        appState.selectedAudioChannelCount = 4
 
         await appState.startRecording()
 
         XCTAssertEqual(mocks.audioEngine.lastPreferredInputDeviceID, "coreaudio-device-uid",
                        "Selected audio device ID should be forwarded to AudioEngine")
+        XCTAssertEqual(mocks.audioEngine.lastPreferredInputChannel, 3,
+                       "Selected audio channel should be forwarded to AudioEngine")
+        XCTAssertEqual(mocks.audioEngine.lastPreferredInputChannelDeviceID,
+                       "coreaudio-device-uid")
+        XCTAssertEqual(mocks.audioEngine.lastPreferredInputChannelCount, 4)
     }
 }
 

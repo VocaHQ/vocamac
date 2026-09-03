@@ -101,10 +101,13 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.hotKeyModifiers") var hotKeyModifiers: HotKeyModifiers = []
     @AppStorage("vocamac.doubleTapThreshold") var doubleTapThreshold: Double = 0.4
     @AppStorage("vocamac.silenceThreshold") var silenceThreshold: Double = 0.01
-    @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = 2.0
+    @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = SilenceDetectionSettings.defaultDuration
     @AppStorage("vocamac.maxRecordingDuration") var maxRecordingDuration: Int = 60
     @AppStorage("vocamac.selectedAudioDeviceID") var selectedAudioDeviceID: String = ""
     @AppStorage("vocamac.selectedAudioDeviceName") var selectedAudioDeviceName: String = ""
+    @AppStorage("vocamac.selectedAudioChannel") var selectedAudioChannel: Int = 0
+    @AppStorage("vocamac.selectedAudioChannelDeviceID") var selectedAudioChannelDeviceID: String = ""
+    @AppStorage("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @AppStorage(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
     @AppStorage(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
@@ -256,8 +259,42 @@ final class AppState: ObservableObject {
     /// Persist the microphone VocaMac should use for future recordings.
     /// Passing nil restores the system-default input behavior.
     func selectAudioDevice(_ device: AudioDevice?) {
-        selectedAudioDeviceID = device?.id ?? ""
+        let newDeviceID = device?.id ?? ""
+        if selectedAudioDeviceID != newDeviceID {
+            selectedAudioChannel = 0
+            selectedAudioChannelDeviceID = newDeviceID
+            selectedAudioChannelCount = device?.channelCount ?? 0
+        }
+        selectedAudioDeviceID = newDeviceID
         selectedAudioDeviceName = device?.name ?? ""
+
+        if let device {
+            syncSelectedAudioChannel(with: device)
+        }
+    }
+
+    /// Persist the physical interface input selected for a specific device layout.
+    func selectAudioChannel(_ channel: Int, for device: AudioDevice) {
+        selectedAudioChannelDeviceID = device.id
+        selectedAudioChannelCount = device.channelCount
+        guard device.channelCount > 0, channel >= 0, channel < device.channelCount else {
+            selectedAudioChannel = 0
+            return
+        }
+        selectedAudioChannel = channel
+    }
+
+    /// Reset a saved channel when the active device or its channel layout changes.
+    func syncSelectedAudioChannel(with device: AudioDevice) {
+        let mappingIsCurrent = selectedAudioChannelDeviceID == device.id
+            && selectedAudioChannelCount == device.channelCount
+        let channelIsValid = selectedAudioChannel >= 0
+            && selectedAudioChannel < device.channelCount
+        if !mappingIsCurrent || !channelIsValid {
+            selectedAudioChannel = 0
+        }
+        selectedAudioChannelDeviceID = device.id
+        selectedAudioChannelCount = device.channelCount
     }
 
     /// Custom text snippets for expansion
@@ -318,13 +355,19 @@ final class AppState: ObservableObject {
             silenceThreshold: Float,
             silenceDuration: Double,
             maxDuration: TimeInterval,
-            preferredInputDeviceID: String?
+            preferredInputDeviceID: String?,
+            preferredInputChannel: Int,
+            preferredInputChannelDeviceID: String?,
+            preferredInputChannelCount: Int
         ) -> Bool {
             audioEngine.startRecording(
                 silenceThreshold: silenceThreshold,
                 silenceDuration: silenceDuration,
                 maxDuration: maxDuration,
-                preferredInputDeviceID: preferredInputDeviceID
+                preferredInputDeviceID: preferredInputDeviceID,
+                preferredInputChannel: preferredInputChannel,
+                preferredInputChannelDeviceID: preferredInputChannelDeviceID,
+                preferredInputChannelCount: preferredInputChannelCount
             )
         }
 
@@ -1131,7 +1174,12 @@ final class AppState: ObservableObject {
             silenceThreshold: Float(silenceThreshold),
             silenceDuration: silenceDuration,
             maxDuration: TimeInterval(maxRecordingDuration),
-            preferredInputDeviceID: selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID
+            preferredInputDeviceID: selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID,
+            preferredInputChannel: selectedAudioChannel,
+            preferredInputChannelDeviceID: selectedAudioChannelDeviceID.isEmpty
+                ? nil
+                : selectedAudioChannelDeviceID,
+            preferredInputChannelCount: selectedAudioChannelCount
         )
         isStartingAudio = false
 
@@ -1362,7 +1410,10 @@ final class AppState: ObservableObject {
         silenceThreshold: Float,
         silenceDuration: Double,
         maxDuration: TimeInterval,
-        preferredInputDeviceID: String?
+        preferredInputDeviceID: String?,
+        preferredInputChannel: Int,
+        preferredInputChannelDeviceID: String?,
+        preferredInputChannelCount: Int
     ) async -> Bool {
         let worker = AudioEngineWorker(audioEngine: audioEngine)
         return await withCheckedContinuation { continuation in
@@ -1371,7 +1422,10 @@ final class AppState: ObservableObject {
                     silenceThreshold: silenceThreshold,
                     silenceDuration: silenceDuration,
                     maxDuration: maxDuration,
-                    preferredInputDeviceID: preferredInputDeviceID
+                    preferredInputDeviceID: preferredInputDeviceID,
+                    preferredInputChannel: preferredInputChannel,
+                    preferredInputChannelDeviceID: preferredInputChannelDeviceID,
+                    preferredInputChannelCount: preferredInputChannelCount
                 )
                 continuation.resume(returning: didStart)
             }

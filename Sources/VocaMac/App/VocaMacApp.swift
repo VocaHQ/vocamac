@@ -12,11 +12,18 @@ final class SettingsWindowManager: ObservableObject {
     private var settingsWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
-    func open(appState: AppState) {
+    func open(appState: AppState, page: SettingsPage? = nil) {
         // If window already exists, just bring it to front
         if let window = settingsWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
+            if let page {
+                NotificationCenter.default.post(
+                    name: .selectSettingsPage,
+                    object: nil,
+                    userInfo: ["page": page.rawValue]
+                )
+            }
             return
         }
 
@@ -42,6 +49,14 @@ final class SettingsWindowManager: ObservableObject {
         // Show in the Dock so the window can take focus.
         DockVisibilityCoordinator.shared.windowDidOpen()
         NSApp.activate(ignoringOtherApps: true)
+
+        if let page {
+            NotificationCenter.default.post(
+                name: .selectSettingsPage,
+                object: nil,
+                userInfo: ["page": page.rawValue]
+            )
+        }
 
         // Held so it can be removed on close — a block-based observer lives
         // until its token is released, so opening repeatedly would otherwise

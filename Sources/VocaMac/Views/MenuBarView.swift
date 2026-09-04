@@ -92,7 +92,7 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
-    @ObservedObject private var gateway = GatewayProcessManager.shared
+    @ObservedObject private var gateway = GatewayEmbedController.shared
     @StateObject private var processMonitor = ProcessMonitor()
     @State private var audioDevices: [AudioDevice] = []
 

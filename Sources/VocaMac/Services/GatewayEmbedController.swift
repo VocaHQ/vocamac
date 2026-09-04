@@ -1,4 +1,4 @@
-// GatewayProcessManager.swift
+// GatewayEmbedController.swift
 // VocaMac
 //
 // Native-first start/stop and health/pairing probes for a local VocaGateway.
@@ -15,6 +15,9 @@ enum GatewayPaths {
     static let docsURL = URL(string: "https://vocagateway.vocahq.com/")!
     static let githubURL = URL(string: "https://github.com/VocaHQ/vocagateway")!
     static let dockerDesktopURL = URL(string: "https://www.docker.com/products/docker-desktop/")!
+    static let dockerInstallURL = URL(string: "https://docs.docker.com/desktop/setup/install/mac-install/")!
+    static let vocagatewayREADME = URL(string: "https://github.com/VocaHQ/vocagateway#readme")!
+    static let publicURLOverrideDefaultsKey = "vocamac.gateway.publicURLOverride"
 
     static var configDirectory: URL {
         FileManager.default.homeDirectoryForCurrentUser
@@ -57,6 +60,9 @@ enum GatewayBinaryResolver {
         fileManager: FileManager = .default,
         pathEnvironment: String? = ProcessInfo.processInfo.environment["PATH"]
     ) -> String? {
+        if let fromWhich = whichViaBin(named: "vocagateway", fileManager: fileManager) {
+            return fromWhich
+        }
         if let fromPath = findOnPATH(
             named: "vocagateway",
             pathEnvironment: pathEnvironment,
@@ -70,6 +76,27 @@ enum GatewayBinaryResolver {
             }
         }
         return nil
+    }
+
+    static func whichViaBin(named name: String, fileManager: FileManager) -> String? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        process.arguments = [name]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let path = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !path.isEmpty, fileManager.isExecutableFile(atPath: path) else { return nil }
+        return path
     }
 
     static func findOnPATH(
@@ -102,38 +129,43 @@ enum GatewayBinaryResolver {
 }
 
 
-/// UI / runtime state for the embedded Gateway control.
-enum GatewayRuntimeStatus: Equatable {
-    case stopped
-    case starting
-    case pairable
-    case ready
-    case error(String)
-
-    var title: String {
-        switch self {
-        case .stopped: return "Stopped"
-        case .starting: return "Starting…"
-        case .pairable: return "Pairable"
-        case .ready: return "Ready"
-        case .error: return "Error"
-        }
-    }
-
-    /// True when Settings/tray may offer Pair phone (non-loopback QR ready).
-    var allowsPairing: Bool {
-        switch self {
-        case .pairable, .ready: return true
-        default: return false
-        }
-    }
-}
 
 @MainActor
-final class GatewayProcessManager: ObservableObject {
-    static let shared = GatewayProcessManager()
+final class GatewayEmbedController: ObservableObject {
+    static let shared = GatewayEmbedController()
 
-    @Published private(set) var status: GatewayRuntimeStatus = .stopped
+    enum Status: Equatable {
+        case stopped
+        case starting
+        case pairable
+        case ready
+        case error(String)
+
+        var title: String {
+            switch self {
+            case .stopped: return "Stopped"
+            case .starting: return "Starting"
+            case .pairable: return "Pairable"
+            case .ready: return "Ready"
+            case .error: return "Error"
+            }
+        }
+
+        var detail: String? {
+            if case .error(let message) = self { return message }
+            return nil
+        }
+
+        var allowsPairing: Bool {
+            switch self {
+            case .pairable, .ready: return true
+            default: return false
+            }
+        }
+    }
+
+
+    @Published private(set) var status: Status = .stopped
     @Published private(set) var binaryPath: String?
     @Published private(set) var isBinaryAvailable = false
     @Published private(set) var isDockerAvailable = false
@@ -143,7 +175,11 @@ final class GatewayProcessManager: ObservableObject {
     @Published private(set) var lastErrorMessage: String?
     @Published private(set) var isLive = false
     @Published private(set) var isReady = false
-    @Published var publicURLOverride: String = ""
+    @Published var publicURLOverride: String {
+        didSet {
+            UserDefaults.standard.set(publicURLOverride, forKey: GatewayPaths.publicURLOverrideDefaultsKey)
+        }
+    }
 
     private var process: Process?
     private var stdoutPipe: Pipe?
@@ -151,6 +187,7 @@ final class GatewayProcessManager: ObservableObject {
 
     init(session: URLSession = .shared) {
         self.session = session
+        self.publicURLOverride = UserDefaults.standard.string(forKey: GatewayPaths.publicURLOverrideDefaultsKey) ?? ""
         refreshBinaryAvailability()
     }
 
@@ -167,7 +204,7 @@ final class GatewayProcessManager: ObservableObject {
     func start() async {
         refreshBinaryAvailability()
         guard let binaryPath else {
-            let message = "VocaGateway is not installed. Install the native CLI, or use Docker as a fallback."
+            let message = "VocaGateway is not installed. Install the native CLI, or use Docker as a fallback (no MLX / Apple Silicon native engines)."
             status = .error(message)
             lastErrorMessage = message
             return
@@ -231,7 +268,7 @@ final class GatewayProcessManager: ObservableObject {
     func refreshStatus() async {
         refreshBinaryAvailability()
 
-        let live = await probe(path: "/health/live")
+        let live = await probe(path: "/")
         let ready = await probe(path: "/health/ready")
         isLive = live
         isReady = ready
@@ -316,7 +353,7 @@ final class GatewayProcessManager: ObservableObject {
             }
             pairingPayloadRaw = json["payload"] as? String
 
-            switch GatewayPairingCodec.decodeAdminResponse(json, rejectLoopback: true) {
+            switch GatewayPairingDecoder.decodeAdminJSON(json, rejectLoopback: true) {
             case .success(let payload):
                 pairingPayload = payload
                 status = isReady ? .ready : .pairable
@@ -345,7 +382,12 @@ final class GatewayProcessManager: ObservableObject {
     }
 
     func openDockerDesktopInstall() {
-        NSWorkspace.shared.open(GatewayPaths.dockerDesktopURL)
+        NSWorkspace.shared.open(GatewayPaths.dockerInstallURL)
+    }
+
+    func openDockerFallbackDocs() {
+        NSWorkspace.shared.open(GatewayPaths.dockerInstallURL)
+        NSWorkspace.shared.open(GatewayPaths.vocagatewayREADME)
     }
 
     func openGatewayRepo() {
@@ -354,27 +396,23 @@ final class GatewayProcessManager: ObservableObject {
 
     /// Reveal Gateway's documented log path (not VocaMac Application Support).
     func openGatewayLogs() {
-        let logFile = GatewayPaths.macOSLogFileURL
-        let logDir = GatewayPaths.macOSLogDirectory
-        let fm = FileManager.default
-        if fm.fileExists(atPath: logFile.path) {
-            NSWorkspace.shared.selectFile(logFile.path, inFileViewerRootedAtPath: logDir.path)
-            return
-        }
-        if fm.fileExists(atPath: logDir.path) {
-            NSWorkspace.shared.open(logDir)
-            return
-        }
         let configDir = GatewayPaths.configDirectory
+        let fm = FileManager.default
         if fm.fileExists(atPath: configDir.path) {
             NSWorkspace.shared.open(configDir)
             return
         }
-        lastErrorMessage = "No Gateway log file yet. LaunchAgent installs write to ~/Library/Logs/VocaGateway/. Session starts from VocaMac tee process stdout only."
+        let parent = configDir.deletingLastPathComponent()
+        if fm.fileExists(atPath: parent.path) {
+            NSWorkspace.shared.open(parent)
+            return
+        }
+        lastErrorMessage = "Gateway config folder ~/.config/vocagateway does not exist yet. It appears after the first native Gateway start."
     }
 
+
     func copyPairingURLToPasteboard() {
-        guard let url = pairingPayload?.url.absoluteString else { return }
+        guard let url = pairingPayload?.url else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(url, forType: .string)
@@ -437,7 +475,7 @@ final class GatewayProcessManager: ObservableObject {
         }
 #else
         throw NSError(
-            domain: "GatewayProcessManager",
+            domain: "GatewayEmbedController",
             code: 1,
             userInfo: [NSLocalizedDescriptionKey: "Native Gateway process control is only available on macOS."]
         )

@@ -17,14 +17,14 @@ extension Notification.Name {
 }
 
 struct GatewaySettingsTab: View {
-    @ObservedObject private var gateway = GatewayProcessManager.shared
+    @ObservedObject private var gateway = GatewayEmbedController.shared
     @State private var showingPairSheet = false
     @State private var copiedURL = false
 
     var body: some View {
         Form {
             Section {
-                Text("Optional self-hosted compute for phones and other Voca clients. This is not on-device transcription; audio goes to the Gateway host you run.")
+                Text("VocaGateway is an optional companion that exposes local speech APIs to phones and other clients. It is not an on-device VocaMac engine, and it does not replace the speech models you already run here.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -129,7 +129,7 @@ struct GatewaySettingsTab: View {
                         Button {
                             showingPairSheet = true
                         } label: {
-                            Label("Show Pair Phone QR", systemImage: "qrcode")
+                            Label("Pair phone…", systemImage: "qrcode")
                         }
                         .buttonStyle(.borderedProminent)
 
@@ -163,13 +163,13 @@ struct GatewaySettingsTab: View {
 
             if !gateway.isBinaryAvailable {
                 Section("Docker fallback") {
-                    Text("Native start is the happy path. Docker Desktop is only a fallback when vocagateway is missing.")
+                    Text("Native `vocagateway` is the happy path. Docker Compose is a fallback only. Docker images do not include MLX or Apple Silicon native engines.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
                     HStack {
                         Button {
-                            gateway.openDockerDesktopInstall()
+                            gateway.openDockerFallbackDocs()
                         } label: {
                             Label(
                                 gateway.isDockerAvailable ? "Docker Desktop docs" : "Install Docker Desktop",
@@ -178,13 +178,13 @@ struct GatewaySettingsTab: View {
                         }
 
                         Button {
-                            gateway.openGatewayDocs()
+                            NSWorkspace.shared.open(GatewayPaths.docsURL)
                         } label: {
                             Label("Gateway install docs", systemImage: "book")
                         }
 
                         Button {
-                            gateway.openGatewayRepo()
+                            NSWorkspace.shared.open(GatewayPaths.githubURL)
                         } label: {
                             Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                         }
@@ -193,7 +193,7 @@ struct GatewaySettingsTab: View {
             }
 
             Section("Logs") {
-                Text("Gateway owns its logs. VocaMac opens Gateway's path under ~/Library/Logs/VocaGateway or ~/.config/vocagateway — it does not store Gateway logs under VocaMac Application Support.")
+                Text("Gateway owns its logs. VocaMac opens ~/.config/vocagateway (Gateway config and documented log path). It does not write Gateway logs under VocaMac Application Support.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -215,7 +215,7 @@ struct GatewaySettingsTab: View {
         }
         .sheet(isPresented: $showingPairSheet) {
             GatewayPairPhoneSheet(
-                payloadRaw: gateway.pairingPayloadRaw
+                payloadRaw: gateway.pairingPayload?.qrPayloadString
                     ?? gateway.pairingPayload.map { encodeCompactPayload($0) },
                 urlString: gateway.pairingPayload?.url,
                 onCopyURL: {
@@ -249,8 +249,8 @@ struct GatewaySettingsTab: View {
 
     private func encodeCompactPayload(_ payload: GatewayPairingPayload) -> String {
         let object: [String: Any] = [
-            "v": payload.version,
-            "url": payload.url.absoluteString,
+            "v": payload.v,
+            "url": payload.url,
             "token": payload.token,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),

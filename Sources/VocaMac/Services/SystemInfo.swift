@@ -151,7 +151,9 @@ enum SystemInfo {
 
     /// Bytes this process can still allocate. Zero means the value is unknown.
     static var availableMemoryBytes: UInt64 {
-        os_proc_available_memory()
+        let available = os_proc_available_memory()
+        guard available > 0 else { return 0 }
+        return UInt64(available)
     }
 
     /// Whether loading `size` is likely to fit without thrashing.

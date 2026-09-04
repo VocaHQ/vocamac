@@ -183,6 +183,29 @@ enum SettingsSearchIndex {
             keywords: ["overlay", "cursor", "indicator", "mic", "position", "style"]
         ),
 
+        // Gateway
+        SettingsSearchEntry(
+            id: "gateway",
+            page: .gateway,
+            title: "Gateway",
+            subtitle: "Optional self-hosted VocaGateway",
+            keywords: ["gateway", "vocagateway", "pair", "phone", "docker", "self-hosted", "qr"]
+        ),
+        SettingsSearchEntry(
+            id: "gateway-pair",
+            page: .gateway,
+            title: "Pair phone",
+            subtitle: "QR code for VocaPhone",
+            keywords: ["pair", "phone", "qr", "pairing"]
+        ),
+        SettingsSearchEntry(
+            id: "gateway-docker",
+            page: .gateway,
+            title: "Docker fallback",
+            subtitle: "Install Docker Desktop when native binary is missing",
+            keywords: ["docker", "desktop", "container", "compose"]
+        ),
+
         // Stats / Advanced / About
         SettingsSearchEntry(
             id: "stats",

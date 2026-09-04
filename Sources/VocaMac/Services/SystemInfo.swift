@@ -151,10 +151,10 @@ enum SystemInfo {
 
     /// Approximate reclaimable memory in bytes. Zero means the probe failed.
     ///
-    /// Counts free, inactive, and purgeable pages. On Darwin, `free_count`
-    /// already includes speculative pages, so they must not be added again.
-    /// Compressor-resident pages still occupy RAM and are not available
-    /// capacity for a new model allocation.
+    /// Uses free + inactive only. On Darwin, `free_count` already includes
+    /// speculative pages, purgeable pages often overlap the inactive queue,
+    /// and compressor-resident pages still occupy RAM — so those counters
+    /// must not be added on top or the gate can over-approve loads.
     static var availableMemoryBytes: UInt64 {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(
@@ -172,7 +172,6 @@ enum SystemInfo {
         guard host_page_size(host, &pageSize) == KERN_SUCCESS, pageSize > 0 else { return 0 }
         let pages = UInt64(stats.free_count)
             + UInt64(stats.inactive_count)
-            + UInt64(stats.purgeable_count)
         return pages * UInt64(pageSize)
     }
 

@@ -128,6 +128,8 @@ struct SettingsView: View {
                 StatsSettingsTab()
             case .advanced:
                 DebugTab()
+            case .gateway:
+                GatewaySettingsTab()
             case .about:
                 AboutTab()
             }

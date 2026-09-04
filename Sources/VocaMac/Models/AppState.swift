@@ -1252,6 +1252,26 @@ final class AppState: ObservableObject {
         // we don't know yet — we'll detect it after loading completes.
         let targetSize = size
 
+        // Refuse known-too-large loads before WhisperKit/CoreML can hang the
+        // UI spinner under memory pressure (vocamac#250).
+        if let targetSize,
+           !SystemInfo.canFitModelInMemory(targetSize) {
+            let needed = String(format: "%.1f", targetSize.ramRequiredGB)
+            let failureMessage =
+                "Not enough free memory to load \(targetSize.displayName) "
+                + "(~\(needed) GB needed). Free RAM or choose a smaller model."
+            showTemporaryError(failureMessage)
+            VocaLogger.error(.appState, failureMessage)
+            await restorePreviousModelIfNeeded(
+                afterFailedLoadFor: targetSize,
+                previousSize: previousModelSize,
+                previousName: previousLoadedModelName,
+                hadLoadedModel: hadLoadedModel,
+                originalFailureMessage: failureMessage
+            )
+            return
+        }
+
         // Mark the model as loading in the UI
         if let targetSize = targetSize, let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
             availableModels[idx].isLoading = true

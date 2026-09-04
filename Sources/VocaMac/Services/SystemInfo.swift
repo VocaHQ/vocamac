@@ -3,6 +3,7 @@
 //
 // Detects system hardware capabilities and recommends optimal whisper model size.
 
+import Darwin
 import Foundation
 
 // MARK: - SystemCapabilities
@@ -146,5 +147,29 @@ enum SystemInfo {
         let cores = coreCount
         // Use at most half the cores, minimum 2, maximum 8
         return max(2, min(cores / 2, 8))
+    }
+
+    /// Bytes this process can still allocate. Zero means the value is unknown.
+    static var availableMemoryBytes: UInt64 {
+        os_proc_available_memory()
+    }
+
+    /// Whether loading `size` is likely to fit without thrashing.
+    ///
+    /// Uses the catalog RAM estimate against installed memory and against
+    /// `os_proc_available_memory()`. A zero available reading is treated as
+    /// unknown so we do not block loads on a failed probe.
+    static func canFitModelInMemory(
+        _ size: ModelSize,
+        physicalMemoryGB: Int = physicalMemoryGB,
+        availableBytes: UInt64 = availableMemoryBytes
+    ) -> Bool {
+        let requiredGB = size.ramRequiredGB
+        guard Double(physicalMemoryGB) + 0.001 >= requiredGB else {
+            return false
+        }
+        guard availableBytes > 0 else { return true }
+        let requiredBytes = UInt64((requiredGB * 1024 * 1024 * 1024).rounded(.up))
+        return availableBytes >= requiredBytes
     }
 }

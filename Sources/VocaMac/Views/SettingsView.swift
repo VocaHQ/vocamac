@@ -81,6 +81,12 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 520)
+        .onReceive(NotificationCenter.default.publisher(for: .selectSettingsPage)) { note in
+            if let raw = note.userInfo?["page"] as? String,
+               let page = SettingsPage(rawValue: raw) {
+                selectedPage = page
+            }
+        }
     }
 
     private var settingsSidebar: some View {

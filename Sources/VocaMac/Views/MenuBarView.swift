@@ -92,6 +92,7 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
+    @ObservedObject private var gateway = GatewayProcessManager.shared
     @StateObject private var processMonitor = ProcessMonitor()
     @State private var audioDevices: [AudioDevice] = []
 
@@ -134,6 +135,9 @@ struct MenuBarView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .task {
+            await gateway.refreshStatus()
+        }
     }
 
     // MARK: - Header
@@ -564,6 +568,37 @@ struct MenuBarView: View {
                 )
             }
             .buttonStyle(MenuRowButtonStyle())
+
+
+            if gateway.status.allowsPairing {
+                Button {
+                    settingsManager.open(appState: appState)
+                    NotificationCenter.default.post(
+                        name: .selectSettingsPage,
+                        object: nil,
+                        userInfo: ["page": SettingsPage.gateway.rawValue]
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        NotificationCenter.default.post(name: .showGatewayPairing, object: nil)
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "qrcode")
+                        Text("Pair phone…")
+                        Spacer()
+                    }
+                    .font(.body)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color.primary.opacity(0.0001))
+                    )
+                }
+                .buttonStyle(MenuRowButtonStyle())
+            }
 
             Button {
                 NSApplication.shared.terminate(nil)

@@ -9,8 +9,15 @@ import AppKit
 import CoreImage
 import CoreImage.CIFilterBuiltins
 
+extension Notification.Name {
+    /// Menu bar asks Settings to select Gateway and show the pair sheet.
+    static let showGatewayPairing = Notification.Name("com.vocamac.showGatewayPairing")
+    /// Select a settings sidebar page (`userInfo["page"]` = SettingsPage.rawValue).
+    static let selectSettingsPage = Notification.Name("com.vocamac.selectSettingsPage")
+}
+
 struct GatewaySettingsTab: View {
-    @StateObject private var gateway = GatewayProcessManager()
+    @ObservedObject private var gateway = GatewayProcessManager.shared
     @State private var showingPairSheet = false
     @State private var copiedURL = false
 
@@ -136,7 +143,7 @@ struct GatewaySettingsTab: View {
                             Label(copiedURL ? "Copied" : "Copy URL", systemImage: copiedURL ? "checkmark" : "doc.on.doc")
                         }
 
-                        if let url = gateway.pairingPayload?.url.absoluteString {
+                        if let url = gateway.pairingPayload?.url {
                             Text(url)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -201,11 +208,16 @@ struct GatewaySettingsTab: View {
         .task {
             await gateway.refreshStatus()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .showGatewayPairing)) { _ in
+            if gateway.status.allowsPairing {
+                showingPairSheet = true
+            }
+        }
         .sheet(isPresented: $showingPairSheet) {
             GatewayPairPhoneSheet(
                 payloadRaw: gateway.pairingPayloadRaw
                     ?? gateway.pairingPayload.map { encodeCompactPayload($0) },
-                urlString: gateway.pairingPayload?.url.absoluteString,
+                urlString: gateway.pairingPayload?.url,
                 onCopyURL: {
                     gateway.copyPairingURLToPasteboard()
                 },

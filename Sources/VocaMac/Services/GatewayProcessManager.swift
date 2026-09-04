@@ -101,8 +101,38 @@ enum GatewayBinaryResolver {
     }
 }
 
+
+/// UI / runtime state for the embedded Gateway control.
+enum GatewayRuntimeStatus: Equatable {
+    case stopped
+    case starting
+    case pairable
+    case ready
+    case error(String)
+
+    var title: String {
+        switch self {
+        case .stopped: return "Stopped"
+        case .starting: return "Starting…"
+        case .pairable: return "Pairable"
+        case .ready: return "Ready"
+        case .error: return "Error"
+        }
+    }
+
+    /// True when Settings/tray may offer Pair phone (non-loopback QR ready).
+    var allowsPairing: Bool {
+        switch self {
+        case .pairable, .ready: return true
+        default: return false
+        }
+    }
+}
+
 @MainActor
 final class GatewayProcessManager: ObservableObject {
+    static let shared = GatewayProcessManager()
+
     @Published private(set) var status: GatewayRuntimeStatus = .stopped
     @Published private(set) var binaryPath: String?
     @Published private(set) var isBinaryAvailable = false
@@ -246,7 +276,7 @@ final class GatewayProcessManager: ObservableObject {
 
         let override = publicURLOverride.trimmingCharacters(in: .whitespacesAndNewlines)
         if !override.isEmpty {
-            switch GatewayPairingCodec.validatedPublicURL(override) {
+            switch GatewayPairingURL.validatedPublicURL(override) {
             case .success(let url):
                 components.queryItems = [URLQueryItem(name: "url", value: url.absoluteString)]
             case .failure(let error):
@@ -367,7 +397,7 @@ final class GatewayProcessManager: ObservableObject {
 
         var environment = ProcessInfo.processInfo.environment
         let override = publicURLOverride.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !override.isEmpty, case .success(let url) = GatewayPairingCodec.validatedPublicURL(override) {
+        if !override.isEmpty, case .success(let url) = GatewayPairingURL.validatedPublicURL(override) {
             environment["VOCAGATEWAY_PUBLIC_URL"] = url.absoluteString
         }
         process.environment = environment

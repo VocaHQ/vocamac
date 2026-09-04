@@ -348,15 +348,13 @@ final class AppStateModelLoadingTests: XCTestCase {
     }
 
     @MainActor
-    func testLowMemoryGateRefusesMediumBeforeWhisperAndRestoresPrevious() async {
+    func testLowMemoryGateRefusesMediumBeforeWhisperWithoutTouchingLoadedModel() async {
         UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
 
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small, .medium]
 
         let whisperService = MockWhisperService()
-        whisperService.loadedModelName = "openai_whisper-small"
-        whisperService.isModelLoaded = true
         whisperService.loadResponses = [
             .success("openai_whisper-small"),
         ]
@@ -365,23 +363,27 @@ final class AppStateModelLoadingTests: XCTestCase {
             modelManager: modelManager,
             whisperService: whisperService
         )
-        appState.modelFitsInMemory = { $0 != .medium }
 
+        await appState.loadModel(.small)
+        let loadsAfterSmall = mocks.whisperService.loadRequests.count
+        XCTAssertEqual(appState.currentModel?.size, .small)
+        XCTAssertTrue(mocks.whisperService.isModelLoaded)
+
+        appState.modelFitsInMemory = { $0 != .medium }
         await appState.loadModel(.medium)
 
         XCTAssertTrue(
             appState.errorMessage?.contains("Not enough") == true
                 || appState.errorMessage?.localizedCaseInsensitiveContains("free memory") == true
         )
+        XCTAssertEqual(mocks.whisperService.loadRequests.count, loadsAfterSmall)
         XCTAssertFalse(
             mocks.whisperService.loadRequests.map { $0.name }.contains("openai_whisper-medium")
         )
-        XCTAssertEqual(
-            mocks.whisperService.loadRequests.map { $0.name },
-            ["openai_whisper-small"]
-        )
         XCTAssertEqual(appState.currentModel?.size, .small)
         XCTAssertEqual(appState.selectedModelSize, ModelSize.small.rawValue)
+        XCTAssertTrue(mocks.whisperService.isModelLoaded)
+        XCTAssertEqual(mocks.whisperService.loadedModelName, "openai_whisper-small")
     }
 
     @MainActor

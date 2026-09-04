@@ -149,13 +149,17 @@ enum SystemInfo {
         return max(2, min(cores / 2, 8))
     }
 
-    /// Approximate reclaimable free memory in bytes. Zero means the probe failed.
+    /// Approximate reclaimable memory in bytes. Zero means the probe failed.
+    ///
+    /// Counts free, inactive, speculative, purgeable, and compressor-resident
+    /// pages so the gate does not refuse loads macOS can still satisfy.
     static var availableMemoryBytes: UInt64 {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(
             MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
         )
         let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
         let kr = withUnsafeMutablePointer(to: &stats) {
             $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
                 host_statistics64(host, HOST_VM_INFO64, $0, &count)
@@ -164,7 +168,11 @@ enum SystemInfo {
         guard kr == KERN_SUCCESS else { return 0 }
         var pageSize: vm_size_t = 0
         guard host_page_size(host, &pageSize) == KERN_SUCCESS, pageSize > 0 else { return 0 }
-        let pages = UInt64(stats.free_count) + UInt64(stats.inactive_count)
+        let pages = UInt64(stats.free_count)
+            + UInt64(stats.inactive_count)
+            + UInt64(stats.speculative_count)
+            + UInt64(stats.purgeable_count)
+            + UInt64(stats.compressor_page_count)
         return pages * UInt64(pageSize)
     }
 

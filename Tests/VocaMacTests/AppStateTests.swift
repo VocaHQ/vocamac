@@ -348,6 +348,43 @@ final class AppStateModelLoadingTests: XCTestCase {
     }
 
     @MainActor
+    func testLowMemoryGateRefusesMediumBeforeWhisperAndRestoresPrevious() async {
+        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small, .medium]
+
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = "openai_whisper-small"
+        whisperService.isModelLoaded = true
+        whisperService.loadResponses = [
+            .success("openai_whisper-small"),
+        ]
+
+        let (appState, mocks) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+        appState.modelFitsInMemory = { $0 != .medium }
+
+        await appState.loadModel(.medium)
+
+        XCTAssertTrue(
+            appState.errorMessage?.contains("Not enough") == true
+                || appState.errorMessage?.localizedCaseInsensitiveContains("free memory") == true
+        )
+        XCTAssertFalse(
+            mocks.whisperService.loadRequests.map { $0.name }.contains("openai_whisper-medium")
+        )
+        XCTAssertEqual(
+            mocks.whisperService.loadRequests.map { $0.name },
+            ["openai_whisper-small"]
+        )
+        XCTAssertEqual(appState.currentModel?.size, .small)
+        XCTAssertEqual(appState.selectedModelSize, ModelSize.small.rawValue)
+    }
+
+    @MainActor
     func testDeleteModelRemovesDownloadedModel() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small, .medium]

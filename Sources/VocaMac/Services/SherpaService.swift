@@ -105,18 +105,36 @@ final class SherpaService: @unchecked Sendable {
 
     // MARK: - Properties
 
-    /// The active C recognizer (created when a model is loaded)
-    private var recognizer: OpaquePointer?
+    /// A request retains its native model even if Settings unloads or replaces it.
+    /// The per-model lock serializes native decodes without blocking state reads.
+    private final class LoadedRecognizer: @unchecked Sendable {
+        let pointer: OpaquePointer
+        let size: ModelSize
+        let decodeLock = NSLock()
 
-    /// Which model is currently loaded
-    private var loadedSize: ModelSize?
+        init(pointer: OpaquePointer, size: ModelSize) {
+            self.pointer = pointer
+            self.size = size
+        }
 
-    /// Serializes recognizer lifecycle against decoding
+        deinit {
+            SherpaOnnxDestroyOfflineRecognizer(pointer)
+        }
+    }
+
+    private var loadedRecognizer: LoadedRecognizer?
+    private var loadGeneration = UUID()
     private let recognizerLock = NSLock()
 
-    var isModelLoaded: Bool { recognizer != nil }
+    var isModelLoaded: Bool { snapshot() != nil }
+    var loadedModelName: String? { snapshot()?.size.rawValue }
 
-    var loadedModelName: String? { loadedSize?.rawValue }
+    /// Retain the model atomically so its lifetime includes all request segments.
+    private func snapshot() -> LoadedRecognizer? {
+        recognizerLock.lock()
+        defer { recognizerLock.unlock() }
+        return loadedRecognizer
+    }
 
     deinit {
         unloadModel()
@@ -147,7 +165,7 @@ final class SherpaService: @unchecked Sendable {
         language: String?,
         onPhaseChange: ((String) -> Void)? = nil
     ) async throws {
-        unloadModel()
+        let generation = clearModel()
 
         guard let size = modelName.flatMap(ModelSize.init(rawValue:)),
               let spec = SherpaModelCatalog.spec(for: size) else {
@@ -191,38 +209,49 @@ final class SherpaService: @unchecked Sendable {
             throw SherpaError.initializationFailed(reason: "sherpa-onnx rejected the model files at \(directory.path)")
         }
 
-        adopt(recognizer: created, size: size)
+        guard !Task.isCancelled else {
+            SherpaOnnxDestroyOfflineRecognizer(created)
+            throw CancellationError()
+        }
+        guard adopt(recognizer: created, size: size, generation: generation) else {
+            throw CancellationError()
+        }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         VocaLogger.info(.sherpaService, "ONNX model loaded in \(String(format: "%.2f", elapsed))s")
     }
 
-    /// Take ownership of a freshly created recognizer.
-    ///
-    /// Destroys whatever was installed before rather than overwriting it:
-    /// the pointer is native memory, so dropping the reference would leak the
-    /// model. Loads are serialized upstream, but this keeps the object safe
-    /// on its own terms.
-    private func adopt(recognizer created: OpaquePointer, size: ModelSize) {
+    /// Atomically install the model; existing requests retain their previous model.
+    private func adopt(recognizer created: OpaquePointer, size: ModelSize, generation: UUID) -> Bool {
+        let model = LoadedRecognizer(pointer: created, size: size)
         recognizerLock.lock()
-        defer { recognizerLock.unlock() }
-        if let existing = recognizer {
-            SherpaOnnxDestroyOfflineRecognizer(existing)
+        guard loadGeneration == generation else {
+            recognizerLock.unlock()
+            return false
         }
-        recognizer = created
-        loadedSize = size
+        let previous = loadedRecognizer
+        loadedRecognizer = model
+        recognizerLock.unlock()
+        // Release native memory outside the state lock.
+        withExtendedLifetime(previous) {}
+        return true
     }
 
-    /// Unload the current model and free memory
+    /// Remove the active model. In-flight requests release it when decoding finishes.
     func unloadModel() {
+        _ = clearModel()
+    }
+
+    /// Invalidate pending loads as well as removing the active model.
+    private func clearModel() -> UUID {
         recognizerLock.lock()
-        if let recognizer {
-            SherpaOnnxDestroyOfflineRecognizer(recognizer)
-            VocaLogger.info(.sherpaService, "ONNX model unloaded")
-        }
-        recognizer = nil
-        loadedSize = nil
+        let generation = UUID()
+        loadGeneration = generation
+        let previous = loadedRecognizer
+        loadedRecognizer = nil
         recognizerLock.unlock()
+        withExtendedLifetime(previous) {}
+        return generation
     }
 
     // MARK: - Transcription
@@ -236,13 +265,10 @@ final class SherpaService: @unchecked Sendable {
         audioData: [Float],
         language: String? = nil
     ) async throws -> VocaTranscription {
-        guard isModelLoaded, let size = loadedSize else {
-            throw SherpaError.modelNotLoaded
-        }
+        guard let request = snapshot() else { throw SherpaError.modelNotLoaded }
+        let size = request.size
 
-        guard !audioData.isEmpty else {
-            throw SherpaError.emptyAudio
-        }
+        try SherpaAudioPreparation.validate(audioData)
 
         let audioLengthSeconds = Double(audioData.count) / 16000.0
         VocaLogger.info(.sherpaService, "ONNX transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
@@ -264,34 +290,30 @@ final class SherpaService: @unchecked Sendable {
             segments = [audioData]
         }
 
-        let decoded: (text: String, lang: String)? = await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-                guard let self else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                var pieces: [String] = []
-                var detected = ""
-                for segment in segments {
-                    guard let result = self.decodeLocked(samples: segment) else {
-                        continuation.resume(returning: nil)
-                        return
+        let decoded: (text: String, lang: String) = try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    // Keep one recognizer for the entire recording, including all segments.
+                    request.decodeLock.lock()
+                    defer { request.decodeLock.unlock() }
+                    var pieces: [String] = []
+                    var detected = ""
+                    for segment in segments {
+                        let samples = SherpaAudioPreparation.prepare(segment)
+                        guard !samples.isEmpty else { continue }
+                        let result = try Self.decode(samples: samples, recognizer: request.pointer)
+                        let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !piece.isEmpty { pieces.append(piece) }
+                        if detected.isEmpty { detected = result.lang }
                     }
-                    let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !piece.isEmpty { pieces.append(piece) }
-                    if detected.isEmpty { detected = result.lang }
+                    let joinLanguage = detected.isEmpty ? (language ?? "") : detected
+                    continuation.resume(returning: (
+                        Self.joinTranscriptPieces(pieces, language: joinLanguage), detected
+                    ))
+                } catch {
+                    continuation.resume(throwing: error)
                 }
-                // Prefer the model's detected language; fall back to the caller's
-                // preference so CJK SenseVoice output is not space-joined.
-                let joinLanguage = detected.isEmpty ? (language ?? "") : detected
-                continuation.resume(
-                    returning: (Self.joinTranscriptPieces(pieces, language: joinLanguage), detected)
-                )
             }
-        }
-
-        guard let decoded else {
-            throw SherpaError.transcriptionFailed(reason: "The model was unloaded during transcription.")
         }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
@@ -326,16 +348,12 @@ final class SherpaService: @unchecked Sendable {
         return pieces.joined(separator: cjk ? "" : " ")
     }
 
-    /// Run one decode against the active recognizer. Returns nil if no model
-    /// is loaded. Called off the main thread; holds the lock so the
-    /// recognizer cannot be destroyed mid-decode.
-    private func decodeLocked(samples: [Float]) -> (text: String, lang: String)? {
-        recognizerLock.lock()
-        defer { recognizerLock.unlock() }
-
-        guard let recognizer,
-              let stream = SherpaOnnxCreateOfflineStream(recognizer) else {
-            return nil
+    /// Decode while the caller holds the recognizer lock for the whole request.
+    private static func decode(
+        samples: [Float], recognizer: OpaquePointer
+    ) throws -> (text: String, lang: String) {
+        guard let stream = SherpaOnnxCreateOfflineStream(recognizer) else {
+            throw SherpaError.transcriptionFailed(reason: "Could not create an ONNX audio stream.")
         }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
 
@@ -345,7 +363,7 @@ final class SherpaService: @unchecked Sendable {
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
 
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
-            return ("", "")
+            throw SherpaError.transcriptionFailed(reason: "The ONNX decoder returned no result.")
         }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
 

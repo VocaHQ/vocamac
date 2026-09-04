@@ -125,6 +125,68 @@ final class SherpaServiceTests: XCTestCase {
         XCTAssertEqual(router.loadedModelName, model.rawValue)
     }
 
+    func testUnloadDuringLoadDoesNotReinstallModel() async throws {
+        guard let model = installedModel else { throw XCTSkip("No ONNX model installed") }
+        let service = SherpaService()
+        do {
+            try await service.loadModel(name: model.rawValue, language: "en") { _ in
+                service.unloadModel()
+            }
+            XCTFail("An invalidated load must not become active")
+        } catch is CancellationError {
+            XCTAssertFalse(service.isModelLoaded)
+            XCTAssertNil(service.loadedModelName)
+        }
+    }
+
+    func testShortWordsWithInstalledEnglishModels() async throws {
+        let models: [ModelSize] = [.moonshineTiny, .moonshineBase, .senseVoiceSmall, .canary180mFlash]
+        let installed = models.filter { size in
+            SherpaModelCatalog.spec(for: size).map(SherpaService.modelFilesExist) ?? false
+        }
+        guard !installed.isEmpty else { throw XCTSkip("No English ONNX model installed") }
+        for model in installed {
+            let service = SherpaService()
+            try await service.loadModel(name: model.rawValue, language: "en")
+            for word in ["yes", "stop"] {
+                let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+                    .appendingPathComponent("Fixtures/short-\(word).wav")
+                let audio = try AudioFileLoader().loadAudio(at: url).samples
+                let result = try await service.transcribe(audioData: audio, language: "en")
+                let normalized = result.text.lowercased().filter { $0.isLetter }
+                XCTAssertEqual(normalized, word, "\(model): \(result.text)")
+                XCTAssertEqual(result.audioLengthSeconds, Double(audio.count) / 16_000)
+                XCTAssertLessThan(result.audioLengthSeconds, 0.5)
+            }
+        }
+    }
+
+    func testTinySilenceAndInvalidAudioWithInstalledModels() async throws {
+        let installed = SherpaModelCatalog.specs.filter(SherpaService.modelFilesExist)
+        guard !installed.isEmpty else { throw XCTSkip("No ONNX model installed") }
+        for spec in installed {
+            let service = SherpaService()
+            try await service.loadModel(name: spec.size.rawValue, language: "en")
+            // A one-sample nonzero input previously crashed the native Canary decoder.
+            let tiny = try await service.transcribe(audioData: [0.001])
+            XCTAssertEqual(tiny.audioLengthSeconds, 1.0 / 16_000)
+            let silence = try await service.transcribe(audioData: [Float](repeating: 0, count: 100))
+            XCTAssertEqual(silence.text, "")
+            let invalidInputs: [[Float]] = [[], [.nan], [.infinity], [-.infinity]]
+            for invalid in invalidInputs {
+                do {
+                    _ = try await service.transcribe(audioData: invalid)
+                    XCTFail("Expected invalid audio to fail for \(spec.size)")
+                } catch let error as SherpaError {
+                    switch error {
+                    case .emptyAudio, .transcriptionFailed: break
+                    default: XCTFail("Unexpected error: \(error)")
+                    }
+                }
+            }
+        }
+    }
+
     func testJoinTranscriptPiecesInsertsSpacesForWesternLanguages() {
         let joined = SherpaService.joinTranscriptPieces(["hello", "world"], language: "en")
         XCTAssertEqual(joined, "hello world")

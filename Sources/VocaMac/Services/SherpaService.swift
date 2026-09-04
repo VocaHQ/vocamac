@@ -165,6 +165,7 @@ final class SherpaService: @unchecked Sendable {
         language: String?,
         onPhaseChange: ((String) -> Void)? = nil
     ) async throws {
+        try Task.checkCancellation()
         let generation = clearModel()
 
         guard let size = modelName.flatMap(ModelSize.init(rawValue:)),
@@ -265,6 +266,7 @@ final class SherpaService: @unchecked Sendable {
         audioData: [Float],
         language: String? = nil
     ) async throws -> VocaTranscription {
+        try Task.checkCancellation()
         guard let request = snapshot() else { throw SherpaError.modelNotLoaded }
         let size = request.size
 
@@ -290,30 +292,18 @@ final class SherpaService: @unchecked Sendable {
             segments = [audioData]
         }
 
-        let decoded: (text: String, lang: String) = try await withCheckedThrowingContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    // Keep one recognizer for the entire recording, including all segments.
-                    request.decodeLock.lock()
-                    defer { request.decodeLock.unlock() }
-                    var pieces: [String] = []
-                    var detected = ""
-                    for segment in segments {
-                        let samples = SherpaAudioPreparation.prepare(segment)
-                        guard !samples.isEmpty else { continue }
-                        let result = try Self.decode(samples: samples, recognizer: request.pointer)
-                        let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if !piece.isEmpty { pieces.append(piece) }
-                        if detected.isEmpty { detected = result.lang }
-                    }
-                    let joinLanguage = detected.isEmpty ? (language ?? "") : detected
-                    continuation.resume(returning: (
-                        Self.joinTranscriptPieces(pieces, language: joinLanguage), detected
-                    ))
-                } catch {
-                    continuation.resume(throwing: error)
-                }
-            }
+        // Detached work stays off the UI executor while retaining Swift task
+        // cancellation. Native inference is synchronous: finish the current
+        // segment safely, then discard its result and stop before the next one.
+        let worker = Task.detached(priority: .userInitiated) {
+            try Self.decodeRequest(segments: segments, language: language, request: request)
+        }
+        let decoded = try await withTaskCancellationHandler {
+            let result = try await worker.value
+            try Task.checkCancellation()
+            return result
+        } onCancel: {
+            worker.cancel()
         }
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
@@ -335,17 +325,51 @@ final class SherpaService: @unchecked Sendable {
         )
     }
 
-    /// Join segment transcripts. CJK scripts do not use spaces between
-    /// phrases; Western languages do. SenseVoice tags look like `zh` / `ja`
-    /// / `yue` / `ko` (sometimes wrapped in `<|…|>`).
+    /// Serialize native decoding for a retained model without holding the state lock.
+    private static func decodeRequest(
+        segments: [[Float]], language: String?, request: LoadedRecognizer
+    ) throws -> (text: String, lang: String) {
+        try Task.checkCancellation()
+        request.decodeLock.lock()
+        defer { request.decodeLock.unlock() }
+        return try decodeSegments(segments, language: language) { samples in
+            try decode(samples: samples, recognizer: request.pointer)
+        }
+    }
+
+    /// Application-level segment processing, shared by native decoding and regressions.
+    static func decodeSegments(
+        _ segments: [[Float]],
+        language: String?,
+        decodeSegment: ([Float]) throws -> (text: String, lang: String)
+    ) throws -> (text: String, lang: String) {
+        try Task.checkCancellation()
+        var pieces: [String] = []
+        var detected = ""
+        for segment in segments {
+            try Task.checkCancellation()
+            let samples = SherpaAudioPreparation.prepare(segment)
+            guard !samples.isEmpty else { continue }
+            let result = try decodeSegment(samples)
+            try Task.checkCancellation()
+            let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !piece.isEmpty { pieces.append(piece) }
+            if detected.isEmpty { detected = result.lang }
+        }
+        let joinLanguage = detected.isEmpty ? (language ?? "") : detected
+        return (joinTranscriptPieces(pieces, language: joinLanguage), detected)
+    }
+
+    /// Join Chinese/Japanese segments without spaces. Korean, like Western
+    /// languages, needs spaces between words. SenseVoice may wrap language
+    /// tags in `<|…|>`.
     static func joinTranscriptPieces(_ pieces: [String], language: String) -> String {
         let lang = language.lowercased()
             .replacingOccurrences(of: "<|", with: "")
             .replacingOccurrences(of: "|>", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let cjk = lang.hasPrefix("zh") || lang.hasPrefix("ja")
-            || lang.hasPrefix("yue") || lang.hasPrefix("ko")
-        return pieces.joined(separator: cjk ? "" : " ")
+        let joinsWithoutSpaces = lang.hasPrefix("zh") || lang.hasPrefix("ja") || lang.hasPrefix("yue")
+        return pieces.joined(separator: joinsWithoutSpaces ? "" : " ")
     }
 
     /// Decode while the caller holds the recognizer lock for the whole request.

@@ -88,6 +88,20 @@ final class AudioSegmenterTests: XCTestCase {
         XCTAssertLessThan(firstLength, 5.6, "cut should land in the long pause, not the brief dip")
     }
 
+    func testBriefPauseIsNotHiddenByTheLoudnessPercentile() {
+        var audio = [Float](repeating: 0.2, count: 160_000)
+        audio.replaceSubrange(112_000..<116_800, with: repeatElement(Float.zero, count: 4_800))
+        let segments = AudioSegmenter.segment(audio, maxSeconds: 8)
+        XCTAssertTrue((112_000..<116_800).contains(segments[0].count),
+                      "A 300 ms pause must win over continuous sound")
+    }
+
+    func testConstantEnergyDoesNotInventAPauseHalfwayThroughTheWindow() {
+        let segments = AudioSegmenter.segment([Float](repeating: 0.2, count: 160_000), maxSeconds: 8)
+        XCTAssertEqual(segments[0].count, 128_000)
+        XCTAssertEqual(segments.flatMap { $0 }, [Float](repeating: 0.2, count: 160_000))
+    }
+
     func testContinuousSpeechStillTerminates() {
         // No pause anywhere: the segmenter must still make progress rather
         // than loop or emit empty ranges.

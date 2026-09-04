@@ -149,18 +149,30 @@ enum SystemInfo {
         return max(2, min(cores / 2, 8))
     }
 
-    /// Bytes this process can still allocate. Zero means the value is unknown.
+    /// Approximate reclaimable free memory in bytes. Zero means the probe failed.
     static var availableMemoryBytes: UInt64 {
-        let available = os_proc_available_memory()
-        guard available > 0 else { return 0 }
-        return UInt64(available)
+        var stats = vm_statistics64()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let host = mach_host_self()
+        let kr = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(host, HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        var pageSize: vm_size_t = 0
+        guard host_page_size(host, &pageSize) == KERN_SUCCESS, pageSize > 0 else { return 0 }
+        let pages = UInt64(stats.free_count) + UInt64(stats.inactive_count)
+        return pages * UInt64(pageSize)
     }
 
     /// Whether loading `size` is likely to fit without thrashing.
     ///
     /// Uses the catalog RAM estimate against installed memory and against
-    /// `os_proc_available_memory()`. A zero available reading is treated as
-    /// unknown so we do not block loads on a failed probe.
+    /// reclaimable free memory from host_statistics64. A zero available
+    /// reading is treated as unknown so we do not block loads on a failed probe.
     static func canFitModelInMemory(
         _ size: ModelSize,
         physicalMemoryGB: Int = physicalMemoryGB,

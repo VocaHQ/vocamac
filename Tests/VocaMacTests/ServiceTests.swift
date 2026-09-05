@@ -446,6 +446,52 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testConverterCacheReusesMatchingFormatAndReplacesChangedFormat() throws {
+        let cache = AudioConverterCache()
+        let destination = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let firstSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let secondSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 44_100,
+            channels: 1,
+            interleaved: false
+        ))
+
+        let first = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        let reused = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        XCTAssertTrue(first === reused)
+        XCTAssertEqual(cache.creationCount, 1)
+
+        let replacement = try XCTUnwrap(cache.converter(from: secondSource, to: destination))
+        XCTAssertFalse(first === replacement)
+        XCTAssertEqual(cache.creationCount, 2)
+    }
+
+    func testCapturedSamplesBulkAppendPreservesSamplesAndMute() throws {
+        let source: [Float] = [0.25, -0.5, 0.75]
+        var captured: [Float] = [1]
+        try source.withUnsafeBufferPointer { buffer in
+            let samples = try XCTUnwrap(buffer.baseAddress)
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: false, to: &captured
+            )
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: true, to: &captured
+            )
+        }
+        XCTAssertEqual(captured, [1, 0.25, -0.5, 0.75, 0, 0, 0])
+    }
+
     func testInputTapUsesLiveHardwareFormat() {
         XCTAssertNil(
             AudioEngine.inputTapFormat,

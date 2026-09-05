@@ -17,14 +17,27 @@ final class ProcessMonitor: ObservableObject {
 
     private var timer: Timer?
 
-    init() {
+    init(useTimer: Bool = true) {
+        if useTimer {
+            start()
+        }
+    }
+
+    deinit { timer?.invalidate() }
+
+    /// Poll only while a resource-usage view is visible.
+    func start() {
+        guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             self?.refresh()
         }
     }
 
-    deinit { timer?.invalidate() }
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
 
     /// One-shot resident memory sample for the current process (MB).
     static func currentResidentMemoryMB() -> Double {
@@ -74,6 +87,9 @@ final class ProcessMonitor: ObservableObject {
             if infoKr == KERN_SUCCESS && threadInfo.flags != TH_FLAGS_IDLE {
                 totalCPU += Double(threadInfo.cpu_usage) / Double(TH_USAGE_SCALE) * 100
             }
+            // task_threads gives the caller a send right for every thread.
+            // Releasing only the array leaks one right per sampled thread.
+            mach_port_deallocate(mach_task_self_, threads[i])
         }
 
         let count2 = Int(threadCount)
@@ -92,7 +108,7 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
-    @StateObject private var processMonitor = ProcessMonitor()
+    @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var audioDevices: [AudioDevice] = []
 
     var body: some View {
@@ -134,6 +150,8 @@ struct MenuBarView: View {
         }
         .padding(20)
         .frame(width: 380)
+        .onAppear { processMonitor.start() }
+        .onDisappear { processMonitor.stop() }
     }
 
     // MARK: - Header

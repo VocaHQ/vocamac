@@ -77,6 +77,62 @@ final class LogLevelTests: XCTestCase {
 
 final class VocaLoggerTests: XCTestCase {
 
+    func testRotationReplacesFullBackupSetAndPreservesOrder() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for (name, contents) in [
+            ("vocamac.log", "current"),
+            ("vocamac.1.log", "one"),
+            ("vocamac.2.log", "two"),
+            ("vocamac.3.log", "three"),
+        ] {
+            try Data(contents.utf8).write(to: directory.appendingPathComponent(name))
+        }
+
+        try LogFileStore.rotate(in: directory, maxRotatedFiles: 3)
+
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.1.log")), "current")
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.2.log")), "one")
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.3.log")), "two")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("vocamac.log").path))
+    }
+
+    func testTailReaderHandlesLargeFileAndUnicodeBoundary() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let lines = (0..<20_000).map { "line-\($0)-नमस्ते" }
+        try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(LogFileStore.tailLines(at: file, count: 3), Array(lines.suffix(3)))
+        XCTAssertEqual(LogFileStore.lineCount(at: file), lines.count)
+        XCTAssertEqual(LogFileStore.tailLines(at: file, count: 0), [])
+    }
+
+    func testRotationBoundsLegacyOversizedLog() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lines = (0..<100).map { "entry-\($0)-with-padding" }
+        try (lines.joined(separator: "\n") + "\n").write(
+            to: directory.appendingPathComponent(LogFileStore.activeName),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try LogFileStore.rotate(in: directory, maxRotatedFiles: 3, maximumFileSize: 256)
+
+        let rotated = directory.appendingPathComponent("vocamac.1.log")
+        let size = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: rotated.path)[.size] as? Int
+        )
+        XCTAssertLessThanOrEqual(size, 256)
+        XCTAssertEqual(LogFileStore.tailLines(at: rotated, count: 1), [try XCTUnwrap(lines.last)])
+    }
+
     func testLogFileURLIsValid() {
         let url = VocaLogger.logFileURL()
         XCTAssertFalse(url.path.isEmpty, "Log file URL should not be empty")

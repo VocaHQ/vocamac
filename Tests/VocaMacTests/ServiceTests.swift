@@ -446,6 +446,29 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testCachedConversionMatchesFreshConverterAcrossBuffersAndRouteChanges() throws {
+        let cache = AudioConverterCache()
+        for rate in [48_000.0, 48_000.0, 44_100.0, 44_100.0] {
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
+            let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+            input.frameLength = 4_096
+            let samples = try XCTUnwrap(input.floatChannelData?[0])
+            for frame in 0..<4_096 {
+                samples[frame] = Float(sin(Double(frame) * 2 * .pi * 440 / rate)) * 0.25
+            }
+            let fresh = try XCTUnwrap(AudioEngine.convertToWhisperFormat(input, from: format))
+            let cached = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+                input, from: format, converterProvider: { cache.converter(from: $0, to: $1) }
+            ))
+            XCTAssertEqual(cached.frameLength, fresh.frameLength)
+            let expected = try XCTUnwrap(fresh.floatChannelData?[0])
+            let actual = try XCTUnwrap(cached.floatChannelData?[0])
+            for frame in 0..<Int(fresh.frameLength) {
+                XCTAssertEqual(actual[frame], expected[frame], accuracy: 0.000_001)
+            }
+        }
+    }
+
     func testConverterCacheReusesMatchingFormatAndReplacesChangedFormat() throws {
         let cache = AudioConverterCache()
         let destination = try XCTUnwrap(AVAudioFormat(

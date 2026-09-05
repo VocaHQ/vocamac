@@ -66,10 +66,16 @@ enum LogFileStore {
         let size = try handle.seekToEnd()
         guard size > maximumBytes else { return }
 
-        try handle.seek(toOffset: size - UInt64(maximumBytes))
+        // Inspect the preceding byte so a cutoff at a complete line does not
+        // discard that line. Only drop a partial leading entry.
+        try handle.seek(toOffset: size - UInt64(maximumBytes) - 1)
+        let precedingByte = try handle.read(upToCount: 1)?.first
         var tail = try handle.readToEnd() ?? Data()
-        if let newline = tail.firstIndex(of: 0x0A) {
+        if precedingByte != 0x0A, let newline = tail.firstIndex(of: 0x0A) {
             tail.removeSubrange(tail.startIndex...newline)
+        } else if precedingByte != 0x0A {
+            // No complete entry fits; avoid writing a partial UTF-8 sequence.
+            tail.removeAll()
         }
         try tail.write(to: url, options: .atomic)
     }
@@ -363,7 +369,7 @@ final class VocaLogger {
             )) ?? []
             for file in files {
                 let name = file.deletingPathExtension().lastPathComponent
-                guard name.hasPrefix("vocamac."),
+                guard file.pathExtension == "log", name.hasPrefix("vocamac."),
                       let index = Int(name.dropFirst("vocamac.".count)),
                       index > maxRotatedFiles else {
                     continue

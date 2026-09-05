@@ -77,6 +77,22 @@ final class LogLevelTests: XCTestCase {
 
 final class VocaLoggerTests: XCTestCase {
 
+    func testTrimPreservesCompleteLineAtExactCutoff() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("old\nनमस्ते\n".utf8).write(to: file)
+        try LogFileStore.trimToTail(at: file, maximumBytes: Data("नमस्ते\n".utf8).count)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "नमस्ते\n")
+    }
+
+    func testTrimDoesNotKeepPartialUnicodeEntry() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("नमस्ते".utf8).write(to: file)
+        try LogFileStore.trimToTail(at: file, maximumBytes: 2)
+        XCTAssertEqual(try Data(contentsOf: file), Data())
+    }
+
     func testRotationReplacesFullBackupSetAndPreservesOrder() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

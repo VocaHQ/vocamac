@@ -27,11 +27,10 @@ let package = Package(
         .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.5")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
-        // Pinned to a revision: the SPM manifest is not in a tagged release
-        // yet; the pinned manifest references the v1.13.4 binary xcframework.
+        // Pin the release and its matching binary xcframework for reproducible builds.
         .package(
             url: "https://github.com/k2-fsa/sherpa-onnx",
-            revision: "00ad9a19a63751a6c4b12050a00eacfeb204814e"
+            exact: "1.13.7"
         ),
     ],
     targets: [
@@ -62,7 +61,8 @@ let package = Package(
         .testTarget(
             name: "VocaMacTests",
             dependencies: ["VocaMac"],
-            path: "Tests/VocaMacTests"
+            path: "Tests/VocaMacTests",
+            exclude: ["Fixtures"]
         )
     ]
 )

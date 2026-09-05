@@ -190,7 +190,7 @@ Version-bump changelog tables go in the **PR description**, not a tracked file. 
 |------------|---------|-----|
 | [WhisperKit](https://github.com/argmaxinc/WhisperKit) | Whisper CoreML | `from: "0.9.4"` |
 | [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.5")` (pre-1.0) |
-| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | revision pin (SPM not in a tagged release; xcframework v1.13.4) |
+| [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | exact `1.13.7` (matching xcframework) |
 
 Keep dependencies minimal. Do not bump FluidAudio across a minor without checking `AsrManager.loadModels` / TDT decoder APIs.
 

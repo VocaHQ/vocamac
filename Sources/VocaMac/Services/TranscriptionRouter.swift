@@ -169,7 +169,7 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// engine that is mid-teardown.
     func unloadModel() async {
         do {
-            try await operationSerializer.run { [self] in
+            try await operationSerializer.run(cancellable: false) { [self] in
                 whisper.unloadModel()
                 await parakeet.unloadModelAndWait()
                 appleSpeech.unloadModel()

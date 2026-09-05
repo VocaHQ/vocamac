@@ -96,7 +96,10 @@ enum AudioSegmenter {
         guard !energies.isEmpty else { return fallback }
 
         let sorted = energies.sorted()
-        let quietThreshold = sorted[sorted.count / 4]
+        // A percentile alone marks flat/continuous sound as quiet and can
+        // bury short pauses when they occupy less than a quarter of the window.
+        // Require a 10 dB energy drop relative to the louder frames as well.
+        let quietThreshold = min(sorted[sorted.count / 4], sorted[sorted.count * 3 / 4] * 0.1)
 
         var bestStart = 0, bestLength = 0
         var runStart = 0, runLength = 0
@@ -118,7 +121,11 @@ enum AudioSegmenter {
             return frameOffsets[min(middle, frameOffsets.count - 1)] + frameLength / 2
         }
 
-        // No real pause — fall back to the single quietest frame.
+        // With no meaningful energy dip, use the full window instead of
+        // inventing an early boundary in continuous sound.
+        guard let minimum = sorted.first, minimum <= quietThreshold else { return fallback }
+
+        // No sustained pause — fall back to the single quietest frame.
         var quietestIndex = 0
         for (index, energy) in energies.enumerated() where energy < energies[quietestIndex] {
             quietestIndex = index

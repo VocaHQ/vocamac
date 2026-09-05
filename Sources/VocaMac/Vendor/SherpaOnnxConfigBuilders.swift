@@ -2,8 +2,8 @@
 // VocaMac (vendored)
 //
 // Trimmed copy of swift-api-examples/SherpaOnnx.swift from the sherpa-onnx
-// project (https://github.com/k2-fsa/sherpa-onnx), revision
-// 00ad9a19a63751a6c4b12050a00eacfeb204814e, Copyright (c) 2023 Xiaomi
+// project (https://github.com/k2-fsa/sherpa-onnx), release
+// v1.13.7, Copyright (c) 2023 Xiaomi
 // Corporation, Apache License 2.0.
 //
 // The upstream file lives in the package's example target and declares
@@ -22,6 +22,7 @@ func toCPointer(_ s: String) -> UnsafePointer<Int8>! {
   let cs = (s as NSString).utf8String
   return UnsafePointer<Int8>(cs)
 }
+
 func sherpaOnnxFeatureConfig(
   sampleRate: Int = 16000,
   featureDim: Int = 80
@@ -50,6 +51,7 @@ func sherpaOnnxHomophoneReplacerConfig(
     lexicon: toCPointer(lexicon),
     rule_fsts: toCPointer(ruleFsts))
 }
+
 func sherpaOnnxOfflineTransducerModelConfig(
   encoder: String = "",
   decoder: String = "",

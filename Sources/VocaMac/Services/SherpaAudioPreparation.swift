@@ -34,17 +34,39 @@ enum SherpaAudioPreparation {
         }
     }
 
-    static func prepare(_ samples: [Float]) -> [Float] {
+    /// Alternative ways to distribute the same silence, used to retry a decode
+    /// that came back empty.
+    ///
+    /// The decoders are chaotically sensitive to exact framing. Measured on a
+    /// real 4s recording that decoded to nothing: scaling every sample by
+    /// 1.001 recovered the whole sentence and 0.999 did not, and shifting the
+    /// speech by 100ms flipped the result either way. No perturbation is right
+    /// in general — but a decode that returned nothing has nothing to lose,
+    /// and reframing recovers it.
+    ///
+    /// Every layout adds exactly as much silence as the first attempt, so a
+    /// retry can never push a segment past the one-pass limit the segmenter
+    /// exists to respect.
+    static let recoveryLayouts: [(lead: Int, tail: Int)] = [
+        (lead: 2 * edgeSilenceSampleCount, tail: 0),
+        (lead: 0, tail: 2 * edgeSilenceSampleCount),
+        (lead: edgeSilenceSampleCount / 2, tail: 3 * edgeSilenceSampleCount / 2),
+    ]
+
+    static func prepare(
+        _ samples: [Float],
+        lead: Int = edgeSilenceSampleCount,
+        tail: Int = edgeSilenceSampleCount
+    ) -> [Float] {
         // Do not ask generative decoders to invent words for digital silence.
         guard samples.contains(where: { $0 != 0 }) else { return [] }
 
-        let edge = repeatElement(Float.zero, count: edgeSilenceSampleCount)
-        let paddedCount = samples.count + 2 * edgeSilenceSampleCount
+        let paddedCount = samples.count + lead + tail
         var prepared: [Float] = []
         prepared.reserveCapacity(max(minimumSampleCount, paddedCount))
-        prepared.append(contentsOf: edge)
+        prepared.append(contentsOf: repeatElement(Float.zero, count: lead))
         prepared.append(contentsOf: samples)
-        prepared.append(contentsOf: edge)
+        prepared.append(contentsOf: repeatElement(Float.zero, count: tail))
 
         if prepared.count < minimumSampleCount {
             prepared.append(

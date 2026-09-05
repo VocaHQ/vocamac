@@ -4,6 +4,7 @@
 // Tests for WhisperService: translation and hallucination filtering.
 
 import XCTest
+import WhisperKit
 @testable import VocaMac
 
 // MARK: - WhisperService Translation Tests
@@ -94,5 +95,23 @@ final class WhisperServiceVocabularyTests: XCTestCase {
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "transcribed", promptTokens: [1]))
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "[BLANK_AUDIO]", promptTokens: [1]))
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "", promptTokens: nil))
+    }
+}
+
+// MARK: - WhisperService Short Audio Tests
+
+final class WhisperServiceShortAudioTests: XCTestCase {
+    func testShortClipsEnterWhisperKitDecodeLoop() {
+        for count in [1, 7_970, 15_999, 16_000] {
+            let options = DecodingOptions(windowClipTime: WhisperService.windowClipTime(sampleCount: count))
+            let excludedSamples = Int(options.windowClipTime * Float(WhisperKit.sampleRate))
+            XCTAssertGreaterThan(count - excludedSamples, 0, "Clip of \(count) samples must be decoded")
+        }
+    }
+
+    func testLongerClipsKeepDefaultTrailingWindowProtection() {
+        for count in [16_001, 17_600, 480_000, 960_000] {
+            XCTAssertEqual(WhisperService.windowClipTime(sampleCount: count), DecodingOptions().windowClipTime)
+        }
     }
 }

@@ -1519,7 +1519,7 @@ struct AudioSettingsTab: View {
 
 struct DebugTab: View {
     @EnvironmentObject var appState: AppState
-    @StateObject private var processMonitor = ProcessMonitor()
+    @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var logEntryCount: Int = VocaLogger.logEntryCount
 
     var body: some View {
@@ -1697,6 +1697,8 @@ struct DebugTab: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear { processMonitor.start() }
+        .onDisappear { processMonitor.stop() }
     }
 
     // MARK: - Actions

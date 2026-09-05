@@ -488,6 +488,7 @@ final class ModelManager {
         size: ModelSize,
         onProgress: @escaping (Double) -> Void
     ) async throws {
+        try Task.checkCancellation()
         guard let spec = SherpaModelCatalog.spec(for: size) else {
             throw ModelManagerError.modelNotAvailable(size.rawValue)
         }
@@ -548,6 +549,11 @@ final class ModelManager {
                 )
             }
 
+            // Cancellation may arrive during hashing/extraction. Stop before
+            // changing the installed model; once the swap begins, finish its
+            // rollback-safe transaction without interruption.
+            try Task.checkCancellation()
+
             // Swap the finished model in without a window where neither copy
             // is in place: move any existing install aside first, and only
             // delete it once the new one has landed.
@@ -588,6 +594,8 @@ final class ModelManager {
 
             onProgress(1.0)
             VocaLogger.info(.modelManager, "ONNX model '\(size.rawValue)' installed at: \(destination.path)")
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             VocaLogger.error(.modelManager, "Download failed for '\(size.rawValue)': \(error.localizedDescription)")
             throw ModelManagerError.downloadFailed(reason: error.localizedDescription)
@@ -597,11 +605,13 @@ final class ModelManager {
     /// SHA-256 of a file, read in chunks so a large archive never has to be
     /// held in memory all at once.
     static func sha256Hex(ofFileAt url: URL) throws -> String {
+        try Task.checkCancellation()
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try Task.checkCancellation()
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
@@ -609,11 +619,13 @@ final class ModelManager {
 
     /// Extract a .tar.bz2 archive using the system tar.
     static func extractTarArchive(at archive: URL, into directory: URL) throws {
+        try Task.checkCancellation()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xjf", archive.path, "-C", directory.path]
         try process.run()
         process.waitUntilExit()
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
             throw ModelManagerError.downloadFailed(
                 reason: "Archive extraction failed (tar exited with \(process.terminationStatus))"

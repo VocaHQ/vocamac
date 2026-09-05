@@ -6,6 +6,125 @@
 
 import Foundation
 import os
+import Darwin
+
+/// Bounded, cross-process-safe storage for VocaMac's rolling text logs.
+enum LogFileStore {
+    static let activeName = "vocamac.log"
+    static let lockName = ".vocamac.lock"
+
+    static func withExclusiveLock<T>(in directory: URL, _ body: () throws -> T) rethrows -> T {
+        let lockURL = directory.appendingPathComponent(lockName)
+        let descriptor = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard descriptor >= 0 else { return try body() }
+        defer {
+            flock(descriptor, LOCK_UN)
+            close(descriptor)
+        }
+        flock(descriptor, LOCK_EX)
+        return try body()
+    }
+
+    static func rotate(
+        in directory: URL,
+        maxRotatedFiles: Int,
+        maximumFileSize: Int? = nil,
+        fileManager: FileManager = .default
+    ) throws {
+        guard maxRotatedFiles > 0 else { return }
+        let oldest = directory.appendingPathComponent("vocamac.\(maxRotatedFiles).log")
+        if fileManager.fileExists(atPath: oldest.path) {
+            try fileManager.removeItem(at: oldest)
+        }
+        if maxRotatedFiles > 1 {
+            for index in stride(from: maxRotatedFiles - 1, through: 1, by: -1) {
+                let source = directory.appendingPathComponent("vocamac.\(index).log")
+                let destination = directory.appendingPathComponent("vocamac.\(index + 1).log")
+                if fileManager.fileExists(atPath: source.path) {
+                    try fileManager.moveItem(at: source, to: destination)
+                }
+            }
+        }
+        let active = directory.appendingPathComponent(activeName)
+        if fileManager.fileExists(atPath: active.path) {
+            let rotated = directory.appendingPathComponent("vocamac.1.log")
+            try fileManager.moveItem(at: active, to: rotated)
+            if let maximumFileSize {
+                try trimToTail(at: rotated, maximumBytes: maximumFileSize)
+            }
+        }
+    }
+
+    /// Keep a legacy oversized log bounded while preserving its newest entries.
+    static func trimToTail(at url: URL, maximumBytes: Int) throws {
+        guard maximumBytes > 0 else {
+            try Data().write(to: url, options: .atomic)
+            return
+        }
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        let size = try handle.seekToEnd()
+        guard size > maximumBytes else { return }
+
+        // Inspect the preceding byte so a cutoff at a complete line does not
+        // discard that line. Only drop a partial leading entry.
+        try handle.seek(toOffset: size - UInt64(maximumBytes) - 1)
+        let precedingByte = try handle.read(upToCount: 1)?.first
+        var tail = try handle.readToEnd() ?? Data()
+        if precedingByte != 0x0A, let newline = tail.firstIndex(of: 0x0A) {
+            tail.removeSubrange(tail.startIndex...newline)
+        } else if precedingByte != 0x0A {
+            // No complete entry fits; avoid writing a partial UTF-8 sequence.
+            tail.removeAll()
+        }
+        try tail.write(to: url, options: .atomic)
+    }
+
+    /// Read only enough of a file's tail to satisfy `count` complete lines.
+    static func tailLines(at url: URL, count: Int, chunkSize: Int = 64 * 1024) -> [String] {
+        guard count > 0, let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return [] }
+
+        var offset = size
+        var data = Data()
+        while offset > 0 {
+            let bytes = min(UInt64(chunkSize), offset)
+            offset -= bytes
+            do {
+                try handle.seek(toOffset: offset)
+                if let chunk = try handle.read(upToCount: Int(bytes)) {
+                    data.insert(contentsOf: chunk, at: 0)
+                }
+            } catch {
+                return []
+            }
+            if data.reduce(into: 0, { $0 += $1 == 0x0A ? 1 : 0 }) > count {
+                break
+            }
+        }
+
+        // If the read began mid-file, discard the partial leading line.
+        if offset > 0, let newline = data.firstIndex(of: 0x0A) {
+            data.removeSubrange(data.startIndex...newline)
+        }
+        return String(decoding: data, as: UTF8.self)
+            .split(separator: "\n", omittingEmptySubsequences: true)
+            .suffix(count)
+            .map(String.init)
+    }
+
+    static func lineCount(at url: URL, chunkSize: Int = 64 * 1024) -> Int {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return 0 }
+        defer { try? handle.close() }
+        var count = 0
+        while true {
+            guard let data = try? handle.read(upToCount: chunkSize), !data.isEmpty else { break }
+            count += data.reduce(into: 0) { $0 += $1 == 0x0A ? 1 : 0 }
+        }
+        return count
+    }
+}
 
 /// Log categories for different services and components
 enum LogCategory: String {
@@ -47,7 +166,6 @@ final class VocaLogger {
     private let logFileURL: URL
     private let fileQueue = DispatchQueue(label: "com.vocamac.logger.file", attributes: .initiallyInactive)
     private let osLogger: os.Logger
-    private var logFileHandle: FileHandle?
     private let logMaxSize = 1_000_000
     private let maxRotatedFiles = 3
     private var currentLogLevel: LogLevel = .info
@@ -64,7 +182,7 @@ final class VocaLogger {
     private init() {
         let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         self.logDirectory = appSupportURL.appendingPathComponent("VocaMac/logs", isDirectory: true)
-        self.logFileURL = logDirectory.appendingPathComponent("vocamac.log")
+        self.logFileURL = logDirectory.appendingPathComponent(LogFileStore.activeName)
         self.osLogger = os.Logger(subsystem: "com.vocamac", category: "general")
 
         try? FileManager.default.createDirectory(at: logDirectory, withIntermediateDirectories: true, attributes: nil)
@@ -116,18 +234,25 @@ final class VocaLogger {
 
     /// Get the approximate number of log entries in the current log file
     static var logEntryCount: Int {
-        guard let content = try? String(contentsOf: VocaLogger.shared.logFileURL, encoding: .utf8) else {
-            return 0
+        let logger = VocaLogger.shared
+        return LogFileStore.withExclusiveLock(in: logger.logDirectory) {
+            LogFileStore.lineCount(at: logger.logFileURL)
         }
-        return content.components(separatedBy: "\n").filter { !$0.isEmpty }.count
     }
 
     /// Clear all log entries from the current log file
     static func clearLogs() {
-        try? "".write(to: VocaLogger.shared.logFileURL, atomically: true, encoding: .utf8)
-        VocaLogger.shared.fileQueue.async {
-            VocaLogger.shared.bytesWrittenSinceLastCheck = 0
-            VocaLogger.shared.logFileHandle?.seekToEndOfFile()
+        let logger = VocaLogger.shared
+        logger.fileQueue.sync {
+            LogFileStore.withExclusiveLock(in: logger.logDirectory) {
+                try? Data().write(to: logger.logFileURL)
+                for index in 1...logger.maxRotatedFiles {
+                    try? FileManager.default.removeItem(
+                        at: logger.logDirectory.appendingPathComponent("vocamac.\(index).log")
+                    )
+                }
+            }
+            logger.bytesWrittenSinceLastCheck = 0
         }
         VocaLogger.info(.general, "Logs cleared")
     }
@@ -179,25 +304,33 @@ final class VocaLogger {
     }
 
     private func setupLogFile() {
-        if !FileManager.default.fileExists(atPath: logFileURL.path) {
-            FileManager.default.createFile(atPath: logFileURL.path, contents: nil, attributes: nil)
+        LogFileStore.withExclusiveLock(in: logDirectory) {
+            if !FileManager.default.fileExists(atPath: logFileURL.path) {
+                FileManager.default.createFile(atPath: logFileURL.path, contents: nil, attributes: nil)
+            }
+            checkAndRotateIfNeeded()
         }
-
-        logFileHandle = FileHandle(forWritingAtPath: logFileURL.path)
-        logFileHandle?.seekToEndOfFile()
-
-        checkAndRotateIfNeeded()
     }
 
     private func writeToFile(_ data: Data?) {
-        guard let data, let handle = logFileHandle else { return }
-
-        handle.write(data)
-        bytesWrittenSinceLastCheck += data.count
-
-        if bytesWrittenSinceLastCheck >= rotationCheckInterval {
-            bytesWrittenSinceLastCheck = 0
-            checkAndRotateIfNeeded()
+        guard let data else { return }
+        LogFileStore.withExclusiveLock(in: logDirectory) {
+            if !FileManager.default.fileExists(atPath: logFileURL.path) {
+                FileManager.default.createFile(atPath: logFileURL.path, contents: nil)
+            }
+            guard let handle = FileHandle(forWritingAtPath: logFileURL.path) else { return }
+            defer { try? handle.close() }
+            do {
+                try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+                bytesWrittenSinceLastCheck += data.count
+                if bytesWrittenSinceLastCheck >= rotationCheckInterval {
+                    bytesWrittenSinceLastCheck = 0
+                    checkAndRotateIfNeeded()
+                }
+            } catch {
+                osLogger.error("Log write failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -213,66 +346,52 @@ final class VocaLogger {
     }
 
     private func performRotation() {
-        logFileHandle?.closeFile()
-        logFileHandle = nil
-
-        for i in stride(from: maxRotatedFiles - 1, through: 1, by: -1) {
-            let oldURL = logDirectory.appendingPathComponent("vocamac.\(i).log")
-            let newURL = logDirectory.appendingPathComponent("vocamac.\(i + 1).log")
-
-            if FileManager.default.fileExists(atPath: oldURL.path) {
-                do {
-                    try FileManager.default.moveItem(at: oldURL, to: newURL)
-                } catch {
-                    osLogger.error("Log rotation: failed to move \(oldURL.lastPathComponent) to \(newURL.lastPathComponent): \(error.localizedDescription)")
-                }
-            }
-        }
-
-        let rotatedURL = logDirectory.appendingPathComponent("vocamac.1.log")
         do {
-            try FileManager.default.moveItem(at: logFileURL, to: rotatedURL)
+            try LogFileStore.rotate(
+                in: logDirectory,
+                maxRotatedFiles: maxRotatedFiles,
+                maximumFileSize: logMaxSize
+            )
+            FileManager.default.createFile(atPath: logFileURL.path, contents: nil)
         } catch {
-            osLogger.error("Log rotation: failed to rotate current log: \(error.localizedDescription)")
-            logFileHandle = FileHandle(forWritingAtPath: logFileURL.path)
-            logFileHandle?.seekToEndOfFile()
+            osLogger.error("Log rotation failed: \(error.localizedDescription)")
             return
         }
-
-        let oldestURL = logDirectory.appendingPathComponent("vocamac.\(maxRotatedFiles + 1).log")
-        try? FileManager.default.removeItem(at: oldestURL)
-
         bytesWrittenSinceLastCheck = 0
-        setupLogFile()
     }
 
     private func cleanupOrphanedRotatedFiles() {
-        let fm = FileManager.default
-        for i in (maxRotatedFiles + 1)...100 {
-            let url = logDirectory.appendingPathComponent("vocamac.\(i).log")
-            if fm.fileExists(atPath: url.path) {
-                try? fm.removeItem(at: url)
-            } else {
-                break
+        LogFileStore.withExclusiveLock(in: logDirectory) {
+            let fileManager = FileManager.default
+            let files = (try? fileManager.contentsOfDirectory(
+                at: logDirectory,
+                includingPropertiesForKeys: nil
+            )) ?? []
+            for file in files {
+                let name = file.deletingPathExtension().lastPathComponent
+                guard file.pathExtension == "log", name.hasPrefix("vocamac."),
+                      let index = Int(name.dropFirst("vocamac.".count)),
+                      index > maxRotatedFiles else {
+                    continue
+                }
+                try? fileManager.removeItem(at: file)
             }
         }
     }
 
     private func getLastLines(_ count: Int) -> [String] {
-        var allLines: [String] = []
-
-        if let currentContent = try? String(contentsOf: logFileURL, encoding: .utf8) {
-            allLines.append(contentsOf: currentContent.split(separator: "\n", omittingEmptySubsequences: false).map(String.init))
-        }
-
-        for i in 1...maxRotatedFiles {
-            let rotatedURL = logDirectory.appendingPathComponent("vocamac.\(i).log")
-            if let content = try? String(contentsOf: rotatedURL, encoding: .utf8) {
-                allLines.insert(contentsOf: content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init).reversed(), at: 0)
+        guard count > 0 else { return [] }
+        return LogFileStore.withExclusiveLock(in: logDirectory) {
+            var result = LogFileStore.tailLines(at: logFileURL, count: count)
+            for index in 1...maxRotatedFiles where result.count < count {
+                let older = LogFileStore.tailLines(
+                    at: logDirectory.appendingPathComponent("vocamac.\(index).log"),
+                    count: count - result.count
+                )
+                result.insert(contentsOf: older, at: 0)
             }
+            return Array(result.suffix(count))
         }
-
-        return Array(allLines.suffix(count))
     }
 
     private func formatExportedLogs(lastLines: Int = 500) -> String {

@@ -266,6 +266,7 @@ final class TextInjector {
         _ request: ClipboardInjectionRequest,
         completion: @escaping () -> Void
     ) {
+        let interval = PerformanceTrace.begin("TextInjectionToPaste")
         let pasteboard = self.pasteboard
 
         // Deep-copy current clipboard state before we overwrite it.
@@ -274,6 +275,7 @@ final class TextInjector {
         let snapshot = request.preserveClipboard ? captureSnapshot(pasteboard) : nil
 
         guard writeTranscribedText(request.text, to: pasteboard) else {
+            PerformanceTrace.end(interval)
             completion()
             return
         }
@@ -298,6 +300,7 @@ final class TextInjector {
 
             VocaLogger.debug(.textInjector, "Simulating Cmd+V...")
             simulatePaste()
+            PerformanceTrace.end(interval)
 
             // Always wait before starting the next queued injection, even
             // when preservation is disabled. Otherwise the next request could

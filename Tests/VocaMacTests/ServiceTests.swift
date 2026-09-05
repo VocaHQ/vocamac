@@ -446,6 +446,75 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
+    func testCachedConversionMatchesFreshConverterAcrossBuffersAndRouteChanges() throws {
+        let cache = AudioConverterCache()
+        for rate in [48_000.0, 48_000.0, 44_100.0, 44_100.0] {
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
+            let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+            input.frameLength = 4_096
+            let samples = try XCTUnwrap(input.floatChannelData?[0])
+            for frame in 0..<4_096 {
+                samples[frame] = Float(sin(Double(frame) * 2 * .pi * 440 / rate)) * 0.25
+            }
+            let fresh = try XCTUnwrap(AudioEngine.convertToWhisperFormat(input, from: format))
+            let cached = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+                input, from: format, converterProvider: { cache.converter(from: $0, to: $1) }
+            ))
+            XCTAssertEqual(cached.frameLength, fresh.frameLength)
+            let expected = try XCTUnwrap(fresh.floatChannelData?[0])
+            let actual = try XCTUnwrap(cached.floatChannelData?[0])
+            for frame in 0..<Int(fresh.frameLength) {
+                XCTAssertEqual(actual[frame], expected[frame], accuracy: 0.000_001)
+            }
+        }
+    }
+
+    func testConverterCacheReusesMatchingFormatAndReplacesChangedFormat() throws {
+        let cache = AudioConverterCache()
+        let destination = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let firstSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let secondSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 44_100,
+            channels: 1,
+            interleaved: false
+        ))
+
+        let first = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        let reused = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        XCTAssertTrue(first === reused)
+        XCTAssertEqual(cache.creationCount, 1)
+
+        let replacement = try XCTUnwrap(cache.converter(from: secondSource, to: destination))
+        XCTAssertFalse(first === replacement)
+        XCTAssertEqual(cache.creationCount, 2)
+    }
+
+    func testCapturedSamplesBulkAppendPreservesSamplesAndMute() throws {
+        let source: [Float] = [0.25, -0.5, 0.75]
+        var captured: [Float] = [1]
+        try source.withUnsafeBufferPointer { buffer in
+            let samples = try XCTUnwrap(buffer.baseAddress)
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: false, to: &captured
+            )
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: true, to: &captured
+            )
+        }
+        XCTAssertEqual(captured, [1, 0.25, -0.5, 0.75, 0, 0, 0])
+    }
+
     func testInputTapUsesLiveHardwareFormat() {
         XCTAssertNil(
             AudioEngine.inputTapFormat,

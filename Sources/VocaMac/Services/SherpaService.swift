@@ -310,7 +310,18 @@ final class SherpaService: @unchecked Sendable {
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         VocaLogger.info(.sherpaService, "ONNX transcription completed in \(String(format: "%.2f", elapsed))s")
-        VocaLogger.info(.sherpaService, "Result: \(text.prefix(100))...")
+        if text.isEmpty {
+            // The decoders return an empty string rather than an error when
+            // they stop on their first token, so nothing else marks a dropped
+            // recording. Say so plainly — an INFO line reading "Result: ..."
+            // is indistinguishable from a successful decode in a log.
+            VocaLogger.warning(
+                .sherpaService,
+                "ONNX decode returned no text for \(String(format: "%.1f", audioLengthSeconds))s of audio"
+            )
+        } else {
+            VocaLogger.info(.sherpaService, "Result: \(text.prefix(100))...")
+        }
 
         // SenseVoice reports the detected language; other models are
         // monolingual or fixed at load time.

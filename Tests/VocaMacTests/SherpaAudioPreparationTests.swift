@@ -2,6 +2,8 @@ import XCTest
 @testable import VocaMac
 
 final class SherpaAudioPreparationTests: XCTestCase {
+    private let edge = SherpaAudioPreparation.edgeSilenceSampleCount
+
     func testValidationRejectsEmptyAndNonFiniteInput() {
         let invalid: [[Float]] = [[], [.nan], [.infinity], [-.infinity], [0.1, .nan]]
         for samples in invalid {
@@ -10,12 +12,29 @@ final class SherpaAudioPreparationTests: XCTestCase {
         XCTAssertNoThrow(try SherpaAudioPreparation.validate([0, 0.000001, -1, 1]))
     }
 
-    func testShortSpeechPreservesEverySampleAndAddsTrailingSilence() {
+    func testShortSpeechIsPaddedToTheMinimumSampleCount() {
         let speech: [Float] = [0.1, -0.3, 0.2]
         let prepared = SherpaAudioPreparation.prepare(speech)
         XCTAssertEqual(prepared.count, 16_000)
-        XCTAssertEqual(Array(prepared.prefix(speech.count)), speech)
-        XCTAssertTrue(prepared.dropFirst(speech.count).allSatisfy { $0 == 0 })
+        XCTAssertEqual(Array(prepared[edge..<(edge + speech.count)]), speech)
+        XCTAssertTrue(prepared.dropFirst(edge + speech.count).allSatisfy { $0 == 0 })
+    }
+
+    /// Speech that starts in sample zero makes the NeMo decoders emit
+    /// end-of-transcript immediately and return nothing at all, so every
+    /// segment gets a silent lead-in.
+    func testSpeechNeverStartsInTheFirstSample() {
+        let cases: [[Float]] = [
+            [0.4],
+            [Float](repeating: 0.1, count: 16_001),
+            [Float](repeating: -0.2, count: 320_000),
+        ]
+        for samples in cases {
+            let prepared = SherpaAudioPreparation.prepare(samples)
+            XCTAssertEqual(Array(prepared.prefix(edge)), [Float](repeating: 0, count: edge))
+            XCTAssertEqual(Array(prepared.suffix(edge)), [Float](repeating: 0, count: edge))
+            XCTAssertEqual(Array(prepared[edge..<(edge + samples.count)]), samples)
+        }
     }
 
     func testEmptyAndDigitalSilenceDoNotReachDecoder() {
@@ -24,12 +43,14 @@ final class SherpaAudioPreparationTests: XCTestCase {
     }
 
     func testQuietSpeechIsNotDiscarded() {
-        XCTAssertEqual(SherpaAudioPreparation.prepare([0.000001]).first, 0.000001)
+        XCTAssertEqual(SherpaAudioPreparation.prepare([0.000001])[edge], 0.000001)
     }
 
-    func testNormalLengthAudioIsUnchanged() {
-        let samples = [Float](repeating: 0.1, count: 16_001)
-        XCTAssertEqual(SherpaAudioPreparation.prepare(samples), samples)
+    func testLongAudioKeepsEverySampleAndOnlyGainsEdgeSilence() {
+        let samples = (0..<16_001).map { Float($0 % 7) * 0.1 + 0.01 }
+        let prepared = SherpaAudioPreparation.prepare(samples)
+        XCTAssertEqual(prepared.count, samples.count + 2 * edge)
+        XCTAssertEqual(Array(prepared[edge..<(edge + samples.count)]), samples)
     }
 
     func testShortFinalSegmentAlsoReceivesPadding() {
@@ -40,7 +61,7 @@ final class SherpaAudioPreparationTests: XCTestCase {
         for segment in segments {
             let prepared = SherpaAudioPreparation.prepare(segment)
             XCTAssertGreaterThanOrEqual(prepared.count, 16_000)
-            XCTAssertEqual(Array(prepared.prefix(segment.count)), segment)
+            XCTAssertEqual(Array(prepared[edge..<(edge + segment.count)]), segment)
         }
     }
 }

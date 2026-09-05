@@ -78,6 +78,48 @@
     copyStatus.textContent = message;
   };
 
+  // One shared restore timer + generation token so rapid clicks (same button
+  // or another copy control) cannot let an older timeout wipe newer feedback.
+  var copyFeedbackToken = 0;
+  var copyFeedbackTimer = null;
+  var activeCopyButton = null;
+
+  var restoreCopyButton = function (button) {
+    button.textContent = "Copy";
+    button.classList.remove("is-copied");
+  };
+
+  var clearCopyFeedbackTimer = function () {
+    if (copyFeedbackTimer) {
+      clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = null;
+    }
+  };
+
+  var showCopyFeedback = function (button, label) {
+    if (activeCopyButton && activeCopyButton !== button) {
+      restoreCopyButton(activeCopyButton);
+    }
+    activeCopyButton = button;
+    button.textContent = label;
+    if (label === "Copied") {
+      button.classList.add("is-copied");
+    } else {
+      button.classList.remove("is-copied");
+    }
+    announceCopy(label);
+
+    clearCopyFeedbackTimer();
+    var token = ++copyFeedbackToken;
+    copyFeedbackTimer = setTimeout(function () {
+      if (token !== copyFeedbackToken) { return; }
+      restoreCopyButton(button);
+      if (activeCopyButton === button) { activeCopyButton = null; }
+      announceCopy("");
+      copyFeedbackTimer = null;
+    }, 2000);
+  };
+
   copyBlocks.forEach(function (block) {
     var source = block.querySelector("code");
     if (!source || !canCopy) { return; }
@@ -97,23 +139,12 @@
         .join("")
         .trim();
 
-      var restore = function () {
-        button.textContent = "Copy";
-        button.classList.remove("is-copied");
-        announceCopy("");
-      };
-
       navigator.clipboard.writeText(text).then(
         function () {
-          button.textContent = "Copied";
-          button.classList.add("is-copied");
-          announceCopy("Copied");
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Copied");
         },
         function () {
-          button.textContent = "Press ⌘C";
-          announceCopy("Press ⌘C");
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Press ⌘C");
         }
       );
     });

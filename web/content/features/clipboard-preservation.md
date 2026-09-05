@@ -117,7 +117,7 @@ Many voice-to-text apps on macOS handle clipboard carelessly. VocaMac is one of 
 | Feature | VocaMac | Typical App |
 |---------|---------|-------------|
 | **Preserves clipboard** | Yes | No |
-| **Works offline** | Yes | No |
+| **On-device transcription after model download** | Yes | No |
 | **Adjustable silence detection** | Yes | Rare |
 | **Menu bar integration** | Yes | No |
 | **Open source** | Yes | No |

@@ -61,8 +61,67 @@
   /* ---------- Copy buttons ---------- */
 
   var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
+  var copyBlocks = document.querySelectorAll("[data-copy]");
+  var copyStatus = null;
 
-  document.querySelectorAll("[data-copy]").forEach(function (block) {
+  if (canCopy && copyBlocks.length) {
+    copyStatus = document.createElement("div");
+    copyStatus.className = "sr-only";
+    copyStatus.setAttribute("aria-live", "polite");
+    copyStatus.setAttribute("aria-atomic", "true");
+    document.body.appendChild(copyStatus);
+  }
+
+  var announceCopy = function (message) {
+    if (!copyStatus) { return; }
+    copyStatus.textContent = "";
+    copyStatus.textContent = message;
+  };
+
+  // Generation advances on each click. Clipboard settlements and restore
+  // timers ignore stale generations so out-of-order promises cannot wipe the
+  // newest button or live-region feedback.
+  var copyFeedbackToken = 0;
+  var copyFeedbackTimer = null;
+  var activeCopyButton = null;
+
+  var restoreCopyButton = function (button) {
+    button.textContent = "Copy";
+    button.classList.remove("is-copied");
+  };
+
+  var clearCopyFeedbackTimer = function () {
+    if (copyFeedbackTimer) {
+      clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = null;
+    }
+  };
+
+  var showCopyFeedback = function (button, label, token) {
+    if (token !== copyFeedbackToken) { return; }
+    if (activeCopyButton && activeCopyButton !== button) {
+      restoreCopyButton(activeCopyButton);
+    }
+    activeCopyButton = button;
+    button.textContent = label;
+    if (label === "Copied") {
+      button.classList.add("is-copied");
+    } else {
+      button.classList.remove("is-copied");
+    }
+    announceCopy(label);
+
+    clearCopyFeedbackTimer();
+    copyFeedbackTimer = setTimeout(function () {
+      if (token !== copyFeedbackToken) { return; }
+      restoreCopyButton(button);
+      if (activeCopyButton === button) { activeCopyButton = null; }
+      announceCopy("");
+      copyFeedbackTimer = null;
+    }, 2000);
+  };
+
+  copyBlocks.forEach(function (block) {
     var source = block.querySelector("code");
     if (!source || !canCopy) { return; }
 
@@ -81,20 +140,15 @@
         .join("")
         .trim();
 
-      var restore = function () {
-        button.textContent = "Copy";
-        button.classList.remove("is-copied");
-      };
+      var requestToken = ++copyFeedbackToken;
+      clearCopyFeedbackTimer();
 
       navigator.clipboard.writeText(text).then(
         function () {
-          button.textContent = "Copied";
-          button.classList.add("is-copied");
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Copied", requestToken);
         },
         function () {
-          button.textContent = "Press ⌘C";
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Press ⌘C", requestToken);
         }
       );
     });

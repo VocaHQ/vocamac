@@ -164,6 +164,43 @@ test("every rendered page has one heading and image alternatives", async () => {
   }
 });
 
+test("keeps the site-audit copy and a11y fixes", async () => {
+  assert.match(index, /Selected on-device engine/);
+  assert.match(index, /WhisperKit\/CoreML, Parakeet, Apple Speech, ONNX/);
+  assert.doesNotMatch(
+    index,
+    /<span class="route-name">WhisperKit \/ CoreML<\/span>/,
+  );
+
+  const clipboard = await readFile(
+    join(outputRoot, "features/clipboard-preservation/index.html"),
+    "utf8",
+  );
+  assert.match(clipboard, /On-device transcription after model download/);
+  assert.doesNotMatch(clipboard, /Works offline/);
+
+  for (const page of pages) {
+    const rel = relative(outputRoot, page);
+    if (!rel.startsWith("features/") || rel === "features/index.html") continue;
+    const html = await readFile(page, "utf8");
+    assert.doesNotMatch(html, /aria-labelledby="feature-content-title"/);
+    assert.doesNotMatch(html, /id="feature-content-title"/);
+  }
+
+  assert.match(script, /aria-live", "polite"/);
+  assert.match(script, /announceCopy\(label\)/);
+  assert.match(script, /copyFeedbackToken/);
+  assert.match(script, /clearTimeout\(copyFeedbackTimer\)/);
+  assert.match(script, /requestToken = \+\+copyFeedbackToken/);
+  assert.match(script, /showCopyFeedback\(button, "Copied", requestToken\)/);
+  assert.match(script, /showCopyFeedback\(button, "Press ⌘C", requestToken\)/);
+  assert.match(script, /if \(token !== copyFeedbackToken\)/);
+
+  const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
+  assert.match(ogSvg, /v0\.9\.0/);
+  assert.doesNotMatch(ogSvg, /v0\.8\.0/);
+});
+
 test("all rendered local references resolve", async () => {
   const references = new Set();
   for (const page of pages) {

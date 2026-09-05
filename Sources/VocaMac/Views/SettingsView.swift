@@ -1319,6 +1319,7 @@ struct AudioSettingsTab: View {
                         value: silenceDurationBinding,
                         format: .number.precision(.fractionLength(0...1))
                     )
+                    .labelsHidden()
                     .textFieldStyle(.roundedBorder)
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()

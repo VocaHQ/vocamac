@@ -53,6 +53,47 @@ final class SystemInfoTests: XCTestCase {
         XCTAssertTrue(summary.contains("Metal:"))
         XCTAssertTrue(summary.contains("Recommended Model:"))
     }
+
+    func testCanFitModelRejectsWhenPhysicalMemoryIsTooLow() {
+        XCTAssertFalse(
+            SystemInfo.canFitModelInMemory(
+                .largeV3Latest,
+                physicalMemoryGB: 4,
+                availableBytes: UInt64(64) * 1024 * 1024 * 1024
+            )
+        )
+    }
+
+    func testCanFitModelRejectsWhenAvailableMemoryIsTooLow() {
+        XCTAssertFalse(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                physicalMemoryGB: 16,
+                availableBytes: 64 * 1024 * 1024
+            )
+        )
+    }
+
+    func testCanFitModelAllowsWhenAvailableIsUnknown() {
+        XCTAssertTrue(
+            SystemInfo.canFitModelInMemory(
+                .tiny,
+                physicalMemoryGB: 8,
+                availableBytes: 0
+            )
+        )
+    }
+
+    func testCanFitModelAllowsWhenPhysicalAndAvailableAreEnough() {
+        let required = UInt64((ModelSize.base.ramRequiredGB * 1024 * 1024 * 1024).rounded(.up))
+        XCTAssertTrue(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                physicalMemoryGB: 16,
+                availableBytes: required
+            )
+        )
+    }
 }
 
 // MARK: - ModelSize Tests

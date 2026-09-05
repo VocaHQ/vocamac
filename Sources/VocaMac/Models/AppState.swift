@@ -324,6 +324,10 @@ final class AppState: ObservableObject {
     /// Set to `true` in tests to avoid side effects.
     let skipSystemIntegration: Bool
 
+    /// Pre-load memory gate. Production defaults to SystemInfo; tests stub this
+    /// so CI free+inactive pages cannot flake medium/large mock loads.
+    var modelFitsInMemory: (ModelSize) -> Bool = { SystemInfo.canFitModelInMemory($0) }
+
     // MARK: - Initialization
 
     init(
@@ -1257,6 +1261,20 @@ final class AppState: ObservableObject {
         // Resolve which ModelSize we're loading. When size is nil (auto-select),
         // we don't know yet — we'll detect it after loading completes.
         let targetSize = size
+
+        // Refuse known-too-large loads before WhisperKit/CoreML can hang the
+        // UI spinner under memory pressure (vocamac#250). Leave any already
+        // loaded model alone — we never started a load, so do not restore/clear.
+        if let targetSize,
+           !modelFitsInMemory(targetSize) {
+            let needed = String(format: "%.1f", targetSize.ramRequiredGB)
+            let failureMessage =
+                "Not enough free memory to load \(targetSize.displayName) "
+                + "(~\(needed) GB needed). Free RAM or choose a smaller model."
+            showTemporaryError(failureMessage)
+            VocaLogger.error(.appState, failureMessage)
+            return
+        }
 
         // Mark the model as loading in the UI
         if let targetSize = targetSize, let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {

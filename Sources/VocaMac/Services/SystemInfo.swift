@@ -3,6 +3,7 @@
 //
 // Detects system hardware capabilities and recommends optimal whisper model size.
 
+import Darwin
 import Foundation
 
 // MARK: - SystemCapabilities
@@ -146,5 +147,50 @@ enum SystemInfo {
         let cores = coreCount
         // Use at most half the cores, minimum 2, maximum 8
         return max(2, min(cores / 2, 8))
+    }
+
+    /// Approximate reclaimable memory in bytes. Zero means the probe failed.
+    ///
+    /// Uses free + inactive only. On Darwin, `free_count` already includes
+    /// speculative pages, purgeable pages often overlap the inactive queue,
+    /// and compressor-resident pages still occupy RAM — so those counters
+    /// must not be added on top or the gate can over-approve loads.
+    static var availableMemoryBytes: UInt64 {
+        var stats = vm_statistics64()
+        var count = mach_msg_type_number_t(
+            MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
+        )
+        let host = mach_host_self()
+        defer { mach_port_deallocate(mach_task_self_, host) }
+        let kr = withUnsafeMutablePointer(to: &stats) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                host_statistics64(host, HOST_VM_INFO64, $0, &count)
+            }
+        }
+        guard kr == KERN_SUCCESS else { return 0 }
+        var pageSize: vm_size_t = 0
+        guard host_page_size(host, &pageSize) == KERN_SUCCESS, pageSize > 0 else { return 0 }
+        let pages = UInt64(stats.free_count)
+            + UInt64(stats.inactive_count)
+        return pages * UInt64(pageSize)
+    }
+
+    /// Whether loading `size` is likely to fit without thrashing.
+    ///
+    /// Uses the catalog RAM estimate against installed memory and against
+    /// reclaimable free memory from host_statistics64. A zero available
+    /// reading is treated as unknown so we do not block loads on a failed probe.
+    static func canFitModelInMemory(
+        _ size: ModelSize,
+        physicalMemoryGB: Int = physicalMemoryGB,
+        availableBytes: UInt64 = availableMemoryBytes
+    ) -> Bool {
+        let requiredGB = size.ramRequiredGB
+        guard Double(physicalMemoryGB) + 0.001 >= requiredGB else {
+            return false
+        }
+        guard availableBytes > 0 else { return true }
+        let requiredBytes = UInt64((requiredGB * 1024 * 1024 * 1024).rounded(.up))
+        return availableBytes >= requiredBytes
     }
 }

@@ -572,6 +572,8 @@ extension AppState {
             permissionManager: permissionManager,
             skipSystemIntegration: true
         )
+        // Bypass host free-RAM probe so mock loads are not refused on CI.
+        appState.modelFitsInMemory = { _ in true }
         return (appState, mocks)
     }
 }

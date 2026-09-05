@@ -180,7 +180,8 @@ final class SherpaServiceTests: XCTestCase {
             counts.append(samples.count)
             return counts.count == 1 ? ("안녕하세요", "ko") : ("반갑습니다", "ko")
         }
-        XCTAssertEqual(counts, [32_000, 16_000])
+        let edge = SherpaAudioPreparation.edgeSilenceSampleCount
+        XCTAssertEqual(counts, [32_000 + 2 * edge, 16_000])
         XCTAssertEqual(result.text, "안녕하세요 반갑습니다")
     }
 

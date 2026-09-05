@@ -330,6 +330,7 @@ final class SherpaService: @unchecked Sendable {
                     .sherpaService,
                     "ONNX decode returned no text for \(String(format: "%.1f", audioLengthSeconds))s of audio"
                 )
+                FailedAudioDump.save(audioData, model: size.rawValue)
             }
         } else {
             VocaLogger.info(.sherpaService, "Result: \(text.prefix(100))...")

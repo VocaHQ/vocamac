@@ -185,6 +185,40 @@ final class SherpaServiceTests: XCTestCase {
         XCTAssertEqual(result.text, "안녕하세요 반갑습니다")
     }
 
+    func testEmptyDecodeIsRetriedWithADifferentFrameUntilItRecovers() {
+        var attempts: [Int] = []
+        let result = try? SherpaService.decodeSegments(
+            [[Float](repeating: 0.2, count: 32_000)], language: "en"
+        ) { samples in
+            attempts.append(samples.count)
+            // Fail every framing but the last one on the ladder.
+            let isLastLayout = attempts.count == SherpaAudioPreparation.recoveryLayouts.count + 1
+            return (isLastLayout ? "recovered" : "", "en")
+        }
+        XCTAssertEqual(result?.text, "recovered")
+        XCTAssertEqual(attempts.count, SherpaAudioPreparation.recoveryLayouts.count + 1)
+        XCTAssertEqual(Set(attempts).count, 1, "a retry must not change the segment's length")
+    }
+
+    func testASuccessfulDecodeIsNeverRetried() {
+        var attempts = 0
+        _ = try? SherpaService.decodeSegments([[0.3, 0.4]], language: "en") { _ in
+            attempts += 1
+            return ("got it", "en")
+        }
+        XCTAssertEqual(attempts, 1)
+    }
+
+    func testAudioThatDecodesToNothingGivesUpAfterTheLadder() {
+        var attempts = 0
+        let result = try? SherpaService.decodeSegments([[0.3, 0.4]], language: "en") { _ in
+            attempts += 1
+            return ("", "en")
+        }
+        XCTAssertEqual(attempts, SherpaAudioPreparation.recoveryLayouts.count + 1)
+        XCTAssertEqual(result?.text, "")
+    }
+
     func testFailedLaterSegmentDoesNotReturnPartialSuccess() {
         var calls = 0
         XCTAssertThrowsError(try SherpaService.decodeSegments([[0.1], [0.2]], language: "en") { _ in

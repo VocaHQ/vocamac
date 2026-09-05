@@ -371,9 +371,7 @@ final class SherpaService: @unchecked Sendable {
         var detected = ""
         for segment in segments {
             try Task.checkCancellation()
-            let samples = SherpaAudioPreparation.prepare(segment)
-            guard !samples.isEmpty else { continue }
-            let result = try decodeSegment(samples)
+            guard let result = try decode(segment, with: decodeSegment) else { continue }
             try Task.checkCancellation()
             let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !piece.isEmpty { pieces.append(piece) }
@@ -381,6 +379,45 @@ final class SherpaService: @unchecked Sendable {
         }
         let joinLanguage = detected.isEmpty ? (language ?? "") : detected
         return (joinTranscriptPieces(pieces, language: joinLanguage), detected)
+    }
+
+    /// Decode one segment, retrying with a different silence layout when the
+    /// model returns nothing.
+    ///
+    /// These decoders stop as soon as they emit end-of-transcript, and for
+    /// some inputs they emit it as their very first token — the recording is
+    /// dropped with no error to show for it. Which inputs is not predictable:
+    /// the same words shifted by a few milliseconds decode either perfectly or
+    /// not at all. Retrying the same audio framed differently recovers it, and
+    /// only ever runs after an attempt that produced nothing.
+    ///
+    /// Returns nil when the segment held no audio to decode.
+    static func decode(
+        _ segment: [Float],
+        with decodeSegment: ([Float]) throws -> (text: String, lang: String)
+    ) throws -> (text: String, lang: String)? {
+        let samples = SherpaAudioPreparation.prepare(segment)
+        guard !samples.isEmpty else { return nil }
+
+        let first = try decodeSegment(samples)
+        guard first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return first
+        }
+
+        for layout in SherpaAudioPreparation.recoveryLayouts {
+            try Task.checkCancellation()
+            let retry = try decodeSegment(
+                SherpaAudioPreparation.prepare(segment, lead: layout.lead, tail: layout.tail)
+            )
+            if !retry.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                VocaLogger.info(
+                    .sherpaService,
+                    "Recovered an empty decode by reframing the segment"
+                )
+                return retry
+            }
+        }
+        return first
     }
 
     /// Join Chinese/Japanese segments without spaces. Korean, like Western

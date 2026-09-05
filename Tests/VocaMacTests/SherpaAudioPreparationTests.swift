@@ -63,6 +63,27 @@ final class SherpaAudioPreparationTests: XCTestCase {
         }
     }
 
+    /// A retry must never buy its second chance by overrunning the model's
+    /// one-pass limit, so every layout adds exactly as much as the first try.
+    func testEveryRecoveryLayoutAddsTheSameSilenceAsTheFirstAttempt() {
+        let speech = [Float](repeating: 0.1, count: 40_000)
+        let first = SherpaAudioPreparation.prepare(speech)
+        for layout in SherpaAudioPreparation.recoveryLayouts {
+            let retry = SherpaAudioPreparation.prepare(
+                speech, lead: layout.lead, tail: layout.tail
+            )
+            XCTAssertEqual(retry.count, first.count)
+            XCTAssertEqual(Array(retry[layout.lead..<(layout.lead + speech.count)]), speech)
+        }
+    }
+
+    func testRecoveryLayoutsAreAllDifferentFromTheFirstAttempt() {
+        let normal = SherpaAudioPreparation.edgeSilenceSampleCount
+        for layout in SherpaAudioPreparation.recoveryLayouts {
+            XCTAssertNotEqual(layout.lead, normal, "a retry that reframes nothing decodes the same")
+        }
+    }
+
     func testEmptyAndDigitalSilenceDoNotReachDecoder() {
         XCTAssertEqual(SherpaAudioPreparation.prepare([]), [])
         XCTAssertEqual(SherpaAudioPreparation.prepare([Float](repeating: 0, count: 32_000)), [])

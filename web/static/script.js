@@ -78,8 +78,9 @@
     copyStatus.textContent = message;
   };
 
-  // One shared restore timer + generation token so rapid clicks (same button
-  // or another copy control) cannot let an older timeout wipe newer feedback.
+  // Generation advances on each click. Clipboard settlements and restore
+  // timers ignore stale generations so out-of-order promises cannot wipe the
+  // newest button or live-region feedback.
   var copyFeedbackToken = 0;
   var copyFeedbackTimer = null;
   var activeCopyButton = null;
@@ -96,7 +97,8 @@
     }
   };
 
-  var showCopyFeedback = function (button, label) {
+  var showCopyFeedback = function (button, label, token) {
+    if (token !== copyFeedbackToken) { return; }
     if (activeCopyButton && activeCopyButton !== button) {
       restoreCopyButton(activeCopyButton);
     }
@@ -110,7 +112,6 @@
     announceCopy(label);
 
     clearCopyFeedbackTimer();
-    var token = ++copyFeedbackToken;
     copyFeedbackTimer = setTimeout(function () {
       if (token !== copyFeedbackToken) { return; }
       restoreCopyButton(button);
@@ -139,12 +140,15 @@
         .join("")
         .trim();
 
+      var requestToken = ++copyFeedbackToken;
+      clearCopyFeedbackTimer();
+
       navigator.clipboard.writeText(text).then(
         function () {
-          showCopyFeedback(button, "Copied");
+          showCopyFeedback(button, "Copied", requestToken);
         },
         function () {
-          showCopyFeedback(button, "Press ⌘C");
+          showCopyFeedback(button, "Press ⌘C", requestToken);
         }
       );
     });

@@ -206,6 +206,22 @@ final class WhisperService: @unchecked Sendable {
                 fullText = Self.filterHallucinationTokens(rawText)
             }
 
+            // Whisper Tiny can return no tokens for valid sub-second speech.
+            // Retry only an empty short result with trailing silence so normal
+            // successful dictation keeps the single-pass fast path.
+            if let paddedAudio = Self.paddedAudioForShortEmptyTranscription(
+                audioData,
+                transcription: fullText
+            ) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Short transcription was empty for \(loadedModelName ?? "unknown model"); retrying with trailing silence"
+                )
+                results = try await kit.transcribe(audioArray: paddedAudio, decodeOptions: options)
+                rawText = results.map { $0.text }.joined(separator: " ")
+                fullText = Self.filterHallucinationTokens(rawText)
+            }
+
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
             // Get detected language from first result
@@ -291,6 +307,24 @@ final class WhisperService: @unchecked Sendable {
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {
         promptTokens != nil && rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Some Whisper models return no tokens for otherwise valid sub-second
+    /// speech. A small trailing-silence pad gives the retry more context without
+    /// changing the reported audio length.
+    static func paddedAudioForShortEmptyTranscription(
+        _ audio: [Float],
+        transcription: String
+    ) -> [Float]? {
+        let minimumSampleCount = 17_600 // 1.1 seconds at 16 kHz
+        guard transcription.isEmpty,
+              !audio.isEmpty,
+              audio.count < minimumSampleCount else {
+            return nil
+        }
+        var padded = audio
+        padded.append(contentsOf: repeatElement(0, count: minimumSampleCount - audio.count))
+        return padded
     }
 
     /// Encode custom vocabulary into WhisperKit conditioning tokens.

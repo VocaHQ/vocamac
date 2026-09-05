@@ -96,3 +96,33 @@ final class WhisperServiceVocabularyTests: XCTestCase {
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "", promptTokens: nil))
     }
 }
+
+// MARK: - WhisperService Short Audio Tests
+
+final class WhisperServiceShortAudioTests: XCTestCase {
+    func testEmptyShortTranscriptionPadsToMinimumDecoderWindow() throws {
+        let audio: [Float] = [0.25, -0.5, 0.75]
+        let padded = try XCTUnwrap(
+            WhisperService.paddedAudioForShortEmptyTranscription(audio, transcription: "")
+        )
+
+        XCTAssertEqual(padded.count, 17_600)
+        XCTAssertEqual(Array(padded.prefix(audio.count)), audio)
+        XCTAssertTrue(padded.dropFirst(audio.count).allSatisfy { $0 == 0 })
+    }
+
+    func testSuccessfulOrLongTranscriptionDoesNotRetry() {
+        XCTAssertNil(
+            WhisperService.paddedAudioForShortEmptyTranscription([0.5], transcription: "Hello")
+        )
+        XCTAssertNil(
+            WhisperService.paddedAudioForShortEmptyTranscription(
+                Array(repeating: 0.5, count: 17_600),
+                transcription: ""
+            )
+        )
+        XCTAssertNil(
+            WhisperService.paddedAudioForShortEmptyTranscription([], transcription: "")
+        )
+    }
+}

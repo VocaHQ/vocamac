@@ -279,14 +279,17 @@ final class SherpaService: @unchecked Sendable {
 
         // These models decode an utterance in one pass and degrade past a
         // certain length — Moonshine returns nothing at all — so anything
-        // longer is split at pauses and decoded segment by segment.
-        let maxSeconds = SherpaModelCatalog.spec(for: size)?.maxSegmentSeconds
+        // longer is split at pauses and decoded segment by segment. Every
+        // segment then gains a silent lead-in and tail, which counts against
+        // the same limit, so the speech budget is what is left after it.
+        let segmentLimit = SherpaModelCatalog.spec(for: size)?.maxSegmentSeconds
+        let maxSeconds = segmentLimit.map { $0 - SherpaAudioPreparation.addedSilenceSeconds }
         let segments: [[Float]]
         if let maxSeconds, audioLengthSeconds > maxSeconds {
             segments = AudioSegmenter.segment(audioData, maxSeconds: maxSeconds)
             VocaLogger.info(
                 .sherpaService,
-                "Audio exceeds \(String(format: "%.0f", maxSeconds))s for \(size.rawValue) — split into \(segments.count) segments"
+                "Audio exceeds \(String(format: "%.1f", maxSeconds))s for \(size.rawValue) — split into \(segments.count) segments"
             )
         } else {
             segments = [audioData]
@@ -314,11 +317,20 @@ final class SherpaService: @unchecked Sendable {
             // The decoders return an empty string rather than an error when
             // they stop on their first token, so nothing else marks a dropped
             // recording. Say so plainly — an INFO line reading "Result: ..."
-            // is indistinguishable from a successful decode in a log.
-            VocaLogger.warning(
-                .sherpaService,
-                "ONNX decode returned no text for \(String(format: "%.1f", audioLengthSeconds))s of audio"
-            )
+            // is indistinguishable from a successful decode in a log. Digital
+            // silence never reaches the decoder at all, so it is not a
+            // failure and must not look like one.
+            if audioData.allSatisfy({ $0 == 0 }) {
+                VocaLogger.info(
+                    .sherpaService,
+                    "Nothing to decode — the recording is digital silence"
+                )
+            } else {
+                VocaLogger.warning(
+                    .sherpaService,
+                    "ONNX decode returned no text for \(String(format: "%.1f", audioLengthSeconds))s of audio"
+                )
+            }
         } else {
             VocaLogger.info(.sherpaService, "Result: \(text.prefix(100))...")
         }

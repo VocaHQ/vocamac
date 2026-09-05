@@ -37,6 +37,32 @@ final class SherpaAudioPreparationTests: XCTestCase {
         }
     }
 
+    /// The segment budget in SherpaService subtracts this, so it has to stay
+    /// equal to what `prepare` actually adds.
+    func testAddedSilenceSecondsMatchesWhatPrepareAdds() {
+        let samples = [Float](repeating: 0.1, count: 320_000)
+        let prepared = SherpaAudioPreparation.prepare(samples)
+        let added = Double(prepared.count - samples.count) / 16_000
+        XCTAssertEqual(added, SherpaAudioPreparation.addedSilenceSeconds, accuracy: 0.0001)
+    }
+
+    /// A segment cut to the model's budget must still fit that model's
+    /// one-pass limit once it is padded — Moonshine returns nothing at all
+    /// past its limit, and SenseVoice drops characters.
+    func testMaximumSegmentStillFitsEveryModelsLimitAfterPadding() {
+        for spec in SherpaModelCatalog.specs {
+            let budget = spec.maxSegmentSeconds - SherpaAudioPreparation.addedSilenceSeconds
+            XCTAssertGreaterThan(budget, 0, "\(spec.size.rawValue) has no room for the padding")
+            let segment = [Float](repeating: 0.1, count: Int(budget * 16_000))
+            let prepared = SherpaAudioPreparation.prepare(segment)
+            XCTAssertLessThanOrEqual(
+                Double(prepared.count) / 16_000,
+                spec.maxSegmentSeconds,
+                "\(spec.size.rawValue) overruns its limit once padded"
+            )
+        }
+    }
+
     func testEmptyAndDigitalSilenceDoNotReachDecoder() {
         XCTAssertEqual(SherpaAudioPreparation.prepare([]), [])
         XCTAssertEqual(SherpaAudioPreparation.prepare([Float](repeating: 0, count: 32_000)), [])

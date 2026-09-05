@@ -20,6 +20,12 @@ enum SherpaAudioPreparation {
     /// matching tail keeps a final word from being cut off mid-decode.
     static let edgeSilenceSampleCount = 3_200
 
+    /// Total silence `prepare` adds to a segment, in seconds.
+    ///
+    /// Callers that cap segment length must subtract this: the models' limits
+    /// apply to what actually reaches the decoder, not to the speech alone.
+    static let addedSilenceSeconds = Double(2 * edgeSilenceSampleCount) / 16_000
+
     /// Reject malformed input before segmentation or any native inference.
     static func validate(_ samples: [Float]) throws {
         guard !samples.isEmpty else { throw SherpaError.emptyAudio }

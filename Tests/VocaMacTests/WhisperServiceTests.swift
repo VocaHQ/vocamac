@@ -4,6 +4,7 @@
 // Tests for WhisperService: translation and hallucination filtering.
 
 import XCTest
+import WhisperKit
 @testable import VocaMac
 
 // MARK: - WhisperService Translation Tests
@@ -100,29 +101,17 @@ final class WhisperServiceVocabularyTests: XCTestCase {
 // MARK: - WhisperService Short Audio Tests
 
 final class WhisperServiceShortAudioTests: XCTestCase {
-    func testEmptyShortTranscriptionPadsToMinimumDecoderWindow() throws {
-        let audio: [Float] = [0.25, -0.5, 0.75]
-        let padded = try XCTUnwrap(
-            WhisperService.paddedAudioForShortEmptyTranscription(audio, transcription: "")
-        )
-
-        XCTAssertEqual(padded.count, 17_600)
-        XCTAssertEqual(Array(padded.prefix(audio.count)), audio)
-        XCTAssertTrue(padded.dropFirst(audio.count).allSatisfy { $0 == 0 })
+    func testShortClipsEnterWhisperKitDecodeLoop() {
+        for count in [1, 7_970, 15_999, 16_000] {
+            let options = DecodingOptions(windowClipTime: WhisperService.windowClipTime(sampleCount: count))
+            let excludedSamples = Int(options.windowClipTime * Float(WhisperKit.sampleRate))
+            XCTAssertGreaterThan(count - excludedSamples, 0, "Clip of \(count) samples must be decoded")
+        }
     }
 
-    func testSuccessfulOrLongTranscriptionDoesNotRetry() {
-        XCTAssertNil(
-            WhisperService.paddedAudioForShortEmptyTranscription([0.5], transcription: "Hello")
-        )
-        XCTAssertNil(
-            WhisperService.paddedAudioForShortEmptyTranscription(
-                Array(repeating: 0.5, count: 17_600),
-                transcription: ""
-            )
-        )
-        XCTAssertNil(
-            WhisperService.paddedAudioForShortEmptyTranscription([], transcription: "")
-        )
+    func testLongerClipsKeepDefaultTrailingWindowProtection() {
+        for count in [16_001, 17_600, 480_000, 960_000] {
+            XCTAssertEqual(WhisperService.windowClipTime(sampleCount: count), DecodingOptions().windowClipTime)
+        }
     }
 }

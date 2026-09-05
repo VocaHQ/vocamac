@@ -174,6 +174,7 @@ final class WhisperService: @unchecked Sendable {
             usePrefillPrompt: language != nil || promptTokens != nil,
             detectLanguage: language == nil,
             wordTimestamps: false,
+            windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
             chunkingStrategy: nil  // No chunking for short dictation clips
         )
@@ -202,22 +203,6 @@ final class WhisperService: @unchecked Sendable {
                 options.promptTokens = nil
                 options.usePrefillPrompt = language != nil
                 results = try await kit.transcribe(audioArray: audioData, decodeOptions: options)
-                rawText = results.map { $0.text }.joined(separator: " ")
-                fullText = Self.filterHallucinationTokens(rawText)
-            }
-
-            // Whisper Tiny can return no tokens for valid sub-second speech.
-            // Retry only an empty short result with trailing silence so normal
-            // successful dictation keeps the single-pass fast path.
-            if let paddedAudio = Self.paddedAudioForShortEmptyTranscription(
-                audioData,
-                transcription: fullText
-            ) {
-                VocaLogger.warning(
-                    .whisperService,
-                    "Short transcription was empty for \(loadedModelName ?? "unknown model"); retrying with trailing silence"
-                )
-                results = try await kit.transcribe(audioArray: paddedAudio, decodeOptions: options)
                 rawText = results.map { $0.text }.joined(separator: " ")
                 fullText = Self.filterHallucinationTokens(rawText)
             }
@@ -309,22 +294,11 @@ final class WhisperService: @unchecked Sendable {
         promptTokens != nil && rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Some Whisper models return no tokens for otherwise valid sub-second
-    /// speech. A small trailing-silence pad gives the retry more context without
-    /// changing the reported audio length.
-    static func paddedAudioForShortEmptyTranscription(
-        _ audio: [Float],
-        transcription: String
-    ) -> [Float]? {
-        let minimumSampleCount = 17_600 // 1.1 seconds at 16 kHz
-        guard transcription.isEmpty,
-              !audio.isEmpty,
-              audio.count < minimumSampleCount else {
-            return nil
-        }
-        var padded = audio
-        padded.append(contentsOf: repeatElement(0, count: minimumSampleCount - audio.count))
-        return padded
+    /// WhisperKit only decodes while seek < end - windowClipTime. Its default
+    /// one-second exclusion skips the entire clip at or below 16,000 samples.
+    /// Retain the default trailing-window protection for longer recordings.
+    static func windowClipTime(sampleCount: Int) -> Float {
+        sampleCount <= 16_000 ? 0 : 1
     }
 
     /// Encode custom vocabulary into WhisperKit conditioning tokens.

@@ -85,6 +85,8 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// Transcription shares the same queue so a hotkey mid-switch cannot
     /// decode against an unloaded engine.
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
+        let interval = PerformanceTrace.begin("ModelLoad")
+        defer { PerformanceTrace.end(interval) }
         try await operationSerializer.run { [self] in
             try await performLoad(name: name, folder: folder, onPhaseChange: onPhaseChange)
         }
@@ -144,7 +146,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         translate: Bool,
         vocabulary: String
     ) async throws -> VocaTranscription {
-        try await operationSerializer.run { [self] in
+        let interval = PerformanceTrace.begin("TranscriptionQueueAndDecode")
+        defer { PerformanceTrace.end(interval) }
+        return try await operationSerializer.run { [self] in
             switch activeEngine {
             case .whisperKit:
                 return try await whisper.transcribe(

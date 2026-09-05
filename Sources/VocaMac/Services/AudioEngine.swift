@@ -26,6 +26,25 @@ enum AudioCapturePhase: Equatable {
     var evaluatesStopConditions: Bool { self == .recording }
 }
 
+/// Reuses the sample-rate converter while the microphone format is stable.
+/// A route change replaces it; each independent tap buffer resets its state.
+final class AudioConverterCache {
+    private var converter: AVAudioConverter?
+    private(set) var creationCount = 0
+
+    func converter(from source: AVAudioFormat, to destination: AVAudioFormat) -> AVAudioConverter? {
+        if let converter,
+           converter.inputFormat == source,
+           converter.outputFormat == destination {
+            converter.reset()
+            return converter
+        }
+        converter = AVAudioConverter(from: source, to: destination)
+        if converter != nil { creationCount += 1 }
+        return converter
+    }
+}
+
 /// Tracks continuous silence independently of total recording time.
 struct SilenceDetector {
     private(set) var lastSoundTime: Date
@@ -74,6 +93,7 @@ final class AudioEngine {
     private var engine: AVAudioEngine?
     private var pendingEngineRelease: DispatchWorkItem?
     private var audioBuffer: [Float] = []
+    private let converterCache = AudioConverterCache()
     private var _isCurrentlyRecording = false
     /// Realtime-safe capture lifecycle for the input tap.
     ///
@@ -1076,7 +1096,10 @@ final class AudioEngine {
         guard let convertedBuffer = Self.convertToWhisperFormat(
             buffer,
             from: inputFormat,
-            inputChannel: preferredInputChannel
+            inputChannel: preferredInputChannel,
+            converterProvider: { [converterCache] source, destination in
+                converterCache.converter(from: source, to: destination)
+            }
         ) else {
             return
         }
@@ -1101,10 +1124,12 @@ final class AudioEngine {
         if let channelData = convertedBuffer.floatChannelData {
             let frameCount = Int(convertedBuffer.frameLength)
             bufferQueue.sync {
-                audioBuffer.reserveCapacity(audioBuffer.count + frameCount)
-                for i in 0..<frameCount {
-                    audioBuffer.append(isApplicationInputMuted ? 0 : channelData[0][i])
-                }
+                Self.appendCapturedSamples(
+                    channelData[0],
+                    count: frameCount,
+                    muted: isApplicationInputMuted,
+                    to: &audioBuffer
+                )
             }
         }
 
@@ -1149,7 +1174,8 @@ final class AudioEngine {
     static func convertToWhisperFormat(
         _ buffer: AVAudioPCMBuffer,
         from inputFormat: AVAudioFormat,
-        inputChannel: Int = 0
+        inputChannel: Int = 0,
+        converterProvider: ((AVAudioFormat, AVAudioFormat) -> AVAudioConverter?)? = nil
     ) -> AVAudioPCMBuffer? {
         let sourceBuffer: AVAudioPCMBuffer
         if inputFormat.channelCount > 1 {
@@ -1176,7 +1202,8 @@ final class AudioEngine {
         }
 
         // Create a converter
-        guard let converter = AVAudioConverter(from: sourceFormat, to: whisperFormat) else {
+        guard let converter = converterProvider?(sourceFormat, whisperFormat)
+            ?? AVAudioConverter(from: sourceFormat, to: whisperFormat) else {
             VocaLogger.error(.audioEngine, "Failed to create audio format converter")
             return nil
         }
@@ -1216,6 +1243,22 @@ final class AudioEngine {
         guard status != .error else { return nil }
 
         return outputBuffer
+    }
+
+    /// Bulk append keeps Array's geometric growth instead of reallocating to
+    /// the exact size for every realtime callback.
+    static func appendCapturedSamples(
+        _ samples: UnsafePointer<Float>,
+        count: Int,
+        muted: Bool,
+        to destination: inout [Float]
+    ) {
+        guard count > 0 else { return }
+        if muted {
+            destination.append(contentsOf: repeatElement(Float.zero, count: count))
+        } else {
+            destination.append(contentsOf: UnsafeBufferPointer(start: samples, count: count))
+        }
     }
 
     /// Keeps a channel selection only while it still describes the live device layout.

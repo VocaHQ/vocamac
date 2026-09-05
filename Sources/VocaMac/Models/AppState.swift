@@ -550,12 +550,14 @@ final class AppState: ObservableObject {
 
         // Setup hotkey callbacks
         hotKeyManager.onRecordingStart = { [weak self] in
+            PerformanceTrace.event("HotKeyStart")
             Task { @MainActor in
                 await self?.startRecording()
             }
         }
 
         hotKeyManager.onRecordingStop = { [weak self] in
+            PerformanceTrace.event("HotKeyStop")
             Task { @MainActor in
                 await self?.stopRecordingAndTranscribe()
             }
@@ -915,6 +917,8 @@ final class AppState: ObservableObject {
     // MARK: - Recording Flow
 
     func startRecording() async {
+        let interval = PerformanceTrace.begin("RecordingStart")
+        defer { PerformanceTrace.end(interval) }
         // If we're already recording, this is a recovery attempt — the user
         // pressed the hotkey again because a previous key-up was missed.
         // Stop the current recording and transcribe what we have.
@@ -1025,6 +1029,8 @@ final class AppState: ObservableObject {
     }
 
     func stopRecordingAndTranscribe(injectResult: Bool = true) async {
+        let interval = PerformanceTrace.begin("StopToResultQueued")
+        defer { PerformanceTrace.end(interval) }
         // Accept stop if we're recording OR if the audio engine thinks
         // it's recording (covers stuck-state recovery scenarios where
         // isRecording and appStatus may be out of sync).

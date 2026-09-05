@@ -28,3 +28,29 @@ final class FailedAudioDumpTests: XCTestCase {
         XCTAssertNil(FailedAudioDump.save([0.1, 0.2], model: "canary-180m-flash"))
     }
 }
+
+    func testDumpFilenamesDoNotCollideWithinTheSameSecond() {
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        let left = FailedAudioDump.makeFilename(
+            model: "canary-180m-flash", date: date, uniqueID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        )
+        let right = FailedAudioDump.makeFilename(
+            model: "canary-180m-flash", date: date, uniqueID: "ffffffff-1111-2222-3333-444444444444"
+        )
+        XCTAssertNotEqual(left, right)
+        XCTAssertTrue(left.hasSuffix("-canary-180m-flash.wav"))
+        XCTAssertTrue(left.contains("aaaaaaaa"))
+        XCTAssertTrue(right.contains("ffffffff"))
+    }
+
+    func testDumpFilenameSanitizesModelPathCharacters() {
+        let name = FailedAudioDump.makeFilename(
+            model: "path/with:chars",
+            date: Date(timeIntervalSince1970: 0),
+            uniqueID: "12345678-0000-0000-0000-000000000000"
+        )
+        XCTAssertFalse(name.contains("/"))
+        XCTAssertFalse(name.contains(":"))
+        XCTAssertTrue(name.hasSuffix("-path-with-chars.wav"))
+    }
+

@@ -27,13 +27,26 @@ enum FailedAudioDump {
         UserDefaults.standard.bool(forKey: preferenceKey)
     }
 
+    /// Build a dump filename that cannot collide within the same second.
+    static func makeFilename(
+        model: String,
+        date: Date = Date(),
+        uniqueID: String = UUID().uuidString
+    ) -> String {
+        let stamp = ISO8601DateFormatter.dumpFormatter.string(from: date)
+        let token = String(uniqueID.replacingOccurrences(of: "-", with: "").prefix(8))
+        let safeModel = model
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        return "\(stamp)-\(token)-\(safeModel).wav"
+    }
+
     /// Save `samples` if the user asked for dumps. Returns the file written.
     @discardableResult
     static func save(_ samples: [Float], model: String, sampleRate: Int = 16_000) -> URL? {
         guard isEnabled, !samples.isEmpty else { return nil }
 
-        let stamp = ISO8601DateFormatter.dumpFormatter.string(from: Date())
-        let url = directory.appendingPathComponent("\(stamp)-\(model).wav")
+        let url = directory.appendingPathComponent(makeFilename(model: model))
 
         do {
             try FileManager.default.createDirectory(

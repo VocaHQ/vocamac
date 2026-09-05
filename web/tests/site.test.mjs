@@ -188,11 +188,11 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   }
 
   assert.match(script, /aria-live", "polite"/);
-  assert.match(script, /announceCopy\("Copied"\)/);
+  assert.match(script, /announceCopy\(label\)/);
   assert.match(script, /copyFeedbackToken/);
   assert.match(script, /clearTimeout\(copyFeedbackTimer\)/);
-  assert.match(script, /showCopyFeedback/);
-  assert.match(script, /announceCopy\("Press ⌘C"\)/);
+  assert.match(script, /showCopyFeedback\(button, "Copied"\)/);
+  assert.match(script, /showCopyFeedback\(button, "Press ⌘C"\)/);
 
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
   assert.match(ogSvg, /v0\.9\.0/);

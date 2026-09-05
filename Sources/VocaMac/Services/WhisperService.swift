@@ -174,6 +174,7 @@ final class WhisperService: @unchecked Sendable {
             usePrefillPrompt: language != nil || promptTokens != nil,
             detectLanguage: language == nil,
             wordTimestamps: false,
+            windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
             chunkingStrategy: nil  // No chunking for short dictation clips
         )
@@ -291,6 +292,13 @@ final class WhisperService: @unchecked Sendable {
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {
         promptTokens != nil && rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// WhisperKit only decodes while seek < end - windowClipTime. Its default
+    /// one-second exclusion skips the entire clip at or below 16,000 samples.
+    /// Retain the default trailing-window protection for longer recordings.
+    static func windowClipTime(sampleCount: Int) -> Float {
+        sampleCount <= 16_000 ? 0 : 1
     }
 
     /// Encode custom vocabulary into WhisperKit conditioning tokens.

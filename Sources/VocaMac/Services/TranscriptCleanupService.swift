@@ -423,7 +423,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     func delete(_ kind: CleanupModelKind) {
         try? FileManager.default.removeItem(at: modelPath(for: kind))
-        if activeKind == kind {
+        // Mid-load, activeKind is nil — still invalidate so finishLoad cannot
+        // install after the GGUF file is gone.
+        if activeKind == kind || loadInFlight?.kind == kind {
             unload()
         }
         objectWillChange.send()

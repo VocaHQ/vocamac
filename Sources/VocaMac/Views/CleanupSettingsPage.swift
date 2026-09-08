@@ -30,14 +30,21 @@ struct CleanupSettingsPage: View {
                         }
                     }
 
-                Text("Runs a small local language model after speech-to-text to drop filler words and false starts and to punctuate what you said. Nothing leaves your Mac. Off by default — download a model first. Models this size do not catch everything, and anything one rewrites badly is discarded in favour of the raw transcript.")
+                Text("Runs a small local language model after speech-to-text to drop filler words and false starts and to punctuate what you said. Nothing leaves your Mac. Models this size do not catch everything, and anything one rewrites badly is discarded in favour of the raw transcript.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                // Setup state belongs here rather than in the paragraph above,
+                // which kept telling people to download a model while the row
+                // below reported one ready.
                 if appState.transcriptCleanupEnabled && !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
                     Text("Cleanup is on, but the selected model is not downloaded yet. Dictation will inject the raw transcript until you download one.")
                         .font(.caption)
                         .foregroundStyle(.orange)
+                } else if !hasDownloadedModel {
+                    Text("Off until a model is downloaded — pick one below.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 statusRow
@@ -180,6 +187,11 @@ struct CleanupSettingsPage: View {
             tryItResult = result
             tryItRunning = false
         }
+    }
+
+    /// Whether any cleanup model is on disk, not just the selected one.
+    private var hasDownloadedModel: Bool {
+        CleanupModelKind.allCases.contains { appState.transcriptCleanup.isDownloaded($0) }
     }
 
     /// Characters of transcript that still fit alongside the drafted prompt.

@@ -34,23 +34,42 @@ APP_VERSION="${APP_VERSION:-0.9.0}"
 
 # Resolve signing identity:
 # 1. Use CODE_SIGN_IDENTITY env var if set
-# 2. Auto-detect Developer ID Application in the login keychain
-# 3. Fall back to ad-hoc signing (-)
+# 2. Auto-detect Developer ID Application in the login keychain (distribution)
+# 3. Auto-detect Apple Development in the login keychain (local development)
+# 4. Fall back to ad-hoc signing (-)
+#
+# An ad-hoc signature gets a fresh code identity on every build, so macOS
+# treats each rebuild as a different app and drops its Accessibility and
+# Input Monitoring grants. Any real certificate — including the free Apple
+# Development one — keeps that identity stable across rebuilds, so prefer
+# one over ad-hoc even when there is nothing to distribute.
+SIGNING_MODE="ad-hoc"
 if [ -z "${CODE_SIGN_IDENTITY+x}" ]; then
-    DETECTED=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+    IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+    DETECTED=$(echo "$IDENTITIES" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+    if [ -n "$DETECTED" ]; then
+        SIGNING_MODE="Developer ID"
+    else
+        DETECTED=$(echo "$IDENTITIES" | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+        if [ -n "$DETECTED" ]; then
+            SIGNING_MODE="Apple Development"
+        fi
+    fi
     if [ -n "$DETECTED" ]; then
         CODE_SIGN_IDENTITY="$DETECTED"
         echo "🔐 Auto-detected signing identity: $CODE_SIGN_IDENTITY"
     else
         CODE_SIGN_IDENTITY="-"
-        echo "⚠️  No Developer ID found — using ad-hoc signing"
+        echo "⚠️  No signing certificate found — using ad-hoc signing"
     fi
+elif [ "$CODE_SIGN_IDENTITY" != "-" ]; then
+    SIGNING_MODE="explicit ($CODE_SIGN_IDENTITY)"
 fi
 
 if [ "$CODE_SIGN_IDENTITY" = "-" ]; then
     echo "🔏 Signing mode: ad-hoc (permissions reset on every rebuild)"
 else
-    echo "🔏 Signing mode: Developer ID"
+    echo "🔏 Signing mode: $SIGNING_MODE"
 fi
 
 # Kill any running VocaMac instances before building

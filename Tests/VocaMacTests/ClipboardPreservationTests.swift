@@ -4,6 +4,30 @@ import XCTest
 
 @MainActor
 final class ClipboardPreservationTests: XCTestCase {
+
+    /// Return once the injection queued by this test has finished.
+    ///
+    /// A paste is only the middle of an injection: the clipboard restore lands
+    /// after a deliberate delay, and the queue slot is released later still.
+    /// Sleeping for a guessed duration instead makes the assertions fail
+    /// whenever a loaded machine takes longer, and leaves a half-finished
+    /// injection to overlap the next test through the process-wide
+    /// coordinator. Injections run strictly one at a time, so a fresh one
+    /// reaching the injector at all proves the previous one is done.
+    private func drainInjectionQueue() async {
+        // No paste target, so this drain reports failure without pasting. It
+        // still gets its own board so it can never reach the user's clipboard.
+        let board = NSPasteboard(name: .init("com.vocamac.tests.drain.\(UUID())"))
+        defer { board.releaseGlobally() }
+        let drained = expectation(description: "previous injection finished")
+        let drain = TextInjector(pasteboard: board, accessibilityTrustedOverride: true,
+                                 frontmostPIDProvider: { nil })
+        drain.onFailure = { _ in drained.fulfill() }
+        drain.inject(text: "drain", preserveClipboard: false)
+        await fulfillment(of: [drained], timeout: 5)
+        withExtendedLifetime(drain) { }
+    }
+
     func testManyRepresentationsArePreservedAcrossCooperativeCapture() async {
         let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
         defer { board.releaseGlobally() }
@@ -19,8 +43,7 @@ final class ClipboardPreservationTests: XCTestCase {
         }, frontmostPIDProvider: { 123 })
         injector.inject(text: "dictation", preserveClipboard: true)
         await fulfillment(of: [pasted], timeout: 2)
-        // Wait for the deliberately retained target-app consumption window.
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        await drainInjectionQueue()
         for (index, type) in types.enumerated() {
             XCTAssertEqual(board.data(forType: type), Data(repeating: UInt8(index), count: 2048))
         }
@@ -42,7 +65,7 @@ final class ClipboardPreservationTests: XCTestCase {
         }, frontmostPIDProvider: { 123 })
         injector.inject(text: "dictation", preserveClipboard: true)
         await fulfillment(of: [pasted], timeout: 2)
-        try? await Task.sleep(nanoseconds: 250_000_000)
+        await drainInjectionQueue()
         XCTAssertEqual(board.string(forType: .string), "new clipboard")
         XCTAssertNil(board.data(forType: types[0]))
         withExtendedLifetime(provider) { }
@@ -86,7 +109,7 @@ extension ClipboardPreservationTests {
         // This main-actor continuation executes while the worker is blocked.
         gate.signal()
         await fulfillment(of: [finished], timeout: 1)
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        await drainInjectionQueue()
     }
 
     func testFocusChangeBeforePasteRestoresClipboardAndReportsFailure() async {

@@ -1666,10 +1666,66 @@ details.source-install summary {
 
 .gallery {
   display: grid;
-  gap: 2rem;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  padding: 3.5rem 0;
+  gap: 1.8rem;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  padding: 2.2rem 0 3.5rem;
 }
+
+.gallery-overview {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 1.8rem;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: stretch;
+}
+
+.gallery-menu-states {
+  display: grid;
+  gap: 1.8rem;
+}
+
+.shot-menu .shot-frame {
+  aspect-ratio: auto;
+  min-height: 10.25rem;
+  padding: 1.5rem;
+}
+
+.shot-menu .shot-frame img {
+  width: 100%;
+  max-height: none;
+}
+
+.shot-popover .shot-frame {
+  height: calc(100% - 6.6rem);
+  min-height: 24rem;
+}
+
+.shot-popover .shot-frame img {
+  height: 100%;
+}
+
+.gallery-divider {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 1rem 2rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 1.2rem;
+  padding-top: 1.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.gallery-divider > p:last-child {
+  max-width: 43ch;
+  color: var(--muted);
+}
+
+.gallery > .shot {
+  grid-column: span 4;
+  align-self: start;
+}
+.gallery > .shot-featured { grid-column: span 8; }
+.gallery > .shot-wide { grid-column: span 8; }
 
 .not-found { padding: 6rem 0; text-align: center; }
 .not-found h1 { font-size: clamp(3rem, 9vw, 5.5rem); }
@@ -1708,6 +1764,7 @@ details.source-install summary {
   .doc-aside { padding: 0 0 1rem; }
   .doc-aside-inner { position: static; }
   .prose { padding-top: 2.5rem; }
+  .gallery > .shot, .gallery > .shot-featured, .gallery > .shot-wide { grid-column: span 6; }
 }
 
 @media (max-width: 920px) {
@@ -1784,6 +1841,14 @@ details.source-install summary {
   .feature-cta { align-items: stretch; flex-direction: column; }
   .page-hero-head { gap: 1rem; flex-direction: column; }
   .install-card .btn { width: 100%; }
+  .gallery { gap: 1.2rem; padding-top: 1.8rem; }
+  .gallery-overview { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+  .gallery-menu-states { gap: 1.2rem; }
+  .shot-menu .shot-frame { min-height: 8.5rem; }
+  .shot-popover .shot-frame { height: auto; min-height: 20rem; }
+  .gallery-divider { display: block; margin-top: 0.6rem; padding-top: 1.4rem; }
+  .gallery-divider > p:last-child { margin-top: 0.65rem; }
+  .gallery > .shot, .gallery > .shot-featured, .gallery > .shot-wide { grid-column: 1 / -1; }
 }
 
 /* 42 bars crowd a phone-width panel back into a solid block, so drop every

@@ -142,21 +142,23 @@ final class OneShotGateTests: XCTestCase {
 final class CleanupModelTests: XCTestCase {
 
     func testResolvedUnknownIdFallsBackToDefault() {
-        XCTAssertEqual(CleanupModelKind.resolved(stored: nil), .qwen3_0_6b_q4_k_m)
-        XCTAssertEqual(CleanupModelKind.resolved(stored: ""), .qwen3_0_6b_q4_k_m)
-        XCTAssertEqual(CleanupModelKind.resolved(stored: "nope"), .qwen3_0_6b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: nil), .qwen25_0_5b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: ""), .qwen25_0_5b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "nope"), .qwen25_0_5b_q4_k_m)
         XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen3_0_6b_q4_k_m"), .qwen3_0_6b_q4_k_m)
         // Preferences written by a build that shipped the retired Qwen 3.5
         // entries must fall back rather than dangle.
-        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_0_8b_q4_k_m"), .qwen3_0_6b_q4_k_m)
-        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_2b_q4_k_m"), .qwen3_0_6b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_0_8b_q4_k_m"), .qwen25_0_5b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_2b_q4_k_m"), .qwen25_0_5b_q4_k_m)
+        // A model the user already picked keeps working.
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen3_0_6b_q4_k_m"), .qwen3_0_6b_q4_k_m)
     }
 
     @MainActor
     func testServiceReportsMissingFilesAsNotDownloaded() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let service = TranscriptCleanupService(modelsDirectory: directory)
-        XCTAssertFalse(service.isDownloaded(.qwen3_0_6b_q4_k_m))
+        XCTAssertFalse(service.isDownloaded(.qwen25_0_5b_q4_k_m))
         XCTAssertEqual(service.modelState, .idle)
     }
 
@@ -170,7 +172,7 @@ final class CleanupModelTests: XCTestCase {
     }
 
     func testMemoryGateRejectsModelsLargerThanInstalledRAM() {
-        let descriptor = CleanupModelKind.qwen3_0_6b_q4_k_m.descriptor
+        let descriptor = CleanupModelKind.qwen25_0_5b_q4_k_m.descriptor
         // Installed RAM below the estimate is refused even with the whole
         // machine free. Derived from the descriptor so the catalog can change.
         XCTAssertFalse(
@@ -231,7 +233,7 @@ final class CleanupModelTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let retired = directory.appendingPathComponent("Qwen3.5-0.8B-Q4_K_M.gguf")
-        let current = directory.appendingPathComponent(CleanupModelCatalog.compact.fileName)
+        let current = directory.appendingPathComponent(CleanupModelCatalog.recommended.fileName)
         try Data("x".utf8).write(to: retired)
         try Data("x".utf8).write(to: current)
 

@@ -40,11 +40,12 @@ enum CleanupModelRecommendation: Equatable {
 /// dictation; `LLM.reset()`, the obvious remedy, aborts the process inside
 /// `llama_memory_recurrent::find_slot`. See `TranscriptCleanupService`.
 enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
+    case qwen25_0_5b_q4_k_m
     case qwen3_0_6b_q4_k_m
 
     var id: String { rawValue }
 
-    static let defaultKind: CleanupModelKind = .qwen3_0_6b_q4_k_m
+    static let defaultKind: CleanupModelKind = .qwen25_0_5b_q4_k_m
 
     static func resolved(stored: String?) -> CleanupModelKind {
         guard let stored, !stored.isEmpty else { return .defaultKind }
@@ -74,10 +75,28 @@ struct CleanupModelDescriptor: Equatable {
 /// Sizes are decimal MB/GB to match `expectedByteCount` and what Finder shows
 /// for the downloaded file.
 enum CleanupModelCatalog {
+    /// Measured against Qwen 3 0.6B on the same probes: it is the only small
+    /// model tried that acts on "scratch that" and turns dictated "comma" and
+    /// "period" into real marks, and it capitalised every probe. Qwen 3 0.6B
+    /// punctuates long paragraphs slightly better, which is why both ship.
+    static let recommended = CleanupModelDescriptor(
+        kind: .qwen25_0_5b_q4_k_m,
+        displayName: "Qwen 2.5 0.5B",
+        summary: "Best all-round. Acts on “scratch that”, writes dictated punctuation as marks, and capitalises reliably. About 0.2 seconds.",
+        sizeDescription: "~491 MB",
+        fileName: "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+        url: URL(string: "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q4_k_m.gguf")!,
+        expectedSHA256: "74a4da8c9fdbcd15bd1f6d01d621410d31c6fc00986f5eb687824e7b93d7a9db",
+        expectedByteCount: 491_400_032,
+        maxTokenCount: 4096,
+        ramRequiredGB: 0.9,
+        recommendation: .recommended
+    )
+
     static let compact = CleanupModelDescriptor(
         kind: .qwen3_0_6b_q4_k_m,
         displayName: "Qwen 3 0.6B",
-        summary: "Removes fillers and stutters, adds punctuation. Roughly 0.1–0.5 seconds per utterance.",
+        summary: "Smallest download. Punctuates long paragraphs slightly better, but ignores “scratch that” and leaves dictated punctuation as words.",
         sizeDescription: "~397 MB",
         fileName: "Qwen3-0.6B-Q4_K_M.gguf",
         url: URL(string: "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/50968a4468ef4233ed78cd7c3de230dd1d61a56b/Qwen3-0.6B-Q4_K_M.gguf")!,
@@ -85,13 +104,13 @@ enum CleanupModelCatalog {
         expectedByteCount: 396_705_472,
         maxTokenCount: 4096,
         ramRequiredGB: 0.8,
-        recommendation: .recommended
+        recommendation: .compact
     )
 
-    static let all: [CleanupModelDescriptor] = [compact]
+    static let all: [CleanupModelDescriptor] = [recommended, compact]
 
     static func descriptor(for kind: CleanupModelKind) -> CleanupModelDescriptor {
-        all.first { $0.kind == kind } ?? compact
+        all.first { $0.kind == kind } ?? recommended
     }
 
     /// File names the catalog owns, so a model dropped from the catalog (or

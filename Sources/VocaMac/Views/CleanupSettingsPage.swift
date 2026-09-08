@@ -21,7 +21,7 @@ struct CleanupSettingsPage: View {
                         }
                     }
 
-                Text("Runs a small local language model after speech-to-text to drop filler words and false starts and to add punctuation. Nothing leaves your Mac. Off by default — download the model first. A model this size will not catch everything, and anything it rewrites badly is discarded in favour of the raw transcript.")
+                Text("Runs a small local language model after speech-to-text to drop filler words and false starts, add punctuation, and act on “scratch that”. Nothing leaves your Mac. Off by default — download a model first. Models this size do not catch everything, and anything one rewrites badly is discarded in favour of the raw transcript.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

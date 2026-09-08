@@ -35,8 +35,14 @@ jobs:
               - 'scripts/**'
               - 'Makefile'
               - 'VocaMac.entitlements'
+              # A change to this workflow must exercise the jobs it defines,
+              # or a CI edit merges having proven nothing. Scoped to this file
+              # so editing an unrelated workflow does not book three macOS
+              # runners.
+              - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              - '.github/workflows/ci.yml'
 
   # ── App jobs ────────────────────────────────────────────────────────────────
   #

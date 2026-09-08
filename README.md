@@ -52,7 +52,7 @@
 <p align="center">
   <img src="docs/screenshots/popover-panel.png" alt="VocaMac Popover" width="400">
   <br>
-  <em>Menu bar popover with status and controls</em>
+  <em>Menu bar popover with status, model, and microphone</em>
 </p>
 
 <p align="center">
@@ -68,28 +68,50 @@
   &nbsp;&nbsp;
   <img src="docs/screenshots/settings-models.png" alt="Settings - Models" width="400">
   <br>
-  <em>Settings: General tab (left) and Models tab with resource monitoring (right)</em>
+  <em>Settings: Dictation (left) and Speech Model (right)</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings-audio.png" alt="Settings - Audio" width="400">
+  <img src="docs/screenshots/settings-snippets.png" alt="Settings - Snippets" width="400">
   &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-audio.png" alt="Settings - Audio" width="400">
+  <br>
+  <em>Settings: Snippets (left) and Audio (right)</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-performance.png" alt="Settings - Performance" width="400">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-application.png" alt="Settings - Application" width="400">
+  <br>
+  <em>Settings: Performance (left) and Application (right)</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-stats.png" alt="Settings - Stats" width="400">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-advanced.png" alt="Settings - Advanced" width="400">
+  <br>
+  <em>Settings: Stats (left) and Advanced (right)</em>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/settings-about.png" alt="Settings - About" width="400">
   <br>
-  <em>Settings: Audio tab (left) and About tab (right)</em>
+  <em>Settings: About</em>
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/cursor-indicator.png" alt="Cursor Indicator" width="400">
+  <img src="docs/screenshots/cursor-indicator.png" alt="Floating mic indicator during recording" width="400">
   <br>
-  <em>Floating mic indicator near text cursor during recording</em>
+  <em>Floating mic indicator during recording</em>
 </p>
 
 ---
 
 ## 🧠 How the engines work
 
-VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Models**. The [Models](#-models) section explains the full catalogue.
+VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Speech Model**. The [Models](#-models) section explains the full catalogue.
 
 ### Why the Whisper engine uses WhisperKit
 
@@ -331,13 +353,13 @@ This helps us pinpoint the exact code you're running if you report an issue.
 | **Speak** | Audio is captured |
 | **Double-tap Right Option again** | Recording stops → transcription → text injection |
 
-Switch between modes in **Settings → General → Activation**.
+Switch between modes in **Settings → Dictation**.
 
 ---
 
 ## 🧠 Models
 
-VocaMac runs four on-device speech engines and picks between them in **Settings → Models**, where models are grouped by engine. Everything runs locally.
+VocaMac runs four on-device speech engines and picks between them in **Settings → Speech Model**, where models are grouped by engine. Everything runs locally.
 
 ### Parakeet — fastest, recommended for dictation
 

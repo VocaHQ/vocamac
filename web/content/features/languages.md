@@ -8,7 +8,7 @@ icon: "🌍"
 
 ## Speak in your language
 
-![VocaMac Settings showing language configuration](/screenshots/settings-general.png)
+![VocaMac Settings showing language configuration](/screenshots/settings-models.png)
 
 VocaMac's stable Whisper path supports automatic detection plus 17 language hints in Settings: English, Spanish, French, Italian, German, Portuguese, Dutch, Chinese, Japanese, Korean, Hindi, Arabic, Russian, Turkish, Polish, Swedish, and Ukrainian.
 
@@ -18,7 +18,7 @@ The underlying Whisper model was trained on more languages than VocaMac exposes 
 
 Automatic detection is useful when you want VocaMac to infer the language from a full phrase. A manual hint can help when an utterance is short, an accent is unfamiliar, or you are dictating a predictable language for a long session.
 
-Open **Settings → General → Transcription Language** to change the hint. The selected language is saved locally and can be changed without an account or a cloud service.
+Open **Settings → Speech Model** to change the language hint. The selected language is saved locally and can be changed without an account or a cloud service.
 
 ## Model size still matters
 

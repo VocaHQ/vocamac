@@ -10,7 +10,7 @@ icon: "⚡"
 
 VocaMac targets Apple Silicon Macs running macOS 14 Sonoma or later. The app is a native SwiftUI menu-bar client, with WhisperKit and CoreML providing the current release's speech-processing path.
 
-![VocaMac Settings showing model management on Apple Silicon](/screenshots/settings-models.png)
+![VocaMac Settings showing the Speech Model page on Apple Silicon](/screenshots/settings-models.png)
 
 The exact speed and memory profile depends on the selected model, recording length, available memory, and what else your Mac is doing. VocaMac exposes model sizes and resource guidance in Settings so you can choose an appropriate trade-off.
 

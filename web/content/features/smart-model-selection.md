@@ -14,7 +14,7 @@ VocaMac can inspect the Mac's Apple Silicon hardware and available memory to rec
 
 ## The stable model catalog
 
-![VocaMac Settings showing model management and system information](/screenshots/settings-models.png)
+![VocaMac Settings showing the Speech Model page](/screenshots/settings-models.png)
 
 The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 39 MB to 3.1 GB. VocaMac shows the local model state and resource guidance in Settings.
 

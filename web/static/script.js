@@ -236,6 +236,78 @@
     }
   }
 
+  /* ---------- Screenshot lightbox ---------- */
+
+  var shotImages = document.querySelectorAll(".shot-frame img, .prose img[src*='/screenshots/']");
+
+  if (shotImages.length && typeof HTMLDialogElement === "function") {
+    var lightbox = document.createElement("dialog");
+    lightbox.className = "shot-lightbox";
+    lightbox.setAttribute("aria-label", "Enlarged screenshot");
+    lightbox.innerHTML =
+      '<button type="button" class="shot-lightbox-close">Close</button>' +
+      '<img alt="">' +
+      '<p class="shot-lightbox-caption"><strong></strong><span></span></p>';
+    document.body.appendChild(lightbox);
+
+    var lightboxImage = lightbox.querySelector("img");
+    var lightboxCaption = lightbox.querySelector(".shot-lightbox-caption");
+    var lightboxTitle = lightboxCaption.querySelector("strong");
+    var lightboxRest = lightboxCaption.querySelector("span");
+    var lightboxClose = lightbox.querySelector(".shot-lightbox-close");
+
+    var closeLightbox = function () {
+      if (lightbox.open) { lightbox.close(); }
+    };
+
+    var openLightbox = function (img) {
+      lightboxImage.src = img.currentSrc || img.src;
+      lightboxImage.alt = img.alt || "";
+      var title = "";
+      var rest = "";
+      var figure = img.closest("figure");
+      if (figure) {
+        var figcaption = figure.querySelector("figcaption");
+        if (figcaption) {
+          var heading = figcaption.querySelector("strong");
+          title = heading ? heading.textContent.trim() : "";
+          var clone = figcaption.cloneNode(true);
+          var cloneHeading = clone.querySelector("strong");
+          if (cloneHeading) { cloneHeading.remove(); }
+          rest = clone.textContent.replace(/\s+/g, " ").trim();
+        }
+      }
+      if (!title && !rest) { rest = img.alt || ""; }
+      lightboxTitle.textContent = title;
+      lightboxRest.textContent = rest;
+      lightboxTitle.hidden = !title;
+      lightboxRest.hidden = !rest;
+      lightboxCaption.hidden = !title && !rest;
+      lightbox.showModal();
+      lightboxClose.focus();
+    };
+
+    shotImages.forEach(function (img) {
+      var hit = img.closest(".shot-frame") || img;
+      hit.classList.add("is-zoomable");
+      hit.setAttribute("role", "button");
+      hit.setAttribute("tabindex", "0");
+      hit.setAttribute("aria-label", "Enlarge screenshot: " + (img.alt || "product image"));
+      hit.addEventListener("click", function () { openLightbox(img); });
+      hit.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLightbox(img);
+        }
+      });
+    });
+
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", function (event) {
+      if (event.target === lightbox) { closeLightbox(); }
+    });
+  }
+
   /* ---------- FAQ convenience ---------- */
 
   var faq = document.querySelector("[data-faq]");

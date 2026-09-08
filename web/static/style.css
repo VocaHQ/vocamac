@@ -896,11 +896,12 @@ img.is-zoomable {
 .shot-lightbox {
   position: fixed;
   inset: 0;
-  width: min(96vw, 1400px);
-  max-width: 96vw;
+  width: fit-content;
+  height: fit-content;
+  max-width: min(96vw, 1200px);
   max-height: 94vh;
   margin: auto;
-  padding: 2.4rem 1.2rem 1.2rem;
+  padding: 2.7rem 0.9rem 0.95rem;
   overflow: auto;
   color: var(--ink);
   background: var(--paper-bright);
@@ -910,14 +911,15 @@ img.is-zoomable {
 }
 
 .shot-lightbox::backdrop {
-  background: rgba(11, 26, 21, 0.72);
+  background: rgba(11, 26, 21, 0.78);
 }
 
 .shot-lightbox img {
+  display: block;
   width: auto;
-  max-width: 100%;
+  max-width: min(92vw, 1160px);
   height: auto;
-  max-height: calc(94vh - 5.5rem);
+  max-height: calc(94vh - 6.8rem);
   margin: 0 auto;
   object-fit: contain;
   border-radius: 10px;
@@ -926,16 +928,30 @@ img.is-zoomable {
 
 .shot-lightbox-caption {
   margin: 0.85rem 0 0;
-  color: var(--muted);
   text-align: center;
-  font-size: 0.95rem;
+}
+
+.shot-lightbox-caption strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.08rem;
+  font-weight: 760;
+}
+
+.shot-lightbox-caption span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 400;
 }
 
 .shot-lightbox-close {
   position: absolute;
-  top: 0.65rem;
-  right: 0.75rem;
-  padding: 0.3rem 0.7rem;
+  top: 0.55rem;
+  right: 0.65rem;
+  padding: 0.28rem 0.7rem;
   color: var(--ink);
   background: var(--paper-deep);
   border: 1px solid var(--line-control);

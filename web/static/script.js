@@ -247,11 +247,13 @@
     lightbox.innerHTML =
       '<button type="button" class="shot-lightbox-close">Close</button>' +
       '<img alt="">' +
-      '<p class="shot-lightbox-caption"></p>';
+      '<p class="shot-lightbox-caption"><strong></strong><span></span></p>';
     document.body.appendChild(lightbox);
 
     var lightboxImage = lightbox.querySelector("img");
     var lightboxCaption = lightbox.querySelector(".shot-lightbox-caption");
+    var lightboxTitle = lightboxCaption.querySelector("strong");
+    var lightboxRest = lightboxCaption.querySelector("span");
     var lightboxClose = lightbox.querySelector(".shot-lightbox-close");
 
     var closeLightbox = function () {
@@ -261,15 +263,26 @@
     var openLightbox = function (img) {
       lightboxImage.src = img.currentSrc || img.src;
       lightboxImage.alt = img.alt || "";
-      var caption = "";
+      var title = "";
+      var rest = "";
       var figure = img.closest("figure");
       if (figure) {
         var figcaption = figure.querySelector("figcaption");
-        if (figcaption) { caption = figcaption.textContent.replace(/\s+/g, " ").trim(); }
+        if (figcaption) {
+          var heading = figcaption.querySelector("strong");
+          title = heading ? heading.textContent.trim() : "";
+          var clone = figcaption.cloneNode(true);
+          var cloneHeading = clone.querySelector("strong");
+          if (cloneHeading) { cloneHeading.remove(); }
+          rest = clone.textContent.replace(/\s+/g, " ").trim();
+        }
       }
-      if (!caption) { caption = img.alt || ""; }
-      lightboxCaption.textContent = caption;
-      lightboxCaption.hidden = !caption;
+      if (!title && !rest) { rest = img.alt || ""; }
+      lightboxTitle.textContent = title;
+      lightboxRest.textContent = rest;
+      lightboxTitle.hidden = !title;
+      lightboxRest.hidden = !rest;
+      lightboxCaption.hidden = !title && !rest;
       lightbox.showModal();
       lightboxClose.focus();
     };

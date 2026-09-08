@@ -12,8 +12,12 @@ Say a sentence out loud and read the transcript back. It is all there — the "u
 
 Transcript Cleanup runs a small language model over the finished transcript, on your Mac, before the text is typed. Filler words go, false starts go, and what you said gets punctuated.
 
-<!-- SCREENSHOT PLACEHOLDER: add web/static/screenshots/settings-cleanup.png (Settings → Cleanup, showing the model list and the Try It panel, ~1344×1260) -->
+<!-- SCREENSHOT TODO: capture Settings → Cleanup (model list plus a Try It result, ~1344×1260),
+     save it as web/static/screenshots/settings-cleanup.png, then restore the image below.
+     The site tests require the file to exist: Hugo's render hook reads its dimensions to emit
+     width/height, and a missing target fails both the link-resolution and the layout-shift check.
 ![VocaMac Settings showing the Cleanup page with its model list and Try It panel](/screenshots/settings-cleanup.png)
+-->
 
 ## What It Actually Does
 

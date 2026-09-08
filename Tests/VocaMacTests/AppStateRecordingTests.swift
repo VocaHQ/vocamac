@@ -825,3 +825,60 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         XCTAssertFalse(appState.isRecording)
     }
 }
+
+extension AppStateRecordingTests {
+    func testLiveResultReplacesBatchWithoutLosingFinalSamples() async {
+        let (app, mocks) = AppState.makeTestState()
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                var count = 0
+                for try await chunk in chunks { count += chunk.count }
+                return VocaTranscription(text: "live result", duration: 0, detectedLanguage: "en",
+                                         audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech)
+            }
+        }
+        await app.startRecording()
+        mocks.audioEngine.onAudioSamples?([0.2, 0.3], 0)
+        mocks.audioEngine.onAudioSamples?([0.4], 2)
+        mocks.audioEngine.stopRecordingResult = [0.2, 0.3, 0.4]
+        await app.stopRecordingAndTranscribe(injectResult: false)
+        XCTAssertEqual(app.lastTranscription?.text, "live result")
+        XCTAssertEqual(app.lastTranscription?.audioLengthSeconds, 3.0 / 16_000)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.audioEngine.onAudioSamples)
+    }
+
+    func testIncompleteLiveResultFallsBackToFullRecording() async {
+        let (app, mocks) = AppState.makeTestState()
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                for try await _ in chunks { }
+                return VocaTranscription(text: "partial", duration: 0, detectedLanguage: "en",
+                                         audioLengthSeconds: 0, modelUsed: .appleSpeech)
+            }
+        }
+        await app.startRecording()
+        mocks.audioEngine.onAudioSamples?([0.2], 0)
+        mocks.audioEngine.stopRecordingResult = [0.2, 0.3]
+        await app.stopRecordingAndTranscribe(injectResult: false)
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.3])
+        XCTAssertEqual(app.lastTranscription?.text, "mock transcription")
+    }
+
+    func testCancelRecordingStopsLiveConsumer() async {
+        let (app, mocks) = AppState.makeTestState()
+        let cancelled = expectation(description: "live consumer cancelled")
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                defer { cancelled.fulfill() }
+                for try await _ in chunks { }
+                throw CancellationError()
+            }
+        }
+        await app.startRecording()
+        await app.cancelRecording()
+        await fulfillment(of: [cancelled], timeout: 1)
+        XCTAssertNil(mocks.audioEngine.onAudioSamples)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+    }
+}

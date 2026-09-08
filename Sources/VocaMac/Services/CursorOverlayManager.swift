@@ -115,6 +115,9 @@ final class CursorOverlayManager {
 
     /// Timer to follow the caret or active display when needed.
     private var repositionTimer: Timer?
+    private let positionQueue = DispatchQueue(label: "com.vocamac.caret", qos: .userInitiated)
+    private var isPositionQueryRunning = false
+    private var positionGeneration = UUID()
 
     /// Timer for the recording duration shown by the live panel.
     private var elapsedTimer: Timer?
@@ -128,6 +131,7 @@ final class CursorOverlayManager {
             return
         }
 
+        positionGeneration = UUID()
         viewModel.style = style
         viewModel.position = position
         // Capture has not begun yet — `transitionToRecording()` says when it has.
@@ -198,6 +202,7 @@ final class CursorOverlayManager {
 
     /// Hides the recording overlay and resets its transient state.
     func hide() {
+        positionGeneration = UUID()
         repositionTimer?.invalidate()
         repositionTimer = nil
         elapsedTimer?.invalidate()
@@ -217,6 +222,7 @@ final class CursorOverlayManager {
 
     /// Updates the current audio level used to animate the waveform.
     func updateAudioLevel(_ level: Float) {
+        guard overlayPanel != nil, viewModel.phase == .recording else { return }
         // Mild pre-gain so quiet speech still drives a lively waveform.
         let target = min(max(level * 2.6, 0), 1)
         let smoothing: Float = target > viewModel.audioLevel ? 0.78 : 0.28
@@ -240,10 +246,10 @@ final class CursorOverlayManager {
     private func positionPanel(_ panel: NSPanel, size: CGSize) {
         switch viewModel.position {
         case .nearCursor:
-            panel.setFrameOrigin(detectIndicatorPosition(panelSize: size))
+            requestCaretPosition(panel, size: size)
         case .top, .bottom:
             guard let screen = activeScreen else {
-                panel.setFrameOrigin(detectIndicatorPosition(panelSize: size))
+                requestCaretPosition(panel, size: size)
                 return
             }
 
@@ -287,124 +293,38 @@ final class CursorOverlayManager {
         }
     }
 
-    // MARK: - Caret Position Detection
-
-    private func detectIndicatorPosition(panelSize: CGSize) -> NSPoint {
-        let systemWide = AXUIElementCreateSystemWide()
-
-        var focusedApp: AnyObject?
-        guard AXUIElementCopyAttributeValue(systemWide, kAXFocusedApplicationAttribute as CFString, &focusedApp) == .success else {
-            return clamped(mousePosition(), panelSize: panelSize)
+    /// At most one query runs at once. Hide/show and focus changes invalidate its result.
+    private func requestCaretPosition(_ panel: NSPanel, size: CGSize) {
+        guard !isPositionQueryRunning else { return }
+        let frames = NSScreen.screens.map(\.visibleFrame)
+        let top = NSScreen.screens.first?.frame.maxY ?? 0
+        let mouse = NSEvent.mouseLocation
+        let fallback = CGPoint(x: mouse.x + 16, y: mouse.y - 40)
+        if !panel.isVisible {
+            panel.setFrameOrigin(OverlayPlacement.clampedOrigin(fallback, panelSize: size, visibleFrames: frames))
         }
-        let app = focusedApp as! AXUIElement
-
-        var focusedElement: AnyObject?
-        if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-           focusedElement != nil {
-            let element = focusedElement as! AXUIElement
-
-            if let caretRect = getCaretRectFromElement(element) {
-                VocaLogger.debug(.cursorOverlay, "Positioned via caret")
-                return OverlayPlacement.origin(
-                    near: caretRect,
-                    panelSize: panelSize,
-                    visibleFrames: visibleScreenFrames
-                )
-            }
-
-            if let elementRect = convertAXRectToAppKit(getElementRect(element)) {
-                VocaLogger.debug(.cursorOverlay, "Positioned via focused element")
-                return OverlayPlacement.origin(
-                    near: elementRect,
-                    panelSize: panelSize,
-                    visibleFrames: visibleScreenFrames
-                )
-            }
-        }
-
-        if let windowRect = convertAXRectToAppKit(getFocusedWindowRect(app)) {
-            VocaLogger.debug(.cursorOverlay, "Positioned via focused window")
-            return clamped(
-                NSPoint(x: windowRect.maxX - panelSize.width - 20, y: windowRect.maxY - panelSize.height - 20),
-                panelSize: panelSize
+        guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
+        let generation = positionGeneration
+        isPositionQueryRunning = true
+        positionQueue.async { [weak self] in
+            let interval = PerformanceTrace.begin("CaretAccessibilityQuery")
+            let origin = CaretPositionQuery.position(
+                panelSize: size, visibleScreenFrames: frames,
+                primaryScreenTop: top, mouse: fallback, applicationPID: pid
             )
+            PerformanceTrace.end(interval)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isPositionQueryRunning = false
+                guard self.positionGeneration == generation,
+                      self.overlayPanel === panel,
+                      self.viewModel.position == .nearCursor,
+                      NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { return }
+                if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+            }
         }
-
-        VocaLogger.debug(.cursorOverlay, "Positioned via mouse cursor (fallback)")
-        return clamped(mousePosition(), panelSize: panelSize)
     }
 
-    private func getCaretRectFromElement(_ element: AXUIElement) -> CGRect? {
-        var selectedRange: AnyObject?
-        let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
-        guard rangeResult == .success, let range = selectedRange else { return nil }
-
-        var bounds: AnyObject?
-        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success else { return nil }
-
-        var rect = CGRect.zero
-        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
-
-        return convertAXRectToAppKit(rect)
-    }
-
-    private func getElementRect(_ element: AXUIElement) -> CGRect? {
-        var positionValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success else { return nil }
-
-        var sizeValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success else { return nil }
-
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
-
-        return CGRect(origin: position, size: size)
-    }
-
-    private func getFocusedWindowRect(_ app: AXUIElement) -> CGRect? {
-        var window: AnyObject?
-        var result = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window)
-
-        if result != .success {
-            result = AXUIElementCopyAttributeValue(app, kAXMainWindowAttribute as CFString, &window)
-        }
-
-        guard result == .success, window != nil else { return nil }
-        return getElementRect(window as! AXUIElement)
-    }
-
-    // MARK: - Coordinate Helpers
-
-    private func convertAXRectToAppKit(_ rect: CGRect?) -> CGRect? {
-        guard let rect,
-              rect.origin.x.isFinite,
-              rect.origin.y.isFinite,
-              rect.width.isFinite,
-              rect.height.isFinite,
-              let primaryScreenTop = NSScreen.screens.first?.frame.maxY else { return nil }
-        var converted = rect
-        converted.origin.y = primaryScreenTop - rect.origin.y - rect.height
-        return converted
-    }
-
-    private func mousePosition() -> NSPoint {
-        let loc = NSEvent.mouseLocation
-        return NSPoint(x: loc.x + 16, y: loc.y - 40)
-    }
-
-    private func clamped(_ point: NSPoint, panelSize: CGSize) -> NSPoint {
-        OverlayPlacement.clampedOrigin(
-            point,
-            panelSize: panelSize,
-            visibleFrames: visibleScreenFrames
-        )
-    }
-
-    private var visibleScreenFrames: [CGRect] {
-        NSScreen.screens.map(\.visibleFrame)
-    }
 }
 
 // MARK: - IndicatorPhase
@@ -746,3 +666,108 @@ struct HandyOverlayView: View {
 // MARK: - CursorOverlayManaging Conformance
 
 extension CursorOverlayManager: CursorOverlayManaging {}
+
+/// Immutable desktop geometry keeps synchronous Accessibility IPC off the main actor.
+private enum CaretPositionQuery {
+    // MARK: - Caret Position Detection
+
+    static func position(panelSize: CGSize, visibleScreenFrames: [CGRect], primaryScreenTop: CGFloat, mouse: CGPoint, applicationPID: pid_t) -> NSPoint {
+        let systemWide = AXUIElementCreateApplication(applicationPID)
+        AXUIElementSetMessagingTimeout(systemWide, 0.1)
+
+        let app = systemWide
+
+        var focusedElement: AnyObject?
+        if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
+           focusedElement != nil {
+            let element = focusedElement as! AXUIElement
+            AXUIElementSetMessagingTimeout(element, 0.1)
+
+            if let caretRect = getCaretRectFromElement(element, primaryScreenTop: primaryScreenTop) {
+                VocaLogger.debug(.cursorOverlay, "Positioned via caret")
+                return OverlayPlacement.origin(
+                    near: caretRect,
+                    panelSize: panelSize,
+                    visibleFrames: visibleScreenFrames
+                )
+            }
+
+            if let elementRect = convertAXRectToAppKit(getElementRect(element), primaryScreenTop: primaryScreenTop) {
+                VocaLogger.debug(.cursorOverlay, "Positioned via focused element")
+                return OverlayPlacement.origin(
+                    near: elementRect,
+                    panelSize: panelSize,
+                    visibleFrames: visibleScreenFrames
+                )
+            }
+        }
+
+        if let windowRect = convertAXRectToAppKit(getFocusedWindowRect(app), primaryScreenTop: primaryScreenTop) {
+            VocaLogger.debug(.cursorOverlay, "Positioned via focused window")
+            return OverlayPlacement.clampedOrigin(
+                NSPoint(x: windowRect.maxX - panelSize.width - 20, y: windowRect.maxY - panelSize.height - 20),
+                panelSize: panelSize, visibleFrames: visibleScreenFrames
+            )
+        }
+
+        VocaLogger.debug(.cursorOverlay, "Positioned via mouse cursor (fallback)")
+        return OverlayPlacement.clampedOrigin(mouse, panelSize: panelSize, visibleFrames: visibleScreenFrames)
+    }
+
+    private static func getCaretRectFromElement(_ element: AXUIElement, primaryScreenTop: CGFloat) -> CGRect? {
+        var selectedRange: AnyObject?
+        let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
+        guard rangeResult == .success, let range = selectedRange else { return nil }
+
+        var bounds: AnyObject?
+        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success else { return nil }
+
+        var rect = CGRect.zero
+        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
+
+        return convertAXRectToAppKit(rect, primaryScreenTop: primaryScreenTop)
+    }
+
+    private static func getElementRect(_ element: AXUIElement) -> CGRect? {
+        var positionValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success else { return nil }
+
+        var sizeValue: AnyObject?
+        guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success else { return nil }
+
+        var position = CGPoint.zero
+        var size = CGSize.zero
+        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+
+        return CGRect(origin: position, size: size)
+    }
+
+    private static func getFocusedWindowRect(_ app: AXUIElement) -> CGRect? {
+        var window: AnyObject?
+        var result = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window)
+
+        if result != .success {
+            result = AXUIElementCopyAttributeValue(app, kAXMainWindowAttribute as CFString, &window)
+        }
+
+        guard result == .success, window != nil else { return nil }
+        let element = window as! AXUIElement
+        AXUIElementSetMessagingTimeout(element, 0.1)
+        return getElementRect(element)
+    }
+
+    // MARK: - Coordinate Helpers
+
+    private static func convertAXRectToAppKit(_ rect: CGRect?, primaryScreenTop: CGFloat) -> CGRect? {
+        guard let rect,
+              rect.origin.x.isFinite,
+              rect.origin.y.isFinite,
+              rect.width.isFinite,
+              rect.height.isFinite else { return nil }
+        var converted = rect
+        converted.origin.y = primaryScreenTop - rect.origin.y - rect.height
+        return converted
+    }
+
+}

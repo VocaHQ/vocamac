@@ -10,6 +10,7 @@
 # Environment variables:
 #   APP_VERSION         — Version string to embed in Info.plist. Defaults to 0.9.0.
 #                         Set by CI for nightly builds (e.g., 0.9.0-nightly.20260512+abc1234).
+#   VOCAMAC_KEEP_RUNNING — Set to 1 for isolated validation without stopping the installed app.
 #   CODE_SIGN_IDENTITY  — Signing identity to use. Defaults to auto-detect
 #                         Developer ID Application in the login keychain.
 #                         Set to "-" to force ad-hoc signing.
@@ -53,7 +54,7 @@ else
 fi
 
 # Kill any running VocaMac instances before building
-if pgrep -f "VocaMac" > /dev/null 2>&1; then
+if [ "${VOCAMAC_KEEP_RUNNING:-0}" != "1" ] && pgrep -f "VocaMac" > /dev/null 2>&1; then
     echo "🛑 Stopping running VocaMac..."
     pkill -f "VocaMac" 2>/dev/null
     sleep 1

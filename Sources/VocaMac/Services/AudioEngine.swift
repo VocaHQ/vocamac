@@ -45,6 +45,23 @@ final class AudioConverterCache {
     }
 }
 
+/// Tap-owned scratch buffers. A format/size change replaces storage; callers must
+/// consume the contents before the next callback reuses them.
+final class AudioPCMBufferCache {
+    private var storage: AVAudioPCMBuffer?
+    private(set) var creationCount = 0
+
+    func buffer(format: AVAudioFormat, capacity: AVAudioFrameCount) -> AVAudioPCMBuffer? {
+        if let storage, storage.format == format, storage.frameCapacity >= capacity {
+            storage.frameLength = 0
+            return storage
+        }
+        storage = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity)
+        if storage != nil { creationCount += 1 }
+        return storage
+    }
+}
+
 /// Tracks continuous silence independently of total recording time.
 struct SilenceDetector {
     private(set) var lastSoundTime: Date
@@ -92,7 +109,14 @@ final class AudioEngine {
     /// (e.g. tap-to-pause) for any other app playing audio.
     private var engine: AVAudioEngine?
     private var pendingEngineRelease: DispatchWorkItem?
-    private var audioBuffer: [Float] = []
+    private let capturedAudio = OSAllocatedUnfairLock(initialState: [Float]())
+    private let monoBufferCache = AudioPCMBufferCache()
+    private let outputBufferCache = AudioPCMBufferCache()
+    private let sampleObserver = OSAllocatedUnfairLock<(([Float], Int) -> Void)?>(initialState: nil)
+    var onAudioSamples: (([Float], Int) -> Void)? {
+        get { sampleObserver.withLock { $0 } }
+        set { sampleObserver.withLock { $0 = newValue } }
+    }
     private let converterCache = AudioConverterCache()
     private var _isCurrentlyRecording = false
     /// Realtime-safe capture lifecycle for the input tap.
@@ -125,7 +149,6 @@ final class AudioEngine {
     /// Last UID passed to `startRecording`, used to rebuild the graph after a
     /// configuration change without dropping the user's selected microphone.
     private var lastPreferredInputDeviceUID: String?
-    private let bufferQueue = DispatchQueue(label: "com.vocamac.audio-buffer", qos: .userInteractive)
     private let lifecycleQueue = DispatchQueue(label: "com.vocamac.audio-engine.lifecycle", qos: .userInitiated)
     private let recordingPreparationLock = NSLock()
     private var _isPreparingRecording = false
@@ -741,6 +764,10 @@ final class AudioEngine {
     /// Resets per-recording state before a new capture attempt.
     private func resetRecordingState() {
         clearAudioBuffer()
+        // Allocate before the tap starts, including room for route preparation.
+        // Cap speculative reservation; unexpectedly long recordings can still grow.
+        let seconds = maxDuration.isFinite ? min(600, max(0, maxDuration)) : 60
+        capturedAudio.withLock { $0.reserveCapacity(Int((seconds + 10) * 16_000)) }
         silenceDetector.withLock { $0.reset() }
         recordingStartTime = Date()
         maxDurationCallbackFired = false
@@ -787,17 +814,16 @@ final class AudioEngine {
 
     /// Clears captured audio samples while preserving buffer capacity.
     private func clearAudioBuffer() {
-        bufferQueue.sync {
-            audioBuffer.removeAll(keepingCapacity: true)
-        }
+        capturedAudio.withLock { $0.removeAll(keepingCapacity: true) }
     }
 
     /// Returns captured samples and clears the backing buffer.
     private func capturedSamplesAndResetBuffer() -> [Float] {
-        bufferQueue.sync {
-            let copy = audioBuffer
-            audioBuffer.removeAll(keepingCapacity: true)
-            return copy
+        capturedAudio.withLock { samples in
+            // Transfer ownership instead of retaining a second full-capacity array.
+            let result = samples
+            samples = []
+            return result
         }
     }
 
@@ -1099,7 +1125,9 @@ final class AudioEngine {
             inputChannel: preferredInputChannel,
             converterProvider: { [converterCache] source, destination in
                 converterCache.converter(from: source, to: destination)
-            }
+            },
+            monoBufferCache: monoBufferCache,
+            outputBufferCache: outputBufferCache
         ) else {
             return
         }
@@ -1123,13 +1151,23 @@ final class AudioEngine {
         // is detected — the triggering frame and any trailing audio are preserved.
         if let channelData = convertedBuffer.floatChannelData {
             let frameCount = Int(convertedBuffer.frameLength)
-            bufferQueue.sync {
+            let offset = capturedAudio.withLockUnchecked { samples in
+                let offset = samples.count
                 Self.appendCapturedSamples(
                     channelData[0],
                     count: frameCount,
                     muted: isApplicationInputMuted,
-                    to: &audioBuffer
+                    to: &samples
                 )
+                return offset
+            }
+            // Only streaming engines need an owned copy beyond this callback.
+            // The observer has bounded buffering and never waits for inference.
+            if let observer = sampleObserver.withLock({ $0 }) {
+                let chunk = isApplicationInputMuted
+                    ? [Float](repeating: 0, count: frameCount)
+                    : Array(UnsafeBufferPointer(start: channelData[0], count: frameCount))
+                observer(chunk, offset)
             }
         }
 
@@ -1175,13 +1213,16 @@ final class AudioEngine {
         _ buffer: AVAudioPCMBuffer,
         from inputFormat: AVAudioFormat,
         inputChannel: Int = 0,
-        converterProvider: ((AVAudioFormat, AVAudioFormat) -> AVAudioConverter?)? = nil
+        converterProvider: ((AVAudioFormat, AVAudioFormat) -> AVAudioConverter?)? = nil,
+        monoBufferCache: AudioPCMBufferCache? = nil,
+        outputBufferCache: AudioPCMBufferCache? = nil
     ) -> AVAudioPCMBuffer? {
         let sourceBuffer: AVAudioPCMBuffer
         if inputFormat.channelCount > 1 {
             guard let monoBuffer = monoBuffer(
                 from: buffer,
-                selecting: inputChannel
+                selecting: inputChannel,
+                cache: monoBufferCache
             ) else {
                 VocaLogger.error(.audioEngine, "Failed to read multi-channel microphone samples")
                 return nil
@@ -1215,10 +1256,8 @@ final class AudioEngine {
             AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio))
         )
 
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: whisperFormat,
-            frameCapacity: outputFrameCapacity
-        ) else {
+        guard let outputBuffer = outputBufferCache?.buffer(format: whisperFormat, capacity: outputFrameCapacity)
+            ?? AVAudioPCMBuffer(pcmFormat: whisperFormat, frameCapacity: outputFrameCapacity) else {
             return nil
         }
 
@@ -1308,7 +1347,8 @@ final class AudioEngine {
     /// Copies one selected channel into a mono Float32 buffer without attenuation.
     static func monoBuffer(
         from buffer: AVAudioPCMBuffer,
-        selecting requestedChannel: Int
+        selecting requestedChannel: Int,
+        cache: AudioPCMBufferCache? = nil
     ) -> AVAudioPCMBuffer? {
         let format = buffer.format
         let channelCount = Int(format.channelCount)
@@ -1324,10 +1364,8 @@ final class AudioEngine {
                 channels: 1,
                 interleaved: false
               ),
-              let monoBuffer = AVAudioPCMBuffer(
-                pcmFormat: monoFormat,
-                frameCapacity: buffer.frameLength
-              ),
+              let monoBuffer = cache?.buffer(format: monoFormat, capacity: buffer.frameLength)
+                ?? AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameLength),
               let monoData = monoBuffer.floatChannelData?[0] else {
             return nil
         }

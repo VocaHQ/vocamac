@@ -111,7 +111,7 @@ extension TranscriptionRouter: SpeechTranscribing {
             await parakeet.unloadModelAndWait()
         }
         if engine != .appleSpeech {
-            appleSpeech.unloadModel()
+            await appleSpeech.unloadModel()
         }
         if engine != .sherpaOnnx {
             sherpa.unloadModel()
@@ -138,6 +138,18 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// The transcription language the user selected, or nil for auto-detect.
     private var languagePreference: String? {
         languagePreferenceProvider()
+    }
+
+    /// Keep the normal operation serializer for the whole live session, so a
+    /// model switch cannot unload an analyzer that is still consuming audio.
+    func startStreaming(language: String?) -> RecordingTranscription? {
+        guard activeEngine == .appleSpeech, appleSpeech.isModelLoaded else { return nil }
+        return RecordingTranscription(language: language) { [self] chunks in
+            try await operationSerializer.run { [self] in
+                guard activeEngine == .appleSpeech else { throw AppleSpeechError.modelNotLoaded }
+                return try await appleSpeech.transcribe(chunks: chunks, language: language)
+            }
+        }
     }
 
     func transcribe(
@@ -176,7 +188,7 @@ extension TranscriptionRouter: SpeechTranscribing {
             try await operationSerializer.run(cancellable: false) { [self] in
                 whisper.unloadModel()
                 await parakeet.unloadModelAndWait()
-                appleSpeech.unloadModel()
+                await appleSpeech.unloadModel()
                 sherpa.unloadModel()
             }
         } catch {

@@ -45,12 +45,7 @@ final class TextInjector {
     private struct ClipboardInjectionRequest {
         let text: String
         let preserveClipboard: Bool
-    }
-
-    /// Clipboard state used to restore the correct contents after a paste.
-    private struct ClipboardPasteState {
-        let snapshot: PasteboardSnapshot?
-        let expectedChangeCount: Int
+        let targetPID: pid_t?
     }
 
     /// A process-wide serial queue for the system pasteboard. TextInjector is
@@ -91,6 +86,9 @@ final class TextInjector {
     private let accessibilityTrustedOverride: Bool?
     private let accessibilityInjectionOverride: ((String) -> Bool)?
     private let pasteActionOverride: (() -> Void)?
+    private let accessibilityWorkerOverride: (@Sendable (String) -> Bool)?
+    private let frontmostPIDProvider: () -> pid_t?
+    var onFailure: ((String) -> Void)?
 
     /// Clipboard fallback injections must run one at a time. Otherwise a
     /// delayed restore from one injection can replace the transcription from
@@ -108,12 +106,16 @@ final class TextInjector {
         pasteboard: NSPasteboard = .general,
         accessibilityTrustedOverride: Bool? = nil,
         accessibilityInjectionOverride: ((String) -> Bool)? = nil,
-        pasteActionOverride: (() -> Void)? = nil
+        pasteActionOverride: (() -> Void)? = nil,
+        accessibilityWorkerOverride: (@Sendable (String) -> Bool)? = nil,
+        frontmostPIDProvider: @escaping () -> pid_t? = { NSWorkspace.shared.frontmostApplication?.processIdentifier }
     ) {
         self.pasteboard = pasteboard
         self.accessibilityTrustedOverride = accessibilityTrustedOverride
         self.accessibilityInjectionOverride = accessibilityInjectionOverride
         self.pasteActionOverride = pasteActionOverride
+        self.accessibilityWorkerOverride = accessibilityWorkerOverride
+        self.frontmostPIDProvider = frontmostPIDProvider
     }
 
     // MARK: - Public API
@@ -135,30 +137,73 @@ final class TextInjector {
     func inject(text: String, preserveClipboard: Bool = true) {
         guard !text.isEmpty else { return }
 
-        // Check accessibility permission
-        let trusted = accessibilityTrustedOverride ?? AXIsProcessTrusted()
-        VocaLogger.debug(.textInjector, "AXIsProcessTrusted = \(trusted ? "YES" : "NO")")
+        let enqueue = { [self] in
+            let targetPID = frontmostPIDProvider()
+            let interval = PerformanceTrace.begin("TextDeliveryQueueAndDispatch")
+            Self.clipboardInjectionCoordinator.enqueue { [self] finish in
+                let complete = {
+                    PerformanceTrace.end(interval)
+                    finish()
+                }
+                performInjection(text: text, preserveClipboard: preserveClipboard,
+                                 targetPID: targetPID, completion: complete)
+            }
+        }
+        if Thread.isMainThread { enqueue() }
+        else { DispatchQueue.main.async(execute: enqueue) }
+    }
 
-        if !trusted {
-            VocaLogger.warning(.textInjector, "No accessibility permission. Copying to clipboard only.")
+    private enum AccessibilityInsertion { case inserted, unavailable, uncertain }
+
+    private static let accessibilityQueue = DispatchQueue(label: "com.vocamac.text-accessibility", qos: .userInitiated)
+
+    /// Clipboard operations remain on main; only cross-process AX work runs on the worker.
+    private func performInjection(text: String, preserveClipboard: Bool, targetPID: pid_t?, completion: @escaping () -> Void) {
+        let trusted = accessibilityTrustedOverride ?? AXIsProcessTrusted()
+        guard trusted else {
             pasteboard.clearContents()
             pasteboard.setString(text, forType: .string)
+            completion()
             return
         }
-
-        // Strategy 1: Accessibility API direct insertion.
-        // Works with Raycast, Spotlight, and any app whose focused text field
-        // is writable via the AX API. Preferred because it does not touch the
-        // clipboard and does not require dispatching a keyboard shortcut.
-        let injectedViaAccessibility = accessibilityInjectionOverride?(text) ?? injectViaAccessibility(text: text)
-        if injectedViaAccessibility {
-            VocaLogger.info(.textInjector, "Text injected via Accessibility API")
+        // No destination app: skip AX and never post Cmd+V into nowhere.
+        guard targetPID != nil else {
+            reportMissingPasteTarget()
+            completion()
             return
         }
-
-        // Strategy 2: Clipboard + Cmd+V (legacy fallback).
-        VocaLogger.info(.textInjector, "AX injection unavailable — falling back to clipboard + Cmd+V")
-        injectViaClipboard(text: text, preserveClipboard: preserveClipboard)
+        let deliverFallback = { [self] (result: AccessibilityInsertion) in
+            if result == .inserted {
+                PerformanceTrace.event("AccessibilityTextInserted")
+                completion()
+            } else if result == .uncertain {
+                onFailure?("The target app did not confirm text insertion. Check the field before retrying; your transcript is available in VocaMac.")
+                completion()
+            } else {
+                let currentPID = frontmostPIDProvider()
+                if samePasteTarget(targetPID, currentPID) {
+                    processClipboardInjection(
+                        ClipboardInjectionRequest(text: text, preserveClipboard: preserveClipboard, targetPID: targetPID),
+                        completion: completion
+                    )
+                } else {
+                    // Focus changed or the destination app disappeared. Do not paste.
+                    reportPasteTargetMismatch(queued: targetPID, current: currentPID)
+                    completion()
+                }
+            }
+        }
+        if let accessibilityInjectionOverride {
+            deliverFallback(accessibilityInjectionOverride(text) ? .inserted : .unavailable)
+            return
+        }
+        Self.accessibilityQueue.async { [self] in
+            let interval = PerformanceTrace.begin("TextAccessibilityQueryAndWrite")
+            let inserted = accessibilityWorkerOverride.map { $0(text) ? AccessibilityInsertion.inserted : .unavailable }
+                ?? injectViaAccessibility(text: text, targetPID: targetPID)
+            PerformanceTrace.end(interval)
+            DispatchQueue.main.async { deliverFallback(inserted) }
+        }
     }
 
     // MARK: - Strategy 1: Accessibility API
@@ -184,8 +229,9 @@ final class TextInjector {
     ///            `false` if the focused element is unreachable, has an
     ///            unsupported role, or the write was rejected.
     @discardableResult
-    private func injectViaAccessibility(text: String) -> Bool {
+    private func injectViaAccessibility(text: String, targetPID: pid_t?) -> AccessibilityInsertion {
         let systemWide = AXUIElementCreateSystemWide()
+        AXUIElementSetMessagingTimeout(systemWide, 0.1)
         var focusedRef: CFTypeRef?
 
         let fetchResult = AXUIElementCopyAttributeValue(
@@ -195,17 +241,21 @@ final class TextInjector {
         )
         guard fetchResult == .success, let focusedRef else {
             VocaLogger.debug(.textInjector, "AX: no focused element (\(fetchResult.rawValue))")
-            return false
+            return .unavailable
         }
 
         // The returned CFTypeRef must be an AXUIElement.
         guard CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
             VocaLogger.debug(.textInjector, "AX: focused element is not an AXUIElement")
-            return false
+            return .unavailable
         }
 
         // swiftlint:disable force_cast
         let element = focusedRef as! AXUIElement
+        var elementPID: pid_t = 0
+        guard AXUIElementGetPid(element, &elementPID) == .success,
+              elementPID == targetPID else { return .unavailable }
+        AXUIElementSetMessagingTimeout(element, 0.1)
         // swiftlint:enable force_cast
 
         // Gate on element role. Only single-line input fields reliably handle
@@ -218,9 +268,11 @@ final class TextInjector {
         let supportedRoles: Set<String> = ["AXTextField", "AXSearchField", "AXComboBox"]
         guard supportedRoles.contains(role) else {
             VocaLogger.debug(.textInjector, "AX: skipping role '\(role)' — not a single-line input field")
-            return false
+            return .unavailable
         }
 
+        // A timed-out write may still be applied by the target. It must never
+        // trigger an automatic second insertion via Cmd+V.
         let setResult = AXUIElementSetAttributeValue(
             element,
             kAXSelectedTextAttribute as CFString,
@@ -229,36 +281,14 @@ final class TextInjector {
 
         if setResult == .success {
             VocaLogger.debug(.textInjector, "AX: inserted \(text.count) chars via kAXSelectedTextAttribute (role: \(role))")
-            return true
+            return .inserted
         }
 
         VocaLogger.debug(.textInjector, "AX: kAXSelectedTextAttribute write failed (\(setResult.rawValue)) — element may be read-only")
-        return false
+        return setResult == .cannotComplete ? .uncertain : .unavailable
     }
 
     // MARK: - Strategy 2: Clipboard + Cmd+V
-
-    /// Inject text via the system clipboard followed by a simulated Cmd+V.
-    /// This is the original injection strategy and acts as a fallback for
-    /// apps whose focused element is not writable via the Accessibility API.
-    private func injectViaClipboard(text: String, preserveClipboard: Bool) {
-        let request = ClipboardInjectionRequest(text: text, preserveClipboard: preserveClipboard)
-
-        // NSPasteboard and the queue state are handled on the main queue. The
-        // public API is normally called from AppState's main actor, but this
-        // keeps the fallback safe if another caller invokes it elsewhere.
-        let enqueue = { [weak self] () -> Void in
-            guard let self else { return }
-            Self.clipboardInjectionCoordinator.enqueue { [self] finish in
-                self.processClipboardInjection(request, completion: finish)
-            }
-        }
-        if Thread.isMainThread {
-            enqueue()
-        } else {
-            DispatchQueue.main.async(execute: enqueue)
-        }
-    }
 
     /// Process one clipboard injection. The coordinator starts the next
     /// operation only after `completion` is called.
@@ -266,94 +296,83 @@ final class TextInjector {
         _ request: ClipboardInjectionRequest,
         completion: @escaping () -> Void
     ) {
-        let interval = PerformanceTrace.begin("TextInjectionToPaste")
-        let pasteboard = self.pasteboard
-
-        // Deep-copy current clipboard state before we overwrite it.
-        // NSPasteboardItem objects are invalidated when the pasteboard is cleared,
-        // so we must extract the raw data eagerly.
-        let snapshot = request.preserveClipboard ? captureSnapshot(pasteboard) : nil
-
-        guard writeTranscribedText(request.text, to: pasteboard) else {
-            PerformanceTrace.end(interval)
-            completion()
-            return
-        }
-
-        // Record the changeCount right after we write the transcribed text.
-        // We check this before restoring so we don't clobber a newer clipboard
-        // entry if the user (or another app) copies something in the meantime.
-        let changeCountAfterWrite = pasteboard.changeCount
-
-        // Delay to let clipboard settle, then simulate Cmd+V
-        DispatchQueue.main.asyncAfter(deadline: .now() + prePasteDelay) { [self] in
-            // A clipboard manager, another VocaMac injection, or the user may
-            // have changed the pasteboard during the delay. Reassert the
-            // transcription immediately before posting Cmd+V so the event
-            // cannot consume stale clipboard contents.
-            let pasteState = prepareClipboardForPaste(
-                request: request,
-                originalSnapshot: snapshot,
-                changeCountAfterWrite: changeCountAfterWrite,
-                pasteboard: pasteboard
-            )
-
-            VocaLogger.debug(.textInjector, "Simulating Cmd+V...")
-            simulatePaste()
-            PerformanceTrace.end(interval)
-
-            // Always wait before starting the next queued injection, even
-            // when preservation is disabled. Otherwise the next request could
-            // overwrite the pasteboard before this paste event is consumed.
-            DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) { [self] in
-                if request.preserveClipboard {
-                    // Guard: only restore if the pasteboard hasn't been modified
-                    // by the user or another app since the transcription was
-                    // reasserted for this paste event.
-                    guard pasteboard.changeCount == pasteState.expectedChangeCount else {
-                        VocaLogger.debug(.textInjector, "Clipboard was modified externally — skipping restore")
-                        completion()
-                        return
-                    }
-
-                    if let snapshot = pasteState.snapshot {
-                        restoreSnapshot(snapshot, to: pasteboard)
-                    } else {
-                        // Previous clipboard was empty; clear the transcribed text
-                        pasteboard.clearContents()
-                    }
-                    VocaLogger.debug(.textInjector, "Clipboard restored")
+        Task { @MainActor [self] in
+            let interval = PerformanceTrace.begin("TextInjectionToPaste")
+            defer { PerformanceTrace.end(interval); completion() }
+            do {
+                let currentPID = frontmostPIDProvider()
+                guard samePasteTarget(request.targetPID, currentPID) else {
+                    reportPasteTargetMismatch(queued: request.targetPID, current: currentPID)
+                    return
                 }
-
-                completion()
+                var snapshot = request.preserveClipboard ? try await captureStableSnapshot(pasteboard) : nil
+                guard writeTranscribedText(request.text, to: pasteboard) else { return }
+                var expectedChangeCount = pasteboard.changeCount
+                try await Task.sleep(nanoseconds: UInt64(prePasteDelay * 1_000_000_000))
+                if pasteboard.changeCount != expectedChangeCount {
+                    snapshot = request.preserveClipboard ? try await captureStableSnapshot(pasteboard) : nil
+                    guard writeTranscribedText(request.text, to: pasteboard) else { return }
+                    expectedChangeCount = pasteboard.changeCount
+                }
+                let pidBeforePaste = frontmostPIDProvider()
+                guard samePasteTarget(request.targetPID, pidBeforePaste) else {
+                    if request.preserveClipboard, pasteboard.changeCount == expectedChangeCount {
+                        if let snapshot { restoreSnapshot(snapshot, to: pasteboard) }
+                        else { pasteboard.clearContents() }
+                    }
+                    reportPasteTargetMismatch(queued: request.targetPID, current: pidBeforePaste)
+                    return
+                }
+                simulatePaste()
+                PerformanceTrace.event("PasteEventPosted")
+                // Keep the clipboard stable until the target has consumed the event.
+                try await Task.sleep(nanoseconds: UInt64(clipboardRestoreDelay * 1_000_000_000))
+                if request.preserveClipboard, pasteboard.changeCount == expectedChangeCount {
+                    if let snapshot { restoreSnapshot(snapshot, to: pasteboard) }
+                    else { pasteboard.clearContents() }
+                }
+            } catch {
+                VocaLogger.warning(.textInjector, "Clipboard changed repeatedly while being preserved; insertion abandoned")
+                onFailure?("The clipboard kept changing, so text was not pasted. Your transcript is available in VocaMac.")
             }
         }
     }
 
-    /// Ensure the transcription is still the current pasteboard contents just
-    /// before Cmd+V is posted. If an external change occurred, preserve that
-    /// newer clipboard state instead of restoring an older snapshot over it.
-    private func prepareClipboardForPaste(
-        request: ClipboardInjectionRequest,
-        originalSnapshot: PasteboardSnapshot?,
-        changeCountAfterWrite: Int,
-        pasteboard: NSPasteboard
-    ) -> ClipboardPasteState {
-        guard pasteboard.changeCount != changeCountAfterWrite else {
-            return ClipboardPasteState(
-                snapshot: originalSnapshot,
-                expectedChangeCount: changeCountAfterWrite
-            )
+    /// Both PIDs must be known and equal. `nil == nil` is not a valid paste target.
+    private func samePasteTarget(_ queued: pid_t?, _ current: pid_t?) -> Bool {
+        guard let queued, let current else { return false }
+        return queued == current
+    }
+
+    private func reportPasteTargetMismatch(queued: pid_t?, current: pid_t?) {
+        if queued == nil || current == nil {
+            reportMissingPasteTarget()
+        } else {
+            reportFocusChange()
         }
+    }
 
-        VocaLogger.debug(.textInjector, "Clipboard changed before Cmd+V — reasserting transcription")
-        let snapshotToRestore = request.preserveClipboard ? captureSnapshot(pasteboard) : nil
-        _ = writeTranscribedText(request.text, to: pasteboard)
+    private func reportMissingPasteTarget() {
+        VocaLogger.warning(.textInjector, "No active app to paste into; paste cancelled")
+        onFailure?("There was no active app to paste into. Your transcript is available in VocaMac.")
+    }
 
-        return ClipboardPasteState(
-            snapshot: snapshotToRestore,
-            expectedChangeCount: pasteboard.changeCount
-        )
+    private func reportFocusChange() {
+        VocaLogger.warning(.textInjector, "Focus changed during text insertion; paste cancelled")
+        onFailure?("The active app changed before text could be pasted. Your transcript is available in VocaMac.")
+    }
+
+    private enum SnapshotError: Error { case changed }
+
+    /// A yield lets other apps or clipboard managers write. Never combine types
+    /// from different clipboard generations, or clear an entry we did not preserve.
+    @MainActor
+    private func captureStableSnapshot(_ pasteboard: NSPasteboard) async throws -> PasteboardSnapshot? {
+        for _ in 0..<3 {
+            do { return try await captureSnapshot(pasteboard) }
+            catch SnapshotError.changed { continue }
+        }
+        throw SnapshotError.changed
     }
 
     /// Write one transcription to the pasteboard and report whether the text
@@ -371,18 +390,36 @@ final class TextInjector {
     /// Deep-copy every item and type from the pasteboard into plain `Data` values.
     /// This must be called *before* `clearContents()` because NSPasteboardItem
     /// objects are invalidated when the pasteboard changes.
-    private func captureSnapshot(_ pasteboard: NSPasteboard) -> PasteboardSnapshot? {
+    @MainActor
+    private func captureSnapshot(_ pasteboard: NSPasteboard) async throws -> PasteboardSnapshot? {
+        let interval = PerformanceTrace.begin("ClipboardSnapshot")
+        defer { PerformanceTrace.end(interval) }
+        var totalBytes = 0
+        defer { VocaLogger.debug(.textInjector, "Clipboard snapshot bytes: \(totalBytes)") }
         guard let pasteboardItems = pasteboard.pasteboardItems, !pasteboardItems.isEmpty else {
             return nil
         }
 
+        let generation = pasteboard.changeCount
         var itemSnapshots: [PasteboardItemSnapshot] = []
+        var sliceStart = ProcessInfo.processInfo.systemUptime
+        var representations = 0
 
         for item in pasteboardItems {
             var dataByType: [(NSPasteboard.PasteboardType, Data)] = []
             for type in item.types {
+                guard pasteboard.changeCount == generation else { throw SnapshotError.changed }
                 if let data = item.data(forType: type) {
+                    totalBytes += data.count
                     dataByType.append((type, data))
+                }
+                representations += 1
+                if representations % 8 == 0 || ProcessInfo.processInfo.systemUptime - sliceStart >= 0.004 {
+                    await withCheckedContinuation { continuation in
+                        DispatchQueue.main.async { continuation.resume() }
+                    }
+                    guard pasteboard.changeCount == generation else { throw SnapshotError.changed }
+                    sliceStart = ProcessInfo.processInfo.systemUptime
                 }
             }
             if !dataByType.isEmpty {
@@ -390,6 +427,7 @@ final class TextInjector {
             }
         }
 
+        guard pasteboard.changeCount == generation else { throw SnapshotError.changed }
         guard !itemSnapshots.isEmpty else { return nil }
         return PasteboardSnapshot(items: itemSnapshots)
     }

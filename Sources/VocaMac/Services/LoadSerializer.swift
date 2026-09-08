@@ -27,9 +27,11 @@ actor LoadSerializer {
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
         let previous = tail
+        let queueInterval = PerformanceTrace.begin("OperationQueueWait")
 
         let task = Task<Result<T, Error>, Never> {
             await previous?.value
+            PerformanceTrace.end(queueInterval)
             do {
                 if cancellable { try Task.checkCancellation() }
                 let value = try await operation()

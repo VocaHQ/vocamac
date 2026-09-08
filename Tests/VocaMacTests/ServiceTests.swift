@@ -120,7 +120,8 @@ final class TextInjectorTests: XCTestCase {
             pasteActionOverride: {
                 pastedTexts.append(pasteboard.string(forType: .string) ?? "")
                 pasteExpectation.fulfill()
-            }
+            },
+            frontmostPIDProvider: { 123 }
         )
 
         injector.inject(text: "spoken transcription", preserveClipboard: true)
@@ -170,7 +171,8 @@ final class TextInjectorTests: XCTestCase {
                         finishedExpectation.fulfill()
                     }
                 }
-            }
+            },
+            frontmostPIDProvider: { 123 }
         )
 
         injector.inject(text: "first transcription", preserveClipboard: true)
@@ -324,7 +326,7 @@ final class TextInjectorTests: XCTestCase {
             throw XCTSkip("Accessibility permission is not granted; clipboard fallback cannot be triggered (AX is not even attempted).")
         }
 
-        let injector = TextInjector()
+        let injector = TextInjector(frontmostPIDProvider: { 123 })
         let expected = "fallback text after ax failure"
 
         // Seed the pasteboard with a known value so we can detect a change.

@@ -61,10 +61,26 @@ final class AppState: ObservableObject {
     @Published var appStatus: AppStatus = .idle
 
     /// Whether the app is actively recording audio
-    @Published var isRecording: Bool = false
+    private var recordingGeneration = UUID()
+    private var recordingTranscription: RecordingTranscription?
+    private var finishingTranscription: RecordingTranscription?
+    private var isStoppingAudio = false
+    @Published var isRecording: Bool = false {
+        didSet {
+            if !isRecording {
+                audioEngine.onAudioSamples = nil
+                recordingTranscription?.cancel()
+                recordingTranscription = nil
+            }
+        }
+    }
 
     /// Current audio input level (0.0 - 1.0) for visual feedback
-    @Published var audioLevel: Float = 0.0
+    let audioMeter = AudioMeterState()
+    var audioLevel: Float {
+        get { audioMeter.level }
+        set { audioMeter.update(newValue) }
+    }
 
     /// The most recent transcription result
     @Published var lastTranscription: VocaTranscription?
@@ -453,6 +469,12 @@ final class AppState: ObservableObject {
     // MARK: - Setup
 
     private func setupServices() {
+        textInjector.onFailure = { [weak self] message in
+            Task { @MainActor in
+                guard let self, !self.isRecording else { return }
+                self.showTemporaryError(message)
+            }
+        }
         // Detect system capabilities
         systemCapabilities = SystemInfo.detect()
 
@@ -532,6 +554,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 guard let self = self else { return }
                 VocaLogger.warning(.appState, "Audio device changed — recovering from interrupted recording")
+                self.recordingGeneration = UUID()
                 self.isRecording = false
                 self.audioLevel = 0.0
                 self.cursorOverlay.hide()
@@ -896,6 +919,8 @@ final class AppState: ObservableObject {
     /// It unconditionally resets the audio engine, hotkey state, cursor overlay,
     /// and all published state back to idle.
     func forceRecovery() {
+        recordingGeneration = UUID()
+        finishingTranscription?.cancel()
         VocaLogger.warning(.appState, "Force recovery: resetting all state to idle (was appStatus=\(appStatus.rawValue), isRecording=\(isRecording))")
 
         // Reset audio engine unconditionally
@@ -968,6 +993,7 @@ final class AppState: ObservableObject {
             appStatus = .idle
         }
 
+        recordingGeneration = UUID()
         appStatus = .recording
         isRecording = true
         errorMessage = nil
@@ -986,6 +1012,11 @@ final class AppState: ObservableObject {
         // mic buffer is negligible and handled well by WhisperKit's noise model.
         isStartingAudio = true
         pendingStopDuringStart = nil
+        let session = whisperService.startStreaming(language: selectedLanguage == "auto" ? nil : selectedLanguage)
+        recordingTranscription = session
+        audioEngine.onAudioSamples = session.map { session in
+            { samples, offset in session.append(samples, at: offset) }
+        }
         let didStartRecording = await startAudioEngine(
             silenceThreshold: Float(silenceThreshold),
             silenceDuration: silenceDuration,
@@ -1051,7 +1082,19 @@ final class AppState: ObservableObject {
             return
         }
 
+        guard !isStoppingAudio else { return }
+        isStoppingAudio = true
+        let generation = recordingGeneration
         let audioData = await stopAudioEngine()
+        isStoppingAudio = false
+        guard generation == recordingGeneration else { return }
+        let session = recordingTranscription
+        recordingTranscription = nil
+        finishingTranscription = session
+        defer {
+            session?.cancel()
+            if finishingTranscription === session { finishingTranscription = nil }
+        }
         isRecording = false
         audioLevel = 0.0
 
@@ -1084,13 +1127,29 @@ final class AppState: ObservableObject {
 
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
-            let result = try await whisperService.transcribe(
-                audioData: audioData,
-                language: language,
-                translate: translationEnabled,
-                vocabulary: customVocabulary
-            )
+            let result: VocaTranscription
+            if let session, session.language == language {
+                do {
+                    result = try await session.finish(expectedSampleCount: audioData.count)
+                } catch {
+                    guard generation == recordingGeneration else { return }
+                    try Task.checkCancellation()
+                    PerformanceTrace.event("StreamingBatchFallback")
+                    VocaLogger.warning(.appState, "Live transcription unavailable; decoding the complete recording")
+                    result = try await whisperService.transcribe(
+                        audioData: audioData, language: language,
+                        translate: translationEnabled, vocabulary: customVocabulary
+                    )
+                }
+            } else {
+                session?.cancel()
+                result = try await whisperService.transcribe(
+                    audioData: audioData, language: language,
+                    translate: translationEnabled, vocabulary: customVocabulary
+                )
+            }
 
+            guard generation == recordingGeneration else { return }
             lastTranscription = result
 
             // Update stats
@@ -1128,6 +1187,7 @@ final class AppState: ObservableObject {
             cursorOverlay.hide()
             appStatus = .idle
         } catch {
+            guard generation == recordingGeneration else { return }
             cursorOverlay.hide()
             errorMessage = "Transcription failed: \(error.localizedDescription)"
             appStatus = .error

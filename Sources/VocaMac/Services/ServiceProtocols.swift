@@ -12,6 +12,7 @@ import Combine
 protocol AudioRecording: AnyObject {
     var isCurrentlyRecording: Bool { get }
     var onAudioLevel: ((Float) -> Void)? { get set }
+    var onAudioSamples: (([Float], Int) -> Void)? { get set }
     var onSilenceDetected: (() -> Void)? { get set }
     var onMaxDurationReached: (() -> Void)? { get set }
     var onAudioDeviceChanged: (() -> Void)? { get set }
@@ -32,6 +33,13 @@ protocol AudioRecording: AnyObject {
     func forceReset()
     func checkPermissionStatus() -> PermissionStatus
     func requestPermission(completion: @escaping (Bool) -> Void)
+}
+
+extension AudioRecording {
+    var onAudioSamples: (([Float], Int) -> Void)? {
+        get { nil }
+        set { }
+    }
 }
 
 // MARK: - SoundPlaying
@@ -146,6 +154,7 @@ extension ModelManaging {
 protocol SpeechTranscribing: AnyObject {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
+    func startStreaming(language: String?) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
@@ -153,6 +162,8 @@ protocol SpeechTranscribing: AnyObject {
 }
 
 extension SpeechTranscribing {
+    func startStreaming(language: String?) -> RecordingTranscription? { nil }
+
     func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: ((String) -> Void)? = nil) async throws {
         try await _loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
     }
@@ -161,7 +172,15 @@ extension SpeechTranscribing {
 // MARK: - TextInjecting
 
 protocol TextInjecting: AnyObject {
+    var onFailure: ((String) -> Void)? { get set }
     func inject(text: String, preserveClipboard: Bool)
+}
+
+extension TextInjecting {
+    var onFailure: ((String) -> Void)? {
+        get { nil }
+        set { }
+    }
 }
 
 // MARK: - StatsManaging

@@ -153,6 +153,14 @@ final class AutoPauseMonitor: ObservableObject {
     private(set) var isRunning: Bool = false
 
     private var timer: Timer?
+    private struct Configuration: Equatable {
+        let enabled: Bool
+        let apps: [AutoPauseAppEntry]
+        let interval: TimeInterval
+    }
+    private var lastConfiguration: Configuration?
+    private var configurationObserver: NSObjectProtocol?
+    var isPolling: Bool { timer != nil }
     private var lastPollInterval: TimeInterval = defaultPollIntervalSeconds
 
     init(
@@ -171,19 +179,28 @@ final class AutoPauseMonitor: ObservableObject {
 
     deinit {
         timer?.invalidate()
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
     }
 
     /// Start periodic polling. Safe to call if already started.
     func start() {
         guard !isRunning else { return }
         isRunning = true
-        scheduleTimer(immediate: true)
+        configurationObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.configurationDidChange() }
+        }
+        configurationDidChange()
         VocaLogger.info(.general, "Auto-pause monitor started")
     }
 
     /// Stop polling.
     func stop() {
         isRunning = false
+        lastConfiguration = nil
+        if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        configurationObserver = nil
         timer?.invalidate()
         timer = nil
         VocaLogger.info(.general, "Auto-pause monitor stopped")
@@ -193,7 +210,7 @@ final class AutoPauseMonitor: ObservableObject {
     @discardableResult
     func checkOnce() -> Bool {
         let (enabled, apps, _) = readConfig()
-        guard enabled else {
+        guard enabled, !apps.isEmpty else {
             activeTrigger = nil
             clearPauseIfNeeded()
             return false
@@ -224,6 +241,25 @@ final class AutoPauseMonitor: ObservableObject {
         min(maxPollIntervalSeconds, max(minPollIntervalSeconds, seconds))
     }
 
+    /// Re-arm only when enabled and configured; preference notifications wake a stopped monitor.
+    func configurationDidChange() {
+        guard isRunning else { return }
+        let (enabled, apps, interval) = readConfig()
+        let configuration = Configuration(enabled: enabled, apps: apps, interval: interval)
+        guard configuration != lastConfiguration else { return }
+        lastConfiguration = configuration
+        guard enabled, !apps.isEmpty else {
+            timer?.invalidate()
+            timer = nil
+            clearPauseIfNeeded()
+            return
+        }
+        if timer == nil || interval != lastPollInterval {
+            scheduleTimer(immediate: false)
+        }
+        checkOnce()
+    }
+
     private func scheduleTimer(immediate: Bool) {
         timer?.invalidate()
         let (_, _, interval) = readConfig()
@@ -238,6 +274,7 @@ final class AutoPauseMonitor: ObservableObject {
                 self?.pollFromTimer()
             }
         }
+        timer.tolerance = min(1, interval * 0.2)
         // Allow firing while UI tracking runs (settings window scroll, etc.).
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer

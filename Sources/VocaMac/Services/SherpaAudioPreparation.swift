@@ -58,21 +58,22 @@ enum SherpaAudioPreparation {
         lead: Int = edgeSilenceSampleCount,
         tail: Int = edgeSilenceSampleCount
     ) -> [Float] {
-        // Do not ask generative decoders to invent words for digital silence.
-        guard samples.contains(where: { $0 != 0 }) else { return [] }
+        var result: [Float] = []
+        prepare(samples, lead: lead, tail: tail, into: &result)
+        return result
+    }
 
+    /// Reuse scratch storage across recovery attempts without changing their framing.
+    static func prepare(
+        _ samples: [Float], lead: Int = edgeSilenceSampleCount,
+        tail: Int = edgeSilenceSampleCount, into prepared: inout [Float]
+    ) {
+        prepared.removeAll(keepingCapacity: true)
+        guard samples.contains(where: { $0 != 0 }) else { return }
         let paddedCount = samples.count + lead + tail
-        var prepared: [Float] = []
         prepared.reserveCapacity(max(minimumSampleCount, paddedCount))
         prepared.append(contentsOf: repeatElement(Float.zero, count: lead))
         prepared.append(contentsOf: samples)
-        prepared.append(contentsOf: repeatElement(Float.zero, count: tail))
-
-        if prepared.count < minimumSampleCount {
-            prepared.append(
-                contentsOf: repeatElement(Float.zero, count: minimumSampleCount - prepared.count)
-            )
-        }
-        return prepared
+        prepared.append(contentsOf: repeatElement(Float.zero, count: max(tail, minimumSampleCount - samples.count - lead)))
     }
 }

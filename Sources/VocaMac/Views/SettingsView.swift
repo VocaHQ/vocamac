@@ -213,17 +213,10 @@ struct SettingsSidebarFooter: View {
                 }
             }
 
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule()
-                        .fill(Color.secondary.opacity(0.15))
-                    Capsule()
-                        .fill(appState.appStatus == .recording
-                              ? Color(nsColor: BrandAssets.brandGreen)
-                              : Color.accentColor)
-                        .frame(width: max(4, geo.size.width * CGFloat(min(max(appState.audioLevel, 0), 1))))
-                }
-            }
+            ObservedAudioLevelView(
+                meter: appState.audioMeter,
+                tint: appState.appStatus == .recording ? Color(nsColor: BrandAssets.brandGreen) : Color.accentColor
+            )
             .frame(height: isActiveSession ? 8 : 5)
             .animation(.easeInOut(duration: 0.15), value: isActiveSession)
 

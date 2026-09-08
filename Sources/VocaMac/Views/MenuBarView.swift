@@ -275,7 +275,7 @@ struct MenuBarView: View {
 
             // Audio level indicator (visible during recording)
             if appState.appStatus == .recording {
-                AudioLevelView(level: appState.audioLevel)
+                ObservedAudioLevelView(meter: appState.audioMeter)
                     .frame(height: 6)
 
                 // Stop/recovery button — visible during recording so the user

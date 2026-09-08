@@ -135,7 +135,13 @@ enum AudioSegmenter {
 
     /// Convenience wrapper that measures energy directly from the samples.
     static func segment(_ samples: [Float], maxSeconds: Double, sampleRate: Int = 16_000) -> [[Float]] {
-        let ranges = segmentRanges(
+        let ranges = ranges(for: samples, maxSeconds: maxSeconds, sampleRate: sampleRate)
+        if ranges.count <= 1 { return samples.isEmpty ? [] : [samples] }
+        return ranges.map { Array(samples[$0]) }
+    }
+
+    static func ranges(for samples: [Float], maxSeconds: Double, sampleRate: Int = 16_000) -> [Range<Int>] {
+        segmentRanges(
             sampleCount: samples.count,
             maxSeconds: maxSeconds,
             sampleRate: sampleRate
@@ -144,10 +150,5 @@ enum AudioSegmenter {
             for i in range { sum += samples[i] * samples[i] }
             return sum / Float(range.count)
         }
-
-        if ranges.count <= 1 {
-            return samples.isEmpty ? [] : [samples]
-        }
-        return ranges.map { Array(samples[$0]) }
     }
 }

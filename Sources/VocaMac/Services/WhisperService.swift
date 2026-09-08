@@ -91,7 +91,11 @@ final class WhisperService: @unchecked Sendable {
                 .appendingPathComponent("models")
 
             // Verbose logging for debugging
+            #if DEBUG
             config.verbose = true
+            #else
+            config.verbose = false
+            #endif
 
             // Prewarm the model so the CoreML pipeline (Metal/ANE) is compiled
             // at load time rather than on the first transcription request.

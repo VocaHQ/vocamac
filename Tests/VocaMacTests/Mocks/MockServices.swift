@@ -13,6 +13,7 @@ import Combine
 final class MockAudioEngine: AudioRecording {
     var isCurrentlyRecording = false
     var onAudioLevel: ((Float) -> Void)?
+    var onAudioSamples: (([Float], Int) -> Void)?
     var onSilenceDetected: (() -> Void)?
     var onMaxDurationReached: (() -> Void)?
     var onAudioDeviceChanged: (() -> Void)?
@@ -425,6 +426,8 @@ final class MockModelManager: ModelManaging {
 final class MockWhisperService: SpeechTranscribing {
     typealias LoadRequest = (name: String?, folder: URL?)
 
+    var streamingFactory: ((String?) -> RecordingTranscription?)?
+    func startStreaming(language: String?) -> RecordingTranscription? { streamingFactory?(language) }
     var loadedModelName: String? = "openai_whisper-tiny"
     var isModelLoaded: Bool = true
     var lastTranscribedAudioData: [Float]?

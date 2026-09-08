@@ -60,6 +60,8 @@ final class AppleSpeechService: @unchecked Sendable {
 
     /// Whether the engine has been prepared (assets checked/installed)
     private var isPrepared = false
+    private var preparedSession: (any PreparedSpeechSession)?
+    private var preparedLocale: String?
 
     var isModelLoaded: Bool { isPrepared }
 
@@ -87,7 +89,9 @@ final class AppleSpeechService: @unchecked Sendable {
 
         onPhaseChange?("Checking speech assets…")
         let locale = language.map { Locale(identifier: $0) } ?? Locale.current
-        try await AppleSpeechEngine.prepareAssets(for: locale, onPhaseChange: onPhaseChange)
+        await unloadModel()
+        preparedSession = try await AppleSpeechEngine.prepareSession(for: locale, onPhaseChange: onPhaseChange)
+        preparedLocale = locale.identifier
         isPrepared = true
 
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
@@ -97,8 +101,12 @@ final class AppleSpeechService: @unchecked Sendable {
         #endif
     }
 
-    func unloadModel() {
+    func unloadModel() async {
         isPrepared = false
+        let session = preparedSession
+        preparedSession = nil
+        preparedLocale = nil
+        await session?.cancel()
     }
 
     // MARK: - Transcription
@@ -112,43 +120,46 @@ final class AppleSpeechService: @unchecked Sendable {
         audioData: [Float],
         language: String? = nil
     ) async throws -> VocaTranscription {
+        guard !audioData.isEmpty else { throw AppleSpeechError.emptyAudio }
+        let cursor = AudioChunkCursor(audioData)
+        return try await transcribe(
+            chunks: AsyncThrowingStream(unfolding: { await cursor.next() }), language: language
+        )
+    }
+
+    /// Own one prepared analyzer for one utterance. Finished sessions are never reused.
+    func transcribe(chunks: AsyncThrowingStream<[Float], Error>, language: String?) async throws -> VocaTranscription {
         #if compiler(>=6.2)
         guard #available(macOS 26.0, *) else { throw AppleSpeechError.unsupportedSystem }
         guard isPrepared else { throw AppleSpeechError.modelNotLoaded }
-        guard !audioData.isEmpty else { throw AppleSpeechError.emptyAudio }
-
-        let audioLengthSeconds = Double(audioData.count) / 16000.0
-        VocaLogger.info(.appleSpeechService, "Apple Speech transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
-
-        let startTime = CFAbsoluteTimeGetCurrent()
-        let requestedLocale = language.map { Locale(identifier: $0) } ?? Locale.current
-
+        let locale = language.map { Locale(identifier: $0) } ?? Locale.current
+        let start = CFAbsoluteTimeGetCurrent()
+        let session: any PreparedSpeechSession
+        if let preparedSession, preparedLocale == locale.identifier {
+            session = preparedSession
+            self.preparedSession = nil
+        } else {
+            await preparedSession?.cancel()
+            preparedSession = nil
+            session = try await AppleSpeechEngine.prepareSession(for: locale)
+        }
         do {
-            let text = try await AppleSpeechEngine.transcribe(
-                samples: audioData,
-                locale: requestedLocale
-            )
-
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            VocaLogger.info(.appleSpeechService, "Apple Speech transcription completed in \(String(format: "%.2f", elapsed))s")
-            VocaLogger.info(.appleSpeechService, "Result: \(text.prefix(100))...")
-
+            try Task.checkCancellation()
+            let (text, count) = try await session.transcribe(chunks)
             return VocaTranscription(
-                text: text,
-                duration: elapsed,
-                detectedLanguage: language ?? requestedLocale.language.languageCode?.identifier ?? "auto",
-                audioLengthSeconds: audioLengthSeconds,
-                modelUsed: .appleSpeech
+                text: text, duration: CFAbsoluteTimeGetCurrent() - start,
+                detectedLanguage: language ?? locale.language.languageCode?.identifier ?? "auto",
+                audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech
             )
-        } catch let error as AppleSpeechError {
-            throw error
         } catch {
-            throw AppleSpeechError.transcriptionFailed(reason: error.localizedDescription)
+            await session.cancel()
+            throw error
         }
         #else
         throw AppleSpeechError.unsupportedSystem
         #endif
     }
+
 }
 
 // MARK: - AppleSpeechEngine (SpeechAnalyzer wrapper)
@@ -174,139 +185,165 @@ enum AppleSpeechEngine {
         }
     }
 
-    /// Ensure the system has transcription assets installed for the locale.
-    static func prepareAssets(
-        for locale: Locale,
-        onPhaseChange: ((String) -> Void)? = nil
-    ) async throws {
+    /// Resolve assets and preheat before the first recording rather than after stop.
+    fileprivate static func prepareSession(
+        for locale: Locale, onPhaseChange: ((String) -> Void)? = nil
+    ) async throws -> any PreparedSpeechSession {
+        let interval = PerformanceTrace.begin("AppleSpeechPreparation")
+        defer { PerformanceTrace.end(interval) }
         guard let resolved = await resolveSupportedLocale(matching: locale) else {
             throw AppleSpeechError.localeNotSupported(locale.identifier)
         }
-
         let transcriber = SpeechTranscriber(
-            locale: resolved,
-            transcriptionOptions: [],
-            reportingOptions: [],
-            attributeOptions: []
+            locale: resolved, transcriptionOptions: [], reportingOptions: [], attributeOptions: []
         )
-
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             onPhaseChange?("Downloading speech assets…")
-            VocaLogger.info(.appleSpeechService, "Downloading system speech assets for \(resolved.identifier)...")
             try await request.downloadAndInstall()
         }
-    }
-
-    /// Transcribe a full clip of 16kHz mono Float32 samples.
-    static func transcribe(samples: [Float], locale: Locale) async throws -> String {
-        guard let resolved = await resolveSupportedLocale(matching: locale) else {
-            throw AppleSpeechError.localeNotSupported(locale.identifier)
-        }
-
-        let transcriber = SpeechTranscriber(
-            locale: resolved,
-            transcriptionOptions: [],
-            reportingOptions: [],
-            attributeOptions: []
-        )
-
-        // Assets for the app's warm-up locale are installed at load time, but
-        // the user may dictate in a different language — install on demand.
-        if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
-            try await request.downloadAndInstall()
-        }
-
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
-
-        guard let analysisFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
-            compatibleWith: [transcriber]
-        ) else {
+        guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
             throw AppleSpeechError.audioFormatUnavailable
         }
+        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        onPhaseChange?("Preparing speech recognition…")
+        do {
+            try await analyzer.prepareToAnalyze(in: format)
+            try Task.checkCancellation()
+            return ApplePreparedSpeechSession(analyzer: analyzer, transcriber: transcriber, format: format)
+        } catch {
+            await analyzer.cancelAndFinishNow()
+            throw error
+        }
+    }
+}
 
-        // Collect final results concurrently while audio is analyzed.
-        let collector = Task { () -> String in
+@available(macOS 26.0, *)
+private actor ApplePreparedSpeechSession: PreparedSpeechSession {
+    let analyzer: SpeechAnalyzer
+    let transcriber: SpeechTranscriber
+    let format: AVAudioFormat
+    private var started = false
+
+    init(analyzer: SpeechAnalyzer, transcriber: SpeechTranscriber, format: AVAudioFormat) {
+        self.analyzer = analyzer
+        self.transcriber = transcriber
+        self.format = format
+    }
+
+    func transcribe(_ chunks: AsyncThrowingStream<[Float], Error>) async throws -> (String, Int) {
+        guard !started else { throw AppleSpeechError.modelNotLoaded }
+        started = true
+        let collector = Task { [transcriber] in
             var pieces: [String] = []
             for try await result in transcriber.results where result.isFinal {
                 pieces.append(String(result.text.characters))
             }
-            return pieces.joined()
+            return pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         }
-
-        let (inputSequence, inputBuilder) = AsyncStream.makeStream(of: AnalyzerInput.self)
-        try await analyzer.start(inputSequence: inputSequence)
-
-        let inputBuffer = try pcmBuffer(from: samples)
-        let analysisBuffer = try convert(inputBuffer, to: analysisFormat)
-        inputBuilder.yield(AnalyzerInput(buffer: analysisBuffer))
-        inputBuilder.finish()
-
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-
-        let text = try await collector.value
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = SpeechInputCursor(chunks: chunks, format: format)
+        do {
+            return try await withTaskCancellationHandler {
+                let input = AsyncThrowingStream<AnalyzerInput, Error>(unfolding: { try await source.next() })
+                let end = try await analyzer.analyzeSequence(input)
+                if let end { try await analyzer.finalizeAndFinish(through: end) }
+                else { await analyzer.cancelAndFinishNow() }
+                let text = try await collector.value
+                return (text, await source.sampleCount)
+            } onCancel: {
+                collector.cancel()
+                Task { await self.cancel() }
+            }
+        } catch {
+            collector.cancel()
+            await analyzer.cancelAndFinishNow()
+            _ = try? await collector.value
+            throw error
+        }
     }
 
-    // MARK: Audio plumbing
+    func cancel() async { await analyzer.cancelAndFinishNow() }
+}
 
-    /// Wrap raw samples in an AVAudioPCMBuffer (16kHz mono Float32).
-    private static func pcmBuffer(from samples: [Float]) throws -> AVAudioPCMBuffer {
-        guard let format = AVAudioFormat(
-            commonFormat: .pcmFormatFloat32,
-            sampleRate: inputSampleRate,
-            channels: 1,
-            interleaved: false
-        ), let buffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: AVAudioFrameCount(samples.count)
-        ) else {
-            throw AppleSpeechError.audioFormatUnavailable
-        }
+/// Lazily convert only the next chunk requested by SpeechAnalyzer. The converter
+/// spans chunks and drains once at EOF so resampling does not drop boundary frames.
+@available(macOS 26.0, *)
+actor SpeechInputCursor {
+    private var iterator: AsyncThrowingStream<[Float], Error>.Iterator
+    private let format: AVAudioFormat
+    private let converter: AVAudioConverter?
+    private(set) var sampleCount = 0
+    private var ended = false
 
-        buffer.frameLength = AVAudioFrameCount(samples.count)
-        if let channelData = buffer.floatChannelData {
+    init(chunks: AsyncThrowingStream<[Float], Error>, format: AVAudioFormat) {
+        iterator = chunks.makeAsyncIterator()
+        self.format = format
+        converter = format == AudioEngine.whisperFormat ? nil : AVAudioConverter(from: AudioEngine.whisperFormat, to: format)
+    }
+
+    func next() async throws -> AnalyzerInput? {
+        guard !ended else { return nil }
+        // A single analyzer owns this iterator; move it out across the suspension.
+        var currentIterator = iterator
+        let samples = try await currentIterator.next()
+        iterator = currentIterator
+        try Task.checkCancellation()
+        if samples == nil { ended = true }
+        if let samples, samples.isEmpty { return try await next() }
+        let count = samples?.count ?? 0
+        sampleCount += count
+        var input: AVAudioPCMBuffer?
+        if let samples, !samples.isEmpty {
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: AudioEngine.whisperFormat, frameCapacity: AVAudioFrameCount(count)),
+                  let destination = buffer.floatChannelData?[0] else { throw AppleSpeechError.audioFormatUnavailable }
+            buffer.frameLength = AVAudioFrameCount(count)
             samples.withUnsafeBufferPointer { source in
-                channelData[0].update(from: source.baseAddress!, count: samples.count)
+                if let base = source.baseAddress { destination.update(from: base, count: count) }
             }
+            input = buffer
         }
-        return buffer
-    }
-
-    /// Convert a buffer to the analyzer's preferred format if they differ.
-    private static func convert(
-        _ buffer: AVAudioPCMBuffer,
-        to format: AVAudioFormat
-    ) throws -> AVAudioPCMBuffer {
-        if buffer.format == format {
-            return buffer
+        guard let converter else {
+            guard format == AudioEngine.whisperFormat else { throw AppleSpeechError.audioFormatUnavailable }
+            return input.map { AnalyzerInput(buffer: $0) }
         }
-
-        guard let converter = AVAudioConverter(from: buffer.format, to: format) else {
+        let capacity = AVAudioFrameCount(ceil(Double(max(1, count)) * format.sampleRate / 16_000) + 1024)
+        guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
             throw AppleSpeechError.audioFormatUnavailable
         }
-
-        let ratio = format.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount((Double(buffer.frameLength) * ratio).rounded(.up) + 1024)
-        guard let converted = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
-            throw AppleSpeechError.audioFormatUnavailable
+        let provider = SpeechConverterInput(buffer: input, isEnd: samples == nil)
+        var error: NSError?
+        let interval = PerformanceTrace.begin("AppleSpeechAudioConversion")
+        let status = converter.convert(to: output, error: &error) { _, state in
+            provider.next(state)
         }
-
-        var fed = false
-        var conversionError: NSError?
-        converter.convert(to: converted, error: &conversionError) { _, outStatus in
-            if fed {
-                outStatus.pointee = .endOfStream
-                return nil
-            }
-            fed = true
-            outStatus.pointee = .haveData
-            return buffer
-        }
-
-        if let conversionError {
-            throw AppleSpeechError.transcriptionFailed(reason: conversionError.localizedDescription)
-        }
-        return converted
+        PerformanceTrace.end(interval)
+        if let error { throw error }
+        guard status != .error else { throw AppleSpeechError.audioFormatUnavailable }
+        if output.frameLength == 0 { return ended ? nil : try await next() }
+        return AnalyzerInput(buffer: output)
     }
 }
+/// AVAudioConverter invokes its input block synchronously and serially. This
+/// holder owns the buffer until conversion returns; it never escapes to a task.
+private final class SpeechConverterInput: @unchecked Sendable {
+    private let buffer: AVAudioPCMBuffer?
+    private let isEnd: Bool
+    private var supplied = false
+    init(buffer: AVAudioPCMBuffer?, isEnd: Bool) { self.buffer = buffer; self.isEnd = isEnd }
+    func next(_ state: UnsafeMutablePointer<AVAudioConverterInputStatus>) -> AVAudioBuffer? {
+        guard !supplied, let buffer else {
+            state.pointee = isEnd ? .endOfStream : .noDataNow
+            return nil
+        }
+        supplied = true
+        state.pointee = .haveData
+        return buffer
+    }
+}
+
 #endif
+
+/// Availability-erased session storage keeps the macOS 14 executable loadable.
+private protocol PreparedSpeechSession: Sendable {
+    func transcribe(_ chunks: AsyncThrowingStream<[Float], Error>) async throws -> (String, Int)
+    func cancel() async
+}

@@ -29,7 +29,7 @@ The available source languages and results depend on the selected Whisper model.
 
 By default, VocaMac automatically detects the language you're speaking. Whisper's detection is remarkably accurate, even for short utterances.
 
-For more predictable results, you can manually set your source language in **Settings → Models → Language**. Select from the language hints exposed by the stable app. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
+For more predictable results, you can manually set your source language in **Settings → Speech Model**. Select from the language hints exposed by the stable app. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
 
 Changing languages is as simple as picking a new option from the dropdown. No restarts, no waiting. The change takes effect immediately.
 

@@ -110,7 +110,7 @@
 
 ## 🧠 How the engines work
 
-VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Models**. The [Models](#-models) section explains the full catalogue.
+VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Speech Model**. The [Models](#-models) section explains the full catalogue.
 
 ### Why the Whisper engine uses WhisperKit
 
@@ -358,7 +358,7 @@ Switch between modes in **Settings → Dictation**.
 
 ## 🧠 Models
 
-VocaMac runs four on-device speech engines and picks between them in **Settings → Models**, where models are grouped by engine. Everything runs locally.
+VocaMac runs four on-device speech engines and picks between them in **Settings → Speech Model**, where models are grouped by engine. Everything runs locally.
 
 ### Parakeet — fastest, recommended for dictation
 

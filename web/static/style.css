@@ -834,6 +834,8 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 .text-link:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 
 .shot {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--paper-bright);
   border: 1px solid var(--line);
@@ -848,14 +850,29 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   transform: translateY(-3px);
 }
 
-.shot img {
-  width: 100%;
-  border-bottom: 1px solid var(--line);
+.shot-frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  padding: 1.15rem;
+  overflow: hidden;
   background: var(--paper-deep);
+  border-bottom: 1px solid var(--line);
+}
+
+.shot-frame img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: var(--shadow-window);
   transition: transform 500ms var(--ease);
 }
 
-.shot:hover img { transform: scale(1.025); }
+.shot:hover .shot-frame img { transform: scale(1.02); }
 
 .shot figcaption {
   padding: 1rem 1.15rem;
@@ -1499,7 +1516,15 @@ details.source-install summary {
   border-radius: var(--radius-sm);
 }
 
-.prose img { margin: 1.4rem 0; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.prose img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 1.4rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
 
 .prose table {
   width: 100%;

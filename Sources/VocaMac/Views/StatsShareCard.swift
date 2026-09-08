@@ -1,7 +1,8 @@
 // StatsShareCard.swift
 // VocaMac
 //
-// Branded stats card rendered to an image and copied to the clipboard.
+// Branded stats card rendered to an image, copied to the clipboard and
+// optionally posted to a social composer.
 // Forced dark appearance so clipboard shares match the in-app Stats look.
 
 import AppKit
@@ -40,6 +41,9 @@ struct StatsShareCard: View {
         formatter.allowedUnits = [.hour, .minute]
         formatter.unitsStyle = .abbreviated
         formatter.zeroFormattingBehavior = .dropAll
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US")
+        formatter.calendar = calendar
         return formatter
     }()
 
@@ -59,8 +63,16 @@ struct StatsShareCard: View {
             }
 
             HStack(spacing: 10) {
-                shareMetric(title: "Words", value: "\(snapshot.totalWords)", accent: .blue)
-                shareMetric(title: "Sessions", value: "\(snapshot.totalTranscriptions)", accent: .purple)
+                shareMetric(
+                    title: "Words",
+                    value: StatsShareComposer.formatCount(snapshot.totalWords),
+                    accent: .blue
+                )
+                shareMetric(
+                    title: "Sessions",
+                    value: StatsShareComposer.formatCount(snapshot.totalTranscriptions),
+                    accent: .purple
+                )
                 shareMetric(
                     title: "Time",
                     value: Self.durationFormatter.string(from: snapshot.totalAudioDurationSeconds) ?? "0m",
@@ -123,6 +135,17 @@ struct StatsShareCard: View {
     }
 }
 
+/// What `StatsShareExporter.share` managed to do, so the UI can tell the user
+/// whether the card is actually on the clipboard.
+enum StatsShareOutcome: Equatable {
+    /// Composer opened and the card image is on the clipboard.
+    case shared
+    /// Composer opened, but the card image could not be copied.
+    case sharedWithoutCard
+    /// Nothing opened.
+    case failed
+}
+
 enum StatsShareExporter {
     /// Renders the branded card and copies a PNG to the general pasteboard.
     @MainActor
@@ -140,5 +163,33 @@ enum StatsShareExporter {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setData(png, forType: .png)
+    }
+
+    /// Copies the card image, then opens the destination's composer with the
+    /// post text prefilled so the user can paste the image in.
+    ///
+    /// Web share intents cannot carry an attachment, so the clipboard copy is
+    /// how the image gets there. A failed copy is reported separately rather
+    /// than folded into success: telling the user to paste when the clipboard
+    /// still holds their previous content would put that content in a public
+    /// post.
+    @MainActor
+    static func share(_ snapshot: StatsShareSnapshot, to destination: StatsShareDestination) -> StatsShareOutcome {
+        guard let url = StatsShareComposer.composerURL(for: snapshot, destination: destination) else {
+            VocaLogger.error(.general, "Stats share: could not build a \(destination.displayName) composer URL")
+            return .failed
+        }
+
+        let copiedImage = copyImage(toClipboard: snapshot)
+        if !copiedImage {
+            VocaLogger.warning(.general, "Stats share: card image could not be copied")
+        }
+
+        guard NSWorkspace.shared.open(url) else {
+            VocaLogger.error(.general, "Stats share: could not open the \(destination.displayName) composer")
+            return .failed
+        }
+
+        return copiedImage ? .shared : .sharedWithoutCard
     }
 }

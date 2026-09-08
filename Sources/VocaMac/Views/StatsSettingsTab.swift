@@ -8,7 +8,21 @@ import SwiftUI
 struct StatsSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var showingResetConfirmation = false
-    @State private var shareCopied = false
+    @State private var shareState: ShareState = .idle
+    /// Bumped on every share state change so a pending reset can only clear the
+    /// state it was scheduled for. Keying the reset on the destination let a
+    /// second share to the same network inherit the first one's countdown.
+    @State private var shareStateToken = 0
+
+    /// One state rather than two independent flags: "Copied!" and "Opening X…"
+    /// are mutually exclusive, and a copy made during an open share window used
+    /// to go unacknowledged.
+    private enum ShareState: Equatable {
+        case idle
+        case copied
+        case opened(StatsShareDestination, cardCopied: Bool)
+        case failed(String)
+    }
 
     private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
@@ -43,35 +57,34 @@ struct StatsSettingsTab: View {
                             Label("Lifetime Totals", systemImage: "chart.bar.fill")
                                 .font(.headline)
                             Spacer()
-                            Button {
-                                let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
-                                if StatsShareExporter.copyImage(toClipboard: snapshot) {
-                                    shareCopied = true
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                        shareCopied = false
+                            Menu {
+                                ForEach(StatsShareDestination.allCases) { destination in
+                                    Button("Share on \(destination.displayName)") {
+                                        share(to: destination)
                                     }
                                 }
+                                Divider()
+                                Button("Copy Card Image") { copyCardImage() }
                             } label: {
-                                Label(
-                                    shareCopied ? "Copied!" : "Share",
-                                    systemImage: shareCopied ? "checkmark" : "square.and.arrow.up"
-                                )
+                                Label(shareLabel, systemImage: shareIcon)
                             }
+                            .menuStyle(.borderlessButton)
+                            .fixedSize()
                             .controlSize(.small)
-                            .help("Copy a stats card image to the clipboard")
+                            .help("Post your stats card, or copy it to the clipboard")
                         }
 
                         HStack(spacing: 0) {
                             StatPill(
-                                icon: "text.wordspacing",
+                                icon: "text.word.spacing",
                                 label: "Total Words",
-                                value: "\(appState.statsManager.stats.totalWords)",
+                                value: StatsShareComposer.formatCount(appState.statsManager.stats.totalWords),
                                 color: .blue
                             )
                             StatPill(
                                 icon: "waveform",
                                 label: "Transcriptions",
-                                value: "\(appState.statsManager.stats.totalTranscriptions)",
+                                value: StatsShareComposer.formatCount(appState.statsManager.stats.totalTranscriptions),
                                 color: .purple
                             )
                             StatPill(
@@ -81,7 +94,15 @@ struct StatsSettingsTab: View {
                                 color: .orange
                             )
                         }
+
+                        if let note = shareNote {
+                            Label(note.text, systemImage: note.icon)
+                                .font(.caption)
+                                .foregroundStyle(note.isError ? Color.red : Color.secondary)
+                                .transition(.opacity)
+                        }
                     }
+                    .animation(.easeInOut(duration: 0.2), value: shareState)
                     .padding(8)
                 }
 
@@ -180,6 +201,78 @@ struct StatsSettingsTab: View {
         } message: {
             Text("This permanently deletes all your usage statistics. This action cannot be undone.")
         }
+    }
+
+    private var shareLabel: String {
+        switch shareState {
+        case .idle, .failed: return "Share"
+        case .copied: return "Copied!"
+        case .opened(let destination, _): return "Opening \(destination.displayName)…"
+        }
+    }
+
+    private var shareIcon: String {
+        switch shareState {
+        case .idle: return "square.and.arrow.up"
+        case .copied, .opened: return "checkmark"
+        case .failed: return "exclamationmark.triangle"
+        }
+    }
+
+    /// The line under the pills. Never claims the card is on the clipboard
+    /// unless it is: the user pastes whatever is there into a public post.
+    private var shareNote: (text: String, icon: String, isError: Bool)? {
+        switch shareState {
+        case .idle, .copied:
+            return nil
+        case .opened(let destination, let cardCopied):
+            guard cardCopied else {
+                return (
+                    "Couldn't copy the card image, so your \(destination.displayName) post has the text only.",
+                    "exclamationmark.triangle",
+                    true
+                )
+            }
+            return (
+                "Card copied! Just paste it into your \(destination.displayName) post.",
+                "doc.on.clipboard",
+                false
+            )
+        case .failed(let message):
+            return (message, "exclamationmark.triangle", true)
+        }
+    }
+
+    private func setShareState(_ state: ShareState, clearingAfter seconds: Double) {
+        shareStateToken += 1
+        let token = shareStateToken
+        shareState = state
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            if shareStateToken == token { shareState = .idle }
+        }
+    }
+
+    /// Social composers cannot take an attachment, so the card lands on the
+    /// clipboard and the user pastes it into the prefilled post.
+    private func share(to destination: StatsShareDestination) {
+        let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
+        switch StatsShareExporter.share(snapshot, to: destination) {
+        case .shared:
+            setShareState(.opened(destination, cardCopied: true), clearingAfter: 4)
+        case .sharedWithoutCard:
+            setShareState(.opened(destination, cardCopied: false), clearingAfter: 6)
+        case .failed:
+            setShareState(.failed("Couldn't open \(destination.displayName)."), clearingAfter: 6)
+        }
+    }
+
+    private func copyCardImage() {
+        let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
+        guard StatsShareExporter.copyImage(toClipboard: snapshot) else {
+            setShareState(.failed("Couldn't copy the card image."), clearingAfter: 6)
+            return
+        }
+        setShareState(.copied, clearingAfter: 2)
     }
 
     private func formatDuration(_ seconds: Double) -> String {

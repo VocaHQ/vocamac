@@ -217,7 +217,7 @@ enum SettingsSearchIndex {
             id: "stats",
             page: .stats,
             title: "Usage Stats",
-            keywords: ["streak", "words", "history"]
+            keywords: ["streak", "words", "history", "share", "social", "linkedin"]
         ),
         SettingsSearchEntry(
             id: "logs",

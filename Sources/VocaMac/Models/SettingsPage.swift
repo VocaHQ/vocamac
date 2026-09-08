@@ -10,6 +10,7 @@ import SwiftUI
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictation
     case snippets
+    case cleanup
     case speechModel
     case audio
     case performance
@@ -24,6 +25,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dictation: return "Dictation"
         case .snippets: return "Snippets"
+        case .cleanup: return "Cleanup"
         case .speechModel: return "Speech Model"
         case .audio: return "Audio"
         case .performance: return "Performance"
@@ -38,6 +40,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dictation: return "mic"
         case .snippets: return "text.quote"
+        case .cleanup: return "wand.and.stars"
         case .speechModel: return "brain"
         case .audio: return "waveform"
         case .performance: return "bolt.circle"

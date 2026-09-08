@@ -14,7 +14,8 @@ final class LogCategoryTests: XCTestCase {
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
 
         for category in categories {
@@ -28,7 +29,8 @@ final class LogCategoryTests: XCTestCase {
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
 
         for category in categories {
@@ -40,11 +42,12 @@ final class LogCategoryTests: XCTestCase {
 
     func testCategoryCount() {
         // Ensure we're testing all categories — update this if new ones are added
-        let expectedCount = 13
+        let expectedCount = 14
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
         XCTAssertEqual(categories.count, expectedCount)
     }

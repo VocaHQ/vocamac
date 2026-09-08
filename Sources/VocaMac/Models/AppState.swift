@@ -144,6 +144,9 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.autoPausePollInterval) var autoPausePollIntervalSeconds: Double = 5
     @AppStorage(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = false
     @AppStorage(PreferenceKey.modelKeepAliveIdleTimeout) var modelKeepAliveIdleTimeoutSeconds: Double = 300
+    @AppStorage(PreferenceKey.transcriptCleanupEnabled) var transcriptCleanupEnabled: Bool = false
+    @AppStorage(PreferenceKey.transcriptCleanupModel) var transcriptCleanupModel: String = CleanupModelKind.defaultKind.rawValue
+    @AppStorage(PreferenceKey.transcriptCleanupPrompt) var transcriptCleanupPrompt: String = ""
 
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
@@ -265,6 +268,7 @@ final class AppState: ObservableObject {
     let cursorOverlay: CursorOverlayManaging
     let statsManager: StatsManaging
     let snippetExpander: SnippetExpanding
+    let transcriptCleanup: TranscriptCleaning
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
 
@@ -356,6 +360,7 @@ final class AppState: ObservableObject {
         cursorOverlay: CursorOverlayManaging,
         statsManager: StatsManaging,
         snippetExpander: SnippetExpanding = SnippetExpander(),
+        transcriptCleanup: TranscriptCleaning,
         permissionManager: (any PermissionManaging)? = nil,
         skipSystemIntegration: Bool = false
     ) {
@@ -368,6 +373,7 @@ final class AppState: ObservableObject {
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
         self.snippetExpander = snippetExpander
+        self.transcriptCleanup = transcriptCleanup
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
 
@@ -388,7 +394,14 @@ final class AppState: ObservableObject {
         // Forward statsManager changes
         statsManager.objectWillChangePublisher
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
+            .sink { [weak self] in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+
+        transcriptCleanup.objectWillChangePublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] in
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
@@ -403,7 +416,8 @@ final class AppState: ObservableObject {
     @MainActor
     private static let sharedProductionInstance = AppState(
         cursorOverlay: CursorOverlayManager(),
-        statsManager: StatsManager()
+        statsManager: StatsManager(),
+        transcriptCleanup: TranscriptCleanupService()
     )
 
     /// Convenience factory for creating AppState with all real services.
@@ -1157,13 +1171,14 @@ final class AppState: ObservableObject {
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
-                // Polish first, expand second. Snippet expansions are literal
-                // text the user authored, so auto-capitalization must not
-                // rewrite them (an email snippet would become Me@example.com).
-                // Trigger matching is case-insensitive, so capitalizing the
-                // trigger beforehand still matches.
+                // Cleanup (optional LLM) → polish → snippets.
+                // Snippet expansions are literal text the user authored, so
+                // auto-capitalization must not rewrite them (an email snippet
+                // would become Me@example.com). Cleanup runs first so spoken
+                // triggers still match.
+                let cleanedText = await cleanedTranscript(from: trimmedText)
                 let polishedSource = DictationOutputFormatter.apply(
-                    trimmedText,
+                    cleanedText,
                     autoCapitalize: autoCapitalize,
                     appendTrailingSpace: appendTrailingSpace
                 )
@@ -1708,6 +1723,10 @@ final class AppState: ObservableObject {
         await loadModel(modelToLoad)
         VocaLogger.info(.appState, "Model loaded: \(whisperService.loadedModelName ?? "none")")
 
+        if transcriptCleanupEnabled {
+            await syncTranscriptCleanup()
+        }
+
         // 4. Always attempt to start hotkey listener
         // The event tap creation itself will fail if permissions aren't granted,
         // and we handle that gracefully in HotKeyManager.
@@ -1765,5 +1784,49 @@ final class AppState: ObservableObject {
 
     func expandSnippets(in text: String) -> String {
         return snippetExpander.expand(in: text, using: snippets)
+    }
+
+    var selectedCleanupModelKind: CleanupModelKind {
+        get { CleanupModelKind.resolved(stored: transcriptCleanupModel) }
+        set { transcriptCleanupModel = newValue.rawValue }
+    }
+
+    var effectiveCleanupPrompt: String {
+        let stored = transcriptCleanupPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stored.isEmpty ? TranscriptCleanup.defaultPrompt : stored
+    }
+
+    func syncTranscriptCleanup() async {
+        let kind = selectedCleanupModelKind
+        if transcriptCleanupEnabled, transcriptCleanup.isDownloaded(kind) {
+            await transcriptCleanup.load(kind)
+        } else if !transcriptCleanupEnabled {
+            transcriptCleanup.unload()
+        }
+    }
+
+    func downloadCleanupModel(_ kind: CleanupModelKind) async {
+        transcriptCleanupModel = kind.rawValue
+        await transcriptCleanup.download(kind)
+        if transcriptCleanupEnabled, transcriptCleanup.isDownloaded(kind) {
+            await transcriptCleanup.load(kind)
+        }
+    }
+
+    func loadCleanupModel(_ kind: CleanupModelKind) async {
+        transcriptCleanupModel = kind.rawValue
+        await transcriptCleanup.load(kind)
+    }
+
+    func deleteCleanupModel(_ kind: CleanupModelKind) {
+        transcriptCleanup.delete(kind)
+    }
+
+    private func cleanedTranscript(from text: String) async -> String {
+        guard transcriptCleanupEnabled else { return text }
+        let kind = selectedCleanupModelKind
+        guard transcriptCleanup.isDownloaded(kind) else { return text }
+        await transcriptCleanup.load(kind)
+        return await transcriptCleanup.clean(text, prompt: effectiveCleanupPrompt)
     }
 }

@@ -72,6 +72,28 @@ enum SettingsSearchIndex {
             keywords: ["snippet", "shortcut", "expansion", "trigger", "replace", "macro", "abbreviation"]
         ),
 
+        SettingsSearchEntry(
+            id: "cleanup",
+            page: .cleanup,
+            title: "Smart Cleanup",
+            subtitle: "Local LLM polish after transcription",
+            keywords: ["cleanup", "clean", "filler", "llm", "qwen", "gguf", "rewrite", "punctuation", "scratch"]
+        ),
+        SettingsSearchEntry(
+            id: "cleanup-model",
+            page: .cleanup,
+            title: "Cleanup Model",
+            subtitle: "Download Qwen for on-device cleanup",
+            keywords: ["qwen", "model", "download", "0.6b", "0.8b", "2b"]
+        ),
+        SettingsSearchEntry(
+            id: "cleanup-prompt",
+            page: .cleanup,
+            title: "Cleanup Prompt",
+            subtitle: "Instructions sent to the local model",
+            keywords: ["prompt", "instructions", "system"]
+        ),
+
         // Speech Model
         SettingsSearchEntry(
             id: "models",

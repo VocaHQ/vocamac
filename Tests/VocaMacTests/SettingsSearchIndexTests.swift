@@ -25,6 +25,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertTrue(matches.contains { $0.id == "idle-unload" })
     }
 
+    func testCleanupQueryHitsCleanupPage() {
+        let matches = SettingsSearchIndex.matches(query: "filler")
+        XCTAssertTrue(matches.contains { $0.page == .cleanup })
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "qwen"), .cleanup)
+    }
+
     func testTrailingQueryHitsDictation() {
         let matches = SettingsSearchIndex.matches(query: "trailing")
         XCTAssertTrue(matches.contains { $0.page == .dictation })

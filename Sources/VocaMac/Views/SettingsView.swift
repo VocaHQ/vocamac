@@ -116,6 +116,8 @@ struct SettingsView: View {
                 DictationSettingsPage()
             case .snippets:
                 SnippetsSettingsTab()
+            case .cleanup:
+                CleanupSettingsPage()
             case .speechModel:
                 SpeechModelSettingsPage()
             case .audio:

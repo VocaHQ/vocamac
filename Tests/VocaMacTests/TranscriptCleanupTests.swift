@@ -270,6 +270,42 @@ final class CleanupModelTests: XCTestCase {
     }
 
     @MainActor
+    func testUnloadDuringLoadKeepsTheModelOut() async throws {
+        // Constructing a GGUF takes long enough for the user to switch cleanup
+        // off mid-load. The finished load must not put the model back.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        // `isDownloaded` is a size check, so a sparse file of the right length
+        // gets the load past its guards. llama.cpp then rejects the magic and
+        // the load fails — which is enough: a load that is allowed to finish
+        // reports `.error`, and a superseded one must leave `.idle` behind.
+        let descriptor = CleanupModelCatalog.recommended
+        let path = directory.appendingPathComponent(descriptor.fileName)
+        FileManager.default.createFile(atPath: path.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+        try handle.close()
+
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        service.modelFitsInMemory = { _ in true }
+        XCTAssertTrue(service.isDownloaded(descriptor.kind))
+
+        let loading = Task { await service.load(descriptor.kind) }
+        // Let the load actually reach its construction step. Without this the
+        // unload lands before the task even starts — both run on the main
+        // actor — and the load simply begins afterwards.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        service.unload()
+        await loading.value
+
+        XCTAssertFalse(service.isLoaded)
+        XCTAssertEqual(service.modelState, .idle, "a superseded load must not report its own outcome")
+    }
+
+    @MainActor
     func testPruneRemovesModelsTheCatalogNoLongerLists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

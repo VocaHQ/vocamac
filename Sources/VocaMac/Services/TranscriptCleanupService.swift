@@ -35,6 +35,12 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// racing two llama.cpp contexts into memory at once.
     private var loadInFlight: (kind: CleanupModelKind, task: Task<Bool, Never>)?
 
+    /// Which load attempt is allowed to install its model. Constructing a GGUF
+    /// takes long enough for the user to turn cleanup off mid-load, and
+    /// without this the finished load would put the model back — disabled, but
+    /// resident, and reported as ready.
+    private var loadGeneration = 0
+
     /// The download in flight, so the user can call it off.
     private var downloadTask: Task<Void, Never>?
 
@@ -343,6 +349,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         activeLLM = nil
         activeKind = nil
 
+        loadGeneration &+= 1
+        let generation = loadGeneration
         let maxTokens = descriptor.maxTokenCount
         let task = Task<Bool, Never> { [weak self] in
             let loading = Task.detached(priority: .userInitiated) {
@@ -363,7 +371,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             }
             let loaded = await loading.value.llm
             guard let self else { return false }
-            return await self.finishLoad(loaded, kind: kind, descriptor: descriptor)
+            return await self.finishLoad(loaded, kind: kind, descriptor: descriptor, generation: generation)
         }
         loadInFlight = (kind: kind, task: task)
         _ = await task.value
@@ -382,6 +390,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // around makes the next generation wait on — and stop() — a model it
         // has nothing to do with.
         pendingGeneration = nil
+        // Retire any load still constructing, so it cannot install itself
+        // after the user has turned cleanup off.
+        loadGeneration &+= 1
+        loadInFlight = nil
         consecutiveFailures = 0
         modelState = .idle
         VocaLogger.info(.transcriptCleanup, "Unloaded cleanup model")
@@ -402,8 +414,18 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private func finishLoad(
         _ loaded: LLM?,
         kind: CleanupModelKind,
-        descriptor: CleanupModelDescriptor
+        descriptor: CleanupModelDescriptor,
+        generation: Int
     ) -> Bool {
+        // Unloaded or superseded while this one was still constructing. Drop
+        // the model on the floor rather than install it: `loaded` is the only
+        // strong reference, so returning here frees the weights.
+        guard generation == loadGeneration else {
+            loaded?.stop()
+            VocaLogger.info(.transcriptCleanup, "Discarded a superseded load of \(descriptor.displayName)")
+            return false
+        }
+
         guard let loaded else {
             modelState = .error("Failed to load \(descriptor.displayName).")
             VocaLogger.error(.transcriptCleanup, "Failed to load \(descriptor.displayName)")

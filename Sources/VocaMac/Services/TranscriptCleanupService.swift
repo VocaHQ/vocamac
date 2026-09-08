@@ -321,7 +321,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         if let inFlight = loadInFlight {
             let joinedSameKind = inFlight.kind == kind
             _ = await inFlight.task.value
-            if joinedSameKind {
+            // A joined load may have been invalidated by `unload` (stale
+            // generation). Only bail out when that attempt actually installed.
+            if joinedSameKind, activeKind == kind, activeLLM != nil {
                 return
             }
         }
@@ -375,7 +377,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
         loadInFlight = (kind: kind, task: task)
         _ = await task.value
-        if loadInFlight?.kind == kind {
+        // Compare the task, not the kind: a same-kind retry can replace
+        // loadInFlight after a stale join, and clearing by kind would drop it.
+        if loadInFlight?.task == task {
             loadInFlight = nil
         }
     }
@@ -390,10 +394,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // around makes the next generation wait on — and stop() — a model it
         // has nothing to do with.
         pendingGeneration = nil
-        // Retire any load still constructing, so it cannot install itself
-        // after the user has turned cleanup off.
+        // Retire any load still constructing so finishLoad cannot install it
+        // after cleanup was turned off. Keep loadInFlight so a concurrent
+        // load joins this one instead of starting a second llama init while
+        // weights are still being mapped.
         loadGeneration &+= 1
-        loadInFlight = nil
         consecutiveFailures = 0
         modelState = .idle
         VocaLogger.info(.transcriptCleanup, "Unloaded cleanup model")

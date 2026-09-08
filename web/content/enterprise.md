@@ -89,6 +89,6 @@ The services block that goes with it:
 
 VocaMac is a normal notarised app bundle. Package the DMG contents for your management tool, or point managed machines at the [Homebrew cask](/#install) if `brew` is already part of your fleet setup. There's no licence server, no account, and no enrolment step inside the app — after the permissions are in place it simply runs.
 
-Transcription happens on the device with a model stored on that Mac. Dictation audio isn't sent to a Voca service, which is usually the part a security review wants in writing. Model downloads and update checks are separate, ordinary network requests to GitHub, and update checking can be turned off.
+Transcription happens on the device with a model stored on that Mac. Dictation audio isn't sent to a Voca service, which is usually the part a security review wants in writing. Whisper and Parakeet models download from Hugging Face, specialized ONNX models from sherpa-onnx GitHub releases, and update checks hit the GitHub Releases API on launch when the last check is older than 24 hours. Launch-time update checking cannot be turned off.
 
 Something missing here that your rollout needs? [Open an issue](https://github.com/VocaHQ/vocamac/issues) — deployment questions are welcome.

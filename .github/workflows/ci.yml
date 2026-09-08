@@ -35,12 +35,24 @@ jobs:
               - 'scripts/**'
               - 'Makefile'
               - 'VocaMac.entitlements'
+              # A change to this workflow must exercise the jobs it defines,
+              # or a CI edit merges having proven nothing. Scoped to this file
+              # so editing an unrelated workflow does not book three macOS
+              # runners.
+              - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              - '.github/workflows/ci.yml'
 
-  # Build and test Swift app (only when app source changes)
-  build-and-test:
-    name: Build & Test App
+  # ── App jobs ────────────────────────────────────────────────────────────────
+  #
+  # These three ran as one 20-minute serial job. They share no output with each
+  # other — SPM debug, SPM release and the xcodebuild app bundle each compile
+  # into their own directory — so running them on separate runners cuts the
+  # wall clock to the slowest one without losing any coverage.
+
+  test:
+    name: Test (Debug)
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: macos-15
@@ -57,9 +69,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: .build
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift') }}
           restore-keys: |
-            spm-${{ runner.os }}-
+            spm-debug-${{ runner.os }}-
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -70,8 +82,52 @@ jobs:
       - name: Test
         run: swift test
 
+  release-build:
+    name: Build (Release)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@v5
+        with:
+          path: .build
+          key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          restore-keys: |
+            spm-release-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
+
       - name: Build (Release)
         run: swift build -c release
+
+  app-bundle:
+    name: Verify App Bundle
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Cache Xcode build
+        uses: actions/cache@v5
+        with:
+          path: .xcode-build/SourcePackages
+          key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          restore-keys: |
+            xcode-deps-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
 
       - name: Initialize Xcode tools
         run: sudo xcodebuild -runFirstLaunch
@@ -113,3 +169,24 @@ jobs:
       - name: Validate CSS
         working-directory: web
         run: npx --yes stylelint static/style.css
+
+  # Single pass/fail signal for the whole workflow. A path-filtered job that
+  # did not run reports "skipped", which is a pass — only a real failure or a
+  # cancellation fails the gate. Point branch protection at this one check
+  # instead of tracking each job above.
+  ci:
+    name: CI
+    needs: [changes, test, release-build, app-bundle, build-website]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"result"[[:space:]]*:[[:space:]]*"(failure|cancelled)"'; then
+            echo "❌ At least one job did not pass."
+            exit 1
+          fi
+          echo "✅ All jobs passed or were skipped."

@@ -24,13 +24,27 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// racing two llama.cpp contexts into memory at once.
     private var loadInFlight: (kind: CleanupModelKind, task: Task<Bool, Never>)?
 
+    /// The download in flight, so the user can call it off.
+    private var downloadTask: Task<Void, Never>?
+
+    /// A generation left running past its deadline. It still owns the model,
+    /// so it has to finish before another one may start.
+    private var pendingGeneration: Task<String, Never>?
+
     /// Seam for tests; production checks reclaimable RAM against the catalog
     /// estimate, the same gate the speech models use (vocamac#251).
     var modelFitsInMemory: (CleanupModelDescriptor) -> Bool = {
         SystemInfo.canFitInMemory(requiredGB: $0.ramRequiredGB)
     }
 
+    /// Hard ceiling on one cleanup pass. The transcript is waiting to be
+    /// pasted, so the deadline hands back the raw text rather than waiting
+    /// for llama.cpp to wind down.
     private static let timeoutSeconds: TimeInterval = 12
+
+    /// How long a straggler from a previous deadline gets to finish before
+    /// this utterance gives up on cleanup entirely.
+    private static let drainSeconds: TimeInterval = 3
 
     init(modelsDirectory: URL? = nil) {
         if let modelsDirectory {
@@ -67,8 +81,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             }
             VocaLogger.warning(.transcriptCleanup, "Discarded unusable cleanup output")
             return text
-        } catch is CancellationError {
-            VocaLogger.info(.transcriptCleanup, "Cleanup timed out — using raw transcript")
+        } catch CleanupInferenceError.deadlineExceeded {
+            VocaLogger.info(.transcriptCleanup, "Cleanup hit its deadline — using raw transcript")
+            return text
+        } catch CleanupInferenceError.modelBusy {
+            VocaLogger.warning(.transcriptCleanup, "Previous cleanup still winding down — using raw transcript")
             return text
         } catch {
             VocaLogger.warning(.transcriptCleanup, "Cleanup failed: \(error.localizedDescription)")
@@ -81,6 +98,24 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func download(_ kind: CleanupModelKind) async {
+        // Run the transfer in a retained task so `cancelDownload` can reach it;
+        // FileDownloader turns the cancellation into a stopped URLSession task
+        // rather than a transfer that keeps running in the background.
+        downloadTask?.cancel()
+        let task = Task<Void, Never> { [weak self] in await self?.performDownload(kind) }
+        downloadTask = task
+        await task.value
+        if downloadTask == task {
+            downloadTask = nil
+        }
+    }
+
+    func cancelDownload() {
+        downloadTask?.cancel()
+        downloadTask = nil
+    }
+
+    private func performDownload(_ kind: CleanupModelKind) async {
         let descriptor = kind.descriptor
         try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
 
@@ -177,6 +212,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func unload() {
+        // A generation abandoned at a deadline keeps the model alive through
+        // its own reference; ask it to stop so the weights are actually freed.
+        activeLLM?.stop()
         activeLLM = nil
         activeKind = nil
         modelState = .idle
@@ -234,31 +272,116 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     private func runInference(llm: LLM, prompt: String, input: String) async throws -> String {
+        // A generation abandoned at an earlier deadline still owns the model.
+        // `LLM.respond` silently no-ops while the model is busy and leaves the
+        // *previous* utterance's text in `output`, so reading it back would
+        // paste the wrong transcript. Wait for the straggler, then give up on
+        // cleaning this one rather than risk that.
+        if let straggler = pendingGeneration {
+            llm.stop()
+            guard await Self.value(of: straggler, within: Self.drainSeconds) != nil else {
+                throw CleanupInferenceError.modelBusy
+            }
+            pendingGeneration = nil
+        }
+
         let box = LLMBox(llm)
-        return try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask {
-                let model = box.llm
-                guard let model else { return "" }
-                model.systemPrompt = prompt
-                model.history = []
-                await model.respond(to: input, thinking: .suppressed)
-                return model.output
+        // Detached: `respond` runs the llama.cpp loop, and a Task inherited
+        // from this main-actor method would run it on the main thread.
+        let generation = Task.detached(priority: .userInitiated) { () -> String in
+            guard let model = box.llm else { return "" }
+            model.systemPrompt = prompt
+            model.history = []
+            await model.respond(to: input, thinking: .suppressed)
+            return model.output
+        }
+        pendingGeneration = generation
+
+        guard let output = await Self.value(of: generation, within: Self.timeoutSeconds) else {
+            // Hand control back now: ask llama.cpp to wind down and drain the
+            // task on the next call. Awaiting it here — which is what a task
+            // group would do on its way out — is what makes a deadline soft.
+            llm.stop()
+            throw CleanupInferenceError.deadlineExceeded
+        }
+        pendingGeneration = nil
+        return output
+    }
+
+    /// Awaits `task` for at most `seconds`, returning nil at the deadline and
+    /// leaving the task running. Structured concurrency cannot express this:
+    /// a task group awaits its children before it returns, and `Task.value`
+    /// on a non-throwing task ignores the caller's cancellation.
+    private static func value<T: Sendable>(
+        of task: Task<T, Never>,
+        within seconds: TimeInterval
+    ) async -> T? {
+        let gate = OneShotGate<T?>()
+        let waiter = Task.detached(priority: .userInitiated) { gate.resume(with: await task.value) }
+        let timer = Task.detached(priority: .utility) {
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            gate.resume(with: nil)
+        }
+        defer {
+            waiter.cancel()
+            timer.cancel()
+        }
+        return await gate.value()
+    }
+}
+
+enum CleanupInferenceError: Error {
+    /// The model did not answer within the cleanup deadline.
+    case deadlineExceeded
+    /// A generation from an earlier deadline has not finished yet.
+    case modelBusy
+}
+
+/// A continuation only the first caller can resume. Guards the continuation
+/// with a lock the way `FileDownloader` does, since the two racers land on
+/// different threads.
+final class OneShotGate<T: Sendable>: @unchecked Sendable {
+    // A three-state machine rather than a value plus a flag: `T` is itself an
+    // Optional here, so "settled with nil" and "not settled yet" have to stay
+    // distinguishable or the deadline case never resumes its waiter.
+    private enum State {
+        case waiting
+        case suspended(CheckedContinuation<T, Never>)
+        case settled(T)
+    }
+
+    private let lock = NSLock()
+    private var state = State.waiting
+
+    func value() async -> T {
+        await withCheckedContinuation { (continuation: CheckedContinuation<T, Never>) in
+            lock.lock()
+            switch state {
+            case .settled(let value):
+                lock.unlock()
+                continuation.resume(returning: value)
+            case .waiting:
+                state = .suspended(continuation)
+                lock.unlock()
+            case .suspended:
+                lock.unlock()
+                preconditionFailure("OneShotGate awaited more than once")
             }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(Self.timeoutSeconds * 1_000_000_000))
-                throw CancellationError()
-            }
-            do {
-                guard let result = try await group.next() else {
-                    throw CancellationError()
-                }
-                group.cancelAll()
-                return result
-            } catch {
-                box.llm?.stop()
-                group.cancelAll()
-                throw error
-            }
+        }
+    }
+
+    func resume(with value: T) {
+        lock.lock()
+        switch state {
+        case .settled:
+            lock.unlock()
+        case .waiting:
+            state = .settled(value)
+            lock.unlock()
+        case .suspended(let continuation):
+            state = .settled(value)
+            lock.unlock()
+            continuation.resume(returning: value)
         }
     }
 }

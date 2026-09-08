@@ -100,12 +100,17 @@ struct CleanupSettingsPage: View {
         switch appState.transcriptCleanup.modelState {
         case .idle:
             EmptyView()
-        case .downloading(_, let progress):
+        case .downloading(let kind, let progress):
             HStack {
                 ProgressView(value: progress)
-                Text("Downloading \(Int(progress * 100))%")
+                Text("Downloading \(kind.descriptor.displayName) — \(Int(progress * 100))%")
                     .font(.caption)
+                    .monospacedDigit()
                     .foregroundStyle(.secondary)
+                Button("Cancel") {
+                    appState.cancelCleanupDownload()
+                }
+                .controlSize(.small)
             }
         case .loading:
             HStack {
@@ -181,7 +186,21 @@ struct CleanupModelRow: View {
 
             Spacer()
 
-            if isBusy {
+            if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState,
+               active == kind {
+                HStack(spacing: 8) {
+                    ProgressView(value: progress)
+                        .frame(width: 70)
+                    Text("\(Int(progress * 100))%")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                    Button("Cancel") {
+                        appState.cancelCleanupDownload()
+                    }
+                    .controlSize(.small)
+                }
+            } else if isBusy {
                 ProgressView()
                     .controlSize(.small)
             } else if isDownloaded {

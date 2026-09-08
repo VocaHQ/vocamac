@@ -87,6 +87,58 @@ final class TranscriptCleanupTests: XCTestCase {
     }
 }
 
+final class OneShotGateTests: XCTestCase {
+
+    func testFirstResumeWins() async {
+        let gate = OneShotGate<String>()
+        gate.resume(with: "first")
+        gate.resume(with: "second")
+        let value = await gate.value()
+        XCTAssertEqual(value, "first")
+    }
+
+    func testSettlingWithNilStillResumesTheWaiter() async {
+        // The deadline path settles with nil. A flag-plus-value gate cannot
+        // tell that apart from "not settled yet" and hangs the waiter.
+        let gate = OneShotGate<String?>()
+        gate.resume(with: nil)
+        let value = await gate.value()
+        XCTAssertNil(value)
+    }
+
+    func testResumeAfterTheWaiterSuspends() async {
+        let gate = OneShotGate<String?>()
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+            gate.resume(with: nil)
+        }
+        let value = await gate.value()
+        XCTAssertNil(value)
+    }
+
+    func testSlowLoserDoesNotDelayTheWinner() async {
+        // The point of the gate: the deadline returns while the slow side is
+        // still running, which a task group would not allow.
+        let gate = OneShotGate<String?>()
+        let slow = Task.detached { () -> String in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            return "slow"
+        }
+        Task.detached { gate.resume(with: await slow.value) }
+        Task.detached {
+            try? await Task.sleep(nanoseconds: 50_000_000)
+            gate.resume(with: nil)
+        }
+
+        let started = Date()
+        let value = await gate.value()
+
+        XCTAssertNil(value)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0)
+        slow.cancel()
+    }
+}
+
 final class CleanupModelTests: XCTestCase {
 
     func testResolvedUnknownIdFallsBackToDefault() {
@@ -297,6 +349,13 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(cleanup.downloadCallCount, 1)
         XCTAssertEqual(appState.selectedCleanupModelKind, .qwen35_0_8b_q4_k_m)
         XCTAssertEqual(cleanup.loadCallCount, 0)
+    }
+
+    func testCancelDownloadReachesTheService() {
+        let cleanup = MockTranscriptCleanup()
+        let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        appState.cancelCleanupDownload()
+        XCTAssertEqual(cleanup.cancelDownloadCallCount, 1)
     }
 
     func testEffectivePromptFallsBackToDefault() {

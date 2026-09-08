@@ -541,6 +541,7 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     var loadCallCount = 0
     var downloadCallCount = 0
     var downloadSucceeds = true
+    var cancelDownloadCallCount = 0
     var unloadCallCount = 0
     var lastLoadedKind: CleanupModelKind?
 
@@ -567,6 +568,11 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
         } else {
             modelState = .error("download failed")
         }
+    }
+
+    func cancelDownload() {
+        cancelDownloadCallCount += 1
+        modelState = .idle
     }
 
     func load(_ kind: CleanupModelKind) async {

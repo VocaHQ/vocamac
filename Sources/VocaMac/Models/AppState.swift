@@ -1822,6 +1822,10 @@ final class AppState: ObservableObject {
         }
     }
 
+    func cancelCleanupDownload() {
+        transcriptCleanup.cancelDownload()
+    }
+
     func loadCleanupModel(_ kind: CleanupModelKind) async {
         transcriptCleanupModel = kind.rawValue
         await transcriptCleanup.load(kind)

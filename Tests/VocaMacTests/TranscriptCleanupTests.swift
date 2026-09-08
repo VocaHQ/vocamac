@@ -269,25 +269,27 @@ final class CleanupModelTests: XCTestCase {
         )
     }
 
-    /// A service whose model file is the right size but not a real GGUF, so a
+    /// A service whose model files are the right size but not real GGUFs, so a
     /// load gets past its guards and then fails. Enough to tell the two
     /// behaviours apart: a load allowed to finish reports `.error`, while one
-    /// invalidated mid-flight must leave `.idle` behind.
+    /// invalidated mid-flight must leave `.idle` behind. Writes a sparse file
+    /// for every catalog entry so a different-kind waiter can join.
     @MainActor
     private func makeLoadRaceService(
         in directory: URL
     ) throws -> (TranscriptCleanupService, CleanupModelDescriptor) {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let descriptor = CleanupModelCatalog.recommended
-        let path = directory.appendingPathComponent(descriptor.fileName)
-        FileManager.default.createFile(atPath: path.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: path)
-        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
-        try handle.close()
+        for descriptor in CleanupModelCatalog.all {
+            let path = directory.appendingPathComponent(descriptor.fileName)
+            FileManager.default.createFile(atPath: path.path, contents: nil)
+            let handle = try FileHandle(forWritingTo: path)
+            try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+            try handle.close()
+        }
 
         let service = TranscriptCleanupService(modelsDirectory: directory)
         service.modelFitsInMemory = { _ in true }
-        return (service, descriptor)
+        return (service, CleanupModelCatalog.recommended)
     }
 
     @MainActor
@@ -418,6 +420,44 @@ final class CleanupModelTests: XCTestCase {
         XCTAssertFalse(service.isLoaded)
         XCTAssertEqual(service.modelState, .idle)
         XCTAssertFalse(service.isDownloaded(descriptor.kind))
+    }
+
+    @MainActor
+    func testDifferentKindLoadJoinerDoesNotResurrectAfterUnload() async throws {
+        // Load A is in flight. Load B (different kind) parks on that await.
+        // Unload runs before A finishes. B entered before unload, so it must
+        // return idle rather than start a fresh load after cleanup was off.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let (service, first) = try makeLoadRaceService(in: directory)
+        let other = CleanupModelCatalog.compact
+        XCTAssertNotEqual(first.kind, other.kind)
+        XCTAssertTrue(service.isDownloaded(other.kind))
+
+        var joiner: Task<Void, Never>?
+        service.willBeginLoad = { [weak service] in
+            guard let service else { return }
+            service.willBeginLoad = nil
+            joiner = Task { await service.load(other.kind) }
+            // Let the different-kind caller reach its in-flight await before
+            // unload bumps generation. Without the yield it can start after
+            // unload and exercise the re-enable path instead.
+            await Task.yield()
+            await Task.yield()
+            service.unload()
+        }
+        await service.load(first.kind)
+        await joiner?.value
+
+        XCTAssertFalse(service.isLoaded)
+        XCTAssertEqual(
+            service.modelState,
+            .idle,
+            "a different-kind joiner that entered before unload must not start a fresh load"
+        )
     }
 
     @MainActor

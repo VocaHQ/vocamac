@@ -64,9 +64,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// Seam for tests. Runs on the main actor once a load has registered its
     /// generation and in-flight entry but before the GGUF is constructed —
     /// the exact window in which an unload or a delete has to invalidate it.
-    /// Timing a fixed sleep into that window is unreliable: a load that fails
-    /// fast can finish before the test ever observes it.
-    var willBeginLoad: (() -> Void)?
+    /// Async so a test can park a second load on the in-flight await before
+    /// invalidating. Timing a fixed sleep into that window is unreliable: a
+    /// load that fails fast can finish before the test ever observes it.
+    var willBeginLoad: (() async -> Void)?
 
     /// Seam for tests; production checks reclaimable RAM against the catalog
     /// estimate, the same gate the speech models use (vocamac#251).
@@ -331,14 +332,16 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             let joinedSameKind = inFlight.kind == kind
             let generationAtEntry = loadGeneration
             _ = await inFlight.task.value
+            // Every caller that entered before unload is obsolete, whether it
+            // asked for the same model or a different one. Without this check
+            // a different-kind waiter falls through and starts a fresh load
+            // after cleanup was turned off.
+            if generationAtEntry != loadGeneration {
+                return
+            }
             if joinedSameKind {
                 // Installed — done.
                 if activeKind == kind, activeLLM != nil {
-                    return
-                }
-                // Unload bumped generation while we waited. This caller entered
-                // before that unload, so do not resurrect a fresh load.
-                if generationAtEntry != loadGeneration {
                     return
                 }
                 // Same attempt failed on its own (OOM, bad file, etc.). The
@@ -379,7 +382,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         let generation = loadGeneration
         let maxTokens = descriptor.maxTokenCount
         let task = Task<Bool, Never> { [weak self] in
-            self?.willBeginLoad?()
+            await self?.willBeginLoad?()
             let loading = Task.detached(priority: .userInitiated) {
                 // repeatPenalty 1.0 (the library defaults to 1.2): the job is
                 // to reproduce what was said, and penalising recently-seen

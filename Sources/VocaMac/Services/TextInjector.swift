@@ -153,6 +153,24 @@ final class TextInjector {
         else { DispatchQueue.main.async(execute: enqueue) }
     }
 
+    /// Wait until every previously queued injection has finished.
+    ///
+    /// Test-only. Injections share one process-wide coordinator and run
+    /// strictly one at a time, so a no-op that reaches the front of the
+    /// queue proves earlier work is done — without touching any pasteboard.
+    static func waitForInjectionQueueIdleForTesting() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let resume = {
+                Self.clipboardInjectionCoordinator.enqueue { finish in
+                    finish()
+                    continuation.resume()
+                }
+            }
+            if Thread.isMainThread { resume() }
+            else { DispatchQueue.main.async(execute: resume) }
+        }
+    }
+
     private enum AccessibilityInsertion { case inserted, unavailable, uncertain }
 
     private static let accessibilityQueue = DispatchQueue(label: "com.vocamac.text-accessibility", qos: .userInitiated)

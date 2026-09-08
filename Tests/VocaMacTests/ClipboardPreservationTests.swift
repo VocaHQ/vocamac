@@ -12,20 +12,10 @@ final class ClipboardPreservationTests: XCTestCase {
     /// Sleeping for a guessed duration instead makes the assertions fail
     /// whenever a loaded machine takes longer, and leaves a half-finished
     /// injection to overlap the next test through the process-wide
-    /// coordinator. Injections run strictly one at a time, so a fresh one
-    /// reaching the injector at all proves the previous one is done.
+    /// coordinator. Drain via a no-op on that coordinator so we never touch
+    /// a pasteboard just to wait.
     private func drainInjectionQueue() async {
-        // No paste target, so this drain reports failure without pasting. It
-        // still gets its own board so it can never reach the user's clipboard.
-        let board = NSPasteboard(name: .init("com.vocamac.tests.drain.\(UUID())"))
-        defer { board.releaseGlobally() }
-        let drained = expectation(description: "previous injection finished")
-        let drain = TextInjector(pasteboard: board, accessibilityTrustedOverride: true,
-                                 frontmostPIDProvider: { nil })
-        drain.onFailure = { _ in drained.fulfill() }
-        drain.inject(text: "drain", preserveClipboard: false)
-        await fulfillment(of: [drained], timeout: 5)
-        withExtendedLifetime(drain) { }
+        await TextInjector.waitForInjectionQueueIdleForTesting()
     }
 
     func testManyRepresentationsArePreservedAcrossCooperativeCapture() async {

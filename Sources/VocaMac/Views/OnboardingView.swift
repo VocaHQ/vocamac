@@ -601,6 +601,21 @@ struct QuickTestStep: View {
                             .font(.caption)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
+                    } else if case .error(let message) = appState.transcriptCleanup.modelState {
+                        // A failed download must not read as success. Onboarding
+                        // is the one place the user cannot go and check.
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Text("\(message) You can retry in Settings → Cleanup.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
+                        ProgressView().controlSize(.small)
+                        Text("Starting cleanup model download…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } else {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.caption)

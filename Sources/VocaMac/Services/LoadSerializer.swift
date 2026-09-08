@@ -26,6 +26,14 @@ actor LoadSerializer {
         cancellable: Bool = true,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
+        // Reject a caller that arrives already cancelled before it takes a
+        // queue slot. The task below is unstructured, so it is only cancelled
+        // by the handler at the end of this function — and reaching that
+        // handler leaves this actor, which lets the task start and clear its
+        // own cancellation check first. Without this the operation of an
+        // already-cancelled caller sometimes ran.
+        if cancellable { try Task.checkCancellation() }
+
         let previous = tail
         let queueInterval = PerformanceTrace.begin("OperationQueueWait")
 

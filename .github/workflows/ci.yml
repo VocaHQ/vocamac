@@ -56,7 +56,10 @@ jobs:
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: macos-15
-    timeout-minutes: 25
+    # Serial debug+test+release+xcodebuild bundle can exceed 30m on a cold
+    # runner (release alone has taken ~16m). Keep headroom until the job is
+    # split (#265); wall clock on a warm run is still ~20m.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout

@@ -20,19 +20,28 @@ final class LoadSerializerTests: XCTestCase {
             lock.unlock()
         }
 
+        // The first operation must reach the serializer before the second is
+        // queued, or the recorded order says nothing about serialization.
+        // Sleeping for a guess loses that race whenever the machine is busy,
+        // so hold the operation open until the test has queued the second one.
+        let claimedQueue = expectation(description: "first operation started")
+        let release = SerializerTestGate()
+
         async let first: Void = serializer.run {
             append("a-start")
-            try await Task.sleep(nanoseconds: 50_000_000)
+            claimedQueue.fulfill()
+            await release.wait()
             append("a-end")
         }
 
-        // Give the first operation a moment to claim the queue.
-        try await Task.sleep(nanoseconds: 5_000_000)
+        await fulfillment(of: [claimedQueue], timeout: 5)
 
         async let second: Int = serializer.run {
             append("b-start")
             return 42
         }
+
+        await release.open()
 
         try await first
         let value = try await second

@@ -236,6 +236,65 @@
     }
   }
 
+  /* ---------- Screenshot lightbox ---------- */
+
+  var shotImages = document.querySelectorAll(".shot-frame img, .prose img[src*='/screenshots/']");
+
+  if (shotImages.length && typeof HTMLDialogElement === "function") {
+    var lightbox = document.createElement("dialog");
+    lightbox.className = "shot-lightbox";
+    lightbox.setAttribute("aria-label", "Enlarged screenshot");
+    lightbox.innerHTML =
+      '<button type="button" class="shot-lightbox-close">Close</button>' +
+      '<img alt="">' +
+      '<p class="shot-lightbox-caption"></p>';
+    document.body.appendChild(lightbox);
+
+    var lightboxImage = lightbox.querySelector("img");
+    var lightboxCaption = lightbox.querySelector(".shot-lightbox-caption");
+    var lightboxClose = lightbox.querySelector(".shot-lightbox-close");
+
+    var closeLightbox = function () {
+      if (lightbox.open) { lightbox.close(); }
+    };
+
+    var openLightbox = function (img) {
+      lightboxImage.src = img.currentSrc || img.src;
+      lightboxImage.alt = img.alt || "";
+      var caption = "";
+      var figure = img.closest("figure");
+      if (figure) {
+        var figcaption = figure.querySelector("figcaption");
+        if (figcaption) { caption = figcaption.textContent.replace(/\s+/g, " ").trim(); }
+      }
+      if (!caption) { caption = img.alt || ""; }
+      lightboxCaption.textContent = caption;
+      lightboxCaption.hidden = !caption;
+      lightbox.showModal();
+      lightboxClose.focus();
+    };
+
+    shotImages.forEach(function (img) {
+      var hit = img.closest(".shot-frame") || img;
+      hit.classList.add("is-zoomable");
+      hit.setAttribute("role", "button");
+      hit.setAttribute("tabindex", "0");
+      hit.setAttribute("aria-label", "Enlarge screenshot: " + (img.alt || "product image"));
+      hit.addEventListener("click", function () { openLightbox(img); });
+      hit.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLightbox(img);
+        }
+      });
+    });
+
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", function (event) {
+      if (event.target === lightbox) { closeLightbox(); }
+    });
+  }
+
   /* ---------- FAQ convenience ---------- */
 
   var faq = document.querySelector("[data-faq]");

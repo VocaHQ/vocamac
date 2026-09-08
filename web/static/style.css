@@ -888,6 +888,67 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   font-size: 1.02rem;
 }
 
+.shot-frame.is-zoomable,
+img.is-zoomable {
+  cursor: zoom-in;
+}
+
+.shot-lightbox {
+  position: fixed;
+  inset: 0;
+  width: min(96vw, 1400px);
+  max-width: 96vw;
+  max-height: 94vh;
+  margin: auto;
+  padding: 2.4rem 1.2rem 1.2rem;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-window);
+}
+
+.shot-lightbox::backdrop {
+  background: rgba(11, 26, 21, 0.72);
+}
+
+.shot-lightbox img {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: calc(94vh - 5.5rem);
+  margin: 0 auto;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: var(--shadow-paper);
+}
+
+.shot-lightbox-caption {
+  margin: 0.85rem 0 0;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.shot-lightbox-close {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.75rem;
+  padding: 0.3rem 0.7rem;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.shot-lightbox-close:hover {
+  background: var(--brand-softer);
+}
+
 /* ---------- Privacy route ---------- */
 
 .privacy {

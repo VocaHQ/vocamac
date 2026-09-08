@@ -145,6 +145,8 @@ test("keeps content available without javascript", () => {
   assert.match(script, /IntersectionObserver/);
   assert.match(script, /setTimeout\(function \(\) \{ revealItems\.forEach\(reveal\); \}, 800\)/);
   assert.match(script, /event\.key === "Escape"/);
+  assert.match(script, /showModal\(\)/);
+  assert.match(script, /shot-lightbox/);
 });
 
 test("every rendered page has one heading and image alternatives", async () => {

@@ -40,7 +40,7 @@ The meter updates continuously while recording and disappears when you finish. N
 
 ## Floating Cursor Indicator
 
-![VocaMac cursor indicator near text caret during recording](/screenshots/cursor-indicator.png)
+![Floating mic indicator during recording](/screenshots/cursor-indicator.png)
 
 VocaMac can optionally display a small floating microphone icon that appears near your text cursor while you're recording. This is especially useful when working across multiple windows, fullscreen apps, or when your menu bar is hidden.
 

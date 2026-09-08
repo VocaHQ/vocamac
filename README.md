@@ -101,9 +101,9 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/cursor-indicator.png" alt="Cursor Indicator" width="400">
+  <img src="docs/screenshots/cursor-indicator.png" alt="Floating mic indicator during recording" width="400">
   <br>
-  <em>Floating mic indicator near text cursor during recording</em>
+  <em>Floating mic indicator during recording</em>
 </p>
 
 ---

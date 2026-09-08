@@ -545,8 +545,15 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     var unloadCallCount = 0
     var lastLoadedKind: CleanupModelKind?
 
+    var isLoaded = false
+    var pruneCallCount = 0
+
     var objectWillChangePublisher: AnyPublisher<Void, Never> {
         objectWillChange.eraseToAnyPublisher()
+    }
+
+    func pruneUnknownModels() {
+        pruneCallCount += 1
     }
 
     func clean(_ text: String, prompt: String) async -> String {
@@ -578,11 +585,13 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     func load(_ kind: CleanupModelKind) async {
         loadCallCount += 1
         lastLoadedKind = kind
+        isLoaded = true
         modelState = .ready
     }
 
     func unload() {
         unloadCallCount += 1
+        isLoaded = false
         modelState = .idle
     }
 

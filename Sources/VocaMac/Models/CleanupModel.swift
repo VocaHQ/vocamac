@@ -30,14 +30,21 @@ enum CleanupModelRecommendation: Equatable {
 }
 
 /// Identifiers persisted in `PreferenceKey.transcriptCleanupModel`.
+///
+/// Only plain-attention (`qwen3`) architectures belong here. LLM.swift reuses
+/// the llama.cpp KV cache across calls — `LLMCore.prepareContext` keeps the
+/// shared prefix and drops the rest with `llama_memory_seq_rm` — and that path
+/// is wrong for the hybrid attention/recurrent models (`qwen35`). In testing,
+/// Qwen 3.5 0.8B answered the first utterance and then returned empty output
+/// for the next seven, so cleanup silently stopped happening after the first
+/// dictation; `LLM.reset()`, the obvious remedy, aborts the process inside
+/// `llama_memory_recurrent::find_slot`. See `TranscriptCleanupService`.
 enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
     case qwen3_0_6b_q4_k_m
-    case qwen35_0_8b_q4_k_m
-    case qwen35_2b_q4_k_m
 
     var id: String { rawValue }
 
-    static let defaultKind: CleanupModelKind = .qwen35_0_8b_q4_k_m
+    static let defaultKind: CleanupModelKind = .qwen3_0_6b_q4_k_m
 
     static func resolved(stored: String?) -> CleanupModelKind {
         guard let stored, !stored.isEmpty else { return .defaultKind }
@@ -70,7 +77,7 @@ enum CleanupModelCatalog {
     static let compact = CleanupModelDescriptor(
         kind: .qwen3_0_6b_q4_k_m,
         displayName: "Qwen 3 0.6B",
-        summary: "Smallest download. Good for 8 GB Macs; slightly weaker at self-corrections.",
+        summary: "Removes fillers and stutters, adds punctuation. Roughly 0.1–0.5 seconds per utterance.",
         sizeDescription: "~397 MB",
         fileName: "Qwen3-0.6B-Q4_K_M.gguf",
         url: URL(string: "https://huggingface.co/unsloth/Qwen3-0.6B-GGUF/resolve/50968a4468ef4233ed78cd7c3de230dd1d61a56b/Qwen3-0.6B-Q4_K_M.gguf")!,
@@ -78,40 +85,18 @@ enum CleanupModelCatalog {
         expectedByteCount: 396_705_472,
         maxTokenCount: 4096,
         ramRequiredGB: 0.8,
-        recommendation: .compact
-    )
-
-    static let recommended = CleanupModelDescriptor(
-        kind: .qwen35_0_8b_q4_k_m,
-        displayName: "Qwen 3.5 0.8B",
-        summary: "Best speed/quality for dictation. Typically 1–2 seconds per utterance.",
-        sizeDescription: "~533 MB",
-        fileName: "Qwen3.5-0.8B-Q4_K_M.gguf",
-        url: URL(string: "https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/6ab461498e2023f6e3c1baea90a8f0fe38ab64d0/Qwen3.5-0.8B-Q4_K_M.gguf")!,
-        expectedSHA256: "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517",
-        expectedByteCount: 532_517_120,
-        maxTokenCount: 4096,
-        ramRequiredGB: 1.0,
         recommendation: .recommended
     )
 
-    static let quality = CleanupModelDescriptor(
-        kind: .qwen35_2b_q4_k_m,
-        displayName: "Qwen 3.5 2B",
-        summary: "Stronger instruction following. Slower (about 4–5 seconds) and uses more RAM.",
-        sizeDescription: "~1.28 GB",
-        fileName: "Qwen3.5-2B-Q4_K_M.gguf",
-        url: URL(string: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/f6d5376be1edb4d416d56da11e5397a961aca8ae/Qwen3.5-2B-Q4_K_M.gguf")!,
-        expectedSHA256: "aaf42c8b7c3cab2bf3d69c355048d4a0ee9973d48f16c731c0520ee914699223",
-        expectedByteCount: 1_280_835_840,
-        maxTokenCount: 4096,
-        ramRequiredGB: 1.8,
-        recommendation: .quality
-    )
-
-    static let all: [CleanupModelDescriptor] = [compact, recommended, quality]
+    static let all: [CleanupModelDescriptor] = [compact]
 
     static func descriptor(for kind: CleanupModelKind) -> CleanupModelDescriptor {
-        all.first { $0.kind == kind } ?? recommended
+        all.first { $0.kind == kind } ?? compact
+    }
+
+    /// File names the catalog owns, so a model dropped from the catalog (or
+    /// left behind by an older build) can be cleared off disk.
+    static var knownFileNames: Set<String> {
+        Set(all.map(\.fileName))
     }
 }

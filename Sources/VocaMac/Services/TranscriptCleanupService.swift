@@ -16,6 +16,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         objectWillChange.eraseToAnyPublisher()
     }
 
+    var isLoaded: Bool { activeLLM != nil }
+
     private let modelsDirectory: URL
     private var activeLLM: LLM?
     private var activeKind: CleanupModelKind?
@@ -30,6 +32,12 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// A generation left running past its deadline. It still owns the model,
     /// so it has to finish before another one may start.
     private var pendingGeneration: Task<String, Never>?
+
+    /// Consecutive cleanups that produced nothing usable. A model that cannot
+    /// do the job degrades into "the feature quietly does nothing", which is
+    /// how the Qwen 3.5 context-reuse breakage hid — so say so instead.
+    private var consecutiveFailures = 0
+    private static let failureLimit = 3
 
     /// Seam for tests; production checks reclaimable RAM against the catalog
     /// estimate, the same gate the speech models use (vocamac#251).
@@ -68,18 +76,40 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             return text
         }
 
+        // Already given up on this model; do not make every dictation pay for
+        // an inference that has failed three times running.
+        if case .error = modelState, consecutiveFailures >= Self.failureLimit {
+            return text
+        }
+
         let activePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? TranscriptCleanup.defaultPrompt
             : prompt
+
+        // Past the context budget the answer is cut off mid-sentence and gets
+        // discarded anyway, so skip the wait rather than stall the paste.
+        let budget = TranscriptCleanup.inputCharacterBudget(
+            promptCharacters: activePrompt.count,
+            maxTokenCount: Int(activeKind?.descriptor.maxTokenCount ?? 4096)
+        )
+        guard trimmed.count <= budget else {
+            VocaLogger.info(
+                .transcriptCleanup,
+                "Transcript is \(trimmed.count) characters, over the \(budget)-character context budget — skipping cleanup"
+            )
+            return text
+        }
+
         let formatted = TranscriptCleanup.formatInput(trimmed)
 
         do {
             let raw = try await runInference(llm: llm, prompt: activePrompt, input: formatted)
             if let accepted = TranscriptCleanup.acceptedOutput(raw, original: trimmed) {
+                consecutiveFailures = 0
                 VocaLogger.info(.transcriptCleanup, "Cleanup produced \(accepted.count) characters")
                 return accepted
             }
-            VocaLogger.warning(.transcriptCleanup, "Discarded unusable cleanup output")
+            recordFailure(reason: raw.isEmpty || raw == "..." ? "produced no output" : "produced unusable output")
             return text
         } catch CleanupInferenceError.deadlineExceeded {
             VocaLogger.info(.transcriptCleanup, "Cleanup hit its deadline — using raw transcript")
@@ -90,6 +120,37 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         } catch {
             VocaLogger.warning(.transcriptCleanup, "Cleanup failed: \(error.localizedDescription)")
             return text
+        }
+    }
+
+    /// Count an unusable result and, once it is clearly not a one-off, put the
+    /// reason on screen instead of leaving the user to wonder why nothing is
+    /// being cleaned up.
+    private func recordFailure(reason: String) {
+        consecutiveFailures += 1
+        VocaLogger.warning(
+            .transcriptCleanup,
+            "Cleanup \(reason) (\(consecutiveFailures) in a row)"
+        )
+        guard consecutiveFailures >= Self.failureLimit else { return }
+        let name = activeKind?.descriptor.displayName ?? "The cleanup model"
+        modelState = .error(
+            "\(name) returned nothing usable \(consecutiveFailures) times in a row. "
+            + "Dictation is using the raw transcript. Try reloading the model."
+        )
+    }
+
+    /// Delete GGUFs the catalog no longer lists — a model dropped from the
+    /// catalog would otherwise sit in Application Support forever.
+    func pruneUnknownModels() {
+        let known = CleanupModelCatalog.knownFileNames
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: modelsDirectory,
+            includingPropertiesForKeys: nil
+        ) else { return }
+        for file in files where !known.contains(file.lastPathComponent) {
+            try? FileManager.default.removeItem(at: file)
+            VocaLogger.info(.transcriptCleanup, "Removed retired cleanup model \(file.lastPathComponent)")
         }
     }
 
@@ -192,13 +253,27 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
 
         modelState = .loading(kind: kind)
+        consecutiveFailures = 0
         activeLLM = nil
         activeKind = nil
 
         let maxTokens = descriptor.maxTokenCount
         let task = Task<Bool, Never> { [weak self] in
             let loading = Task.detached(priority: .userInitiated) {
-                LLMBox(LLM(from: path, seed: 42, topP: 0.9, temp: 0.1, maxTokenCount: maxTokens))
+                // repeatPenalty 1.0 (the library defaults to 1.2): the job is
+                // to reproduce what was said, and penalising recently-seen
+                // tokens makes the model drop the speaker's own repetitions.
+                // On a repetition-heavy transcript the 1.2 default cut 11
+                // occurrences of a word down to 7 and merged clauses; at 1.0
+                // every clause survived.
+                LLMBox(LLM(
+                    from: path,
+                    seed: 42,
+                    topP: 0.9,
+                    temp: 0.1,
+                    repeatPenalty: 1.0,
+                    maxTokenCount: maxTokens
+                ))
             }
             let loaded = await loading.value.llm
             guard let self else { return false }
@@ -217,6 +292,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         activeLLM?.stop()
         activeLLM = nil
         activeKind = nil
+        consecutiveFailures = 0
         modelState = .idle
         VocaLogger.info(.transcriptCleanup, "Unloaded cleanup model")
     }

@@ -84,7 +84,7 @@ enum SettingsSearchIndex {
             page: .cleanup,
             title: "Cleanup Model",
             subtitle: "Download Qwen for on-device cleanup",
-            keywords: ["qwen", "model", "download", "0.6b", "0.8b", "2b"]
+            keywords: ["qwen", "model", "download", "0.6b", "gguf"]
         ),
         SettingsSearchEntry(
             id: "cleanup-prompt",

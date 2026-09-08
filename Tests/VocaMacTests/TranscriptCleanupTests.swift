@@ -142,17 +142,21 @@ final class OneShotGateTests: XCTestCase {
 final class CleanupModelTests: XCTestCase {
 
     func testResolvedUnknownIdFallsBackToDefault() {
-        XCTAssertEqual(CleanupModelKind.resolved(stored: nil), .qwen35_0_8b_q4_k_m)
-        XCTAssertEqual(CleanupModelKind.resolved(stored: ""), .qwen35_0_8b_q4_k_m)
-        XCTAssertEqual(CleanupModelKind.resolved(stored: "nope"), .qwen35_0_8b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: nil), .qwen3_0_6b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: ""), .qwen3_0_6b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "nope"), .qwen3_0_6b_q4_k_m)
         XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen3_0_6b_q4_k_m"), .qwen3_0_6b_q4_k_m)
+        // Preferences written by a build that shipped the retired Qwen 3.5
+        // entries must fall back rather than dangle.
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_0_8b_q4_k_m"), .qwen3_0_6b_q4_k_m)
+        XCTAssertEqual(CleanupModelKind.resolved(stored: "qwen35_2b_q4_k_m"), .qwen3_0_6b_q4_k_m)
     }
 
     @MainActor
     func testServiceReportsMissingFilesAsNotDownloaded() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let service = TranscriptCleanupService(modelsDirectory: directory)
-        XCTAssertFalse(service.isDownloaded(.qwen35_0_8b_q4_k_m))
+        XCTAssertFalse(service.isDownloaded(.qwen3_0_6b_q4_k_m))
         XCTAssertEqual(service.modelState, .idle)
     }
 
@@ -166,11 +170,13 @@ final class CleanupModelTests: XCTestCase {
     }
 
     func testMemoryGateRejectsModelsLargerThanInstalledRAM() {
-        let descriptor = CleanupModelKind.qwen35_2b_q4_k_m.descriptor
+        let descriptor = CleanupModelKind.qwen3_0_6b_q4_k_m.descriptor
+        // Installed RAM below the estimate is refused even with the whole
+        // machine free. Derived from the descriptor so the catalog can change.
         XCTAssertFalse(
             SystemInfo.canFitInMemory(
                 requiredGB: descriptor.ramRequiredGB,
-                physicalMemoryGB: 1,
+                physicalMemoryGB: Int(descriptor.ramRequiredGB) - 1,
                 availableBytes: 64 * 1024 * 1024 * 1024
             )
         )
@@ -178,7 +184,7 @@ final class CleanupModelTests: XCTestCase {
             SystemInfo.canFitInMemory(
                 requiredGB: descriptor.ramRequiredGB,
                 physicalMemoryGB: 16,
-                availableBytes: 256 * 1024 * 1024
+                availableBytes: 64 * 1024 * 1024
             )
         )
         XCTAssertTrue(
@@ -196,6 +202,55 @@ final class CleanupModelTests: XCTestCase {
                 availableBytes: 0
             )
         )
+    }
+
+    func testInputBudgetShrinksAsThePromptGrows() {
+        let small = TranscriptCleanup.inputCharacterBudget(promptCharacters: 300, maxTokenCount: 4096)
+        let large = TranscriptCleanup.inputCharacterBudget(promptCharacters: 6000, maxTokenCount: 4096)
+        XCTAssertGreaterThan(small, large)
+        // The shipped prompt has to leave room for a normal dictation.
+        let shipped = TranscriptCleanup.inputCharacterBudget(
+            promptCharacters: TranscriptCleanup.defaultPrompt.count,
+            maxTokenCount: 4096
+        )
+        XCTAssertGreaterThan(shipped, 3000)
+    }
+
+    func testInputBudgetIsZeroWhenThePromptFillsTheContext() {
+        XCTAssertEqual(
+            TranscriptCleanup.inputCharacterBudget(promptCharacters: 100_000, maxTokenCount: 4096),
+            0
+        )
+    }
+
+    @MainActor
+    func testPruneRemovesModelsTheCatalogNoLongerLists() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let retired = directory.appendingPathComponent("Qwen3.5-0.8B-Q4_K_M.gguf")
+        let current = directory.appendingPathComponent(CleanupModelCatalog.compact.fileName)
+        try Data("x".utf8).write(to: retired)
+        try Data("x".utf8).write(to: current)
+
+        TranscriptCleanupService(modelsDirectory: directory).pruneUnknownModels()
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: retired.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: current.path))
+    }
+
+    func testCatalogHoldsOnlyPlainAttentionModels() {
+        // Hybrid attention/recurrent GGUFs (`qwen35`) break LLM.swift's
+        // context reuse: empty output after the first utterance, and a hard
+        // abort on reset. Keep them out of the catalog.
+        for descriptor in CleanupModelCatalog.all {
+            XCTAssertFalse(
+                descriptor.fileName.contains("Qwen3.5"),
+                "\(descriptor.displayName) uses the qwen35 architecture"
+            )
+        }
     }
 
     func testCatalogSizeLabelsMatchByteCounts() {
@@ -337,18 +392,25 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         XCTAssertNil(mocks.textInjector.lastInjectedText)
     }
 
-    func testDownloadFailureLeavesSelectionUnchanged() async {
+    func testFailedDownloadIsNotLoaded() async {
         let cleanup = MockTranscriptCleanup()
         cleanup.downloadedKinds = []
         cleanup.downloadSucceeds = false
         let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
-        XCTAssertEqual(appState.selectedCleanupModelKind, .qwen35_0_8b_q4_k_m)
+        appState.transcriptCleanupEnabled = true
 
         await appState.downloadCleanupModel(.qwen3_0_6b_q4_k_m)
 
         XCTAssertEqual(cleanup.downloadCallCount, 1)
-        XCTAssertEqual(appState.selectedCleanupModelKind, .qwen35_0_8b_q4_k_m)
+        // Nothing landed on disk, so nothing may be loaded or selected.
         XCTAssertEqual(cleanup.loadCallCount, 0)
+    }
+
+    func testStartupPrunesRetiredModels() async {
+        let cleanup = MockTranscriptCleanup()
+        let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        await appState.performStartup()
+        XCTAssertEqual(cleanup.pruneCallCount, 1)
     }
 
     func testCancelDownloadReachesTheService() {

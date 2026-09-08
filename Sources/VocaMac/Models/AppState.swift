@@ -673,9 +673,12 @@ final class AppState: ObservableObject {
         }
         modelKeepAlive.isSafeToUnload = { [weak self] in
             guard let self else { return false }
+            // The cleanup LLM holds as much RAM as a speech model, so idle
+            // unload has to consider it too — otherwise enabling keep-alive
+            // frees the transcriber and leaves a GGUF resident forever.
             return self.appStatus == .idle
                 && !self.isAutoPaused
-                && self.whisperService.isModelLoaded
+                && (self.whisperService.isModelLoaded || self.transcriptCleanup.isLoaded)
         }
         modelKeepAlive.onIdleUnload = { [weak self] in
             Task { @MainActor in
@@ -738,6 +741,7 @@ final class AppState: ObservableObject {
         let beforeMB = ProcessMonitor.currentResidentMemoryMB()
         processMemoryBeforeUnloadMB = beforeMB
         await whisperService.unloadModel()
+        transcriptCleanup.unload()
         // Give the allocator a beat to release pages before sampling again.
         try? await Task.sleep(nanoseconds: 150_000_000)
         let afterMB = ProcessMonitor.currentResidentMemoryMB()
@@ -1728,6 +1732,7 @@ final class AppState: ObservableObject {
         await loadModel(modelToLoad)
         VocaLogger.info(.appState, "Model loaded: \(whisperService.loadedModelName ?? "none")")
 
+        transcriptCleanup.pruneUnknownModels()
         if transcriptCleanupEnabled {
             await syncTranscriptCleanup()
         }

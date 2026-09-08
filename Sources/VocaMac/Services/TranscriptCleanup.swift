@@ -92,6 +92,24 @@ enum TranscriptCleanup {
         return userInputTagExpression.stringByReplacingMatches(in: text, range: range, withTemplate: "")
     }
 
+    /// How many characters of transcript fit alongside `prompt` in a context
+    /// of `maxTokenCount`, leaving room for an answer about as long as the
+    /// input. Past this the generation is cut off mid-sentence and the result
+    /// is discarded, so it is cheaper to skip cleanup than to run it.
+    ///
+    /// Three characters per token is deliberately pessimistic for English —
+    /// the real ratio is nearer four — because the budget has to hold for
+    /// accented and non-Latin scripts, which tokenize far less densely.
+    static func inputCharacterBudget(promptCharacters: Int, maxTokenCount: Int) -> Int {
+        let charactersPerToken = 3
+        let scaffoldingTokens = 128
+        let promptTokens = promptCharacters / charactersPerToken
+        let usable = maxTokenCount - scaffoldingTokens - promptTokens
+        guard usable > 0 else { return 0 }
+        // Half the remainder for the transcript, half for the rewrite of it.
+        return (usable / 2) * charactersPerToken
+    }
+
     /// Returns the cleaned string when it is a plausible rewrite of `original`, otherwise nil.
     static func acceptedOutput(_ raw: String, original: String) -> String? {
         let cleaned = sanitize(raw)

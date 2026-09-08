@@ -1832,8 +1832,13 @@ final class AppState: ObservableObject {
     }
 
     func loadCleanupModel(_ kind: CleanupModelKind) async {
-        transcriptCleanupModel = kind.rawValue
         await transcriptCleanup.load(kind)
+        // Same rule as downloading: adopt the selection only once the model is
+        // actually resident. A load refused for memory would otherwise point
+        // the preference at a model that never loads, while the previously
+        // working one stays in RAM unselected.
+        guard transcriptCleanup.isLoaded else { return }
+        transcriptCleanupModel = kind.rawValue
     }
 
     func deleteCleanupModel(_ kind: CleanupModelKind) {

@@ -541,6 +541,7 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     var loadCallCount = 0
     var downloadCallCount = 0
     var downloadSucceeds = true
+    var loadSucceeds = true
     var cancelDownloadCallCount = 0
     var unloadCallCount = 0
     var lastLoadedKind: CleanupModelKind?
@@ -554,6 +555,13 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
 
     func pruneUnknownModels() {
         pruneCallCount += 1
+    }
+
+    nonisolated func inputBudget(forPrompt prompt: String) -> Int {
+        TranscriptCleanup.inputCharacterBudget(
+            promptCharacters: prompt.count,
+            maxTokenCount: Int(CleanupModelCatalog.recommended.maxTokenCount)
+        )
     }
 
     func clean(_ text: String, prompt: String) async -> String {
@@ -584,6 +592,10 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
 
     func load(_ kind: CleanupModelKind) async {
         loadCallCount += 1
+        guard loadSucceeds else {
+            modelState = .error("load failed")
+            return
+        }
         lastLoadedKind = kind
         isLoaded = true
         modelState = .ready

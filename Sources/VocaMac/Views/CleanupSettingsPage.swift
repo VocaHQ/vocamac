@@ -21,7 +21,7 @@ struct CleanupSettingsPage: View {
                         }
                     }
 
-                Text("Runs a small local language model after speech-to-text to drop filler words and false starts, add punctuation, and act on “scratch that”. Nothing leaves your Mac. Off by default — download a model first. Models this size do not catch everything, and anything one rewrites badly is discarded in favour of the raw transcript.")
+                Text("Runs a small local language model after speech-to-text to drop filler words and false starts and to punctuate what you said. Nothing leaves your Mac. Off by default — download a model first. Models this size do not catch everything, and anything one rewrites badly is discarded in favour of the raw transcript.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -44,6 +44,19 @@ struct CleanupSettingsPage: View {
                 Text("The model only sees this prompt plus the transcript. Leave the default unless you need a different voice.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                // A long prompt eats the context the transcript needs, and the
+                // result is cleanup that silently never runs. Say so here
+                // rather than let it look like the feature is broken.
+                if promptBudget <= 0 {
+                    Text("This prompt fills the model's whole context, so cleanup will be skipped for every transcript. Shorten it.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else if promptBudget < 1500 {
+                    Text("This prompt leaves room for only about \(promptBudget) characters of speech — longer dictations will skip cleanup.")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
 
                 TextEditor(text: $promptDraft)
                     .font(.system(.caption, design: .monospaced))
@@ -84,6 +97,14 @@ struct CleanupSettingsPage: View {
                 didLoadPrompt = true
             }
         }
+    }
+
+    /// Characters of transcript that still fit alongside the drafted prompt.
+    private var promptBudget: Int {
+        let draft = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return appState.transcriptCleanup.inputBudget(
+            forPrompt: draft.isEmpty ? TranscriptCleanup.defaultPrompt : draft
+        )
     }
 
     /// An empty stored prompt means "use the default", so a draft that matches

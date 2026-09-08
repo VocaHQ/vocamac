@@ -218,6 +218,18 @@ final class CleanupModelTests: XCTestCase {
         XCTAssertGreaterThan(shipped, 3000)
     }
 
+    @MainActor
+    func testCancelledDownloadStopsReportingProgress() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        service.cancelDownload()
+        // A cancelled attempt must leave the row idle, not stuck part-way.
+        XCTAssertEqual(service.modelState, .idle)
+    }
+
     func testInputBudgetIsZeroWhenThePromptFillsTheContext() {
         XCTAssertEqual(
             TranscriptCleanup.inputCharacterBudget(promptCharacters: 100_000, maxTokenCount: 4096),
@@ -413,6 +425,27 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
         await appState.performStartup()
         XCTAssertEqual(cleanup.pruneCallCount, 1)
+    }
+
+    func testFailedLoadDoesNotStealTheSelection() async {
+        let cleanup = MockTranscriptCleanup()
+        cleanup.loadSucceeds = false
+        let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        let original = appState.selectedCleanupModelKind
+
+        await appState.loadCleanupModel(.qwen3_0_6b_q4_k_m)
+
+        XCTAssertEqual(cleanup.loadCallCount, 1)
+        XCTAssertEqual(appState.selectedCleanupModelKind, original)
+    }
+
+    func testSuccessfulLoadAdoptsTheSelection() async {
+        let cleanup = MockTranscriptCleanup()
+        let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+
+        await appState.loadCleanupModel(.qwen3_0_6b_q4_k_m)
+
+        XCTAssertEqual(appState.selectedCleanupModelKind, .qwen3_0_6b_q4_k_m)
     }
 
     func testCancelDownloadReachesTheService() {

@@ -205,6 +205,7 @@ protocol SnippetExpanding: AnyObject {
 protocol TranscriptCleaning: AnyObject {
     var modelState: CleanupModelState { get }
     var isLoaded: Bool { get }
+    nonisolated func inputBudget(forPrompt prompt: String) -> Int
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
     func clean(_ text: String, prompt: String) async -> String

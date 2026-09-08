@@ -18,6 +18,15 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     var isLoaded: Bool { activeLLM != nil }
 
+    /// Characters of transcript that still fit alongside `prompt`. Zero means
+    /// the prompt has eaten the whole context and cleanup will never run.
+    nonisolated func inputBudget(forPrompt prompt: String) -> Int {
+        TranscriptCleanup.inputCharacterBudget(
+            promptCharacters: prompt.count,
+            maxTokenCount: Int(CleanupModelCatalog.recommended.maxTokenCount)
+        )
+    }
+
     private let modelsDirectory: URL
     private var activeLLM: LLM?
     private var activeKind: CleanupModelKind?
@@ -28,6 +37,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     /// The download in flight, so the user can call it off.
     private var downloadTask: Task<Void, Never>?
+
+    /// Which download attempt owns `modelState` and the destination file. A
+    /// superseded attempt keeps running long enough to reach its own cleanup,
+    /// and without this its late writes clobber the attempt that replaced it.
+    private var downloadGeneration = 0
 
     /// A generation left running past its deadline. It still owns the model,
     /// so it has to finish before another one may start.
@@ -112,7 +126,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             recordFailure(reason: raw.isEmpty || raw == "..." ? "produced no output" : "produced unusable output")
             return text
         } catch CleanupInferenceError.deadlineExceeded {
-            VocaLogger.info(.transcriptCleanup, "Cleanup hit its deadline — using raw transcript")
+            recordFailure(reason: "did not answer within \(Int(Self.timeoutSeconds))s")
             return text
         } catch CleanupInferenceError.modelBusy {
             VocaLogger.warning(.transcriptCleanup, "Previous cleanup still winding down — using raw transcript")
@@ -162,8 +176,18 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // Run the transfer in a retained task so `cancelDownload` can reach it;
         // FileDownloader turns the cancellation into a stopped URLSession task
         // rather than a transfer that keeps running in the background.
-        downloadTask?.cancel()
-        let task = Task<Void, Never> { [weak self] in await self?.performDownload(kind) }
+        // Let the superseded attempt finish unwinding first: its `catch`
+        // deletes the destination file, and run late that would delete what
+        // this attempt is about to write.
+        if let previous = downloadTask {
+            previous.cancel()
+            _ = await previous.value
+        }
+        downloadGeneration &+= 1
+        let generation = downloadGeneration
+        let task = Task<Void, Never> { [weak self] in
+            await self?.performDownload(kind, generation: generation)
+        }
         downloadTask = task
         await task.value
         if downloadTask == task {
@@ -173,10 +197,16 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     func cancelDownload() {
         downloadTask?.cancel()
+        // Retire the generation so nothing the cancelled attempt does on its
+        // way out lands on screen.
+        downloadGeneration &+= 1
         downloadTask = nil
+        if case .downloading = modelState {
+            modelState = .idle
+        }
     }
 
-    private func performDownload(_ kind: CleanupModelKind) async {
+    private func performDownload(_ kind: CleanupModelKind, generation: Int) async {
         let descriptor = kind.descriptor
         try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
 
@@ -187,11 +217,18 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         try? FileManager.default.removeItem(at: destination)
 
         // A new attempt clears whatever error the last one left on screen.
-        modelState = .downloading(kind: kind, progress: 0)
+        setDownloadState(.downloading(kind: kind, progress: 0), generation: generation)
         do {
             try await FileDownloader.download(from: descriptor.url, to: destination) { [weak self] progress in
+                // Progress arrives on a session queue and is hopped to the
+                // main actor, so a final tick can land after the transfer has
+                // already completed. The generation check keeps it from
+                // resurrecting a "downloading" row.
                 Task { @MainActor in
-                    self?.modelState = .downloading(kind: kind, progress: progress)
+                    self?.setDownloadState(
+                        .downloading(kind: kind, progress: progress),
+                        generation: generation
+                    )
                 }
             }
             let digest = try ModelManager.sha256Hex(ofFileAt: destination)
@@ -199,28 +236,51 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             guard digest.caseInsensitiveCompare(descriptor.expectedSHA256) == .orderedSame,
                   size == descriptor.expectedByteCount else {
                 try? FileManager.default.removeItem(at: destination)
-                modelState = .error("The download for \(descriptor.displayName) did not match its expected contents.")
+                setDownloadState(
+                    .error("The download for \(descriptor.displayName) did not match its expected contents."),
+                    generation: generation
+                )
                 VocaLogger.error(.transcriptCleanup, "Checksum mismatch for \(descriptor.displayName)")
                 return
             }
-            modelState = .idle
+            setDownloadState(.idle, generation: generation)
             VocaLogger.info(.transcriptCleanup, "Downloaded \(descriptor.displayName)")
         } catch is CancellationError {
-            try? FileManager.default.removeItem(at: destination)
-            modelState = .idle
+            // Only the attempt that still owns the file may delete it.
+            if generation == downloadGeneration {
+                try? FileManager.default.removeItem(at: destination)
+            }
+            setDownloadState(.idle, generation: generation)
             VocaLogger.info(.transcriptCleanup, "Download cancelled: \(descriptor.displayName)")
         } catch {
-            try? FileManager.default.removeItem(at: destination)
+            if generation == downloadGeneration {
+                try? FileManager.default.removeItem(at: destination)
+            }
             let message = "Failed to download \(descriptor.displayName): \(error.localizedDescription)"
-            modelState = .error(message)
+            setDownloadState(.error(message), generation: generation)
             VocaLogger.error(.transcriptCleanup, message)
         }
     }
 
+    /// Apply a download state only if this attempt is still the current one.
+    private func setDownloadState(_ state: CleanupModelState, generation: Int) {
+        guard generation == downloadGeneration else { return }
+        modelState = state
+    }
+
     func load(_ kind: CleanupModelKind) async {
         if activeKind == kind, activeLLM != nil {
-            modelState = .ready
-            return
+            // The error message tells the user to reload, so a reload of the
+            // model that has been failing must rebuild it — llama.cpp state is
+            // exactly what a run of empty answers points at — rather than flip
+            // the badge back to Ready and change nothing.
+            if consecutiveFailures > 0 {
+                VocaLogger.info(.transcriptCleanup, "Rebuilding \(kind.descriptor.displayName) after \(consecutiveFailures) failed cleanups")
+                unload()
+            } else {
+                modelState = .ready
+                return
+            }
         }
 
         // Join a load already running for this model rather than starting a
@@ -292,6 +352,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         activeLLM?.stop()
         activeLLM = nil
         activeKind = nil
+        // The straggler belongs to the model just dropped; leaving the handle
+        // around makes the next generation wait on — and stop() — a model it
+        // has nothing to do with.
+        pendingGeneration = nil
         consecutiveFailures = 0
         modelState = .idle
         VocaLogger.info(.transcriptCleanup, "Unloaded cleanup model")

@@ -2,6 +2,11 @@
 
 Agent-facing rules for this repo. Product copy lives in `README.md` and `web/`.
 
+## Commit attribution
+
+Agents must not add themselves as commit co-authors or add `Co-authored-by`
+trailers for agents.
+
 ## Project overview
 
 Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device engines; `TranscriptionRouter` dispatches to the engine that owns the selected model. Optional post-transcript cleanup uses a local GGUF LLM (`TranscriptCleanupService`); views and `AppState` must not call `LLM` directly.

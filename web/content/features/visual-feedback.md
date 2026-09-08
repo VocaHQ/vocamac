@@ -50,7 +50,7 @@ The cursor indicator provides:
 - **Window-specific confirmation**: in applications with multiple text fields, it shows which field is active for dictation
 - **Minimal distraction**: the icon is small and subtle, placed just below your cursor position
 
-You can enable or disable the recording overlay anytime in **Settings → Application**. Some users love it for extra reassurance. Others prefer the menu bar icon alone. The choice is yours.
+You can enable or disable the cursor indicator anytime in **Settings → Application**. Some users love it for extra reassurance. Others prefer the menu bar icon alone. The choice is yours.
 
 ## Why Visual Feedback Matters
 

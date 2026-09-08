@@ -122,6 +122,14 @@ fi
 # Update binary
 cp -f "$BINARY" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
+# Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib.
+LLAMA_FRAMEWORK="${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}/llama.framework"
+if [ -d "$LLAMA_FRAMEWORK" ]; then
+    mkdir -p "${APP_DIR}/Contents/lib"
+    rm -rf "${APP_DIR}/Contents/lib/llama.framework"
+    cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
+fi
+
 # Update resource bundles — copy to Contents/Resources/
 # xcodebuild's Bundle.module accessor checks Bundle.main.resourceURL first,
 # which resolves to Contents/Resources/ for .app bundles. This is the correct
@@ -248,6 +256,11 @@ fi
 # Sign nested bundles in Contents/Resources/
 find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec \
     codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS {} \; 2>/dev/null || true
+
+if [ -d "${APP_DIR}/Contents/lib/llama.framework" ]; then
+    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \
+        "${APP_DIR}/Contents/lib/llama.framework"
+fi
 
 # Sign the main app
 codesign --force --sign "$CODE_SIGN_IDENTITY" \

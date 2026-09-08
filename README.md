@@ -71,11 +71,33 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/settings-audio.png" alt="Settings - Audio" width="400">
+  <img src="docs/screenshots/settings-snippets.png" alt="Settings - Snippets" width="400">
   &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-audio.png" alt="Settings - Audio" width="400">
+  <br>
+  <em>Settings: Snippets (left) and Audio (right)</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-performance.png" alt="Settings - Performance" width="400">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-application.png" alt="Settings - Application" width="400">
+  <br>
+  <em>Settings: Performance (left) and Application (right)</em>
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/settings-stats.png" alt="Settings - Stats" width="400">
+  &nbsp;&nbsp;
+  <img src="docs/screenshots/settings-advanced.png" alt="Settings - Advanced" width="400">
+  <br>
+  <em>Settings: Stats (left) and Advanced (right)</em>
+</p>
+
+<p align="center">
   <img src="docs/screenshots/settings-about.png" alt="Settings - About" width="400">
   <br>
-  <em>Settings: Audio tab (left) and About tab (right)</em>
+  <em>Settings: About</em>
 </p>
 
 <p align="center">

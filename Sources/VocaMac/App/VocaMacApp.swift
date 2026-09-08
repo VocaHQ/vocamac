@@ -326,14 +326,14 @@ struct VocaMacApp: App {
 
 /// Renders the Voca mark in the menu bar with color changes based on app status.
 ///
-/// Idle uses a template silhouette so macOS follows the menu bar appearance.
-/// Recording tints that same mark brand teal. Processing and error keep SF Symbols.
+/// Idle uses a template SF Symbol mic so it matches neighboring status items.
+/// Recording tints the Voca mark brand teal. Processing and error keep SF Symbols.
 ///
 /// MenuBarExtra strips SwiftUI `.foregroundStyle()` colors, so status colors
 /// are applied via `NSImage` + `sourceAtop` with `isTemplate = false`.
 ///
 /// States:
-///   • idle       → Voca mark (template, adapts to menu bar)
+///   • idle       → SF Symbol mic.fill (template, adapts to menu bar)
 ///   • recording  → Voca mark in brand teal (mic hot)
 ///   • processing → yellow ellipsis (non-template, colored)
 ///   • error      → orange warning (non-template, colored)
@@ -352,6 +352,9 @@ struct MenuBarIcon: View {
                 return mark
             }
             return fallbackSymbol(named: "mic.fill", tint: nil)
+
+        case .systemSymbolTemplate(let name):
+            return fallbackSymbol(named: name, tint: nil)
 
         case .brandMarkTinted:
             if let mark = sizedMark() {

@@ -381,215 +381,6 @@ struct OnboardingPermissionRow: View {
     }
 }
 
-// MARK: - Step 3: Model Selection
-
-struct ModelSelectionStep: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Choose a model based on your device and needs.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-            if let recommended = appState.deviceRecommendedModel,
-               let recommendedSize = appState.modelManager.modelSize(from: recommended) {
-                HStack(spacing: 12) {
-                    Image(systemName: "lightbulb.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Text("We recommend: **\(recommendedSize.displayName)**")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal)
-            }
-
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(appState.availableModels) { modelInfo in
-                        ModelSelectionCard(
-                            modelInfo: modelInfo,
-                            isRecommended: {
-                                guard let recommended = appState.deviceRecommendedModel else { return false }
-                                return appState.modelManager.modelSize(from: recommended) == modelInfo.size
-                            }(),
-                            onSelect: {
-                                Task { @MainActor in
-                                    await appState.loadModel(modelInfo.size)
-                                }
-                            },
-                            onDownload: {
-                                Task { @MainActor in
-                                    await appState.downloadModel(modelInfo.size)
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding()
-            }
-
-            Spacer()
-        }
-        .padding()
-    }
-}
-
-// MARK: - Model Selection Card
-
-struct ModelSelectionCard: View {
-    let modelInfo: WhisperModelInfo
-    let isRecommended: Bool
-    let onSelect: () -> Void
-    let onDownload: () -> Void
-    @State private var showForceDownloadAlert = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(modelInfo.size.displayName)
-                            .font(.body)
-                            .fontWeight(.semibold)
-                        if isRecommended {
-                            Label("Recommended", systemImage: "star.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.1))
-                                .cornerRadius(4)
-                        }
-                        Spacer()
-                    }
-
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Size")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(modelInfo.size.fileSizeDescription)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Speed")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(modelInfo.size.relativeSpeed)x")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Quality")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(modelInfo.size.qualityDescription)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        Spacer()
-                    }
-                }
-
-                Spacer()
-            }
-
-            HStack(spacing: 12) {
-                if let progress = modelInfo.downloadProgress {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: progress)
-                        Text("\(Int(progress * 100))%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if modelInfo.isLoading {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(modelInfo.loadingStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if modelInfo.isDownloaded {
-                    if modelInfo.isActive {
-                        Label("Active", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    } else {
-                        Button(action: onSelect) {
-                            Text("Use This Model")
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.blue)
-                                .foregroundStyle(.white)
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                } else if !modelInfo.isSupported {
-                    Button {
-                        showForceDownloadAlert = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "sparkles")
-                            Text("Try Anyway")
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundStyle(.secondary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button(action: onDownload) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.down.circle")
-                            Text("Download")
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundStyle(.primary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isRecommended ? Color.orange : Color.clear, lineWidth: 1.5)
-        )
-        .alert("Use Experimental Model?", isPresented: $showForceDownloadAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Download Anyway", role: .destructive) {
-                onDownload()
-            }
-        } message: {
-            Text("WhisperKit hasn't verified this model on your chip family. It will likely work but may be slower than tuned models.")
-        }
-    }
-}
-
-// MARK: - Step 4: Hotkey Configuration
 
 struct HotkeyConfigStep: View {
     @EnvironmentObject var appState: AppState
@@ -754,6 +545,13 @@ struct QuickTestStep: View {
                             .padding()
                             .background(Color.green.opacity(0.1))
                             .cornerRadius(6)
+
+                        // Only offered when the transcript actually shows the
+                        // problem. A clean first dictation is no argument for
+                        // downloading a model.
+                        if TranscriptCleanup.containsFillers(result) {
+                            cleanupOffer
+                        }
                     }
                 } else if appState.appStatus == .processing {
                     HStack(spacing: 8) {
@@ -785,6 +583,56 @@ struct QuickTestStep: View {
             Spacer()
         }
         .padding()
+    }
+
+    /// Optional, inline, and never blocking: the download runs in the
+    /// background and onboarding continues regardless.
+    @ViewBuilder
+    private var cleanupOffer: some View {
+        let descriptor = appState.selectedCleanupModelKind.descriptor
+
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            if appState.transcriptCleanupEnabled {
+                HStack(spacing: 8) {
+                    if case .downloading(_, let progress) = appState.transcriptCleanup.modelState {
+                        ProgressView(value: progress).frame(width: 60)
+                        Text("Downloading cleanup model — \(Int(progress * 100))%")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                        Text("Cleanup is on. You can carry on — it finishes in the background.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notice the filler words?")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        Text("VocaMac can drop “um” and “uh” and punctuate what you said, all on this Mac. Downloads \(descriptor.sizeDescription) in the background — you can set it up later in Settings → Cleanup instead.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Set Up") {
+                        appState.startCleanupSetupInBackground()
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.top, 2)
     }
 
     private func toggleRecording() {
@@ -868,6 +716,18 @@ struct CompleteStep: View {
             .padding()
             .background(Color.blue.opacity(0.05))
             .cornerRadius(8)
+
+            if !appState.transcriptCleanupEnabled {
+                HStack(spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    Text("Want “um” and “uh” removed automatically? Settings → Cleanup.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Spacer()
 

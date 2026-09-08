@@ -6,8 +6,8 @@ import XCTest
 
 final class MenuBarIconStyleTests: XCTestCase {
 
-    func testIdleUsesTemplateMark() {
-        XCTAssertEqual(MenuBarIconStyle.style(for: .idle), .brandMarkTemplate)
+    func testIdleUsesSystemMic() {
+        XCTAssertEqual(MenuBarIconStyle.style(for: .idle), .systemSymbolTemplate(name: "mic.fill"))
     }
 
     func testRecordingUsesTintedMark() {

@@ -219,6 +219,25 @@ final class CleanupModelTests: XCTestCase {
         XCTAssertTrue(CleanupAttempt(output: "x", outcome: .cleaned, duration: 1).didChangeText)
     }
 
+    func testFillerDetectionDrivesTheOnboardingOffer() {
+        // Offer it when the transcript shows the problem...
+        XCTAssertTrue(TranscriptCleanup.containsFillers("so um the meeting is at three"))
+        XCTAssertTrue(TranscriptCleanup.containsFillers("uhh I think so"))
+        XCTAssertTrue(TranscriptCleanup.containsFillers("it is, you know, fine"))
+        XCTAssertTrue(TranscriptCleanup.containsFillers("I mean we could ship it"))
+        XCTAssertTrue(TranscriptCleanup.containsFillers("the the report is late"))
+        XCTAssertTrue(TranscriptCleanup.containsFillers("that is sort of the point"))
+
+        // ...and stay quiet when it does not.
+        XCTAssertFalse(TranscriptCleanup.containsFillers("Hello world."))
+        XCTAssertFalse(TranscriptCleanup.containsFillers("The meeting is at 3pm on Tuesday."))
+        // Substrings of ordinary words are not fillers.
+        XCTAssertFalse(TranscriptCleanup.containsFillers("the number is humming along"))
+        XCTAssertFalse(TranscriptCleanup.containsFillers("Please summarise the uhlan regiment"))
+        // Deliberately not counted: far more often ordinary words than filler.
+        XCTAssertFalse(TranscriptCleanup.containsFillers("I like it and actually agree"))
+    }
+
     func testInputBudgetShrinksAsThePromptGrows() {
         let small = TranscriptCleanup.inputCharacterBudget(promptCharacters: 300, maxTokenCount: 4096)
         let large = TranscriptCleanup.inputCharacterBudget(promptCharacters: 6000, maxTokenCount: 4096)
@@ -500,6 +519,25 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
 
         XCTAssertEqual(cleanup.cleanCallCount, 0)
         XCTAssertNil(mocks.textInjector.lastInjectedText)
+    }
+
+    func testOnboardingSetupEnablesCleanupWithoutBlocking() async {
+        let cleanup = MockTranscriptCleanup()
+        cleanup.downloadedKinds = []
+        let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        XCTAssertFalse(appState.transcriptCleanupEnabled)
+
+        appState.startCleanupSetupInBackground()
+
+        // Enabled synchronously so the step can show its progress row; the
+        // download itself must not have been awaited.
+        XCTAssertTrue(appState.transcriptCleanupEnabled)
+
+        // The background task lands shortly after.
+        for _ in 0..<50 where cleanup.downloadCallCount == 0 {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(cleanup.downloadCallCount, 1)
     }
 
     func testCancelDownloadReachesTheService() {

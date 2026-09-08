@@ -92,6 +92,30 @@ enum TranscriptCleanup {
         return userInputTagExpression.stringByReplacingMatches(in: text, range: range, withTemplate: "")
     }
 
+    private static let fillerExpression = try? NSRegularExpression(
+        pattern: #"(?i)\b(?:um+|uh+|erm|hmm+|you know|i mean|sort of|kind of|basically|literally)\b"#
+    )
+    private static let stutterExpression = try? NSRegularExpression(
+        pattern: #"(?i)\b(\w+)\s+\1\b"#
+    )
+
+    /// Whether a transcript visibly contains the things cleanup removes.
+    ///
+    /// Used to decide whether offering cleanup is earned — a first dictation
+    /// that came out clean is no argument for downloading a model. Kept
+    /// conservative on purpose: "like" and "actually" are ordinary words far
+    /// more often than they are filler, so they are not counted here.
+    static func containsFillers(_ text: String) -> Bool {
+        let range = NSRange(text.startIndex..., in: text)
+        if let fillerExpression, fillerExpression.firstMatch(in: text, range: range) != nil {
+            return true
+        }
+        if let stutterExpression, stutterExpression.firstMatch(in: text, range: range) != nil {
+            return true
+        }
+        return false
+    }
+
     /// How many characters of transcript fit alongside `prompt` in a context
     /// of `maxTokenCount`, leaving room for an answer about as long as the
     /// input. Past this the generation is cut off mid-sentence and the result

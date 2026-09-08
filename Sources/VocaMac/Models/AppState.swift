@@ -1843,6 +1843,20 @@ final class AppState: ObservableObject {
         return await transcriptCleanup.preview(text, prompt: prompt)
     }
 
+    /// Turn cleanup on from onboarding and fetch the model in the background.
+    ///
+    /// Deliberately returns immediately: onboarding must never wait on a
+    /// several-hundred-megabyte download, and the user has to be able to
+    /// finish setup and start dictating while it runs.
+    func startCleanupSetupInBackground() {
+        transcriptCleanupEnabled = true
+        let kind = selectedCleanupModelKind
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.downloadCleanupModel(kind)
+        }
+    }
+
     func cancelCleanupDownload() {
         transcriptCleanup.cancelDownload()
     }

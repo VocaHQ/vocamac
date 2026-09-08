@@ -35,13 +35,15 @@ enum MenuBarIconStyle: Equatable {
     case brandMarkTemplate
     /// Mark tinted with brand teal while recording (mic hot).
     case brandMarkTinted
+    /// SF Symbol drawn as a template so macOS follows the menu bar appearance.
+    case systemSymbolTemplate(name: String)
     /// SF Symbol for processing / error.
     case systemSymbol(name: String)
 
     static func style(for status: AppStatus) -> MenuBarIconStyle {
         switch status {
         case .idle:
-            return .brandMarkTemplate
+            return .systemSymbolTemplate(name: "mic.fill")
         case .recording:
             return .brandMarkTinted
         case .processing:

@@ -392,6 +392,36 @@ final class CleanupModelTests: XCTestCase {
     }
 
     @MainActor
+    func testDeletingAModelMidLoadKeepsItOut() async throws {
+        // Mid-load `activeKind` is still nil, so deleting the GGUF has to
+        // invalidate through `loadInFlight` — otherwise the load finishes and
+        // installs a model whose file is already gone.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let descriptor = CleanupModelCatalog.recommended
+        let path = directory.appendingPathComponent(descriptor.fileName)
+        FileManager.default.createFile(atPath: path.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+        try handle.close()
+
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        service.modelFitsInMemory = { _ in true }
+
+        let loading = Task { await service.load(descriptor.kind) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        service.delete(descriptor.kind)
+        await loading.value
+
+        XCTAssertFalse(service.isLoaded)
+        XCTAssertEqual(service.modelState, .idle)
+        XCTAssertFalse(service.isDownloaded(descriptor.kind))
+    }
+
+    @MainActor
     func testPruneRemovesModelsTheCatalogNoLongerLists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

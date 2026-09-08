@@ -693,7 +693,7 @@ identifier "com.vocamac.app" and anchor apple generic
 ### Two things that trip people up
 
 - **The profile must come from MDM.** macOS ignores PPPC payloads in a `.mobileconfig` a user installs by hand — the profile will appear to install successfully and grant nothing. It has to arrive through a user-approved MDM enrollment.
-- **Only release builds match.** PPPC binds to the code signature, not the file path. Release DMGs and the Homebrew cask are Developer ID signed and notarized, so they match. Builds from source without a Developer ID certificate are ad-hoc signed, match no code requirement, and are unaffected by the profile — deploy the notarized build instead.
+- **Only release builds match.** PPPC binds to the code signature, not the file path. Release DMGs and the Homebrew cask are Developer ID signed and notarized, so they match this profile. Source and dev builds do not: Apple Development signed ones have a different designated requirement, and unsigned or ad-hoc signed ones do not match either. Deploy the notarized release or Homebrew build instead.
 
 Input Monitoring still needs VocaMac to be restarted once after the grant takes effect, exactly as in the [Permissions](#permissions) note above.
 

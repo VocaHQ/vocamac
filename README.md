@@ -96,9 +96,11 @@
 </p>
 
 <p align="center">
+  <img src="docs/screenshots/settings-cleanup.png" alt="Settings - Cleanup" width="400">
+  &nbsp;&nbsp;
   <img src="docs/screenshots/settings-about.png" alt="Settings - About" width="400">
   <br>
-  <em>Settings: About</em>
+  <em>Settings: Cleanup (left) and About (right)</em>
 </p>
 
 <p align="center">

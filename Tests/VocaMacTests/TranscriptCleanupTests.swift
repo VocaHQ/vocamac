@@ -438,14 +438,16 @@ final class CleanupModelTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: current.path))
     }
 
-    func testCatalogHoldsOnlyPlainAttentionModels() {
-        // Hybrid attention/recurrent GGUFs (`qwen35`) break LLM.swift's
+    func testCatalogDoesNotReAddTheKnownBrokenModels() {
+        // Qwen 3.5's hybrid attention/recurrent architecture breaks LLM.swift's
         // context reuse: empty output after the first utterance, and a hard
-        // abort on reset. Keep them out of the catalog.
+        // abort on reset. This can only match names — the real check is
+        // `general.architecture` in the GGUF header, which needs the file — so
+        // it guards against re-adding these two, not against every hybrid.
         for descriptor in CleanupModelCatalog.all {
             XCTAssertFalse(
-                descriptor.fileName.contains("Qwen3.5"),
-                "\(descriptor.displayName) uses the qwen35 architecture"
+                descriptor.fileName.localizedCaseInsensitiveContains("qwen3.5"),
+                "\(descriptor.displayName) is a qwen35 model; see AGENTS.md"
             )
         }
     }

@@ -65,7 +65,9 @@ enum CleanupModelRecommendation: Equatable {
 
 /// Identifiers persisted in `PreferenceKey.transcriptCleanupModel`.
 ///
-/// Only plain-attention (`qwen3`) architectures belong here. LLM.swift reuses
+/// Hybrid attention/recurrent architectures do not belong here — check
+/// `general.architecture` in the GGUF header, where `qwen2` (the default
+/// below) and `qwen3` are fine and `qwen35` is not. LLM.swift reuses
 /// the llama.cpp KV cache across calls — `LLMCore.prepareContext` keeps the
 /// shared prefix and drops the rest with `llama_memory_seq_rm` — and that path
 /// is wrong for the hybrid attention/recurrent models (`qwen35`). In testing,

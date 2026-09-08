@@ -269,6 +269,27 @@ final class CleanupModelTests: XCTestCase {
         )
     }
 
+    /// A service whose model file is the right size but not a real GGUF, so a
+    /// load gets past its guards and then fails. Enough to tell the two
+    /// behaviours apart: a load allowed to finish reports `.error`, while one
+    /// invalidated mid-flight must leave `.idle` behind.
+    @MainActor
+    private func makeLoadRaceService(
+        in directory: URL
+    ) throws -> (TranscriptCleanupService, CleanupModelDescriptor) {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let descriptor = CleanupModelCatalog.recommended
+        let path = directory.appendingPathComponent(descriptor.fileName)
+        FileManager.default.createFile(atPath: path.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+        try handle.close()
+
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        service.modelFitsInMemory = { _ in true }
+        return (service, descriptor)
+    }
+
     @MainActor
     func testUnloadDuringLoadKeepsTheModelOut() async throws {
         // Constructing a GGUF takes long enough for the user to switch cleanup
@@ -282,24 +303,12 @@ final class CleanupModelTests: XCTestCase {
         // gets the load past its guards. llama.cpp then rejects the magic and
         // the load fails — which is enough: a load that is allowed to finish
         // reports `.error`, and a superseded one must leave `.idle` behind.
-        let descriptor = CleanupModelCatalog.recommended
-        let path = directory.appendingPathComponent(descriptor.fileName)
-        FileManager.default.createFile(atPath: path.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: path)
-        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
-        try handle.close()
-
-        let service = TranscriptCleanupService(modelsDirectory: directory)
-        service.modelFitsInMemory = { _ in true }
+        let (service, descriptor) = try makeLoadRaceService(in: directory)
         XCTAssertTrue(service.isDownloaded(descriptor.kind))
 
-        let loading = Task { await service.load(descriptor.kind) }
-        // Let the load actually reach its construction step. Without this the
-        // unload lands before the task even starts — both run on the main
-        // actor — and the load simply begins afterwards.
-        try await Task.sleep(nanoseconds: 50_000_000)
-        service.unload()
-        await loading.value
+        // Unload exactly inside the load's own window.
+        service.willBeginLoad = { [weak service] in service?.unload() }
+        await service.load(descriptor.kind)
 
         XCTAssertFalse(service.isLoaded)
         XCTAssertEqual(service.modelState, .idle, "a superseded load must not report its own outcome")
@@ -401,20 +410,10 @@ final class CleanupModelTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let descriptor = CleanupModelCatalog.recommended
-        let path = directory.appendingPathComponent(descriptor.fileName)
-        FileManager.default.createFile(atPath: path.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: path)
-        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
-        try handle.close()
+        let (service, descriptor) = try makeLoadRaceService(in: directory)
 
-        let service = TranscriptCleanupService(modelsDirectory: directory)
-        service.modelFitsInMemory = { _ in true }
-
-        let loading = Task { await service.load(descriptor.kind) }
-        try await Task.sleep(nanoseconds: 50_000_000)
-        service.delete(descriptor.kind)
-        await loading.value
+        service.willBeginLoad = { [weak service] in service?.delete(descriptor.kind) }
+        await service.load(descriptor.kind)
 
         XCTAssertFalse(service.isLoaded)
         XCTAssertEqual(service.modelState, .idle)

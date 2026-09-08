@@ -61,6 +61,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private var consecutiveFailures = 0
     private static let failureLimit = 3
 
+    /// Seam for tests. Runs on the main actor once a load has registered its
+    /// generation and in-flight entry but before the GGUF is constructed —
+    /// the exact window in which an unload or a delete has to invalidate it.
+    /// Timing a fixed sleep into that window is unreliable: a load that fails
+    /// fast can finish before the test ever observes it.
+    var willBeginLoad: (() -> Void)?
+
     /// Seam for tests; production checks reclaimable RAM against the catalog
     /// estimate, the same gate the speech models use (vocamac#251).
     var modelFitsInMemory: (CleanupModelDescriptor) -> Bool = {
@@ -372,6 +379,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         let generation = loadGeneration
         let maxTokens = descriptor.maxTokenCount
         let task = Task<Bool, Never> { [weak self] in
+            self?.willBeginLoad?()
             let loading = Task.detached(priority: .userInitiated) {
                 // repeatPenalty 1.0 (the library defaults to 1.2): the job is
                 // to reproduce what was said, and penalising recently-seen

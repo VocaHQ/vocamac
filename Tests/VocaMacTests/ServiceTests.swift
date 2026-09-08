@@ -106,7 +106,8 @@ final class TextInjectorTests: XCTestCase {
     /// paste event. This models a clipboard manager or an older restore task
     /// racing with the current transcription.
     func testClipboardFallbackReassertsTranscriptionBeforePaste() {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         pasteboard.setString("original clipboard", forType: .string)
 
@@ -115,6 +116,7 @@ final class TextInjectorTests: XCTestCase {
         let finishedExpectation = expectation(description: "clipboard restoration")
 
         let injector = TextInjector(
+            pasteboard: pasteboard,
             accessibilityTrustedOverride: true,
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: {
@@ -151,7 +153,8 @@ final class TextInjectorTests: XCTestCase {
     /// window. Each paste event should consume its own transcription, and the
     /// original clipboard should be restored only after both are complete.
     func testRapidClipboardInjectionsAreSerialized() {
-        let pasteboard = NSPasteboard.general
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         pasteboard.setString("original clipboard", forType: .string)
 
@@ -161,6 +164,7 @@ final class TextInjectorTests: XCTestCase {
         let finishedExpectation = expectation(description: "queued clipboard restoration")
 
         let injector = TextInjector(
+            pasteboard: pasteboard,
             accessibilityTrustedOverride: true,
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: {

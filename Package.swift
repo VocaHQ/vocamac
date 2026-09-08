@@ -33,10 +33,13 @@ let package = Package(
             exact: "1.13.7"
         ),
         // LLM.swift — llama.cpp GGUF runtime for optional on-device transcript cleanup.
-        // Pinned to a commit: the package has no version tags.
+        // Pin the exact release: the package is pre-1.0 in spirit (it re-vendors
+        // a specific llama.cpp xcframework per tag), and the cleanup service
+        // depends on APIs that move between releases — `respond(to:thinking:)`,
+        // `updateThinking`, `historyLimit`, and `LLMCore.interrupt()`.
         .package(
             url: "https://github.com/eastriverlee/LLM.swift.git",
-            revision: "1d42188d5238ce4b9d25958f5444713b83d5e045"
+            exact: "3.0.3"
         ),
     ],
     targets: [

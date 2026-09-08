@@ -49,17 +49,21 @@ enum TranscriptCleanup {
     private static let thinkBlockExpression = try? NSRegularExpression(
         pattern: #"(?is)<think\b[^>]*>.*?</think>"#
     )
-    private static let leadingThinkTagExpression = try? NSRegularExpression(
+    private static let unterminatedThinkExpression = try? NSRegularExpression(
         pattern: #"(?is)^\s*<think\b[^>]*>"#
     )
     private static let userInputTagExpression = try? NSRegularExpression(
         pattern: #"(?is)</?USER-INPUT>"#
     )
 
+    /// Fence the transcript so the model can tell instructions from dictated
+    /// words. Any `<USER-INPUT>` tag the user actually dictated is stripped
+    /// first — otherwise a closing tag mid-transcript ends the fence early and
+    /// the rest reads as instructions.
     static func formatInput(_ text: String) -> String {
         """
         <USER-INPUT>
-        \(text)
+        \(stripUserInputTags(text))
         </USER-INPUT>
         """
     }
@@ -70,18 +74,22 @@ enum TranscriptCleanup {
             let range = NSRange(sanitized.startIndex..., in: sanitized)
             sanitized = expression.stringByReplacingMatches(in: sanitized, range: range, withTemplate: "")
         }
-        if let leadingThinkTagExpression {
+        // A `<think>` that never closed means the model ran out of budget
+        // mid-reasoning: there is no answer after it, so drop the whole thing
+        // and let the caller fall back to the raw transcript.
+        if let unterminatedThinkExpression {
             let range = NSRange(sanitized.startIndex..., in: sanitized)
-            if let match = leadingThinkTagExpression.firstMatch(in: sanitized, range: range),
-               let thinkStart = Range(match.range, in: sanitized)?.lowerBound {
-                sanitized = String(sanitized[..<thinkStart])
+            if unterminatedThinkExpression.firstMatch(in: sanitized, range: range) != nil {
+                return ""
             }
         }
-        if let userInputTagExpression {
-            let range = NSRange(sanitized.startIndex..., in: sanitized)
-            sanitized = userInputTagExpression.stringByReplacingMatches(in: sanitized, range: range, withTemplate: "")
-        }
-        return sanitized.trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripUserInputTags(sanitized).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func stripUserInputTags(_ text: String) -> String {
+        guard let userInputTagExpression else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        return userInputTagExpression.stringByReplacingMatches(in: text, range: range, withTemplate: "")
     }
 
     /// Returns the cleaned string when it is a plausible rewrite of `original`, otherwise nil.
@@ -116,6 +124,20 @@ enum TranscriptCleanup {
             return false
         }
 
+        // The prompt's loudest rule is "do not summarize", and a small model
+        // that ignores it collapses a paragraph into a sentence. Filler
+        // removal alone never costs half the characters, so anything shorter
+        // than that on a substantial transcript is a summary, not a cleanup.
+        // Short utterances are exempt: "um, yes" legitimately becomes "Yes."
+        if original.count >= summarizationFloorLength,
+           trimmed.count * 2 < original.count {
+            return false
+        }
+
         return true
     }
+
+    /// Transcripts shorter than this can lose most of their characters to
+    /// filler removal alone, so the summarization check does not apply.
+    private static let summarizationFloorLength = 80
 }

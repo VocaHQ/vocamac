@@ -1177,6 +1177,11 @@ final class AppState: ObservableObject {
                 // would become Me@example.com). Cleanup runs first so spoken
                 // triggers still match.
                 let cleanedText = await cleanedTranscript(from: trimmedText)
+                // Cleanup can load a model and run inference for seconds. A new
+                // recording started in that window owns the cursor now, so the
+                // stale result must not be injected into whatever the user is
+                // typing into next.
+                guard generation == recordingGeneration else { return }
                 let polishedSource = DictationOutputFormatter.apply(
                     cleanedText,
                     autoCapitalize: autoCapitalize,
@@ -1806,9 +1811,13 @@ final class AppState: ObservableObject {
     }
 
     func downloadCleanupModel(_ kind: CleanupModelKind) async {
-        transcriptCleanupModel = kind.rawValue
         await transcriptCleanup.download(kind)
-        if transcriptCleanupEnabled, transcriptCleanup.isDownloaded(kind) {
+        // Only adopt the selection once the bytes are on disk: a failed or
+        // cancelled download must not leave the preference pointing at a model
+        // that isn't there.
+        guard transcriptCleanup.isDownloaded(kind) else { return }
+        transcriptCleanupModel = kind.rawValue
+        if transcriptCleanupEnabled {
             await transcriptCleanup.load(kind)
         }
     }
@@ -1826,6 +1835,9 @@ final class AppState: ObservableObject {
         guard transcriptCleanupEnabled else { return text }
         let kind = selectedCleanupModelKind
         guard transcriptCleanup.isDownloaded(kind) else { return text }
+        // A cold model loads on the first dictation after launch. `load` is a
+        // no-op once the model is resident, and `clean` returns the input
+        // unchanged when the load did not produce one.
         await transcriptCleanup.load(kind)
         return await transcriptCleanup.clean(text, prompt: effectiveCleanupPrompt)
     }

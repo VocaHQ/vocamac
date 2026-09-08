@@ -210,7 +210,6 @@ protocol TranscriptCleaning: AnyObject {
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func download(_ kind: CleanupModelKind) async
     func load(_ kind: CleanupModelKind) async
-    func cancelLoad()
     func unload()
     func delete(_ kind: CleanupModelKind)
 }

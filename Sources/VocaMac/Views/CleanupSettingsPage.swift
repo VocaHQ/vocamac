@@ -9,6 +9,7 @@ struct CleanupSettingsPage: View {
     @EnvironmentObject var appState: AppState
     @State private var promptDraft: String = ""
     @State private var didLoadPrompt = false
+    @State private var promptCommit: Task<Void, Never>?
 
     var body: some View {
         Form {
@@ -48,20 +49,30 @@ struct CleanupSettingsPage: View {
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 160)
                     .onChange(of: promptDraft) {
-                        let trimmed = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trimmed == TranscriptCleanup.defaultPrompt.trimmingCharacters(in: .whitespacesAndNewlines) {
-                            appState.transcriptCleanupPrompt = ""
-                        } else {
-                            appState.transcriptCleanupPrompt = promptDraft
+                        // Writing @AppStorage on every keystroke republishes
+                        // AppState and re-renders the whole settings tree for
+                        // a ~2 KB string. Settle first, then persist once.
+                        promptCommit?.cancel()
+                        let draft = promptDraft
+                        promptCommit = Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(400))
+                            guard !Task.isCancelled else { return }
+                            commitPrompt(draft)
                         }
+                    }
+                    .onDisappear {
+                        promptCommit?.cancel()
+                        commitPrompt(promptDraft)
                     }
 
                 HStack {
                     Button("Reset to Default") {
+                        promptCommit?.cancel()
                         promptDraft = TranscriptCleanup.defaultPrompt
                         appState.transcriptCleanupPrompt = ""
                     }
-                    .disabled(appState.transcriptCleanupPrompt.isEmpty)
+                    .disabled(promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        == TranscriptCleanup.defaultPrompt.trimmingCharacters(in: .whitespacesAndNewlines))
                     Spacer()
                 }
             }
@@ -73,6 +84,15 @@ struct CleanupSettingsPage: View {
                 didLoadPrompt = true
             }
         }
+    }
+
+    /// An empty stored prompt means "use the default", so a draft that matches
+    /// the default is stored as empty and follows future default changes.
+    private func commitPrompt(_ draft: String) {
+        let trimmed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isDefault = trimmed == TranscriptCleanup.defaultPrompt
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        appState.transcriptCleanupPrompt = isDefault ? "" : draft
     }
 
     @ViewBuilder
@@ -172,7 +192,6 @@ struct CleanupModelRow: View {
                 } else {
                     Button("Load") {
                         Task { @MainActor in
-                            appState.transcriptCleanupEnabled = true
                             await appState.loadCleanupModel(kind)
                         }
                     }

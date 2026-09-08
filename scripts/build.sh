@@ -78,6 +78,10 @@ echo "🔨 Building VocaMac ($CONFIG)..."
 DERIVED_DATA=".xcode-build"
 XCODE_CONFIG="$(echo "${CONFIG}" | sed 's/release/Release/; s/debug/Debug/')"
 
+# LLM.swift builds a Swift macro plugin (LLMMacros). Without the two skip
+# flags, xcodebuild stops for interactive "trust this plugin?" approval, which
+# never resolves in a script. Safe here because every package is version-pinned
+# in Package.swift, so the code being trusted only changes on a deliberate bump.
 xcodebuild build \
     -scheme VocaMac \
     -configuration "$XCODE_CONFIG" \
@@ -122,13 +126,18 @@ fi
 # Update binary
 cp -f "$BINARY" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
-# Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib.
+# Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib,
+# so the framework has to land there or the app dies at launch with a dyld
+# error. Missing it is a build failure, not something to ship quietly.
 LLAMA_FRAMEWORK="${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}/llama.framework"
-if [ -d "$LLAMA_FRAMEWORK" ]; then
-    mkdir -p "${APP_DIR}/Contents/lib"
-    rm -rf "${APP_DIR}/Contents/lib/llama.framework"
-    cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
+if [ ! -d "$LLAMA_FRAMEWORK" ]; then
+    echo "Error: llama.framework not found at ${LLAMA_FRAMEWORK}" >&2
+    echo "LLM.swift's binary target did not build; the app would crash on launch." >&2
+    exit 1
 fi
+mkdir -p "${APP_DIR}/Contents/lib"
+rm -rf "${APP_DIR}/Contents/lib/llama.framework"
+cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
 
 # Update resource bundles — copy to Contents/Resources/
 # xcodebuild's Bundle.module accessor checks Bundle.main.resourceURL first,
@@ -257,10 +266,9 @@ fi
 find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec \
     codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS {} \; 2>/dev/null || true
 
-if [ -d "${APP_DIR}/Contents/lib/llama.framework" ]; then
-    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \
-        "${APP_DIR}/Contents/lib/llama.framework"
-fi
+# Nested code must be signed before the app that contains it.
+codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \
+    "${APP_DIR}/Contents/lib/llama.framework"
 
 # Sign the main app
 codesign --force --sign "$CODE_SIGN_IDENTITY" \

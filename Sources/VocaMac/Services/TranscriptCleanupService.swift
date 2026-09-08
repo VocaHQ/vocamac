@@ -19,7 +19,16 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private let modelsDirectory: URL
     private var activeLLM: LLM?
     private var activeKind: CleanupModelKind?
-    private var loadTask: Task<Void, Never>?
+
+    /// The load in flight, so overlapping `load` calls join it instead of
+    /// racing two llama.cpp contexts into memory at once.
+    private var loadInFlight: (kind: CleanupModelKind, task: Task<Bool, Never>)?
+
+    /// Seam for tests; production checks reclaimable RAM against the catalog
+    /// estimate, the same gate the speech models use (vocamac#251).
+    var modelFitsInMemory: (CleanupModelDescriptor) -> Bool = {
+        SystemInfo.canFitInMemory(requiredGB: $0.ramRequiredGB)
+    }
 
     private static let timeoutSeconds: TimeInterval = 12
 
@@ -81,6 +90,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
         try? FileManager.default.removeItem(at: destination)
 
+        // A new attempt clears whatever error the last one left on screen.
         modelState = .downloading(kind: kind, progress: 0)
         do {
             try await FileDownloader.download(from: descriptor.url, to: destination) { [weak self] progress in
@@ -105,8 +115,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             VocaLogger.info(.transcriptCleanup, "Download cancelled: \(descriptor.displayName)")
         } catch {
             try? FileManager.default.removeItem(at: destination)
-            modelState = .error("Failed to download \(descriptor.displayName): \(error.localizedDescription)")
-            VocaLogger.error(.transcriptCleanup, modelStateError)
+            let message = "Failed to download \(descriptor.displayName): \(error.localizedDescription)"
+            modelState = .error(message)
+            VocaLogger.error(.transcriptCleanup, message)
         }
     }
 
@@ -116,10 +127,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             return
         }
 
-        if case .loading = modelState {
-            await waitUntilNotLoading()
-            if activeKind == kind, activeLLM != nil {
-                modelState = .ready
+        // Join a load already running for this model rather than starting a
+        // second llama.cpp context; a load for a *different* model has to
+        // finish first so the two never hold memory at the same time.
+        if let inFlight = loadInFlight {
+            let joinedSameKind = inFlight.kind == kind
+            _ = await inFlight.task.value
+            if joinedSameKind {
                 return
             }
         }
@@ -131,43 +145,40 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             return
         }
 
+        // Refuse a known-too-large load before llama.cpp maps the weights and
+        // pushes the machine into swap, matching the speech-model gate.
+        guard modelFitsInMemory(descriptor) else {
+            let needed = String(format: "%.1f", descriptor.ramRequiredGB)
+            let message = "Not enough free memory to load \(descriptor.displayName) "
+                + "(~\(needed) GB needed). Free RAM or choose a smaller cleanup model."
+            modelState = .error(message)
+            VocaLogger.error(.transcriptCleanup, message)
+            return
+        }
+
         modelState = .loading(kind: kind)
         activeLLM = nil
         activeKind = nil
 
         let maxTokens = descriptor.maxTokenCount
-        let loading = Task.detached(priority: .userInitiated) {
-            LLMBox(LLM(from: path, seed: 42, topP: 0.9, temp: 0.1, maxTokenCount: maxTokens))
+        let task = Task<Bool, Never> { [weak self] in
+            let loading = Task.detached(priority: .userInitiated) {
+                LLMBox(LLM(from: path, seed: 42, topP: 0.9, temp: 0.1, maxTokenCount: maxTokens))
+            }
+            let loaded = await loading.value.llm
+            guard let self else { return false }
+            return await self.finishLoad(loaded, kind: kind, descriptor: descriptor)
         }
-        let loaded = await loading.value.llm
-
-        guard let loaded else {
-            modelState = .error("Failed to load \(descriptor.displayName).")
-            VocaLogger.error(.transcriptCleanup, "Failed to load \(descriptor.displayName)")
-            return
+        loadInFlight = (kind: kind, task: task)
+        _ = await task.value
+        if loadInFlight?.kind == kind {
+            loadInFlight = nil
         }
-
-        loaded.postprocess = { (_: String) in }
-        loaded.update = { (_: String?) in }
-        loaded.updateThinking = { (_: String?) in }
-        loaded.historyLimit = 0
-        activeLLM = loaded
-        activeKind = kind
-        modelState = .ready
-        VocaLogger.info(.transcriptCleanup, "Ready: \(descriptor.displayName)")
-    }
-
-    func cancelLoad() {
-        loadTask?.cancel()
-        loadTask = nil
     }
 
     func unload() {
         activeLLM = nil
         activeKind = nil
-        if case .error = modelState {
-            return
-        }
         modelState = .idle
         VocaLogger.info(.transcriptCleanup, "Unloaded cleanup model")
     }
@@ -181,26 +192,31 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         VocaLogger.info(.transcriptCleanup, "Deleted \(kind.descriptor.displayName)")
     }
 
-    func startLoad(kind: CleanupModelKind) {
-        loadTask?.cancel()
-        loadTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            if !self.isDownloaded(kind) {
-                await self.download(kind)
-            }
-            guard !Task.isCancelled else { return }
-            if self.isDownloaded(kind) {
-                await self.load(kind)
-            }
-            self.loadTask = nil
-        }
-    }
-
     // MARK: - Private
 
-    private var modelStateError: String {
-        if case .error(let message) = modelState { return message }
-        return "Cleanup model error"
+    /// Install a freshly constructed `LLM`, or report why it could not load.
+    private func finishLoad(
+        _ loaded: LLM?,
+        kind: CleanupModelKind,
+        descriptor: CleanupModelDescriptor
+    ) -> Bool {
+        guard let loaded else {
+            modelState = .error("Failed to load \(descriptor.displayName).")
+            VocaLogger.error(.transcriptCleanup, "Failed to load \(descriptor.displayName)")
+            return false
+        }
+
+        // The library's defaults print every token to stdout; the cleanup path
+        // reads `output` once and streams nothing to the UI.
+        loaded.postprocess = { (_: String) in }
+        loaded.update = { (_: String?) in }
+        loaded.updateThinking = { (_: String?) in }
+        loaded.historyLimit = 0
+        activeLLM = loaded
+        activeKind = kind
+        modelState = .ready
+        VocaLogger.info(.transcriptCleanup, "Ready: \(descriptor.displayName)")
+        return true
     }
 
     private func modelPath(for kind: CleanupModelKind) -> URL {
@@ -215,12 +231,6 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private func isPlausibleFile(_ url: URL, descriptor: CleanupModelDescriptor) -> Bool {
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         return fileSize(at: url) == descriptor.expectedByteCount
-    }
-
-    private func waitUntilNotLoading() async {
-        while case .loading = modelState {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-        }
     }
 
     private func runInference(llm: LLM, prompt: String, input: String) async throws -> String {

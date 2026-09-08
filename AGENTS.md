@@ -192,9 +192,9 @@ Version-bump changelog tables go in the **PR description**, not a tracked file. 
 | [WhisperKit](https://github.com/argmaxinc/WhisperKit) | Whisper CoreML | `from: "0.9.4"` |
 | [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.5")` (pre-1.0) |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | exact `1.13.7` (matching xcframework) |
-| [LLM.swift](https://github.com/eastriverlee/LLM.swift) | GGUF cleanup (llama.cpp) | revision `1d42188` (no version tags) |
+| [LLM.swift](https://github.com/eastriverlee/LLM.swift) | GGUF cleanup (llama.cpp) | exact `3.0.3` (vendors a pinned llama.cpp xcframework) |
 
-Keep dependencies minimal. Do not bump FluidAudio across a minor without checking `AsrManager.loadModels` / TDT decoder APIs. Do not unpin LLM.swift to `branch: "main"`.
+Keep dependencies minimal. Do not bump FluidAudio across a minor without checking `AsrManager.loadModels` / TDT decoder APIs. Do not unpin LLM.swift to a branch or a bare `revision:` — pin the release tag so the vendored llama.cpp xcframework moves only on a deliberate bump.
 
 ---
 

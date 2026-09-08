@@ -185,7 +185,20 @@ enum SystemInfo {
         physicalMemoryGB: Int = physicalMemoryGB,
         availableBytes: UInt64 = availableMemoryBytes
     ) -> Bool {
-        let requiredGB = size.ramRequiredGB
+        canFitInMemory(
+            requiredGB: size.ramRequiredGB,
+            physicalMemoryGB: physicalMemoryGB,
+            availableBytes: availableBytes
+        )
+    }
+
+    /// Same gate against a bare catalog estimate, for models that are not
+    /// `ModelSize` values (the GGUF cleanup catalog).
+    static func canFitInMemory(
+        requiredGB: Double,
+        physicalMemoryGB: Int = physicalMemoryGB,
+        availableBytes: UInt64 = availableMemoryBytes
+    ) -> Bool {
         guard Double(physicalMemoryGB) + 0.001 >= requiredGB else {
             return false
         }

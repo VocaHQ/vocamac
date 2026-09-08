@@ -83,6 +83,8 @@ xcodebuild build \
     -configuration "$XCODE_CONFIG" \
     -derivedDataPath "$DERIVED_DATA" \
     -destination 'platform=macOS,arch=arm64' \
+    -skipMacroValidation \
+    -skipPackagePluginValidation \
     ONLY_ACTIVE_ARCH=YES \
     -quiet
 

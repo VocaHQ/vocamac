@@ -209,6 +209,7 @@ protocol TranscriptCleaning: AnyObject {
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
     func clean(_ text: String, prompt: String) async -> String
+    func preview(_ text: String, prompt: String) async -> CleanupAttempt
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func pruneUnknownModels()
     func download(_ kind: CleanupModelKind) async

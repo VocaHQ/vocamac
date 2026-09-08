@@ -14,6 +14,40 @@ enum CleanupModelState: Equatable {
     case error(String)
 }
 
+/// What one cleanup pass actually did, for the Settings "try it" panel.
+///
+/// `clean` deliberately returns the input unchanged whenever anything goes
+/// wrong, which is right for dictation and useless for diagnosis — "nothing
+/// happened" and "the model answered and the answer was thrown away" look
+/// identical. This says which.
+struct CleanupAttempt: Equatable {
+    enum Outcome: Equatable {
+        /// The model rewrote the text and the rewrite was accepted.
+        case cleaned
+        /// The model answered, and its answer was the input.
+        case unchanged
+        /// The model answered and the answer failed the safety gate.
+        case rejected(String)
+        /// Cleanup never ran.
+        case skipped(String)
+    }
+
+    let output: String
+    let outcome: Outcome
+    let duration: TimeInterval
+
+    var didChangeText: Bool { outcome == .cleaned }
+
+    var summary: String {
+        switch outcome {
+        case .cleaned: return "Cleaned up"
+        case .unchanged: return "Model returned the text unchanged"
+        case .rejected(let why): return "Discarded — \(why). Dictation would paste the original."
+        case .skipped(let why): return "Skipped — \(why)"
+        }
+    }
+}
+
 /// How a cleanup model is positioned in the picker.
 enum CleanupModelRecommendation: Equatable {
     case compact

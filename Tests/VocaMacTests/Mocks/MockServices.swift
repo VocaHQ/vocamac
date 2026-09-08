@@ -571,6 +571,19 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
         return cleanHandler?(text) ?? text
     }
 
+    var previewCallCount = 0
+
+    func preview(_ text: String, prompt: String) async -> CleanupAttempt {
+        previewCallCount += 1
+        lastPrompt = prompt
+        let output = cleanHandler?(text) ?? text
+        return CleanupAttempt(
+            output: output,
+            outcome: output == text ? .unchanged : .cleaned,
+            duration: 0
+        )
+    }
+
     func isDownloaded(_ kind: CleanupModelKind) -> Bool {
         downloadedKinds.contains(kind)
     }

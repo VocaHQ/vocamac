@@ -1827,6 +1827,22 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Run one cleanup pass on text the user typed into Settings, so they can
+    /// see what the model does before trusting it with a dictation. Loads the
+    /// model on demand — testing should not require enabling the feature first.
+    func previewCleanup(_ text: String, prompt: String) async -> CleanupAttempt {
+        let kind = selectedCleanupModelKind
+        guard transcriptCleanup.isDownloaded(kind) else {
+            return CleanupAttempt(
+                output: text,
+                outcome: .skipped("\(kind.descriptor.displayName) is not downloaded yet"),
+                duration: 0
+            )
+        }
+        await transcriptCleanup.load(kind)
+        return await transcriptCleanup.preview(text, prompt: prompt)
+    }
+
     func cancelCleanupDownload() {
         transcriptCleanup.cancelDownload()
     }

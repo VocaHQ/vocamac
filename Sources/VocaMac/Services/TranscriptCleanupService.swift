@@ -82,18 +82,39 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func clean(_ text: String, prompt: String) async -> String {
+        await attemptClean(text, prompt: prompt, recordingFailures: true).output
+    }
+
+    /// Same pass as `clean`, but reporting what happened and without letting a
+    /// hand-typed experiment trip the give-up counter that guards dictation.
+    func preview(_ text: String, prompt: String) async -> CleanupAttempt {
+        await attemptClean(text, prompt: prompt, recordingFailures: false)
+    }
+
+    private func attemptClean(
+        _ text: String,
+        prompt: String,
+        recordingFailures: Bool
+    ) async -> CleanupAttempt {
+        let started = Date()
+        func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
+            CleanupAttempt(output: output, outcome: outcome, duration: Date().timeIntervalSince(started))
+        }
+
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return text }
+        guard !trimmed.isEmpty else {
+            return result(text, .skipped("there is nothing to clean"))
+        }
 
         guard let llm = activeLLM else {
             VocaLogger.info(.transcriptCleanup, "Cleanup skipped — model not ready")
-            return text
+            return result(text, .skipped("no cleanup model is loaded"))
         }
 
         // Already given up on this model; do not make every dictation pay for
         // an inference that has failed three times running.
-        if case .error = modelState, consecutiveFailures >= Self.failureLimit {
-            return text
+        if recordingFailures, case .error = modelState, consecutiveFailures >= Self.failureLimit {
+            return result(text, .skipped("cleanup gave up after \(consecutiveFailures) failures"))
         }
 
         let activePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -111,7 +132,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
                 .transcriptCleanup,
                 "Transcript is \(trimmed.count) characters, over the \(budget)-character context budget — skipping cleanup"
             )
-            return text
+            return result(text, .skipped("the text is \(trimmed.count) characters and only \(budget) fit alongside the prompt"))
         }
 
         let formatted = TranscriptCleanup.formatInput(trimmed)
@@ -119,21 +140,26 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         do {
             let raw = try await runInference(llm: llm, prompt: activePrompt, input: formatted)
             if let accepted = TranscriptCleanup.acceptedOutput(raw, original: trimmed) {
-                consecutiveFailures = 0
+                if recordingFailures { consecutiveFailures = 0 }
                 VocaLogger.info(.transcriptCleanup, "Cleanup produced \(accepted.count) characters")
-                return accepted
+                return result(accepted, accepted == trimmed ? .unchanged : .cleaned)
             }
-            recordFailure(reason: raw.isEmpty || raw == "..." ? "produced no output" : "produced unusable output")
-            return text
+            let why = raw.isEmpty || raw == "..." ? "the model returned nothing" : "the rewrite failed the safety check"
+            if recordingFailures {
+                recordFailure(reason: raw.isEmpty || raw == "..." ? "produced no output" : "produced unusable output")
+            }
+            return result(text, .rejected(why))
         } catch CleanupInferenceError.deadlineExceeded {
-            recordFailure(reason: "did not answer within \(Int(Self.timeoutSeconds))s")
-            return text
+            if recordingFailures {
+                recordFailure(reason: "did not answer within \(Int(Self.timeoutSeconds))s")
+            }
+            return result(text, .rejected("the model ran past its \(Int(Self.timeoutSeconds))s deadline"))
         } catch CleanupInferenceError.modelBusy {
             VocaLogger.warning(.transcriptCleanup, "Previous cleanup still winding down — using raw transcript")
-            return text
+            return result(text, .skipped("the previous cleanup is still finishing"))
         } catch {
             VocaLogger.warning(.transcriptCleanup, "Cleanup failed: \(error.localizedDescription)")
-            return text
+            return result(text, .rejected(error.localizedDescription))
         }
     }
 

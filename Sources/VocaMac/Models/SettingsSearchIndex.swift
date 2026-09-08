@@ -87,6 +87,13 @@ enum SettingsSearchIndex {
             keywords: ["qwen", "model", "download", "0.5b", "0.6b", "gguf"]
         ),
         SettingsSearchEntry(
+            id: "cleanup-try",
+            page: .cleanup,
+            title: "Try Cleanup",
+            subtitle: "Run your own text through the cleanup model",
+            keywords: ["try", "test", "preview", "sample", "check", "grammar"]
+        ),
+        SettingsSearchEntry(
             id: "cleanup-prompt",
             page: .cleanup,
             title: "Cleanup Prompt",

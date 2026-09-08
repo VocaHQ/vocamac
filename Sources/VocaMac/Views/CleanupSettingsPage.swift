@@ -10,6 +10,15 @@ struct CleanupSettingsPage: View {
     @State private var promptDraft: String = ""
     @State private var didLoadPrompt = false
     @State private var promptCommit: Task<Void, Never>?
+    @State private var tryItInput = CleanupSettingsPage.sampleUtterance
+    @State private var tryItResult: CleanupAttempt?
+    @State private var tryItRunning = false
+
+    /// Seeded with something that exercises the behaviours the models differ
+    /// on: fillers, a stutter, and dictated punctuation.
+    static let sampleUtterance =
+        "so um i was i was thinking we could ship it on friday comma "
+        + "maybe after the review you know"
 
     var body: some View {
         Form {
@@ -37,6 +46,39 @@ struct CleanupSettingsPage: View {
             Section("Cleanup Model") {
                 ForEach(CleanupModelKind.allCases) { kind in
                     CleanupModelRow(kind: kind)
+                }
+            }
+
+            Section("Try It") {
+                Text("Type what you would have said and run it through the model. Nothing here is injected anywhere — it just shows what cleanup would do to a dictation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $tryItInput)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 54)
+
+                HStack {
+                    Button(tryItRunning ? "Cleaning…" : "Clean Up Sample") {
+                        runTryIt()
+                    }
+                    .disabled(tryItRunning || tryItInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if tryItRunning {
+                        ProgressView().controlSize(.small)
+                    }
+
+                    Spacer()
+
+                    Button("Reset") {
+                        tryItInput = Self.sampleUtterance
+                        tryItResult = nil
+                    }
+                    .buttonStyle(.link)
+                }
+
+                if let result = tryItResult {
+                    tryItOutput(result)
                 }
             }
 
@@ -96,6 +138,47 @@ struct CleanupSettingsPage: View {
                 promptDraft = appState.effectiveCleanupPrompt
                 didLoadPrompt = true
             }
+        }
+    }
+
+    @ViewBuilder
+    private func tryItOutput(_ result: CleanupAttempt) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: result.didChangeText ? "checkmark.circle.fill" : "info.circle")
+                    .foregroundStyle(result.didChangeText ? Color.green : .orange)
+                Text(result.summary)
+                    .font(.caption)
+                    .foregroundStyle(result.didChangeText ? .primary : .secondary)
+                Spacer()
+                Text(String(format: "%.1fs", result.duration))
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(result.output)
+                .font(.system(.callout, design: .default))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func runTryIt() {
+        // Use the prompt as it currently reads in the editor, not the saved
+        // one, so an edit can be tried before it is committed.
+        let draft = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prompt = draft.isEmpty ? TranscriptCleanup.defaultPrompt : draft
+        let input = tryItInput
+        tryItRunning = true
+        Task { @MainActor in
+            let result = await appState.previewCleanup(input, prompt: prompt)
+            tryItResult = result
+            tryItRunning = false
         }
     }
 

@@ -51,7 +51,7 @@
 <p align="center">
   <img src="docs/screenshots/popover-panel.png" alt="VocaMac Popover" width="400">
   <br>
-  <em>Menu bar popover with status and controls</em>
+  <em>Menu bar popover with status, model, and microphone</em>
 </p>
 
 <p align="center">
@@ -67,7 +67,7 @@
   &nbsp;&nbsp;
   <img src="docs/screenshots/settings-models.png" alt="Settings - Models" width="400">
   <br>
-  <em>Settings: General tab (left) and Models tab with resource monitoring (right)</em>
+  <em>Settings: Dictation (left) and Speech Model (right)</em>
 </p>
 
 <p align="center">
@@ -330,7 +330,7 @@ This helps us pinpoint the exact code you're running if you report an issue.
 | **Speak** | Audio is captured |
 | **Double-tap Right Option again** | Recording stops → transcription → text injection |
 
-Switch between modes in **Settings → General → Activation**.
+Switch between modes in **Settings → Dictation**.
 
 ---
 

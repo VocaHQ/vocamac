@@ -8,9 +8,9 @@ icon: "🚀"
 
 ## Ready in the menu bar
 
-![VocaMac Settings showing Launch at Login toggle](/screenshots/settings-general.png)
+![VocaMac Settings showing Launch at Login toggle](/screenshots/settings-application.png)
 
-Enable **Launch at Login** in VocaMac's General settings and macOS starts the app when you sign in. VocaMac uses Apple's SMAppService login-item API, and the setting is also visible in **System Settings → General → Login Items**.
+Enable **Launch at Login** in VocaMac's Application settings and macOS starts the app when you sign in. VocaMac uses Apple's SMAppService login-item API, and the setting is also visible in **System Settings → General → Login Items**.
 
 This controls when the app starts; it does not force a speech model to stay loaded. Model loading and model keep-alive behavior remain separate settings so you can choose the resource trade-off that fits your Mac.
 

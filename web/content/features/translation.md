@@ -91,7 +91,7 @@ You can always make corrections manually after VocaMac inserts the text. Think o
 
 ## Toggling Translation On and Off
 
-Translation is disabled by default. To enable it, open **Settings → General → Translation** and toggle it on.
+Translation is disabled by default. To enable it, open **Settings → Speech Model** and toggle **Enable translation**.
 
 Once enabled, all recordings will be transcribed and translated to English automatically. You can toggle translation on and off anytime without restarting VocaMac.
 

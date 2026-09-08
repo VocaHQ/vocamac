@@ -306,6 +306,92 @@ final class CleanupModelTests: XCTestCase {
     }
 
     @MainActor
+    func testOverlappingSameKindLoadJoinerDoesNotResurrectAfterUnload() async throws {
+        // Two same-kind loads overlap. Unload runs before init finishes. The
+        // joiner that entered before unload must leave idle, not start a
+        // fresh load that would install after cleanup was turned off.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let descriptor = CleanupModelCatalog.recommended
+        let path = directory.appendingPathComponent(descriptor.fileName)
+        FileManager.default.createFile(atPath: path.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+        try handle.close()
+
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        service.modelFitsInMemory = { _ in true }
+        XCTAssertTrue(service.isDownloaded(descriptor.kind))
+
+        let first = Task { await service.load(descriptor.kind) }
+        // Reach construction so loadInFlight is set before the joiner arrives.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        let joiner = Task { await service.load(descriptor.kind) }
+        // Let the joiner park on the in-flight await before unload bumps
+        // generation. Without this the joiner can land after unload and the
+        // test would exercise the re-enable path instead.
+        try await Task.sleep(nanoseconds: 50_000_000)
+        service.unload()
+        await first.value
+        await joiner.value
+
+        XCTAssertFalse(service.isLoaded)
+        XCTAssertEqual(
+            service.modelState,
+            .idle,
+            "a same-kind joiner that entered before unload must not start a fresh load"
+        )
+    }
+
+    @MainActor
+    func testLoadAfterUnloadWhileStaleInFlightFinishesMayReEnable() async throws {
+        // Unload bumps generation but keeps loadInFlight. A load that starts
+        // after that unload, while the stale task is still finishing, must be
+        // allowed to fall through and attempt a fresh load (re-enable path).
+        // Sparse file still fails llama.cpp, so the outcome is .error or
+        // .idle from the fresh attempt — never a silent no-op that leaves the
+        // service stuck because the joiner returned early forever.
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let descriptor = CleanupModelCatalog.recommended
+        let path = directory.appendingPathComponent(descriptor.fileName)
+        FileManager.default.createFile(atPath: path.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: path)
+        try handle.truncate(atOffset: UInt64(descriptor.expectedByteCount))
+        try handle.close()
+
+        let service = TranscriptCleanupService(modelsDirectory: directory)
+        service.modelFitsInMemory = { _ in true }
+
+        let stale = Task { await service.load(descriptor.kind) }
+        try await Task.sleep(nanoseconds: 50_000_000)
+        service.unload()
+        // Post-unload caller: generationAtEntry matches current loadGeneration
+        // but not the stale inFlight.generation, so it may start fresh.
+        let reEnable = Task { await service.load(descriptor.kind) }
+        await stale.value
+        await reEnable.value
+
+        XCTAssertFalse(service.isLoaded)
+        // Fresh attempt ran: sparse GGUF fails, so state is .error (or .idle
+        // only if the file vanished). Must not still be .loading.
+        if case .loading = service.modelState {
+            XCTFail("re-enable load must finish; left stuck in .loading")
+        }
+        XCTAssertNotEqual(
+            service.modelState,
+            .ready,
+            "sparse file must not install as ready"
+        )
+    }
+
+    @MainActor
     func testPruneRemovesModelsTheCatalogNoLongerLists() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

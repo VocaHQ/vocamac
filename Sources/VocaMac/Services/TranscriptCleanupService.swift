@@ -32,8 +32,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private var activeKind: CleanupModelKind?
 
     /// The load in flight, so overlapping `load` calls join it instead of
-    /// racing two llama.cpp contexts into memory at once.
-    private var loadInFlight: (kind: CleanupModelKind, task: Task<Bool, Never>)?
+    /// racing two llama.cpp contexts into memory at once. `generation` is the
+    /// loadGeneration captured when this attempt started, so a joiner can tell
+    /// a pre-unload wait from a post-unload re-enable.
+    private var loadInFlight: (kind: CleanupModelKind, generation: Int, task: Task<Bool, Never>)?
 
     /// Which load attempt is allowed to install its model. Constructing a GGUF
     /// takes long enough for the user to turn cleanup off mid-load, and
@@ -320,11 +322,26 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // finish first so the two never hold memory at the same time.
         if let inFlight = loadInFlight {
             let joinedSameKind = inFlight.kind == kind
+            let generationAtEntry = loadGeneration
             _ = await inFlight.task.value
-            // A joined load may have been invalidated by `unload` (stale
-            // generation). Only bail out when that attempt actually installed.
-            if joinedSameKind, activeKind == kind, activeLLM != nil {
-                return
+            if joinedSameKind {
+                // Installed — done.
+                if activeKind == kind, activeLLM != nil {
+                    return
+                }
+                // Unload bumped generation while we waited. This caller entered
+                // before that unload, so do not resurrect a fresh load.
+                if generationAtEntry != loadGeneration {
+                    return
+                }
+                // Same attempt failed on its own (OOM, bad file, etc.). The
+                // joiner must not retry — that would double-init.
+                if generationAtEntry == inFlight.generation {
+                    return
+                }
+                // Caller entered after unload while the stale task was still
+                // finishing: generation matches current but not the in-flight
+                // attempt. Fall through to start a fresh load (re-enable).
             }
         }
 
@@ -375,7 +392,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             guard let self else { return false }
             return await self.finishLoad(loaded, kind: kind, descriptor: descriptor, generation: generation)
         }
-        loadInFlight = (kind: kind, task: task)
+        loadInFlight = (kind: kind, generation: generation, task: task)
         _ = await task.value
         // Compare the task, not the kind: a same-kind retry can replace
         // loadInFlight after a stale join, and clearing by kind would drop it.

@@ -41,6 +41,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var subtitle: String {
         switch self {
         case .dictation: return "Make voice typing feel natural to you."
+        case .writingStyles: return "Match formatting and tone to the app where your words land."
         case .snippets: return "Turn a short spoken phrase into the text you use often."
         case .cleanup: return "Polish your words with an optional model running on this Mac."
         case .speechModel: return "Find the right balance of speed, accuracy, and languages."

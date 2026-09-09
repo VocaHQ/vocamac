@@ -268,6 +268,12 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// Exact technical formats never send text to the cleanup model. Their
+    /// paths, symbols, and commands are deterministic by design.
+    var supportsWording: Bool {
+        self != .code && self != .terminal
+    }
+
     /// The preset's rules. A binding may override individual fields.
     var defaultRules: WritingStyleRules {
         switch self {

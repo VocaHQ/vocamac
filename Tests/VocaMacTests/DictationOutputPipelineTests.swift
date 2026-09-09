@@ -200,4 +200,21 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(state.writingStyleBindings.first?.intent, .professional)
         XCTAssertEqual(state.writingStyleBindings.first?.cleanup, .off)
     }
+
+    func testOneOffFormatAndWordingSelectionsComposeInEitherOrder() {
+        let (state, _) = AppState.makeTestState()
+
+        state.useNextWritingIntent(.casual)
+        state.useNextWritingFormat(.chat)
+        XCTAssertEqual(state.nextWritingProfile?.format, .chat)
+        XCTAssertEqual(state.nextWritingProfile?.intent, .casual)
+        XCTAssertEqual(state.nextWritingProfile?.cleanup, .inherit)
+
+        state.useRawForNextDictation()
+        state.useNextWritingFormat(.email)
+        state.useNextWritingIntent(.professional)
+        XCTAssertEqual(state.nextWritingProfile?.format, .email)
+        XCTAssertEqual(state.nextWritingProfile?.intent, .professional)
+        XCTAssertEqual(state.nextWritingProfile?.cleanup, .inherit)
+    }
 }

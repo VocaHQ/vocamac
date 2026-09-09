@@ -53,9 +53,15 @@ final class AppStateWritingStyleTests: XCTestCase {
             audioLengthSeconds: 1.0,
             modelUsed: .tiny
         )
-        appState.isRecording = true
-        appState.appStatus = .recording
-        await appState.stopRecordingAndTranscribe(injectResult: injectResult)
+        if injectResult {
+            appState.isRecording = true
+            appState.appStatus = .recording
+        } else {
+            // Current AppState fixes injection-vs-preview at recording start;
+            // the stop-time argument is intentionally source-compatible only.
+            await appState.startRecording(injectResult: false)
+        }
+        await appState.stopRecordingAndTranscribe()
     }
 
     // MARK: - Nothing is configured without being asked

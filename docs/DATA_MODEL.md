@@ -363,7 +363,7 @@ See `WritingStyleBindingStore.decode(json:)` and `WritingStyleRules.init(from:)`
 optional fields remain compatible with the version-1 binding envelope.
 
 `WritingProfile` snapshots the resolved format, rules, intent, and policy for an
-utterance. Professional/Casual require both the experimental intent toggle and
+utterance. Formal/Casual require both the optional wording toggle and
 Transcript Cleanup; model choice remains global. Code/Terminal bypass inference.
 Raw returns the original speech-engine text without trimming, snippets, or polish.
 Plain formatting continues to honor the global cleanup preference.

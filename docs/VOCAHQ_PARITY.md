@@ -193,7 +193,7 @@ normalizes before matching. Whisper converts spoken symbols itself ("slash" →
 Formatting is a pure function of the transcript, so it is identical across all
 four engines — pinned by a regression test.
 
-**Local wording refinement:** experimental Professional and Casual intents reuse
+**Local wording refinement:** optional Formal and Casual intents reuse
 `TranscriptCleanupService` and its existing GGUF runtime. Format and wording are
 independent. Both require explicit opt-in, with English-only gating and exact
 fallbacks. No FoundationModels dependency was added.

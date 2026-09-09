@@ -296,12 +296,22 @@ final class AppState: ObservableObject {
     }
 
     func useNextWritingFormat(_ format: WritingStyle) {
-        nextWritingProfile = WritingProfile(format: format, rules: format.defaultRules)
+        var profile = nextWritingProfile ?? resolveWritingStyle(for: writingStyleTargetApp).profile
+        profile.format = format
+        profile.rules = format.defaultRules
+        if profile.cleanup == .raw {
+            profile.cleanup = .inherit
+        }
+        nextWritingProfile = profile
     }
 
     func useNextWritingIntent(_ intent: WritingIntent) {
         var profile = nextWritingProfile ?? resolveWritingStyle(for: writingStyleTargetApp).profile
         profile.intent = intent
+        // Choosing wording explicitly must override an app's Raw or
+        // formatting-only policy for this utterance. The global switch and
+        // local-model readiness still decide whether a rewrite can run.
+        profile.cleanup = .inherit
         nextWritingProfile = profile
     }
 

@@ -5,11 +5,23 @@ enum WritingIntent: String, Codable, CaseIterable, Identifiable {
     case preserve, professional, casual
 
     var id: String { rawValue }
+
     var displayName: String {
         switch self {
-        case .preserve: return "Preserve my wording"
-        case .professional: return "Professional"
+        case .preserve: return "As spoken"
+        case .professional: return "Formal"
         case .casual: return "Casual"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .preserve:
+            return "Keep your phrasing. Smart Cleanup can still remove fillers when enabled."
+        case .professional:
+            return "Make English dictation clear, direct, and suitable for work or email."
+        case .casual:
+            return "Make English dictation sound relaxed and conversational for friends and chat."
         }
     }
 }
@@ -35,6 +47,6 @@ struct WritingProfile: Equatable {
     var cleanup: WritingCleanupPolicy = .inherit
 
     var allowsRewrite: Bool {
-        cleanup == .inherit && format != .code && format != .terminal
+        cleanup == .inherit && format.supportsWording
     }
 }

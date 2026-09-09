@@ -79,6 +79,13 @@ enum SettingsSearchIndex {
             keywords: ["default", "style", "plain", "fallback"]
         ),
         SettingsSearchEntry(
+            id: "writing-wording",
+            page: .writingStyles,
+            title: "Formal and Casual Wording",
+            subtitle: "Choose how dictation sounds in each app",
+            keywords: ["formal", "casual", "professional", "friends", "conversation", "wording", "rewrite"]
+        ),
+        SettingsSearchEntry(
             id: "app-style-rules",
             page: .writingStyles,
             title: "App Rules",

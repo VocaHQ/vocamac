@@ -30,6 +30,22 @@ final class WritingStyleTests: XCTestCase {
         }
     }
 
+    func testTechnicalStylesKeepExactWording() {
+        XCTAssertFalse(WritingStyle.code.supportsWording)
+        XCTAssertFalse(WritingStyle.terminal.supportsWording)
+        for style in WritingStyle.allCases where style != .code && style != .terminal {
+            XCTAssertTrue(style.supportsWording, "\(style.rawValue) should support optional wording")
+        }
+    }
+
+    func testWritingIntentNamesAreFriendlyWithoutChangingStoredIDs() throws {
+        XCTAssertEqual(WritingIntent.preserve.displayName, "As spoken")
+        XCTAssertEqual(WritingIntent.professional.displayName, "Formal")
+        XCTAssertEqual(WritingIntent.casual.displayName, "Casual")
+        let data = try JSONEncoder().encode(WritingIntent.professional)
+        XCTAssertEqual(String(decoding: data, as: UTF8.self), #""professional""#)
+    }
+
     func testPlainInheritsBothGlobalToggles() {
         let rules = WritingStyle.plain.defaultRules
         XCTAssertEqual(rules.capitalization, .inherit)
@@ -272,6 +288,47 @@ final class WritingStyleCatalogTests: XCTestCase {
         for suggestion in WritingStyleCatalog.editors {
             XCTAssertEqual(suggestion.style, .code, "\(suggestion.displayName)")
         }
+    }
+
+    func testSuggestedAppsChooseConservativePerAppWording() {
+        let casualChatIDs: Set<String> = [
+            "com.apple.MobileSMS",
+            "net.whatsapp.WhatsApp",
+            "ru.keepcoder.Telegram",
+            "com.hnc.Discord",
+            "org.whispersystems.signal-desktop"
+        ]
+        for suggestion in WritingStyleCatalog.chat {
+            let expected: WritingIntent = casualChatIDs.contains(suggestion.bundleIdentifier ?? "")
+                ? .casual : .preserve
+            XCTAssertEqual(suggestion.binding.intent, expected, suggestion.displayName)
+        }
+        for suggestion in WritingStyleCatalog.mail {
+            XCTAssertEqual(suggestion.binding.intent, .professional, suggestion.displayName)
+        }
+        for suggestion in WritingStyleCatalog.editors + WritingStyleCatalog.terminals {
+            XCTAssertEqual(suggestion.binding.intent, .preserve, suggestion.displayName)
+        }
+    }
+
+    func testManualAppSelectionUsesCatalogOnlyForAnExactIdentity() {
+        let messages = RunningAppSnapshot(
+            displayName: "Messages",
+            bundleIdentifier: "com.apple.MobileSMS",
+            processName: "Messages"
+        )
+        XCTAssertEqual(WritingStyleCatalog.suggestion(matching: messages)?.style, .chat)
+        XCTAssertEqual(WritingStyleCatalog.suggestion(matching: messages)?.intent, .casual)
+
+        let unknown = RunningAppSnapshot(
+            displayName: "Unknown App",
+            bundleIdentifier: "com.example.unknown",
+            processName: "Messages"
+        )
+        XCTAssertNil(
+            WritingStyleCatalog.suggestion(matching: unknown),
+            "a bundle-ID mismatch must not inherit a catalog profile by process name"
+        )
     }
 
     func testMergingAddsOnlyNewSuggestions() {

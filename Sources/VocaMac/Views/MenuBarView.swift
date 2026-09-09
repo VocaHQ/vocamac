@@ -191,8 +191,10 @@ struct MenuBarView: View {
             writingStyleNotice
             Menu("Next dictation only") {
                 Button("Raw transcription") { appState.useRawForNextDictation() }
-                ForEach(WritingStyle.allCases) { style in
-                    Button(style.displayName) { appState.useNextWritingFormat(style) }
+                Menu("Format") {
+                    ForEach(WritingStyle.allCases) { style in
+                        Button(style.displayName) { appState.useNextWritingFormat(style) }
+                    }
                 }
                 if appState.writingRewriteEnabled {
                     Menu("Wording") {
@@ -205,7 +207,7 @@ struct MenuBarView: View {
             }
             .font(.caption)
             if let profile = appState.nextWritingProfile {
-                Text("Next: \(profile.cleanup == .raw ? "Raw" : "\(profile.format.displayName) · \(profile.intent.displayName)")")
+                Text("Next: \(nextProfileLabel(profile))")
                     .font(.caption)
             }
         }
@@ -262,11 +264,28 @@ struct MenuBarView: View {
     }
 
     private var writingStyleLabel: String {
-        let style = appState.activeWritingStyle.style.displayName
+        let resolved = appState.activeWritingStyle
+        var style = resolved.style.displayName
+        if appState.writingRewriteEnabled,
+           resolved.profile.allowsRewrite,
+           resolved.intent != .preserve {
+            style += " · \(resolved.intent.displayName)"
+        }
         if let app = appState.activeWritingStyle.matchedAppName {
             return "\(style) — \(app)"
         }
         return "\(style) (default)"
+    }
+
+    private func nextProfileLabel(_ profile: WritingProfile) -> String {
+        guard profile.cleanup != .raw else { return "Raw transcription" }
+        guard appState.writingRewriteEnabled,
+              profile.format.supportsWording,
+              profile.intent != .preserve,
+              profile.cleanup == .inherit else {
+            return profile.format.displayName
+        }
+        return "\(profile.format.displayName) · \(profile.intent.displayName)"
     }
 
     // MARK: - Header

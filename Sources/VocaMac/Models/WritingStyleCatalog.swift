@@ -19,14 +19,24 @@ enum WritingStyleCatalog {
         /// bundle ID may be absent.
         let processName: String?
         let style: WritingStyle
+        /// Suggested wording for this destination. It remains inert until the
+        /// user enables Formal and Casual rewriting in Settings.
+        let intent: WritingIntent
 
         var id: String { bundleIdentifier ?? processName ?? displayName }
 
-        init(_ displayName: String, bundleIdentifier: String? = nil, processName: String? = nil, style: WritingStyle) {
+        init(
+            _ displayName: String,
+            bundleIdentifier: String? = nil,
+            processName: String? = nil,
+            style: WritingStyle,
+            intent: WritingIntent = .preserve
+        ) {
             self.displayName = displayName
             self.bundleIdentifier = bundleIdentifier
             self.processName = processName
             self.style = style
+            self.intent = intent
         }
 
         /// Convert to a persisted binding.
@@ -36,7 +46,8 @@ enum WritingStyleCatalog {
                 displayName: displayName,
                 bundleIdentifier: bundleIdentifier,
                 processName: processName,
-                style: style
+                style: style,
+                intent: intent
             )
             // Plain paste does not create rich text in these destinations.
             if bundleIdentifier == "com.apple.Notes" || bundleIdentifier == "com.culturedcode.ThingsMac" {
@@ -102,11 +113,11 @@ enum WritingStyleCatalog {
 
     static let chat: [Suggestion] = [
         Suggestion("Slack", bundleIdentifier: "com.tinyspeck.slackmacgap", style: .slack),
-        Suggestion("Messages", bundleIdentifier: "com.apple.MobileSMS", style: .chat),
-        Suggestion("WhatsApp", bundleIdentifier: "net.whatsapp.WhatsApp", style: .chat),
-        Suggestion("Telegram", bundleIdentifier: "ru.keepcoder.Telegram", style: .chat),
-        Suggestion("Discord", bundleIdentifier: "com.hnc.Discord", style: .chat),
-        Suggestion("Signal", bundleIdentifier: "org.whispersystems.signal-desktop", style: .chat),
+        Suggestion("Messages", bundleIdentifier: "com.apple.MobileSMS", style: .chat, intent: .casual),
+        Suggestion("WhatsApp", bundleIdentifier: "net.whatsapp.WhatsApp", style: .chat, intent: .casual),
+        Suggestion("Telegram", bundleIdentifier: "ru.keepcoder.Telegram", style: .chat, intent: .casual),
+        Suggestion("Discord", bundleIdentifier: "com.hnc.Discord", style: .chat, intent: .casual),
+        Suggestion("Signal", bundleIdentifier: "org.whispersystems.signal-desktop", style: .chat, intent: .casual),
         Suggestion("Microsoft Teams", bundleIdentifier: "com.microsoft.teams2", style: .chat),
         Suggestion("Zoom", bundleIdentifier: "us.zoom.xos", style: .chat),
         Suggestion("Element", bundleIdentifier: "im.riot.app", style: .chat),
@@ -119,11 +130,11 @@ enum WritingStyleCatalog {
     // MARK: - Email
 
     static let mail: [Suggestion] = [
-        Suggestion("Mail", bundleIdentifier: "com.apple.mail", style: .email),
-        Suggestion("Outlook", bundleIdentifier: "com.microsoft.Outlook", style: .email),
-        Suggestion("Spark", bundleIdentifier: "com.readdle.smartemail-Mac", style: .email),
-        Suggestion("Superhuman", bundleIdentifier: "com.superhuman.electron", style: .email),
-        Suggestion("Mimestream", bundleIdentifier: "com.mimestream.Mimestream", style: .email)
+        Suggestion("Mail", bundleIdentifier: "com.apple.mail", style: .email, intent: .professional),
+        Suggestion("Outlook", bundleIdentifier: "com.microsoft.Outlook", style: .email, intent: .professional),
+        Suggestion("Spark", bundleIdentifier: "com.readdle.smartemail-Mac", style: .email, intent: .professional),
+        Suggestion("Superhuman", bundleIdentifier: "com.superhuman.electron", style: .email, intent: .professional),
+        Suggestion("Mimestream", bundleIdentifier: "com.mimestream.Mimestream", style: .email, intent: .professional)
     ]
 
     // MARK: - Notes
@@ -143,6 +154,20 @@ enum WritingStyleCatalog {
         Suggestion("Todoist", bundleIdentifier: "com.todoist.mac.Todoist", style: .notes),
         Suggestion("Height", bundleIdentifier: "com.height.app", style: .notes)
     ]
+
+    /// Known profile for an app selected manually. Unknown apps deliberately
+    /// return `nil` so the picker can start from Plain instead of guessing that
+    /// an arbitrary application is an editor or chat client.
+    static func suggestion(matching snapshot: RunningAppSnapshot) -> Suggestion? {
+        suggestions.first { suggestion in
+            AppIdentityMatching.matches(
+                configuredBundleIdentifier: suggestion.bundleIdentifier,
+                configuredProcessName: suggestion.processName,
+                configuredID: suggestion.id,
+                snapshot: snapshot
+            )
+        }
+    }
 
     // MARK: - Seeding
 

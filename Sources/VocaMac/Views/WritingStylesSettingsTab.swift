@@ -28,18 +28,31 @@ struct WritingStylesSettingsTab: View {
     ]
 
     var body: some View {
-        Form {
-            Section("Writing Styles") {
-                Toggle("Shape Dictation for the Target App", isOn: $appState.writingStyleEnabled)
+        VocaSettingsPageContent {
+            VocaSettingsGroup("Match Each App") {
+                SettingsToggleRow(
+                    title: "Use app-aware writing",
+                    detail: "Format each utterance for the app that receives it—paths in editors, safe shell text in terminals, and natural sentences in chat and email.",
+                    isOn: $appState.writingStyleEnabled
+                )
 
-                Text("Formats each utterance for the app that receives it: filenames and paths in editors, Slack markup in Slack, plain sentences in chat apps. Turn this off to use only the global Dictation settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Divider()
 
-                Picker("Default format", selection: $appState.writingStyleDefault) {
-                    ForEach(WritingStyle.allCases) { style in
-                        Label(style.displayName, systemImage: style.systemImage).tag(style)
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Default format")
+                        Text("Used when the receiving app has no rule.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 16)
+                    Picker("Default format", selection: $appState.writingStyleDefault) {
+                        ForEach(WritingStyle.allCases) { style in
+                            Label(style.displayName, systemImage: style.systemImage).tag(style)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 170)
                 }
                 .disabled(!appState.writingStyleEnabled)
 
@@ -47,18 +60,34 @@ struct WritingStylesSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Toggle("Try experimental writing intents", isOn: $appState.writingRewriteEnabled)
-                    .disabled(!appState.writingStyleEnabled)
-                Picker("Default wording", selection: $appState.writingIntent) {
-                    ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                Divider()
+
+                SettingsToggleRow(
+                    title: "Allow Formal and Casual wording",
+                    detail: "Optionally rephrase English dictation on this Mac while preserving names, facts, requests, and technical text.",
+                    isOn: $appState.writingRewriteEnabled
+                )
+                .disabled(!appState.writingStyleEnabled)
+
+                HStack {
+                    Text("Default wording")
+                    Spacer(minLength: 16)
+                    Picker("Default wording", selection: $appState.writingIntent) {
+                        ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .labelsHidden()
+                    .frame(width: 170)
                 }
                 .disabled(!appState.writingStyleEnabled || !appState.writingRewriteEnabled)
-                Text("Professional and Casual use your downloaded local cleanup model. Enable Transcript Cleanup to use them. English only for now; results may fall back to original wording. Code and Terminal always use exact formatting. Plain keeps your cleanup preference; Raw bypasses all processing.")
+
+                Text(appState.writingIntent.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                rewriteAvailabilityNotice
             }
 
-            Section("App Rules") {
+            VocaSettingsGroup("App Rules") {
                 if appState.writingStyleBindings.isEmpty {
                     // Rules are never created without being asked for, so this
                     // empty state is what every user sees first. It has to say
@@ -82,23 +111,29 @@ struct WritingStylesSettingsTab: View {
                                 appState.writingStyleBindings.removeAll { $0.id == binding.id }
                             }
                         )
+                        if binding.id != appState.writingStyleBindings.last?.id {
+                            Divider()
+                        }
                     }
                 }
 
-                HStack {
+                Divider()
+
+                HStack(spacing: 8) {
                     Button("Choose Running App…") { showingAppPicker = true }
                     Button("Choose Installed App…") { chooseInstalledApp() }
                     Button("Add Suggested Apps…") {
                         Task { await addSuggestions() }
                     }
                     .disabled(isDiscoveringApps)
-                    if isDiscoveringApps {
-                        ProgressView()
-                            .controlSize(.small)
+                }
+                if isDiscoveringApps {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
                         Text("Checking which apps you have installed…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
 
                 HStack {
@@ -122,7 +157,7 @@ struct WritingStylesSettingsTab: View {
             .disabled(!appState.writingStyleEnabled)
             .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
-            Section("Preview") {
+            VocaSettingsGroup("Preview") {
                 Picker("Style", selection: previewTarget) {
                     Section("Presets") {
                         ForEach(WritingStyle.allCases) { style in
@@ -166,12 +201,14 @@ struct WritingStylesSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
+        .toggleStyle(.switch)
         .sheet(isPresented: $showingAppPicker) {
-            WritingStyleAppPickerSheet { snapshot, style in
+            WritingStyleAppPickerSheet { snapshot, style, intent in
                 var bindings = appState.writingStyleBindings
                 bindings.removeAll { $0.matches(snapshot) }
-                bindings.append(AppStyleBinding.from(snapshot: snapshot, style: style))
+                var binding = AppStyleBinding.from(snapshot: snapshot, style: style)
+                binding.intent = intent
+                bindings.append(binding)
                 appState.writingStyleBindings = bindings
                 showingAppPicker = false
             } onCancel: {
@@ -185,6 +222,29 @@ struct WritingStylesSettingsTab: View {
             } onCancel: {
                 editingBinding = nil
             }
+        }
+    }
+
+    @ViewBuilder
+    private var rewriteAvailabilityNotice: some View {
+        if appState.writingRewriteEnabled {
+            if !appState.transcriptCleanupEnabled {
+                Label("Formal and Casual are ready to configure, but need Smart Cleanup enabled before they can run.", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
+                Label("Download the selected model in Cleanup before Formal or Casual wording can run.", systemImage: "arrow.down.circle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("Formal and Casual run locally. Unsafe edits automatically fall back to your original wording.", systemImage: "checkmark.shield")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            Text("Code and Terminal always stay exact. Raw transcription bypasses cleanup, snippets, and formatting.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -255,12 +315,13 @@ struct WritingStylesSettingsTab: View {
 
         var bindings = appState.writingStyleBindings
         bindings.removeAll { $0.matches(snapshot) }
-        let binding = AppStyleBinding.from(snapshot: snapshot, style: .code)
+        let binding = WritingStyleCatalog.suggestion(matching: snapshot)?.binding
+            ?? AppStyleBinding.from(snapshot: snapshot, style: .plain)
         bindings.append(binding)
         appState.writingStyleBindings = bindings
         suggestionNotice = "Added a rule for \(name)."
         // Open the editor straight away: the panel could not ask which style
-        // the app should use, and Code is only a guess.
+        // the app should use, and Plain is the safe fallback for unknown apps.
         editingBinding = binding
     }
 
@@ -351,13 +412,19 @@ private struct AppStyleBindingRow: View {
                     .background(Capsule().fill(Color.secondary.opacity(0.15)))
             }
 
-            Label(binding.style.displayName, systemImage: binding.style.systemImage)
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(binding.cleanup == .raw ? "Raw" : binding.intent.displayName)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            VStack(alignment: .trailing, spacing: 2) {
+                Label(binding.style.displayName, systemImage: binding.style.systemImage)
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+                if binding.cleanup == .raw {
+                    Text("Raw")
+                        .font(.caption2)
+                } else if binding.intent != .preserve, binding.style.supportsWording {
+                    Text(binding.intent.displayName)
+                        .font(.caption2)
+                }
+            }
+            .foregroundStyle(.secondary)
 
             Toggle("", isOn: Binding(get: { binding.isEnabled }, set: onToggle))
                 .labelsHidden()
@@ -384,11 +451,12 @@ private struct AppStyleBindingRow: View {
 
 /// Picker sheet listing running apps, with the style to bind them to.
 struct WritingStyleAppPickerSheet: View {
-    let onPick: (RunningAppSnapshot, WritingStyle) -> Void
+    let onPick: (RunningAppSnapshot, WritingStyle, WritingIntent) -> Void
     let onCancel: () -> Void
 
     @State private var apps: [RunningAppSnapshot] = []
-    @State private var style: WritingStyle = .code
+    @State private var style: WritingStyle = .plain
+    @State private var intent: WritingIntent = .preserve
     @State private var search = ""
 
     private var filtered: [RunningAppSnapshot] {
@@ -407,8 +475,26 @@ struct WritingStyleAppPickerSheet: View {
                     Text(option.displayName).tag(option)
                 }
             }
+            .onChange(of: style) { _, newValue in
+                if !newValue.supportsWording {
+                    intent = .preserve
+                }
+            }
 
             Text(style.shortDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Wording", selection: $intent) {
+                ForEach(WritingIntent.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .disabled(!style.supportsWording)
+
+            Text(style.supportsWording
+                 ? intent.description
+                 : "Code and Terminal preserve wording so commands and technical text stay exact.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -417,7 +503,7 @@ struct WritingStyleAppPickerSheet: View {
 
             List(filtered, id: \.self) { snapshot in
                 Button {
-                    onPick(snapshot, style)
+                    onPick(snapshot, style, intent)
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(snapshot.displayName)
@@ -441,7 +527,7 @@ struct WritingStyleAppPickerSheet: View {
             }
         }
         .padding()
-        .frame(width: 440, height: 480)
+        .frame(width: 440, height: 540)
         .onAppear {
             apps = AppIdentityMatching.workspaceRunningApps()
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -499,14 +585,15 @@ struct WritingStyleRuleEditor: View {
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Text") {
+                Section("Wording and Punctuation") {
                     Picker("Wording", selection: $intent) {
                         ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
                     }
+                    .disabled(!style.supportsWording || cleanup != .inherit)
                     Picker("Processing", selection: $cleanup) {
                         ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
                     }
-                    Text("Wording changes require experimental writing intents and Transcript Cleanup. Code and Terminal bypass the model. Raw also bypasses snippets and formatting.")
+                    Text(profileExplanation)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Picker("Capitalization", selection: $rules.capitalization) {
@@ -585,6 +672,20 @@ struct WritingStyleRuleEditor: View {
         // improvements to the preset.
         updated.ruleOverrides = (rules == style.defaultRules) ? nil : rules
         onSave(updated)
+    }
+
+    private var profileExplanation: String {
+        if !style.supportsWording {
+            return "Code and Terminal preserve wording and use exact formatting only."
+        }
+        switch cleanup {
+        case .raw:
+            return "Raw transcription bypasses cleanup, snippets, and every formatting rule."
+        case .off:
+            return "Formatting only keeps your wording as spoken and does not use the local model."
+        case .inherit:
+            return intent.description + " Formal and Casual require the Writing Styles switch and Smart Cleanup model."
+        }
     }
 }
 

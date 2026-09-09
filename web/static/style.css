@@ -1882,3 +1882,29 @@ details.source-install summary {
   /* Printing never scrolls, so reveal targets must not stay hidden. */
   .js-reveal .reveal { opacity: 1; transform: none; }
 }
+
+/* Enterprise managed-Macs glyph */
+.page-hero-enterprise .page-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.75rem;
+}
+.page-hero-enterprise .page-hero-copy { flex: 1 1 auto; min-width: 0; }
+.enterprise-glyph {
+  flex: 0 0 auto;
+  margin: 0;
+  width: clamp(7.5rem, 18vw, 13.75rem); /* ~120–220px */
+}
+.enterprise-glyph img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+@media (max-width: 720px) {
+  .page-hero-enterprise .page-hero-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .enterprise-glyph { width: 7.5rem; } /* ~120px mobile */
+}

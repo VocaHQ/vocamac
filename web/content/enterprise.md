@@ -1,4 +1,5 @@
 ---
+layout: "enterprise"
 title: "VocaMac for Managed Macs"
 description: "How IT teams deploy VocaMac across managed Macs: pre-approving Accessibility and Input Monitoring with an MDM privacy profile, and what still needs a click from the person at the keyboard."
 keywords: "VocaMac MDM, PPPC profile macOS, deploy dictation app enterprise, Jamf Kandji Mosyle accessibility permission, TCC configuration profile, managed Mac voice typing"

@@ -1,0 +1,27 @@
+{{ define "main" }}
+<section class="page-hero page-hero-enterprise" aria-labelledby="page-title">
+    <div class="shell">
+        <a class="back-link" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a>
+        <div class="page-hero-head">
+            <div class="page-hero-copy">
+                <p class="section-tag">VocaMac notes</p>
+                <h1 id="page-title">{{ .Title }}</h1>
+                {{ with .Params.description }}<p>{{ . }}</p>{{ end }}
+            </div>
+            <figure class="enterprise-glyph">
+                <img
+                    src="/brand/vocamac-enterprise-security.svg"
+                    alt="Managed Mac with Voca, MDM lock badge."
+                    width="200"
+                    height="200"
+                    decoding="async">
+            </figure>
+        </div>
+    </div>
+</section>
+<section class="section" aria-labelledby="content-title">
+    <div class="shell">
+        <article class="prose" id="content-title">{{ .Content }}</article>
+    </div>
+</section>
+{{ end }}

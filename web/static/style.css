@@ -1908,3 +1908,57 @@ details.source-install summary {
   }
   .enterprise-glyph { width: 7.5rem; } /* ~120px mobile */
 }
+
+/* ---------- Managed Macs band (home) ---------- */
+
+.deploy-section { background: var(--paper-bright); }
+
+.deploy-layout {
+  display: grid;
+  gap: 3rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+  align-items: center;
+}
+
+.deploy-copy .section-lede { margin-bottom: 1.6rem; }
+
+.deploy-points {
+  margin: 0 0 1.8rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.deploy-points li {
+  position: relative;
+  padding-left: 1.6rem;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+/* The check is decorative; the text alone carries the meaning. */
+.deploy-points li::before {
+  content: "";
+  position: absolute;
+  top: 0.45em;
+  left: 0;
+  width: 0.55rem;
+  height: 0.3rem;
+  border-left: 2px solid var(--brand);
+  border-bottom: 2px solid var(--brand);
+  transform: rotate(-45deg);
+}
+
+.deploy-glyph {
+  margin: 0;
+  justify-self: end;
+  width: clamp(8rem, 20vw, 14rem);
+}
+
+.deploy-glyph img { display: block; width: 100%; height: auto; }
+
+@media (max-width: 860px) {
+  .deploy-layout { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+  .deploy-glyph { order: -1; justify-self: start; width: 7.5rem; }
+}

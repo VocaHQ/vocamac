@@ -189,40 +189,76 @@ enum WritingStyleCatalog {
         var result = existing
         var existingIDs = Set(existing.map(\.id))
         var existingBundles = Set(existing.compactMap { $0.bundleIdentifier?.lowercased() })
-        // A rule the user made by process name ("ghostty") must block the
-        // catalog's bundle-ID entry for the same app, or they end up with two
-        // rules and no way to tell which one wins.
-        var existingProcesses = Set(
-            existing.compactMap { binding -> String? in
-                let name = binding.processName ?? binding.id
-                let normalized = AppIdentityMatching.normalizeProcessName(name)
-                return normalized.isEmpty ? nil : normalized
-            }
-        )
+        // A rule the user made by process name ("Terminal" / "ghostty") must
+        // block the catalog's bundle-ID entry for the same app, or they end
+        // up with two rules and no way to tell which one wins. Keys include
+        // display name and the last bundle-ID segment so a process-only rule
+        // still matches suggestions that only carry `com.apple.Terminal`.
+        var existingProcesses = Set<String>()
+        for binding in existing {
+            existingProcesses.formUnion(mergeProcessKeys(for: binding))
+        }
 
         for binding in excluding {
             existingIDs.insert(binding.id)
             if let bundle = binding.bundleIdentifier?.lowercased() {
                 existingBundles.insert(bundle)
             }
-            let name = binding.processName ?? binding.id
-            let normalized = AppIdentityMatching.normalizeProcessName(name)
-            if !normalized.isEmpty {
-                existingProcesses.insert(normalized)
-            }
+            existingProcesses.formUnion(mergeProcessKeys(for: binding))
         }
 
         for suggestion in newSuggestions {
             if existingIDs.contains(suggestion.id) { continue }
             if let bundle = suggestion.bundleIdentifier?.lowercased(), existingBundles.contains(bundle) { continue }
-            let process = AppIdentityMatching.normalizeProcessName(suggestion.processName ?? suggestion.id)
-            if !process.isEmpty, existingProcesses.contains(process) { continue }
+            let suggestionKeys = mergeProcessKeys(for: suggestion)
+            if !suggestionKeys.isDisjoint(with: existingProcesses) { continue }
 
             result.append(suggestion.binding)
             existingIDs.insert(suggestion.id)
             if let bundle = suggestion.bundleIdentifier?.lowercased() { existingBundles.insert(bundle) }
-            if !process.isEmpty { existingProcesses.insert(process) }
+            existingProcesses.formUnion(suggestionKeys)
         }
         return result
+    }
+
+    /// Process-identity keys for merge occupancy: normalized process / id,
+    /// display name, full bundle ID, and the bundle's last path segment.
+    /// A process-name-only "Terminal" rule and a catalog entry that only has
+    /// `com.apple.Terminal` must share a key (`terminal`) or discovery will
+    /// resurrect the catalog rule after a mid-flight removal.
+    private static func mergeProcessKeys(for binding: AppStyleBinding) -> Set<String> {
+        var keys = Set<String>()
+        insertMergeProcessKey(binding.processName ?? binding.id, into: &keys)
+        insertMergeProcessKey(binding.displayName, into: &keys)
+        if let bundle = binding.bundleIdentifier {
+            insertMergeProcessKey(bundle, into: &keys)
+            if let last = bundle.split(separator: ".").last.map(String.init) {
+                insertMergeProcessKey(last, into: &keys)
+            }
+        }
+        return keys
+    }
+
+    private static func mergeProcessKeys(for suggestion: Suggestion) -> Set<String> {
+        var keys = Set<String>()
+        if let process = suggestion.processName {
+            insertMergeProcessKey(process, into: &keys)
+        }
+        insertMergeProcessKey(suggestion.id, into: &keys)
+        insertMergeProcessKey(suggestion.displayName, into: &keys)
+        if let bundle = suggestion.bundleIdentifier {
+            insertMergeProcessKey(bundle, into: &keys)
+            if let last = bundle.split(separator: ".").last.map(String.init) {
+                insertMergeProcessKey(last, into: &keys)
+            }
+        }
+        return keys
+    }
+
+    private static func insertMergeProcessKey(_ raw: String, into keys: inout Set<String>) {
+        let normalized = AppIdentityMatching.normalizeProcessName(raw)
+        if !normalized.isEmpty {
+            keys.insert(normalized)
+        }
     }
 }

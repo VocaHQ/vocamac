@@ -336,6 +336,57 @@ final class WritingStyleCatalogTests: XCTestCase {
         )
     }
 
+    /// Terminal's catalog entry has a bundle ID and no process name. A user
+    /// rule keyed only by process "Terminal" records exclusion key `terminal`,
+    /// which must still block `com.apple.Terminal` or mid-flight removal
+    /// silently restores formatting.
+    func testMergingExcludingProcessOnlyTerminalBlocksBundleSuggestion() {
+        let removed = [
+            AppStyleBinding(
+                id: "Terminal",
+                displayName: "Terminal",
+                processName: "Terminal",
+                style: .terminal
+            )
+        ]
+        let merged = WritingStyleCatalog.merging(
+            [],
+            with: WritingStyleCatalog.terminals,
+            excluding: removed
+        )
+        XCTAssertFalse(
+            merged.contains {
+                $0.id == "com.apple.Terminal" || $0.bundleIdentifier == "com.apple.Terminal"
+            },
+            "process-name-only Terminal removal must exclude the bundle-ID catalog suggestion"
+        )
+        XCTAssertTrue(
+            merged.contains { $0.displayName == "Ghostty" },
+            "unrelated terminal suggestions must still merge"
+        )
+    }
+
+    func testMergingExcludingBundleTerminalBlocksProcessOnlySuggestion() {
+        let removed = [
+            AppStyleBinding(
+                id: "com.apple.Terminal",
+                displayName: "Terminal",
+                bundleIdentifier: "com.apple.Terminal",
+                style: .terminal
+            )
+        ]
+        let processOnly = WritingStyleCatalog.Suggestion(
+            "Terminal",
+            processName: "Terminal",
+            style: .terminal
+        )
+        let merged = WritingStyleCatalog.merging([], with: [processOnly], excluding: removed)
+        XCTAssertTrue(
+            merged.isEmpty,
+            "bundle-ID Terminal removal must exclude a process-name-only suggestion"
+        )
+    }
+
     func testInstalledFilterUsesTheInjectedCheck() {
         let suggestions = WritingStyleCatalog.suggestionsForInstalledApps(
             running: [],

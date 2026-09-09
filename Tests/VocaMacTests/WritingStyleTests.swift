@@ -387,6 +387,50 @@ final class WritingStyleCatalogTests: XCTestCase {
         )
     }
 
+    /// Distinct OpenAI apps share the display name "ChatGPT". Merge occupancy
+    /// must key on full bundle IDs so seeding keeps both suggestions instead of
+    /// dropping Codex after Chat occupies a display-name slot.
+    func testMergingKeepsDistinctOpenAIChatAndCodexSuggestions() {
+        let chat = WritingStyleCatalog.Suggestion(
+            "ChatGPT",
+            bundleIdentifier: "com.openai.chat",
+            style: .chat
+        )
+        let codex = WritingStyleCatalog.Suggestion(
+            "ChatGPT",
+            bundleIdentifier: "com.openai.codex",
+            style: .chat
+        )
+        let merged = WritingStyleCatalog.merging([], with: [chat, codex])
+        let bundles = Set(merged.compactMap(\.bundleIdentifier))
+        XCTAssertEqual(
+            bundles,
+            ["com.openai.chat", "com.openai.codex"],
+            "distinct bundle IDs must not collapse via shared display name"
+        )
+        XCTAssertEqual(merged.count, 2)
+    }
+
+    /// Excluding one OpenAI app must not block the other when they only share
+    /// a display name.
+    func testMergingExcludingOpenAIChatDoesNotBlockCodex() {
+        let removed = [
+            AppStyleBinding(
+                id: "com.openai.chat",
+                displayName: "ChatGPT",
+                bundleIdentifier: "com.openai.chat",
+                style: .chat
+            )
+        ]
+        let codex = WritingStyleCatalog.Suggestion(
+            "ChatGPT",
+            bundleIdentifier: "com.openai.codex",
+            style: .chat
+        )
+        let merged = WritingStyleCatalog.merging([], with: [codex], excluding: removed)
+        XCTAssertEqual(merged.map(\.bundleIdentifier), ["com.openai.codex"])
+    }
+
     func testInstalledFilterUsesTheInjectedCheck() {
         let suggestions = WritingStyleCatalog.suggestionsForInstalledApps(
             running: [],

@@ -191,9 +191,10 @@ enum WritingStyleCatalog {
         var existingBundles = Set(existing.compactMap { $0.bundleIdentifier?.lowercased() })
         // A rule the user made by process name ("Terminal" / "ghostty") must
         // block the catalog's bundle-ID entry for the same app, or they end
-        // up with two rules and no way to tell which one wins. Keys include
-        // display name and the last bundle-ID segment so a process-only rule
-        // still matches suggestions that only carry `com.apple.Terminal`.
+        // up with two rules and no way to tell which one wins. Occupancy keys
+        // are process name + full bundle ID (plus narrow Terminal aliases) —
+        // never raw display name or last path segment alone, which conflates
+        // distinct apps that share a label (OpenAI Chat vs Codex).
         var existingProcesses = Set<String>()
         for binding in existing {
             existingProcesses.formUnion(mergeProcessKeys(for: binding))
@@ -221,21 +222,30 @@ enum WritingStyleCatalog {
         return result
     }
 
-    /// Process-identity keys for merge occupancy: normalized process / id,
-    /// display name, full bundle ID, and the bundle's last path segment.
-    /// A process-name-only "Terminal" rule and a catalog entry that only has
-    /// `com.apple.Terminal` must share a key (`terminal`) or discovery will
-    /// resurrect the catalog rule after a mid-flight removal.
+    /// Process-identity keys for merge occupancy: normalized process name and
+    /// full bundle ID only. Display names and last bundle-ID segments are too
+    /// weak — `com.openai.chat` and `com.openai.codex` both display as
+    /// "ChatGPT" and must not share an occupancy slot.
+    ///
+    /// Terminal is the careful exception: its catalog entry has a bundle ID
+    /// and no process name, so a process-only "Terminal" rule would otherwise
+    /// fail to block `com.apple.Terminal` after mid-flight removal. Narrow
+    /// aliases bridge that gap without reopening display-name conflation.
+    private static let mergeProcessBundleAliases: [(process: String, bundle: String)] = [
+        ("terminal", "com.apple.terminal")
+    ]
+
     private static func mergeProcessKeys(for binding: AppStyleBinding) -> Set<String> {
         var keys = Set<String>()
-        insertMergeProcessKey(binding.processName ?? binding.id, into: &keys)
-        insertMergeProcessKey(binding.displayName, into: &keys)
+        if let process = binding.processName {
+            insertMergeProcessKey(process, into: &keys)
+        } else {
+            insertMergeProcessKey(binding.id, into: &keys)
+        }
         if let bundle = binding.bundleIdentifier {
             insertMergeProcessKey(bundle, into: &keys)
-            if let last = bundle.split(separator: ".").last.map(String.init) {
-                insertMergeProcessKey(last, into: &keys)
-            }
         }
+        expandMergeProcessAliases(into: &keys)
         return keys
     }
 
@@ -243,16 +253,24 @@ enum WritingStyleCatalog {
         var keys = Set<String>()
         if let process = suggestion.processName {
             insertMergeProcessKey(process, into: &keys)
+        } else if suggestion.bundleIdentifier == nil {
+            // Process-only / id-only suggestions still occupy their process key.
+            insertMergeProcessKey(suggestion.id, into: &keys)
         }
-        insertMergeProcessKey(suggestion.id, into: &keys)
-        insertMergeProcessKey(suggestion.displayName, into: &keys)
         if let bundle = suggestion.bundleIdentifier {
             insertMergeProcessKey(bundle, into: &keys)
-            if let last = bundle.split(separator: ".").last.map(String.init) {
-                insertMergeProcessKey(last, into: &keys)
+        }
+        expandMergeProcessAliases(into: &keys)
+        return keys
+    }
+
+    private static func expandMergeProcessAliases(into keys: inout Set<String>) {
+        for alias in mergeProcessBundleAliases {
+            if keys.contains(alias.process) || keys.contains(alias.bundle) {
+                keys.insert(alias.process)
+                keys.insert(alias.bundle)
             }
         }
-        return keys
     }
 
     private static func insertMergeProcessKey(_ raw: String, into keys: inout Set<String>) {

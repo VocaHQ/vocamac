@@ -138,6 +138,26 @@ final class MockSoundManager: SoundPlaying {
     }
 }
 
+// MARK: - MockAudioDucker
+
+final class MockAudioDucker: AudioDucking {
+    var duckCallCount = 0
+    var restoreCallCount = 0
+    var restoreAfterUnexpectedExitCallCount = 0
+
+    func duck() {
+        duckCallCount += 1
+    }
+
+    func restore() {
+        restoreCallCount += 1
+    }
+
+    func restoreAfterUnexpectedExit() {
+        restoreAfterUnexpectedExitCallCount += 1
+    }
+}
+
 // MARK: - MockHotKeyManager
 
 final class MockHotKeyManager: HotKeyMonitoring {
@@ -506,6 +526,32 @@ final class MockTextInjector: TextInjecting {
     }
 }
 
+// MARK: - MockFrontmostAppResolver
+
+@MainActor
+final class MockFrontmostAppResolver: FrontmostAppResolving {
+    var frontmostApp: RunningAppSnapshot?
+    /// Stands in for the app the user came from when VocaMac has focus.
+    var previousApp: RunningAppSnapshot?
+    var callCount = 0
+    var lastActiveCallCount = 0
+
+    init(frontmostApp: RunningAppSnapshot? = nil, previousApp: RunningAppSnapshot? = nil) {
+        self.frontmostApp = frontmostApp
+        self.previousApp = previousApp
+    }
+
+    func currentFrontmostApp() -> RunningAppSnapshot? {
+        callCount += 1
+        return frontmostApp
+    }
+
+    func lastActiveApp() -> RunningAppSnapshot? {
+        lastActiveCallCount += 1
+        return previousApp
+    }
+}
+
 // MARK: - MockStatsManager
 
 @MainActor
@@ -643,22 +689,37 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelCount")
         UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        // Output polish defaults leak between test *processes* via
+        // UserDefaults, so reset them here rather than in each test.
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoCapitalize)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoPauseEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelKeepAliveEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingIntent)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingRewriteEnabled)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()
+        let audioDucker = MockAudioDucker()
         let hotKeyManager = MockHotKeyManager()
         let permissionManager = MockPermissionManager()
         let cursorOverlay = MockCursorOverlay()
         let textInjector = MockTextInjector()
         let statsManager = MockStatsManager()
+        let frontmostAppResolver = MockFrontmostAppResolver()
         let cleanup = transcriptCleanup ?? MockTranscriptCleanup()
 
         let mocks = TestMocks(
             audioEngine: audioEngine,
             soundManager: soundManager,
+            audioDucker: audioDucker,
             hotKeyManager: hotKeyManager,
             permissionManager: permissionManager,
             cursorOverlay: cursorOverlay,
@@ -666,6 +727,7 @@ extension AppState {
             whisperService: whisperService,
             textInjector: textInjector,
             statsManager: statsManager,
+            frontmostAppResolver: frontmostAppResolver,
             transcriptCleanup: cleanup
         )
         let appState = AppState(
@@ -675,11 +737,13 @@ extension AppState {
             hotKeyManager: hotKeyManager,
             modelManager: modelManager,
             soundManager: soundManager,
+            audioDucker: audioDucker,
             cursorOverlay: cursorOverlay,
             statsManager: statsManager,
             snippetExpander: SnippetExpander(),
             transcriptCleanup: cleanup,
             permissionManager: permissionManager,
+            frontmostAppResolver: frontmostAppResolver,
             skipSystemIntegration: true
         )
         // Bypass host free-RAM probe so mock loads are not refused on CI.
@@ -691,6 +755,7 @@ extension AppState {
 struct TestMocks {
     let audioEngine: MockAudioEngine
     let soundManager: MockSoundManager
+    let audioDucker: MockAudioDucker
     let hotKeyManager: MockHotKeyManager
     let permissionManager: MockPermissionManager
     let cursorOverlay: MockCursorOverlay
@@ -698,5 +763,6 @@ struct TestMocks {
     let whisperService: MockWhisperService
     let textInjector: MockTextInjector
     let statsManager: MockStatsManager
+    let frontmostAppResolver: MockFrontmostAppResolver
     let transcriptCleanup: MockTranscriptCleanup
 }

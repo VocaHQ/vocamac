@@ -63,6 +63,57 @@ enum SettingsSearchIndex {
             keywords: ["capitalize", "output", "sentence", "punctuation"]
         ),
 
+        // Writing Styles
+        SettingsSearchEntry(
+            id: "writing-styles",
+            page: .writingStyles,
+            title: "Writing Styles",
+            subtitle: "Shape dictation for the target app",
+            keywords: ["style", "per-app", "app", "formatting", "output", "shape"]
+        ),
+        SettingsSearchEntry(
+            id: "default-writing-style",
+            page: .writingStyles,
+            title: "Default Style",
+            subtitle: "Used when an app has no rule",
+            keywords: ["default", "style", "plain", "fallback"]
+        ),
+        SettingsSearchEntry(
+            id: "writing-wording",
+            page: .writingStyles,
+            title: "Formal and Casual Wording",
+            subtitle: "Choose how dictation sounds in each app",
+            keywords: ["formal", "casual", "professional", "friends", "conversation", "wording", "rewrite"]
+        ),
+        SettingsSearchEntry(
+            id: "app-style-rules",
+            page: .writingStyles,
+            title: "App Rules",
+            subtitle: "Per-app style bindings",
+            keywords: ["cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding"]
+        ),
+        SettingsSearchEntry(
+            id: "spoken-symbols",
+            page: .writingStyles,
+            title: "Spoken Filenames and Paths",
+            subtitle: "Turn \"config dot json\" into config.json",
+            keywords: ["filename", "path", "dot", "slash", "camel case", "snake case", "identifier", "symbols"]
+        ),
+        SettingsSearchEntry(
+            id: "writing-style-rule-transfer",
+            page: .writingStyles,
+            title: "Export and Import Rules",
+            subtitle: "Move app rules between Macs",
+            keywords: ["export", "import", "backup", "share", "json", "transfer", "remove all"]
+        ),
+        SettingsSearchEntry(
+            id: "writing-style-preview",
+            page: .writingStyles,
+            title: "Style Preview",
+            subtitle: "See what each style does",
+            keywords: ["preview", "sample", "test", "try"]
+        ),
+
         // Snippets
         SettingsSearchEntry(
             id: "snippets",
@@ -153,6 +204,13 @@ enum SettingsSearchIndex {
             subtitle: "Start and stop cues",
             keywords: ["sound", "beep", "audio", "tone", "preview"]
         ),
+        SettingsSearchEntry(
+            id: "other-audio",
+            page: .audio,
+            title: "Other Audio",
+            subtitle: "Lower music while dictating",
+            keywords: ["duck", "mute", "music", "volume", "quiet", "lower", "playback", "youtube"]
+        ),
 
         // Performance
         SettingsSearchEntry(
@@ -217,7 +275,7 @@ enum SettingsSearchIndex {
             id: "stats",
             page: .stats,
             title: "Usage Stats",
-            keywords: ["streak", "words", "history"]
+            keywords: ["streak", "words", "history", "share", "social", "linkedin"]
         ),
         SettingsSearchEntry(
             id: "logs",

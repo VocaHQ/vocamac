@@ -89,6 +89,13 @@ VocaMacApp (entry point)
     │     │     └── ModelManager
     │     │           └── SystemInfo
     │     ├── UpdateChecker
+    │     ├── FrontmostAppResolver
+    │     │     └── WritingStyleResolver → WritingProfile (format, intent, cleanup policy)
+    │     ├── DictationOutputPipeline
+    │     │     ├── SnippetExpander / RewriteProtectedText
+    │     │     ├── TranscriptCleanupService (one optional local inference)
+    │     │     ├── RewriteValidation (reject → deterministic fallback)
+    │     │     └── WritingStyleEngine → SpokenSymbolTransformer
     │     └── TextInjector
     │     └── SoundManager
     ├── MenuBarView

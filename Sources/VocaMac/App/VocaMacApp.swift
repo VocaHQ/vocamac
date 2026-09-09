@@ -26,12 +26,21 @@ final class SettingsWindowManager: ObservableObject {
 
         // Create a new window
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
         window.title = "VocaMac Settings"
+        // The page header inside the shell is the title, so the title bar does
+        // not repeat it. Full-size content also lets the sidebar's vibrancy run
+        // to the top of the window instead of stopping at a seam under the
+        // chrome. The shell owns its own sidebar control, so no SwiftUI
+        // split-view toolbar can push Form pages under that chrome.
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = .windowBackgroundColor
         window.contentView = NSHostingView(rootView: settingsView)
         window.center()
         window.isReleasedWhenClosed = false
@@ -93,7 +102,7 @@ final class UpdateWindowManager: ObservableObject {
         let updateView = detailView(appState: appState, info: info)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -167,12 +176,16 @@ final class OnboardingWindowManager: ObservableObject {
 
         // Create a new window
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 580),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 840, height: 650),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
+        window.contentMinSize = NSSize(width: 780, height: 600)
         window.title = "Welcome to VocaMac"
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.contentView = NSHostingView(rootView: onboardingView)
         window.center()
         window.isReleasedWhenClosed = false

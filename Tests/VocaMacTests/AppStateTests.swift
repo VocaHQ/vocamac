@@ -244,6 +244,21 @@ final class AppStateOnboardingTests: XCTestCase {
     }
 
     @MainActor
+    func testFirstRunWaitsForUserToRequestMicrophonePermission() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.hasCompletedOnboarding = false
+        mocks.permissionManager.micPermission = .notDetermined
+        mocks.modelManager.bundledModels = [.tiny]
+        appState.selectedModelSize = ModelSize.tiny.rawValue
+
+        await appState.performStartup()
+
+        XCTAssertEqual(mocks.permissionManager.requestMicPermissionCallCount, 0)
+        appState.requestMicrophonePermission()
+        XCTAssertEqual(mocks.permissionManager.requestMicPermissionCallCount, 1)
+    }
+
+    @MainActor
     func testPerformStartupInstallsBundledTinyModelBeforeDownload() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.modelManager.bundledModels = [.tiny]

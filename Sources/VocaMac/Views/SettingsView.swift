@@ -17,8 +17,8 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
-    /// Manual sidebar visibility. Avoids NavigationSplitView relocating system toggles.
     @State private var isSidebarVisible = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -36,60 +36,90 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            HStack(spacing: 0) {
-                if isSidebarVisible {
-                    settingsSidebar
-                        .frame(width: 220)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-
-                    Divider()
-                }
-
-                settingsDetail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        HStack(spacing: 0) {
+            if isSidebarVisible {
+                settingsSidebar
+                    .frame(width: 216)
+                Divider()
             }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+            VStack(spacing: 0) {
+                // The toggle leads the header the way a split-view control does
+                // in the toolbar. Borderless keeps a utility control from
+                // outranking the page it sits above.
+                HStack(alignment: .top, spacing: 8) {
                     Button {
-                        withAnimation(.snappy(duration: 0.2)) {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                             isSidebarVisible.toggle()
                         }
                     } label: {
                         Image(systemName: "sidebar.left")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
-                    .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
-                    .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+                    .buttonStyle(.plain)
+                    .padding(.top, 20)
+                    .accessibilityLabel(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
+                    .help(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
+
+                    VocaPageHeader(title: (selectedPage ?? .dictation).title,
+                                   subtitle: (selectedPage ?? .dictation).subtitle,
+                                   horizontalPadding: 0)
                 }
+                .padding(.leading, 18)
+                .padding(.trailing, 20)
+                Divider().padding(.horizontal, 20)
+                settingsDetail
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .onChange(of: searchText) { _, newValue in
-                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                if trimmed.isEmpty {
-                    selectedPage = pageBeforeSearch
-                    return
-                }
-                if let current = selectedPage, matchCounts[current, default: 0] == 0 {
-                    selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
-                } else if selectedPage == nil {
-                    selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
-                }
+            .background(VocaDesign.canvas)
+        }
+        .onChange(of: searchText) { _, newValue in
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                selectedPage = pageBeforeSearch
+                return
             }
-            .onChange(of: selectedPage) { _, newValue in
-                if !hasSearchQuery, let newValue {
-                    pageBeforeSearch = newValue
-                }
+            if let current = selectedPage, matchCounts[current, default: 0] == 0 {
+                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
+            } else if selectedPage == nil {
+                selectedPage = SettingsSearchIndex.firstMatchingPage(query: trimmed)
             }
         }
-        .frame(minWidth: 720, minHeight: 520)
+        .onChange(of: selectedPage) { _, newValue in
+            if !hasSearchQuery, let newValue {
+                pageBeforeSearch = newValue
+            }
+        }
+        .frame(minWidth: 760, minHeight: 580)
+        .tint(VocaDesign.accent)
+        .groupBoxStyle(VocaGroupBoxStyle())
     }
 
     private var settingsSidebar: some View {
         VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                BrandLogoView(size: 30)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("VocaMac").font(.headline)
+                    Text("Your voice. On your Mac.").font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+            .padding(16)
             SettingsSidebarSearchField(text: $searchText)
 
+            // A real List keeps arrow-key navigation, type-select, the focus
+            // ring, and the system's active/inactive selection colours. Rolling
+            // the rows by hand as buttons loses all four.
             List(selection: $selectedPage) {
                 ForEach(visiblePages) { page in
                     Label(page.title, systemImage: page.systemImage)
+                        // Some glyphs here ship a multicolour variant — the
+                        // ladybug renders red and black by default, which made
+                        // Advanced the only coloured row in a monochrome list.
+                        .symbolRenderingMode(.monochrome)
                         .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
                         .tag(page)
                 }
@@ -101,11 +131,12 @@ struct SettingsView: View {
                     ContentUnavailableView.search(text: searchText)
                 }
             }
-
             Divider()
             SettingsSidebarFooter()
+                .padding(12)
         }
-        .background(.background)
+        .background(VocaSidebarMaterial())
+        .clipped()
     }
 
     @ViewBuilder
@@ -114,6 +145,8 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .writingStyles:
+                WritingStylesSettingsTab()
             case .snippets:
                 SnippetsSettingsTab()
             case .cleanup:
@@ -149,7 +182,7 @@ struct SettingsSidebarSearchField: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
 
-            TextField("Search", text: $text)
+            TextField("Search settings", text: $text)
                 .textFieldStyle(.plain)
                 .font(.body)
 
@@ -174,7 +207,6 @@ struct SettingsSidebarSearchField: View {
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .background(.bar)
     }
 }
 
@@ -187,6 +219,11 @@ struct SettingsSidebarFooter: View {
         appState.isRecording
             || appState.appStatus == .recording
             || appState.appStatus == .processing
+    }
+
+    private var isPracticeRecording: Bool { appState.isPracticeRecording }
+    private var externalRecording: Bool {
+        (appState.isRecording || appState.appStatus == .recording) && !appState.isPracticeRecording
     }
 
     private var resultText: String? {
@@ -215,50 +252,51 @@ struct SettingsSidebarFooter: View {
                 }
             }
 
-            ObservedAudioLevelView(
-                meter: appState.audioMeter,
-                tint: appState.appStatus == .recording ? Color(nsColor: BrandAssets.brandGreen) : Color.accentColor
-            )
-            .frame(height: isActiveSession ? 8 : 5)
-            .animation(.easeInOut(duration: 0.15), value: isActiveSession)
-
-            Group {
-                if let resultText, !isActiveSession {
-                    Text(resultText)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else if !isActiveSession {
-                    Text("Results appear here")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            if isActiveSession {
+                ObservedAudioLevelView(meter: appState.audioMeter, tint: VocaDesign.accent)
+                    .frame(height: 5)
             }
-            .frame(minHeight: 28, alignment: .topLeading)
+            if let resultText, !isActiveSession {
+                Text(resultText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .textSelection(.enabled)
+            }
 
             Button {
                 Task { @MainActor in
-                    if appState.isRecording || appState.appStatus == .recording {
-                        await appState.stopRecordingAndTranscribe(injectResult: false)
-                    } else {
+                    if isPracticeRecording {
+                        await appState.stopRecordingAndTranscribe()
+                    } else if !externalRecording {
                         appState.settingsTestResultText = nil
-                        await appState.startRecording()
+                        // TOCTOU re-check after Task hop
+                        if (appState.isRecording || appState.appStatus == .recording) && !appState.isPracticeRecording {
+                            return
+                        }
+                        guard appState.appStatus == .idle, !appState.isRecording else { return }
+                        await appState.startRecording(injectResult: false)
                     }
                 }
             } label: {
                 Label(
-                    appState.isRecording || appState.appStatus == .recording ? "Stop Dictation" : "Test Dictation",
-                    systemImage: appState.isRecording || appState.appStatus == .recording ? "stop.fill" : "mic.fill"
+                    isPracticeRecording ? "Stop Dictation" : "Test Dictation",
+                    systemImage: isPracticeRecording ? "stop.fill" : "mic.fill"
                 )
                 .frame(maxWidth: .infinity)
             }
-            .controlSize(.small)
-            .disabled(appState.isAutoPaused && !appState.isRecording)
+            .vocaGlassButton()
+            .controlSize(.regular)
+            .help("Try dictation here. The result stays in this window.")
+            .disabled(externalRecording || appState.appStatus == .processing || (appState.isAutoPaused && !appState.isRecording))
+
+            if externalRecording {
+                Text("Dictation is active elsewhere. Finish it with your shortcut before testing here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
-        .padding(12)
-        .background(.bar)
+        .padding(8)
     }
 
     private var statusLabel: String {
@@ -274,9 +312,11 @@ struct SettingsSidebarFooter: View {
     private var statusColor: Color {
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
-        case .idle: return .green
+        case .idle: return VocaDesign.success
         case .recording: return Color(nsColor: BrandAssets.brandGreen)
-        case .processing: return .purple
+        // Matches MenuBarView.statusColor; the same state must not change hue
+        // between the menu bar and the settings footer.
+        case .processing: return .yellow
         case .error: return .orange
         }
     }
@@ -288,68 +328,72 @@ struct DictationSettingsPage: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        Form {
-            Section("Activation Mode") {
-                Picker("Mode", selection: $appState.activationMode) {
-                    ForEach(ActivationMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.radioGroup)
-                .onChange(of: appState.activationMode) {
+        VocaSettingsPageContent {
+            VocaSettingsGroup("Start Dictating") {
+                ActivationModeSelector(selection: $appState.activationMode) {
                     appState.syncHotKeyConfiguration()
                 }
-
-                Text(appState.activationMode.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Hotkey") {
+                Divider()
                 HotKeySelectionControl(
-                    pickerLabel: "Activation Key",
-                    footerText: "Choose a preset or record a key. VocaMac reserves this key while running."
+                    pickerLabel: "Shortcut",
+                    footerText: "Choose a preset or record your own. This key is reserved while VocaMac is running."
                 )
-
                 if appState.activationMode == .doubleTapToggle {
                     HStack {
                         Text("Double-tap speed")
-                        Slider(
-                            value: $appState.doubleTapThreshold,
-                            in: 0.2...0.8,
-                            step: 0.05,
-                            onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    appState.syncHotKeyConfiguration()
-                                }
-                            }
-                        )
+                        Slider(value: $appState.doubleTapThreshold, in: 0.2...0.8, step: 0.05,
+                               onEditingChanged: { editing in
+                            if !editing { appState.syncHotKeyConfiguration() }
+                        })
                         Text("\(String(format: "%.2f", appState.doubleTapThreshold))s")
-                            .monospacedDigit()
-                            .frame(width: 40)
+                            .monospacedDigit().frame(width: 44)
                     }
-
-                    Text("Shorter = faster double-tap required. Longer = more forgiving.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("A longer interval makes double-tapping more forgiving.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
-            Section("Output") {
-                Toggle("Trailing Space After Dictation", isOn: $appState.appendTrailingSpace)
-
-                Text("Adds a space after each utterance so the next dictation does not stick to the previous one.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Toggle("Auto-Capitalize Sentences", isOn: $appState.autoCapitalize)
-
-                Text("Capitalizes the start of each utterance and letters after . ! or ?. Skips text that is already capitalized.")
+            VocaSettingsGroup("Your Text") {
+                SettingsToggleRow(
+                    title: "Add a trailing space",
+                    detail: "Keep consecutive dictations from running together.",
+                    isOn: $appState.appendTrailingSpace
+                )
+                Divider()
+                SettingsToggleRow(
+                    title: "Capitalize sentences",
+                    detail: "Capitalize the beginning of each sentence while preserving existing capitals.",
+                    isOn: $appState.autoCapitalize
+                )
+                Divider()
+                Text("These are the global defaults. Writing Styles can override them per app — for example, no sentence case in a code editor.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
+    }
+}
+
+/// A label-plus-explanation row with the switch on the trailing edge, used by
+/// the hand-built settings pages so their toggle rows stay identical.
+struct SettingsToggleRow: View {
+    let title: String
+    let detail: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                Text(detail)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 16)
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+        }
     }
 }
 
@@ -398,6 +442,7 @@ struct ApplicationSettingsPage: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
     }
 }
 
@@ -437,6 +482,7 @@ struct SnippetsSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .sheet(isPresented: $showingAddSnippet) {
             AddSnippetView(isPresented: $showingAddSnippet)
         }
@@ -546,6 +592,7 @@ struct AddSnippetView: View {
                 TextField("Expansion Text", text: $expansion, prompt: Text("e.g. me@example.com"))
             }
             .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
             .frame(height: 120)
 
             Text("VocaMac will listen for the trigger phrase and replace it with the expansion text.")
@@ -602,7 +649,7 @@ struct PermissionRow: View {
             case .granted:
                 Text("Granted")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(VocaDesign.success)
             case .notDetermined:
                 Button("Grant") { action() }
                     .controlSize(.small)
@@ -623,7 +670,7 @@ struct PermissionRow: View {
 
     private var statusColor: Color {
         switch status {
-        case .granted: return .green
+        case .granted: return VocaDesign.success
         case .notDetermined: return .orange
         case .denied: return .red
         }
@@ -653,7 +700,7 @@ struct PerformanceSettingsTab: View {
                         appState.whisperService.isModelLoaded ? "Model loaded" : "Model unloaded",
                         systemImage: appState.whisperService.isModelLoaded ? "checkmark.circle.fill" : "memorychip"
                     )
-                    .foregroundStyle(appState.whisperService.isModelLoaded ? .green : .orange)
+                    .foregroundStyle(appState.whisperService.isModelLoaded ? VocaDesign.success : .orange)
                     Spacer()
                     if appState.whisperService.isModelLoaded {
                         Text(loadedModelLabel)
@@ -758,6 +805,7 @@ struct PerformanceSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .sheet(isPresented: $showingAppPicker) {
             AutoPauseAppPickerSheet { entry in
                 var apps = appState.autoPauseApps
@@ -840,6 +888,7 @@ struct AutoPauseAppPickerSheet: View {
 struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var languageSearch = ""
+    @State private var isLanguageSectionExpanded = false
 
     /// When true, show language / translation / vocabulary below the catalog.
     var showsLanguageHints: Bool = false
@@ -882,7 +931,7 @@ struct ModelSettingsTab: View {
                     GroupBox {
                         HStack {
                             Image(systemName: "checkmark.seal.fill")
-                                .foregroundStyle(.green)
+                                .foregroundStyle(VocaDesign.success)
                                 .font(.title3)
                             VStack(alignment: .leading) {
                                 Text("Active Model: \(current.size.displayName)")
@@ -924,28 +973,18 @@ struct ModelSettingsTab: View {
 
                 // Model list, grouped by engine
                 ForEach(modelsByEngine, id: \.engine) { group in
-                    GroupBox {
-                        VStack(alignment: .leading, spacing: 0) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Label(group.engine.displayName, systemImage: engineIconName(group.engine))
-                                    .font(.headline)
-                                Text(group.engine.summary)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .padding(.bottom, 8)
-                            .padding(.horizontal, 4)
+                    VocaSettingsGroup(
+                        group.engine.displayName,
+                        systemImage: engineIconName(group.engine),
+                        subtitle: group.engine.summary
+                    ) {
+                        ForEach(group.models) { model in
+                            ModelRow(model: model, appState: appState)
 
-                            ForEach(group.models) { model in
-                                ModelRow(model: model, appState: appState)
-
-                                if model.id != group.models.last?.id {
-                                    Divider()
-                                        .padding(.horizontal, 4)
-                                }
+                            if model.id != group.models.last?.id {
+                                Divider()
                             }
                         }
-                        .padding(4)
                     }
                 }
 
@@ -962,7 +1001,7 @@ struct ModelSettingsTab: View {
                    let recommendedSize = appState.modelManager.modelSize(from: recommended) {
                     HStack {
                         Image(systemName: "sparkles")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(VocaDesign.accent)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Recommended for your device: **\(recommendedSize.displayName)**")
                                 .font(.callout)
@@ -990,81 +1029,83 @@ struct ModelSettingsTab: View {
     }
 
     private var languageAndHintsSection: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Language & Hints", systemImage: "globe")
-                    .font(.headline)
+        // Collapsed by default: building this section's controls costs about
+        // 80ms of the Speech Model page's load, and picking a model is what
+        // the page is for. Language is a second, rarer errand.
+        VocaDisclosureCard(
+            title: "Language & Hints",
+            subtitle: "Recognition language, translation, and custom vocabulary.",
+            systemImage: "globe",
+            isExpanded: $isLanguageSectionExpanded
+        ) {
+            TextField("Search languages", text: $languageSearch)
+                .textFieldStyle(.roundedBorder)
 
-                TextField("Search languages", text: $languageSearch)
-                    .textFieldStyle(.roundedBorder)
-
-                Picker("Language", selection: $appState.selectedLanguage) {
-                    ForEach(filteredLanguages) { language in
-                        Text(language.code == "auto"
-                             ? language.displayName
-                             : "\(language.displayName) (\(language.code))")
-                            .tag(language.code)
-                    }
-                }
-
-                if !filteredLanguages.contains(where: { $0.code == appState.selectedLanguage }),
-                   let current = TranscriptionLanguage.catalog.first(where: { $0.code == appState.selectedLanguage }) {
-                    Text("Current: \(current.displayName)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if let model = appState.currentModel?.size, model.bindsLanguageAtLoadTime {
-                    Text("\(model.displayName) applies the language when it loads, so changing it reloads the model.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if activeEngine?.supportsTranslation == true {
-                    Divider()
-
-                    Toggle("Enable translation", isOn: $appState.translationEnabled)
-
-                    Text(appState.translationEnabled
-                         ? "Speech is translated to the selected language (or English if set to Auto-detect)."
-                         : "Speech is transcribed as spoken. The language setting is only a recognition hint.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if activeEngine?.supportsCustomVocabulary == true {
-                    Divider()
-
-                    Text("Custom Vocabulary")
-                        .font(.subheadline.weight(.semibold))
-
-                    TextEditor(text: $appState.customVocabulary)
-                        .font(.body)
-                        .frame(minHeight: 90)
-                        .overlay(alignment: .topLeading) {
-                            if appState.customVocabulary.isEmpty {
-                                Text("kubectl, PostgreSQL, nginx, Grafana")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 5)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-
-                    let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
-                    Text(count == 0
-                         ? "Add names, jargon, or proper nouns (one per line or comma-separated) that get mis-transcribed."
-                         : "\(count) term\(count == 1 ? "" : "s"). Keep the list short; the model can only use the first 50 to 100 words as a hint.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            Picker("Language", selection: $appState.selectedLanguage) {
+                ForEach(filteredLanguages) { language in
+                    Text(language.code == "auto"
+                         ? language.displayName
+                         : "\(language.displayName) (\(language.code))")
+                        .tag(language.code)
                 }
             }
-            .padding(4)
-        }
+
+            if !filteredLanguages.contains(where: { $0.code == appState.selectedLanguage }),
+               let current = TranscriptionLanguage.catalog.first(where: { $0.code == appState.selectedLanguage }) {
+                Text("Current: \(current.displayName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if let model = appState.currentModel?.size, model.bindsLanguageAtLoadTime {
+                Text("\(model.displayName) applies the language when it loads, so changing it reloads the model.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if activeEngine?.supportsTranslation == true {
+                Divider()
+
+                Toggle("Enable translation", isOn: $appState.translationEnabled)
+
+                Text(appState.translationEnabled
+                     ? "Speech is translated to the selected language (or English if set to Auto-detect)."
+                     : "Speech is transcribed as spoken. The language setting is only a recognition hint.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if activeEngine?.supportsCustomVocabulary == true {
+                Divider()
+
+                Text("Custom Vocabulary")
+                    .font(.subheadline.weight(.semibold))
+
+                TextEditor(text: $appState.customVocabulary)
+                    .font(.body)
+                    .frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if appState.customVocabulary.isEmpty {
+                            Text("kubectl, PostgreSQL, nginx, Grafana")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
+                Text(count == 0
+                     ? "Add names, jargon, or proper nouns (one per line or comma-separated) that get mis-transcribed."
+                     : "\(count) term\(count == 1 ? "" : "s"). Keep the list short; the model can only use the first 50 to 100 words as a hint.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+    }
         .onChange(of: appState.selectedLanguage) {
             Task { @MainActor in
                 await appState.reloadModelForLanguageChangeIfNeeded()
@@ -1114,7 +1155,7 @@ struct ModelRow: View {
         HStack {
             // Status icon
             Image(systemName: model.statusIconName)
-                .foregroundStyle(model.isActive ? .green : .secondary)
+                .foregroundStyle(model.isActive ? VocaDesign.success : .secondary)
                 .frame(width: 20)
 
             // Model info
@@ -1131,8 +1172,8 @@ struct ModelRow: View {
                                 .font(.caption2)
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 1)
-                                .background(.blue.opacity(0.2))
-                                .foregroundStyle(.blue)
+                                .background(VocaDesign.accent.opacity(0.12))
+                                .foregroundStyle(VocaDesign.accent)
                                 .cornerRadius(4)
                         }
                     }
@@ -1154,9 +1195,9 @@ struct ModelRow: View {
                     Text("•")
                     Text(model.size.qualityDescription)
                     Text("•")
-                    Text("~\(String(format: "%.0f", model.size.ramRequiredGB)) GB RAM")
+                    Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
                     Text("•")
-                    Text("Speed: \(String(repeating: "⚡", count: max(1, 6 - model.size.relativeSpeed)))")
+                    Label("Speed \(max(1, 6 - model.size.relativeSpeed))/5", systemImage: "bolt")
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -1189,7 +1230,7 @@ struct ModelRow: View {
             if model.isActive {
                 Label("Active", systemImage: "checkmark")
                     .font(.caption)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(VocaDesign.success)
             } else if !model.isSupported {
                 if model.isLoading || model.downloadProgress != nil {
                     EmptyView()
@@ -1350,6 +1391,14 @@ struct AudioSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Other Audio") {
+                Toggle("Lower other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
+
+                Text("Turns the system volume down while the microphone is open — like the built-in dictation — and back up when you stop. Speakers only: it does not affect outputs without a software volume, such as HDMI.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Input Device") {
                 Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
                     Text("System Default").tag("")
@@ -1394,7 +1443,7 @@ struct AudioSettingsTab: View {
                 } else if let selectedAudioDevice {
                     HStack {
                         Image(systemName: "mic.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(VocaDesign.accent)
                         Text("VocaMac will record from \(selectedAudioDevice.name) without changing macOS' system default input.")
                             .foregroundStyle(.secondary)
                     }
@@ -1423,6 +1472,7 @@ struct AudioSettingsTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .onAppear {
             refreshAudioDevices()
         }
@@ -1617,7 +1667,7 @@ struct DebugTab: View {
 
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "info.circle.fill")
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(VocaDesign.accent)
                         .font(.caption)
                     Text("**Upgrading?** Permissions now persist across updates since VocaMac is signed with a Developer ID. If permissions ever appear stuck, use the Reset button above.")
                         .font(.caption)
@@ -1692,6 +1742,7 @@ struct DebugTab: View {
             }
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
         .onAppear { processMonitor.start() }
         .onDisappear { processMonitor.stop() }
     }

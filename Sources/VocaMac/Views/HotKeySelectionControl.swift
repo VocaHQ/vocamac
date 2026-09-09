@@ -20,6 +20,17 @@ struct HotKeySelectionControl: View {
         self.footerText = footerText
     }
 
+    private var currentCombo: HotKeyCombo {
+        HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)
+    }
+
+    /// A hotkey the presets do not cover still has to name itself in the
+    /// button, the way the Picker's "Custom: …" row used to.
+    private var currentDisplayName: String {
+        let name = KeyCodeReference.displayName(for: currentCombo)
+        return KeyCodeReference.isCommonHotKey(currentCombo) ? name : "Custom: \(name)"
+    }
+
     private var comboBinding: Binding<HotKeyCombo> {
         Binding(
             get: { HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers) },
@@ -35,19 +46,31 @@ struct HotKeySelectionControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Picker(pickerLabel, selection: comboBinding) {
-                    ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
-                        Text(hotKey.name).tag(HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers))
-                    }
+                Text(pickerLabel)
 
-                    let currentCombo = HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)
-                    if !KeyCodeReference.isCommonHotKey(currentCombo) {
-                        Divider()
-                        Text("Custom: \(KeyCodeReference.displayName(for: currentCombo))")
-                            .tag(currentCombo)
+                // A Picker builds all 18 menu items up front, which measured
+                // ~34ms of this page's load. A Menu builds them when it opens,
+                // for ~9ms, and presents the same pull-down.
+                Menu {
+                    ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
+                        let combo = HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers)
+                        Button {
+                            comboBinding.wrappedValue = combo
+                        } label: {
+                            if combo == currentCombo {
+                                Label(hotKey.name, systemImage: "checkmark")
+                            } else {
+                                Text(hotKey.name)
+                            }
+                        }
                     }
+                } label: {
+                    Text(currentDisplayName)
                 }
+                .fixedSize()
                 .disabled(isRecording)
+                .accessibilityLabel(pickerLabel)
+                .accessibilityValue(currentDisplayName)
 
                 HotKeyRecorderButton(
                     isRecording: $isRecording,

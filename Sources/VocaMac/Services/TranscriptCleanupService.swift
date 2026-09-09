@@ -54,6 +54,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// A generation left running past its deadline. It still owns the model,
     /// so it has to finish before another one may start.
     private var pendingGeneration: Task<String, Never>?
+    /// A Settings preview must not interrupt a dictation that owns the model.
+    private var attemptInProgress = false
 
     /// Consecutive cleanups that produced nothing usable. A model that cannot
     /// do the job degrades into "the feature quietly does nothing", which is
@@ -101,6 +103,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         await attemptClean(text, prompt: prompt, recordingFailures: true).output
     }
 
+    func attempt(_ text: String, prompt: String) async -> CleanupAttempt {
+        await attemptClean(text, prompt: prompt, recordingFailures: true)
+    }
+
     /// Same pass as `clean`, but reporting what happened and without letting a
     /// hand-typed experiment trip the give-up counter that guards dictation.
     func preview(_ text: String, prompt: String) async -> CleanupAttempt {
@@ -116,6 +122,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
             CleanupAttempt(output: output, outcome: outcome, duration: Date().timeIntervalSince(started))
         }
+        guard !attemptInProgress else {
+            return result(text, .skipped("another rewrite is already running"))
+        }
+        attemptInProgress = true
+        defer { attemptInProgress = false }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -401,7 +412,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             }
             let loaded = await loading.value.llm
             guard let self else { return false }
-            return await self.finishLoad(loaded, kind: kind, descriptor: descriptor, generation: generation)
+            return self.finishLoad(loaded, kind: kind, descriptor: descriptor, generation: generation)
         }
         loadInFlight = (kind: kind, generation: generation, task: task)
         _ = await task.value

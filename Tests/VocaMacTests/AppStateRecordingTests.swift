@@ -257,6 +257,30 @@ final class AppStateRecordingTests: XCTestCase {
         )
     }
 
+    func testPracticeDictationStaysLocalWhenStoppedByHotkey() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "practice words", duration: 1, detectedLanguage: "en",
+            audioLengthSeconds: 1, modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = false
+
+        await appState.startRecording(injectResult: false)
+        XCTAssertTrue(appState.isPracticeRecording)
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertFalse(appState.isPracticeRecording)
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
+        XCTAssertEqual(appState.settingsTestResultText, "practice words")
+
+        // The next normal recording must regain ordinary text insertion.
+        await appState.startRecording()
+        XCTAssertFalse(appState.isPracticeRecording)
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+    }
+
     func testSettingsTestDictationDoesNotInject() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
@@ -269,14 +293,32 @@ final class AppStateRecordingTests: XCTestCase {
         )
         appState.appendTrailingSpace = false
         appState.autoCapitalize = true
-        appState.isRecording = true
-        appState.appStatus = .recording
 
-        await appState.stopRecordingAndTranscribe(injectResult: false)
-
+        await appState.startRecording(injectResult: false)
+        await appState.stopRecordingAndTranscribe()
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertEqual(appState.settingsTestResultText, "Settings only")
         XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testStopTimeInjectResultFalseCannotDemoteOrdinaryDictation() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "ordinary words",
+            duration: 1.0,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1.0,
+            modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = false
+
+        await appState.startRecording() // default inject true
+        await appState.stopRecordingAndTranscribe(injectResult: false) // must NOT demote
+
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+        XCTAssertNil(appState.settingsTestResultText)
     }
 
     func testStartRecordingBlockedWhenAutoPaused() async {

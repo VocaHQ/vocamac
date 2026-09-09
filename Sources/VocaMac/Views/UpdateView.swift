@@ -16,7 +16,7 @@ struct UpdateBannerView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.down.circle.fill")
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(VocaDesign.accent)
                 Text("Update \(info.tagName) available")
                     .font(.callout)
                     .fontWeight(.medium)
@@ -30,7 +30,7 @@ struct UpdateBannerView: View {
             .padding(.horizontal, 10)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.blue.opacity(0.1))
+                    .fill(VocaDesign.accent.opacity(0.1))
             )
         }
         .buttonStyle(.plain)
@@ -90,7 +90,9 @@ struct UpdateDetailView: View {
             actionArea
                 .padding(20)
         }
-        .frame(width: 480)
+        .frame(width: 520)
+        .background(VocaDesign.canvas)
+        .tint(VocaDesign.accent)
     }
 
     @ViewBuilder
@@ -143,7 +145,7 @@ struct UpdateDetailView: View {
                 }
                 ProgressView(value: progress)
                     .progressViewStyle(.linear)
-                    .tint(.blue)
+                    .tint(VocaDesign.accent)
                 HStack {
                     Text("\(ByteCountFormatter.string(fromByteCount: bytesDownloaded, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))")
                         .font(.caption2)
@@ -168,7 +170,7 @@ struct UpdateDetailView: View {
         case .readyToInstall(let dmgPath):
             VStack(alignment: .leading, spacing: 10) {
                 Label("Download complete", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(VocaDesign.success)
                 Text("Open the DMG and drag VocaMac to Applications to replace the existing app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)

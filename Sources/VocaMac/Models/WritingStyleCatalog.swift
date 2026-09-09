@@ -192,9 +192,10 @@ enum WritingStyleCatalog {
         // A rule the user made by process name ("Terminal" / "ghostty") must
         // block the catalog's bundle-ID entry for the same app, or they end
         // up with two rules and no way to tell which one wins. Occupancy keys
-        // are process name + full bundle ID (plus narrow Terminal aliases) —
-        // never raw display name or last path segment alone, which conflates
-        // distinct apps that share a label (OpenAI Chat vs Codex).
+        // are process name + full bundle ID (plus known process↔bundle
+        // aliases) — never raw display name or last path segment alone,
+        // which conflates distinct apps that share a label (OpenAI Chat vs
+        // Codex).
         var existingProcesses = Set<String>()
         for binding in existing {
             existingProcesses.formUnion(mergeProcessKeys(for: binding))
@@ -227,14 +228,10 @@ enum WritingStyleCatalog {
     /// weak — `com.openai.chat` and `com.openai.codex` both display as
     /// "ChatGPT" and must not share an occupancy slot.
     ///
-    /// Terminal is the careful exception: its catalog entry has a bundle ID
-    /// and no process name, so a process-only "Terminal" rule would otherwise
-    /// fail to block `com.apple.Terminal` after mid-flight removal. Narrow
-    /// aliases bridge that gap without reopening display-name conflation.
-    private static let mergeProcessBundleAliases: [(process: String, bundle: String)] = [
-        ("terminal", "com.apple.terminal")
-    ]
-
+    /// Some catalog entries ship a bundle ID and no process name (Terminal,
+    /// iTerm2). A process-only rule would otherwise fail to block the bundle
+    /// suggestion after mid-flight removal. Shared process↔bundle aliases in
+    /// `AppIdentityMatching` bridge those pairs without display-name collapse.
     private static func mergeProcessKeys(for binding: AppStyleBinding) -> Set<String> {
         var keys = Set<String>()
         if let process = binding.processName {
@@ -245,7 +242,7 @@ enum WritingStyleCatalog {
         if let bundle = binding.bundleIdentifier {
             insertMergeProcessKey(bundle, into: &keys)
         }
-        expandMergeProcessAliases(into: &keys)
+        AppIdentityMatching.expandProcessBundleAliases(into: &keys)
         return keys
     }
 
@@ -260,17 +257,8 @@ enum WritingStyleCatalog {
         if let bundle = suggestion.bundleIdentifier {
             insertMergeProcessKey(bundle, into: &keys)
         }
-        expandMergeProcessAliases(into: &keys)
+        AppIdentityMatching.expandProcessBundleAliases(into: &keys)
         return keys
-    }
-
-    private static func expandMergeProcessAliases(into keys: inout Set<String>) {
-        for alias in mergeProcessBundleAliases {
-            if keys.contains(alias.process) || keys.contains(alias.bundle) {
-                keys.insert(alias.process)
-                keys.insert(alias.bundle)
-            }
-        }
     }
 
     private static func insertMergeProcessKey(_ raw: String, into keys: inout Set<String>) {

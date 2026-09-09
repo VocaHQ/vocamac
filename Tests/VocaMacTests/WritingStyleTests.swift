@@ -387,6 +387,56 @@ final class WritingStyleCatalogTests: XCTestCase {
         )
     }
 
+    /// iTerm2's catalog entry is bundle-only (`com.googlecode.iterm2`). A
+    /// process-only "iTerm2" exclusion must still occupy that slot via the
+    /// shared process↔bundle alias table.
+    func testMergingExcludingProcessOnlyITerm2BlocksBundleSuggestion() {
+        let removed = [
+            AppStyleBinding(
+                id: "iTerm2",
+                displayName: "iTerm2",
+                processName: "iTerm2",
+                style: .terminal
+            )
+        ]
+        let merged = WritingStyleCatalog.merging(
+            [],
+            with: WritingStyleCatalog.terminals,
+            excluding: removed
+        )
+        XCTAssertFalse(
+            merged.contains {
+                $0.id == "com.googlecode.iterm2" || $0.bundleIdentifier == "com.googlecode.iterm2"
+            },
+            "process-name-only iTerm2 removal must exclude the bundle-ID catalog suggestion"
+        )
+        XCTAssertTrue(
+            merged.contains { $0.displayName == "Ghostty" },
+            "unrelated terminal suggestions must still merge"
+        )
+    }
+
+    func testMergingExcludingBundleITerm2BlocksProcessOnlySuggestion() {
+        let removed = [
+            AppStyleBinding(
+                id: "com.googlecode.iterm2",
+                displayName: "iTerm2",
+                bundleIdentifier: "com.googlecode.iterm2",
+                style: .terminal
+            )
+        ]
+        let processOnly = WritingStyleCatalog.Suggestion(
+            "iTerm2",
+            processName: "iTerm2",
+            style: .terminal
+        )
+        let merged = WritingStyleCatalog.merging([], with: [processOnly], excluding: removed)
+        XCTAssertTrue(
+            merged.isEmpty,
+            "bundle-ID iTerm2 removal must exclude a process-name-only suggestion"
+        )
+    }
+
     /// Distinct OpenAI apps share the display name "ChatGPT". Merge occupancy
     /// must key on full bundle IDs so seeding keeps both suggestions instead of
     /// dropping Codex after Chat occupies a display-name slot.

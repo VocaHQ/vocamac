@@ -24,6 +24,28 @@ struct RunningAppSnapshot: Hashable {
 /// Matching rules shared by every feature that keys off another app.
 enum AppIdentityMatching {
 
+    /// Known process-name ↔ full-bundle-ID pairs that identify the same app
+    /// when only one side is present (hand-typed process rule vs catalog
+    /// bundle entry). Keys are already `normalizeProcessName` forms.
+    ///
+    /// Keep this table explicit: deriving from display names would collapse
+    /// distinct apps that share a label (OpenAI Chat vs Codex).
+    static let processBundleAliases: [(process: String, bundle: String)] = [
+        ("terminal", "com.apple.terminal"),
+        ("iterm2", "com.googlecode.iterm2")
+    ]
+
+    /// If `keys` holds either side of a known process↔bundle alias, insert
+    /// both so occupancy / exclusion treats them as one app identity.
+    static func expandProcessBundleAliases(into keys: inout Set<String>) {
+        for alias in processBundleAliases {
+            if keys.contains(alias.process) || keys.contains(alias.bundle) {
+                keys.insert(alias.process)
+                keys.insert(alias.bundle)
+            }
+        }
+    }
+
     /// Normalize a process or configured name for comparison.
     ///
     /// Strips any directory component, lowercases, and drops a `.exe` suffix

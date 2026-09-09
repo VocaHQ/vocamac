@@ -105,6 +105,9 @@ final class ProcessMonitor: ObservableObject {
 }
 
 struct MenuBarView: View {
+    /// Confirmation text after binding or clearing a style, if any.
+    @State private var bindNotice: String?
+
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
@@ -125,16 +128,33 @@ struct MenuBarView: View {
 
             // Status & Recording
             statusSection
+                .vocaCard()
 
             Divider()
 
             // Microphone selection
             microphoneSection
 
+            // Writing style for the app currently in front
+            if appState.writingStyleEnabled {
+                Divider()
+                writingStyleSection
+            }
+
             // Last Transcription
             if let transcription = appState.lastTranscription {
                 Divider()
                 transcriptionSection(transcription)
+                    .vocaCard()
+            }
+            if let output = appState.lastOutput {
+                Text(output.summary).font(.caption).foregroundStyle(.secondary)
+                Text(output.text).font(.caption).lineLimit(4).textSelection(.enabled)
+            }
+            if let held = appState.heldOutput {
+                Text("Saved dictation — destination changed").font(.caption)
+                Text(held).font(.caption).lineLimit(4).textSelection(.enabled)
+                Button("Copy saved dictation") { appState.copyHeldOutput() }
             }
 
             // Permissions Warning
@@ -149,16 +169,130 @@ struct MenuBarView: View {
             actionsSection
         }
         .padding(20)
-        .frame(width: 380)
-        .onAppear { processMonitor.start() }
+        .frame(width: 420)
+        .background(VocaDesign.canvas)
+        .tint(VocaDesign.accent)
+        .onAppear {
+            processMonitor.start()
+            // Recompute once when the popover opens rather than on a timer.
+            bindNotice = nil
+            appState.refreshActiveWritingStyle()
+        }
         .onDisappear { processMonitor.stop() }
+    }
+
+    // MARK: - Writing Style
+
+    /// Shows which style the next dictation will use, and lets the user
+    /// re-bind the frontmost app in one step when it looks wrong.
+    private var writingStyleSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            writingStyleRow
+            writingStyleNotice
+            Menu("Next dictation only") {
+                Button("Raw transcription") { appState.useRawForNextDictation() }
+                Menu("Format") {
+                    ForEach(WritingStyle.allCases) { style in
+                        Button(style.displayName) { appState.useNextWritingFormat(style) }
+                    }
+                }
+                if appState.writingRewriteEnabled {
+                    Menu("Wording") {
+                        ForEach(WritingIntent.allCases) { intent in
+                            Button(intent.displayName) { appState.useNextWritingIntent(intent) }
+                        }
+                    }
+                }
+                Button("Use app profile") { appState.nextWritingProfile = nil }
+            }
+            .font(.caption)
+            if let profile = appState.nextWritingProfile {
+                Text("Next: \(nextProfileLabel(profile))")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var writingStyleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label("Style", systemImage: appState.activeWritingStyle.style.systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Menu {
+                ForEach(WritingStyle.allCases) { style in
+                    Button {
+                        bindNotice = appState.bindFrontmostApp(to: style)
+                            .map { "\(style.displayName) for \($0)" }
+                    } label: {
+                        if style == appState.activeWritingStyle.style {
+                            Label(style.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(style.displayName)
+                        }
+                    }
+                }
+
+                if appState.activeWritingStyle.matchedAppName != nil {
+                    Divider()
+                    Button("Use Default Style") {
+                        bindNotice = appState.unbindFrontmostApp().map { "Default style for \($0)" }
+                    }
+                }
+            } label: {
+                Text(writingStyleLabel)
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Choose the writing style for the app in front")
+        }
+    }
+
+    /// Confirmation for the last style change, cleared when the popover closes.
+    private var writingStyleNotice: some View {
+        Group {
+            if let bindNotice {
+                Text(bindNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private var writingStyleLabel: String {
+        let resolved = appState.activeWritingStyle
+        var style = resolved.style.displayName
+        if appState.writingRewriteEnabled,
+           resolved.profile.allowsRewrite,
+           resolved.intent != .preserve {
+            style += " · \(resolved.intent.displayName)"
+        }
+        if let app = appState.activeWritingStyle.matchedAppName {
+            return "\(style) — \(app)"
+        }
+        return "\(style) (default)"
+    }
+
+    private func nextProfileLabel(_ profile: WritingProfile) -> String {
+        guard profile.cleanup != .raw else { return "Raw transcription" }
+        guard appState.writingRewriteEnabled,
+              profile.format.supportsWording,
+              profile.intent != .preserve,
+              profile.cleanup == .inherit else {
+            return profile.format.displayName
+        }
+        return "\(profile.format.displayName) · \(profile.intent.displayName)"
     }
 
     // MARK: - Header
 
     private var headerSection: some View {
         HStack {
-            BrandLogoView(size: 28)
+            BrandLogoView(size: 36)
 
             VStack(alignment: .leading, spacing: 3) {
                 Text("VocaMac")
@@ -166,7 +300,7 @@ struct MenuBarView: View {
                     .fontWeight(.semibold)
 
                 if let model = appState.currentModel {
-                    Text("Model: \(model.size.displayName) (~\(String(format: "%.1f", model.size.ramRequiredGB)) GB)")
+                    Text(model.size.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if appState.whisperService.isModelLoaded {
@@ -566,6 +700,7 @@ struct MenuBarView: View {
             } label: {
                 HStack {
                     Image(systemName: "gear")
+                        .frame(width: 16)
                     Text("Settings")
                     Spacer()
                     Text("⌘,")
@@ -588,6 +723,7 @@ struct MenuBarView: View {
             } label: {
                 HStack {
                     Image(systemName: "power")
+                        .frame(width: 16)
                     Text("Quit VocaMac")
                     Spacer()
                     Text("⌘Q")
@@ -625,7 +761,7 @@ struct MenuBarView: View {
     private var statusColor: Color {
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
-        case .idle:       return .green
+        case .idle:       return VocaDesign.success
         case .recording:  return Color(nsColor: BrandAssets.brandGreen)
         case .processing: return .yellow
         case .error:      return .orange
@@ -705,7 +841,7 @@ struct ResourceBadge: View {
                 HStack(spacing: 4) {
                     Image(systemName: icon)
                         .font(.subheadline)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(VocaDesign.accent)
                     Text(value)
                         .font(.subheadline)
                         .fontWeight(.semibold)

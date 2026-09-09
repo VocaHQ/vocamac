@@ -34,6 +34,8 @@
 
 ## ✨ Features
 
+- **🔒 100% Local** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline.
+- **✍️ Per-App Writing Styles** - Choose an output format and wording per app, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse your local cleanup model in one pass. Suggested friend-chat apps default to Casual, while mail apps default to Formal after you opt in. Code and Terminal bypass the model; Raw bypasses cleanup, snippets, and formatting. Wording changes currently support English only and safely fall back to the original text.
 - **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
@@ -150,6 +152,8 @@ VocaMac requires three macOS permissions:
 | **Input Monitoring** | Detect hotkey presses system-wide |
 
 > **Note:** After granting Input Monitoring, a restart of VocaMac is required for it to take effect.
+>
+> **Managed Macs:** IT can pre-approve Accessibility and Input Monitoring with an MDM profile — see [Enterprise & Managed Devices](#-enterprise--managed-devices).
 
 ---
 
@@ -616,6 +620,84 @@ Release builds of VocaMac are **Developer ID signed and notarized** by Apple. Ac
 | **Re-grant manually** | System Settings → Privacy & Security after each rebuild | Per rebuild |
 
 > **💡 Developer tip:** Add your Terminal app (Terminal.app or iTerm2) to both Accessibility and Input Monitoring in System Settings. Then run VocaMac directly from Terminal. Permissions are inherited and never reset.
+
+---
+
+## 🏢 Enterprise & Managed Devices
+
+On a managed Mac the user is usually a standard (non-admin) account, and the Accessibility pane in System Settings needs an admin unlock. IT can pre-approve VocaMac instead by pushing a **Privacy Preferences Policy Control (PPPC)** payload (`com.apple.TCC.configuration-profile-policy`) from Jamf, Kandji, Mosyle, Intune, or any other MDM.
+
+### What can be pre-approved
+
+| Permission | TCC service key | Why VocaMac needs it | Pre-approvable by MDM |
+|---|---|---|---|
+| **Accessibility** | `kTCCServiceAccessibility` | Global hotkeys and text injection | ✅ Yes |
+| **Input Monitoring** | `kTCCServiceListenEvent` | Detecting hotkey presses system-wide | ✅ Yes |
+| **Microphone** | `kTCCServiceMicrophone` | Capturing audio to transcribe | ❌ No — see below |
+
+**The microphone always needs a human click.** Apple lets a PPPC payload *deny* Camera and Microphone, never *allow* them. That prompt is the easy one, though: it's an ordinary consent dialog a standard user can accept without admin rights. The profile clears the two permissions that actually require an admin, and the user clicks "Allow" once for the microphone on first launch.
+
+Granting Accessibility also covers posting synthesized keystrokes, so a separate `kTCCServicePostEvent` entry is unnecessary (harmless if your baseline includes one).
+
+### Values for the payload
+
+| Field | Value |
+|---|---|
+| Identifier | `com.vocamac.app` |
+| Identifier type | `bundleID` |
+| Code requirement | Read it from the signed app — see below |
+| Authorization | `Allow` |
+
+Rather than hand-writing the code requirement, read the designated requirement off a release build and paste it verbatim:
+
+```bash
+codesign -d -r- /Applications/VocaMac.app          # designated requirement string
+codesign -dv --verbose=4 /Applications/VocaMac.app 2>&1 | grep TeamIdentifier
+```
+
+It takes this shape, where `TEAMID` is VocaMac's Apple Developer team:
+
+```
+identifier "com.vocamac.app" and anchor apple generic
+  and certificate 1[field.1.2.840.113635.100.6.2.6]
+  and certificate leaf[field.1.2.840.113635.100.6.1.13]
+  and certificate leaf[subject.OU] = "TEAMID"
+```
+
+### Example payload
+
+```xml
+<key>Services</key>
+<dict>
+  <key>Accessibility</key>
+  <array>
+    <dict>
+      <key>Identifier</key><string>com.vocamac.app</string>
+      <key>IdentifierType</key><string>bundleID</string>
+      <key>CodeRequirement</key><string><!-- codesign -d -r- output --></string>
+      <key>Authorization</key><string>Allow</string>
+    </dict>
+  </array>
+  <key>ListenEvent</key>
+  <array>
+    <dict>
+      <key>Identifier</key><string>com.vocamac.app</string>
+      <key>IdentifierType</key><string>bundleID</string>
+      <key>CodeRequirement</key><string><!-- same string --></string>
+      <key>Authorization</key><string>Allow</string>
+    </dict>
+  </array>
+</dict>
+```
+
+`Authorization` is the current key; older MDM consoles emit `<key>Allowed</key><true/>`, which still works.
+
+### Two things that trip people up
+
+- **The profile must come from MDM.** macOS ignores PPPC payloads in a `.mobileconfig` a user installs by hand — the profile will appear to install successfully and grant nothing. It has to arrive through a user-approved MDM enrollment.
+- **Only release builds match.** PPPC binds to the code signature, not the file path. Release DMGs and the Homebrew cask are Developer ID signed and notarized, so they match this profile. Source and dev builds do not: Apple Development signed ones have a different designated requirement, and unsigned or ad-hoc signed ones do not match either. Deploy the notarized release or Homebrew build instead.
+
+Input Monitoring still needs VocaMac to be restarted once after the grant takes effect, exactly as in the [Permissions](#permissions) note above.
 
 ---
 

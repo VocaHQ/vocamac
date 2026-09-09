@@ -60,6 +60,18 @@ extension SoundPlaying {
     }
 }
 
+// MARK: - AudioDucking
+
+/// Lowers other audio while a recording is open and puts it back afterwards.
+protocol AudioDucking: AnyObject {
+    /// Lower the default output volume. A second call on the same already-ducked device is ignored.
+    func duck()
+    /// Put the volume back if it is still where `duck` left it.
+    func restore()
+    /// Undo a duck the previous process did not get to restore (crash, kill).
+    func restoreAfterUnexpectedExit()
+}
+
 // MARK: - HotKeyMonitoring
 
 protocol HotKeyMonitoring: AnyObject {
@@ -176,6 +188,39 @@ protocol TextInjecting: AnyObject {
     func inject(text: String, preserveClipboard: Bool)
 }
 
+// MARK: - FrontmostAppResolving
+
+/// Identifies the app that will receive injected text, so writing styles can
+/// be chosen for it. Injectable so style resolution is testable without a
+/// window server.
+///
+/// Main-actor bound, like `StatsManaging`: the concrete resolver caches the
+/// last activated app from an `NSWorkspace` notification delivered on the main
+/// queue, and every caller reads it from `AppState`, which is `@MainActor`.
+/// Stating that here is what keeps it true once strict concurrency is on.
+@MainActor
+protocol FrontmostAppResolving: AnyObject {
+    /// The frontmost application, or `nil` when it cannot be determined or is
+    /// VocaMac itself.
+    func currentFrontmostApp() -> RunningAppSnapshot?
+
+    /// The last application other than VocaMac to be activated.
+    ///
+    /// Needed because VocaMac's own popover and Settings window take focus:
+    /// while either is open the frontmost app *is* VocaMac, and "which style
+    /// applies here" has to be answered about the app the user came from.
+    func lastActiveApp() -> RunningAppSnapshot?
+}
+
+extension FrontmostAppResolving {
+    /// The app a dictation should be styled for: whatever is in front, falling
+    /// back to the last app that was.
+    @MainActor
+    func styleTargetApp() -> RunningAppSnapshot? {
+        currentFrontmostApp() ?? lastActiveApp()
+    }
+}
+
 extension TextInjecting {
     var onFailure: ((String) -> Void)? {
         get { nil }
@@ -197,6 +242,18 @@ protocol StatsManaging: AnyObject {
 
 protocol SnippetExpanding: AnyObject {
     func expand(in text: String, using snippets: [Snippet]) -> String
+
+    /// Expand triggers, but leave each expansion masked as a single opaque
+    /// character so later formatting cannot reshape user-authored text.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText
+}
+
+extension SnippetExpanding {
+    /// Conformances that only implement `expand` still work; their expansions
+    /// are simply not protected from formatting.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText {
+        MaskedText(text: expand(in: text, using: snippets))
+    }
 }
 
 // MARK: - TranscriptCleaning
@@ -209,6 +266,7 @@ protocol TranscriptCleaning: AnyObject {
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
     func clean(_ text: String, prompt: String) async -> String
+    func attempt(_ text: String, prompt: String) async -> CleanupAttempt
     func preview(_ text: String, prompt: String) async -> CleanupAttempt
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func pruneUnknownModels()
@@ -217,4 +275,11 @@ protocol TranscriptCleaning: AnyObject {
     func load(_ kind: CleanupModelKind) async
     func unload()
     func delete(_ kind: CleanupModelKind)
+}
+
+extension TranscriptCleaning {
+    func attempt(_ text: String, prompt: String) async -> CleanupAttempt {
+        let output = await clean(text, prompt: prompt)
+        return CleanupAttempt(output: output, outcome: output == text ? .unchanged : .cleaned, duration: 0)
+    }
 }

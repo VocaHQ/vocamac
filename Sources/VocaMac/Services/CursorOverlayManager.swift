@@ -380,6 +380,7 @@ struct HandyOverlayView: View {
     @ObservedObject var viewModel: MicIndicatorViewModel
     @Environment(\.colorScheme) private var colorScheme
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
     @State private var hasEntered = false
 
@@ -388,9 +389,7 @@ struct HandyOverlayView: View {
     /// A brighter recording accent keeps the small waveform and status icon
     /// distinct from the panel in both system appearances.
     private var recordingColor: Color {
-        isDark
-            ? Color(red: 0.35, green: 0.91, blue: 0.70)
-            : Color(red: 0.0, green: 0.45, blue: 0.33)
+        VocaDesign.accent
     }
 
     /// Yellow is clear on a dark panel, while the deeper amber remains visible
@@ -403,7 +402,7 @@ struct HandyOverlayView: View {
 
     private var panelFill: Color {
         isDark
-            ? Color(red: 0.16, green: 0.17, blue: 0.19)
+            ? Color(white: 0.16)
             : Color(red: 0.99, green: 0.99, blue: 1.0)
     }
 
@@ -491,14 +490,16 @@ struct HandyOverlayView: View {
         .padding(OverlayLayout.edgeInset)
         .frame(width: panelSize.width, height: panelSize.height)
         .opacity(viewModel.isActive && hasEntered ? 1 : 0)
-        .offset(y: hasEntered ? 0 : slideInOffset)
-        .scaleEffect(hasEntered ? 1 : 0.94)
-        .animation(.spring(response: 0.38, dampingFraction: 0.82), value: hasEntered)
-        .animation(.easeInOut(duration: 0.16), value: viewModel.phase)
-        .animation(.easeInOut(duration: 0.9), value: isPulsing)
+        .offset(y: hasEntered || reduceMotion ? 0 : slideInOffset)
+        .scaleEffect(hasEntered || reduceMotion ? 1 : 0.94)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: hasEntered)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: viewModel.phase)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.9), value: isPulsing)
         .onAppear {
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                isPulsing = true
+            if !reduceMotion {
+                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                    isPulsing = true
+                }
             }
             playEntranceIfNeeded()
         }
@@ -523,7 +524,7 @@ struct HandyOverlayView: View {
         hasEntered = false
         // Defer one turn so the off-screen offset is committed before animating in.
         DispatchQueue.main.async {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
                 hasEntered = true
             }
         }

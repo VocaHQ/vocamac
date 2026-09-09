@@ -71,7 +71,7 @@ Tests/VocaMacTests/   # XCTest; Mocks/ for fakes
 web/                  # Hugo site — see web/AGENTS.md
 homebrew/             # Cask sources mirrored to the tap
 docs/                 # ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW (no per-version notes)
-scripts/              # build, install, dist, release, uninstall, Xcode 26 select
+scripts/              # build, install, dist, release, uninstall, Xcode 26 select, DMG background
 Makefile              # make build / install / test / dmg / release / reset
 Package.swift         # SPM: VocaMac + VocaMacObjC
 VocaMac.entitlements  # Microphone

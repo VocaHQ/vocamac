@@ -8,8 +8,8 @@
             <h1 id="hero-title">Say it once.<br><em>Your Mac types.</em></h1>
             <p class="hero-lede">VocaMac listens when you ask, transcribes on your Mac, and puts the words at your cursor. No account. Open source. Built for Apple Silicon.</p>
             <div class="hero-actions">
-                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">Download the DMG <span class="btn-weight">{{ $p.stable.dmgSize }}</span> <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
-                <a class="btn btn-secondary" href="{{ $p.links.repo }}">View the source <span class="btn-arrow" aria-hidden="true">↗</span></a>
+                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">{{ partial "brandmark.html" "apple" }}Download the DMG <span class="btn-weight">{{ $p.stable.dmgSize }}</span> <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+                <a class="btn btn-secondary" href="{{ $p.links.repo }}">{{ partial "brandmark.html" "github" }}View the source <span class="btn-arrow" aria-hidden="true">↗</span></a>
             </div>
             <div class="hero-install" data-copy>
                 <div class="hero-install-bar">
@@ -310,7 +310,7 @@
                 <span class="install-label">no terminal required / DMG</span>
                 <h3>Download the signed app</h3>
                 <p>Open the latest DMG, drag VocaMac to Applications, and launch it from Spotlight.</p>
-                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">Download {{ $p.stable.tag }} DMG <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">{{ partial "brandmark.html" "apple" }}Download {{ $p.stable.tag }} DMG <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
                 <p class="install-detail">{{ $p.stable.dmg }} · {{ $p.stable.dmgSize }} · {{ $p.requirements.signing }}</p>
                 <a class="text-link" href="{{ $p.stable.releasesURL }}">See releases and checksums <span class="btn-arrow" aria-hidden="true">↗</span></a>
             </article>

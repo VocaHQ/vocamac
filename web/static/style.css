@@ -193,6 +193,13 @@ section[id] { scroll-margin-top: 4.6rem; }
     border-color 170ms var(--ease);
 }
 
+/* Marks sit on the text baseline's optical centre and never shrink when the
+   button wraps to full width on a phone. */
+.brandmark {
+  flex: none;
+  margin-top: -1px;
+}
+
 .btn-arrow {
   display: inline-block;
   transition: transform 200ms var(--ease);

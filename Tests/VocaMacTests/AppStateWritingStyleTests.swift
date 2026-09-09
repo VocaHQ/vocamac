@@ -331,12 +331,12 @@ final class AppStateWritingStyleTests: XCTestCase {
         )
     }
 
-    /// Discovery also re-reads bindings after the lookup. Without a start-of-
-    /// flight removal snapshot, the append-only merge treats a mid-flight
-    /// remove (or Remove All) as "never configured" and silently restores the
-    /// catalog rule. Terminal is nearly always installed on CI Macs, so the
-    /// detached lookup will try to re-add it unless exclusions work.
-    func testSuggestionsDoNotRestoreARuleRemovedDuringDiscovery() async {
+    /// Discovery re-reads bindings after the lookup. Without a start-of-flight
+    /// removal snapshot, the append-only merge treats a mid-flight remove (or
+    /// Remove All) as "never configured" and silently restores the catalog
+    /// rule. Drive the post-await apply path directly so the assertion does
+    /// not depend on MainActor scheduling around the LaunchServices await.
+    func testSuggestionsDoNotRestoreARuleRemovedDuringDiscovery() {
         let (appState, _) = AppState.makeTestState()
         let terminal = AppStyleBinding(
             id: "com.apple.Terminal",
@@ -344,17 +344,46 @@ final class AppStateWritingStyleTests: XCTestCase {
             bundleIdentifier: "com.apple.Terminal",
             style: .terminal
         )
-        appState.writingStyleBindings = [terminal]
-
-        async let discovery: Int = appState.addSuggestedWritingStyles()
+        let bindingsAtStart = [terminal]
+        // User cleared the rule (or hit Remove All) while discovery was pending.
         appState.writingStyleBindings = []
-        _ = await discovery
+
+        let suggestions = WritingStyleCatalog.terminals.filter {
+            $0.bundleIdentifier == "com.apple.Terminal"
+        }
+        XCTAssertFalse(suggestions.isEmpty)
+
+        _ = appState.applySuggestedWritingStyles(suggestions, bindingsAtStart: bindingsAtStart)
 
         XCTAssertFalse(
             appState.writingStyleBindings.contains {
                 $0.id == terminal.id || $0.bundleIdentifier == "com.apple.Terminal"
             },
             "a suggestion removed while discovery was pending must not come back"
+        )
+    }
+
+    /// Newly discovered apps the user never had a rule for can still be added
+    /// after a mid-flight Remove All; only the removed identities are blocked.
+    func testSuggestionsStillAddUnrelatedAppsAfterMidFlightRemoval() {
+        let (appState, _) = AppState.makeTestState()
+        let terminal = AppStyleBinding(
+            id: "com.apple.Terminal",
+            displayName: "Terminal",
+            bundleIdentifier: "com.apple.Terminal",
+            style: .terminal
+        )
+        appState.writingStyleBindings = []
+
+        _ = appState.applySuggestedWritingStyles(
+            WritingStyleCatalog.terminals,
+            bindingsAtStart: [terminal]
+        )
+
+        XCTAssertFalse(appState.writingStyleBindings.contains { $0.id == "com.apple.Terminal" })
+        XCTAssertTrue(
+            appState.writingStyleBindings.contains { $0.displayName == "Ghostty" },
+            "apps never bound at discovery start should still merge"
         )
     }
 

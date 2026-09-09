@@ -1191,7 +1191,18 @@ final class AppState: ObservableObject {
         let suggestions = await Task.detached(priority: .userInitiated) {
             WritingStyleCatalog.suggestionsForInstalledApps(running: running)
         }.value
+        return applySuggestedWritingStyles(suggestions, bindingsAtStart: bindingsAtStart)
+    }
 
+    /// Finish a discovery pass: merge `suggestions` into the current bindings
+    /// while excluding anything present in `bindingsAtStart` that the user has
+    /// since removed. Exposed for tests so the mid-flight removal contract does
+    /// not depend on MainActor scheduling of the LaunchServices await.
+    @discardableResult
+    func applySuggestedWritingStyles(
+        _ suggestions: [WritingStyleCatalog.Suggestion],
+        bindingsAtStart: [AppStyleBinding]
+    ) -> Int {
         let existing = writingStyleBindings
         let removedDuringFlight = Self.writingStyleBindingsRemoved(
             from: bindingsAtStart,

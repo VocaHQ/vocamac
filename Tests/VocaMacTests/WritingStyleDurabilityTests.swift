@@ -142,6 +142,49 @@ final class SnippetWritingStyleInteractionTests: XCTestCase {
         XCTAssertEqual(masked.restore(in: styled), "Jane Doe\nCEO\nthanks for the review")
     }
 
+    /// A newline-ending expansion already broke the line. Spoken "new line" /
+    /// "new paragraph" separators that land right after the mask must not stack
+    /// on top of that break — that was injecting a blank line the user never
+    /// asked for.
+    func testSpokenNewlineAfterNewlineEndingExpansionDoesNotDuplicateBreak() throws {
+        let expansion = "Jane Doe\nCEO\n"
+        let snippets = [Snippet(trigger: "sig", expansion: expansion)]
+        let placeholder = try XCTUnwrap(TextPlaceholder.character(at: 0))
+
+        // Direct restore: the structural separator is already in the formatted
+        // string, as applyNewlineCommands would leave it.
+        let afterNewLine = MaskedText(
+            text: String(placeholder) + "\nThanks",
+            replacements: [expansion]
+        )
+        XCTAssertEqual(afterNewLine.restore(in: afterNewLine.text), "Jane Doe\nCEO\nThanks")
+
+        let afterNewParagraph = MaskedText(
+            text: String(placeholder) + "\n\nThanks",
+            replacements: [expansion]
+        )
+        XCTAssertEqual(
+            afterNewParagraph.restore(in: afterNewParagraph.text),
+            "Jane Doe\nCEO\nThanks"
+        )
+
+        // End-to-end through expand → style → restore.
+        for (utterance, expected) in [
+            ("sig new line thanks", "Jane Doe\nCEO\nThanks"),
+            ("sig new paragraph thanks", "Jane Doe\nCEO\nThanks"),
+            ("sig next line thanks", "Jane Doe\nCEO\nThanks")
+        ] {
+            let masked = expander.expandMasked(in: utterance, using: snippets)
+            let styled = WritingStyleEngine.format(
+                masked.text,
+                style: .chat,
+                globalAutoCapitalize: true,
+                globalTrailingSpace: false
+            )
+            XCTAssertEqual(masked.restore(in: styled), expected, "utterance: \(utterance)")
+        }
+    }
+
     /// Back-to-back expansions must not lose the boundary between them.
     func testAdjacentNewlineEndingExpansionsKeepTheirBoundaries() {
         let snippets = [Snippet(trigger: "sig", expansion: "Jane Doe\nCEO\n")]

@@ -100,32 +100,43 @@ struct MaskedText: Equatable {
 
         var result = ""
         result.reserveCapacity(formatted.count)
-        // A replacement that already ends in whitespace swallows the single
-        // space that follows its mask, wherever the mask sits.
+        // A replacement that already ends in whitespace swallows the separator
+        // that follows its mask, wherever the mask sits.
         //
-        // At the end of the text that space is synthetic — the trailing-space
-        // rule skips text ending in whitespace, and the mask is what hid that
-        // from it. Mid-utterance the space is the user's, separating the
+        // At the end of the text an ASCII space is synthetic — the trailing-
+        // space rule skips text ending in whitespace, and the mask is what hid
+        // that from it. Mid-utterance the space is the user's, separating the
         // trigger from the next word, and collapsing it is still right: an
         // expansion ending in " " would otherwise yield a double space, and one
         // ending in "\n" would indent the new line by a stray column.
-        // Whitespace the expansion itself carries wins either way.
-        var swallowNextSpace = false
+        //
+        // A trailing newline in the expansion also swallows spoken structural
+        // separators ("new line" → "\n", "new paragraph" → "\n\n") that land
+        // right after the mask. Keeping both would inject a blank line the
+        // user did not ask for; the expansion's own trailing break wins.
+        var swallowASCIISpace = false
+        var swallowNewlines = false
 
         for character in formatted {
             guard let index = TextPlaceholder.index(of: character, base: base),
                   index < replacements.count else {
-                if swallowNextSpace, character == " " {
-                    swallowNextSpace = false
+                if swallowNewlines, character.isNewline {
                     continue
                 }
-                swallowNextSpace = false
+                if (swallowASCIISpace || swallowNewlines), character == " " {
+                    swallowASCIISpace = false
+                    swallowNewlines = false
+                    continue
+                }
+                swallowASCIISpace = false
+                swallowNewlines = false
                 result.append(character)
                 continue
             }
             let replacement = replacements[index]
             result += replacement
-            swallowNextSpace = replacement.last?.isWhitespace == true
+            swallowASCIISpace = replacement.last?.isWhitespace == true
+            swallowNewlines = replacement.last?.isNewline == true
         }
         return result
     }

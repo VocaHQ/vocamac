@@ -17,6 +17,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case application
     case stats
     case advanced
+    case gateway
     case about
 
     var id: String { rawValue }
@@ -32,6 +33,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .application: return "Application"
         case .stats: return "Stats"
         case .advanced: return "Advanced"
+        case .gateway: return "Gateway"
         case .about: return "About"
         }
     }
@@ -47,6 +49,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .application: return "gearshape"
         case .stats: return "chart.xyaxis.line"
         case .advanced: return "ladybug"
+        case .gateway: return "server.rack"
         case .about: return "info.circle"
         }
     }

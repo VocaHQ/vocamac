@@ -13,12 +13,18 @@ extension Notification.Name {
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var settingsWindowManager: SettingsWindowManager
 
-    @State private var selectedPage: SettingsPage? = .dictation
+    @State private var selectedPage: SettingsPage?
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
     /// Manual sidebar visibility. Avoids NavigationSplitView relocating system toggles.
     @State private var isSidebarVisible = true
+
+    init(initialPage: SettingsPage = .dictation) {
+        _selectedPage = State(initialValue: initialPage)
+        _pageBeforeSearch = State(initialValue: initialPage)
+    }
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -81,6 +87,18 @@ struct SettingsView: View {
             }
         }
         .frame(minWidth: 720, minHeight: 520)
+        .onAppear {
+            applyRequestedSettingsPage()
+        }
+        .onChange(of: settingsWindowManager.requestedPage) { _, page in
+            guard page != nil else { return }
+            applyRequestedSettingsPage()
+        }
+    }
+
+    private func applyRequestedSettingsPage() {
+        guard let page = settingsWindowManager.consumeRequestedPage() else { return }
+        selectedPage = page
     }
 
     private var settingsSidebar: some View {
@@ -130,6 +148,8 @@ struct SettingsView: View {
                 StatsSettingsTab()
             case .advanced:
                 DebugTab()
+            case .gateway:
+                GatewaySettingsTab()
             case .about:
                 AboutTab()
             }

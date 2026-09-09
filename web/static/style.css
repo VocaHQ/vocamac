@@ -1962,3 +1962,29 @@ details.source-install summary {
   .deploy-layout { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
   .deploy-glyph { order: -1; justify-self: start; width: 7.5rem; }
 }
+
+/* ---------- Hero install row ---------- */
+
+.hero-install { margin-top: 1.6rem; }
+
+.hero-install-label {
+  margin-bottom: 0.55rem;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Tighter than the install-section block: the hero has less room to spend. */
+.hero-install .code-block { margin: 0; }
+.hero-install .code-block pre { padding: 0.85rem 4.4rem 0.85rem 1rem; font-size: 0.8rem; line-height: 1.7; }
+
+.hero-install-note {
+  margin-top: 0.7rem;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.hero-install-note a { color: var(--brand-dark); }

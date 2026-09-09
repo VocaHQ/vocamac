@@ -8,8 +8,17 @@
             <h1 id="hero-title">Say it once.<br><em>Your Mac types.</em></h1>
             <p class="hero-lede">VocaMac listens when you ask, transcribes on your Mac, and puts the words at your cursor. No account. Open source. Built for Apple Silicon.</p>
             <div class="hero-actions">
-                <a class="btn btn-primary" href="#install">Get VocaMac <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">Download the DMG <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
                 <a class="btn btn-secondary" href="{{ $p.links.repo }}">View the source <span class="btn-arrow" aria-hidden="true">↗</span></a>
+            </div>
+            <div class="hero-install">
+                <p class="hero-install-label">or install with Homebrew</p>
+                <div class="code-block" data-copy>
+                    <pre><code><span class="prompt">$ </span>{{ $p.brew.tap }}
+<span class="prompt">$ </span>{{ $p.brew.trust }}
+<span class="prompt">$ </span>{{ $p.brew.install }}</code></pre>
+                </div>
+                <p class="hero-install-note">{{ $p.stable.dmg }} · {{ $p.stable.dmgSize }} · {{ $p.requirements.signing }}. <a href="#install">All the ways in</a></p>
             </div>
         <div class="hero-proof">
                 <span>{{ $p.requirements.osShort }}</span>

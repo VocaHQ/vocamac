@@ -177,6 +177,10 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.autoPausePollInterval) var autoPausePollIntervalSeconds: Double = 5
     @AppStorage(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = false
     @AppStorage(PreferenceKey.modelKeepAliveIdleTimeout) var modelKeepAliveIdleTimeoutSeconds: Double = 300
+    @AppStorage(PreferenceKey.writingStyleEnabled) var writingStyleEnabled: Bool = true
+    @AppStorage(PreferenceKey.writingStyleDefault) var writingStyleDefault: WritingStyle = .plain
+    @AppStorage(PreferenceKey.writingIntent) var writingIntent: WritingIntent = .preserve
+    @AppStorage(PreferenceKey.writingRewriteEnabled) var writingRewriteEnabled: Bool = false
     @AppStorage(PreferenceKey.transcriptCleanupEnabled) var transcriptCleanupEnabled: Bool = false
     @AppStorage(PreferenceKey.transcriptCleanupModel) var transcriptCleanupModel: String = CleanupModelKind.defaultKind.rawValue
     @AppStorage(PreferenceKey.transcriptCleanupPrompt) var transcriptCleanupPrompt: String = ""
@@ -207,6 +211,41 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// JSON-encoded `WritingStyleBindingStore` (complex value not stored via `@AppStorage`).
+    var writingStyleBindingsJSON: String {
+        get { UserDefaults.standard.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
+        set {
+            UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings)
+        }
+    }
+
+    /// Last decode of `writingStyleBindingsJSON`, keyed by the JSON it came
+    /// from. SwiftUI reads the binding list several times per `body`, and
+    /// re-parsing the whole store on each read is pure waste; keying on the
+    /// source string keeps an external write (tests, another window) honest.
+    private var decodedBindingsCache: (json: String, bindings: [AppStyleBinding])?
+
+    /// Per-app writing style rules. A corrupt payload decodes to an empty list
+    /// so dictation falls back to the default style rather than failing.
+    var writingStyleBindings: [AppStyleBinding] {
+        get {
+            let json = writingStyleBindingsJSON
+            if let cache = decodedBindingsCache, cache.json == json {
+                return cache.bindings
+            }
+            let bindings = WritingStyleBindingStore.decode(json: json).bindings
+            decodedBindingsCache = (json, bindings)
+            return bindings
+        }
+        set {
+            let json = WritingStyleBindingStore(bindings: newValue).encodedJSON()
+            writingStyleBindingsJSON = json
+            decodedBindingsCache = (json, newValue)
+            refreshActiveWritingStyle()
+            objectWillChange.send()
+        }
+    }
+
     /// True while a configured auto-pause app is running and dictation is blocked.
     @Published var isAutoPaused: Bool = false
 
@@ -223,6 +262,10 @@ final class AppState: ObservableObject {
     /// negotiating the route.
     private var pendingStopDuringStart: PendingStopKind?
 
+    /// Frontmost app captured when recording started. Used only when the app
+    /// in front at injection time is VocaMac itself (Settings has focus).
+    private var pendingTargetApp: RunningAppSnapshot?
+
     private enum PendingStopKind {
         /// Push-to-talk released: keep whatever the engine managed to capture.
         case transcribe
@@ -235,6 +278,77 @@ final class AppState: ObservableObject {
 
     /// Display name of the app that triggered the current auto-pause, if any.
     @Published var autoPauseTriggerDisplayName: String?
+
+    /// Style that would be used if the user dictated right now. Drives the
+    /// menu bar indicator; refreshed when the popover appears and after every
+    /// dictation, never on a timer.
+    @Published private(set) var activeWritingStyle: ResolvedWritingStyle = .plain
+    @Published var nextWritingProfile: WritingProfile?
+    @Published private(set) var lastOutput: DictationOutputResult?
+    @Published private(set) var heldOutput: String?
+
+    /// Explicit recovery only: never paste a delayed result into a changed app.
+    func copyHeldOutput() {
+        guard let heldOutput else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(heldOutput, forType: .string)
+        self.heldOutput = nil
+    }
+
+    func useNextWritingFormat(_ format: WritingStyle) {
+        nextWritingProfile = WritingProfile(format: format, rules: format.defaultRules)
+    }
+
+    func useNextWritingIntent(_ intent: WritingIntent) {
+        var profile = nextWritingProfile ?? resolveWritingStyle(for: writingStyleTargetApp).profile
+        profile.intent = intent
+        nextWritingProfile = profile
+    }
+
+    func useRawForNextDictation() {
+        nextWritingProfile = WritingProfile(format: .plain, rules: .passthrough, cleanup: .raw)
+    }
+
+    /// Style used by the Settings preview and by Test Dictation, where the
+    /// frontmost app is VocaMac's own window.
+    @Published var settingsPreviewStyle: WritingStyle = .plain
+
+    /// Optional app rule the preview targets instead of the bare preset, so a
+    /// user who customized a rule can see what that rule actually does.
+    @Published var settingsPreviewBindingID: String?
+
+    /// Rules the Settings preview and Test Dictation run with.
+    var settingsPreviewRules: WritingStyleRules {
+        if let id = settingsPreviewBindingID,
+           let binding = writingStyleBindings.first(where: { $0.id == id }) {
+            return binding.effectiveRules
+        }
+        return settingsPreviewStyle.defaultRules
+    }
+
+    var settingsPreviewProfile: WritingProfile {
+        let binding = writingStyleBindings.first { $0.id == settingsPreviewBindingID }
+        return WritingProfile(
+            format: binding?.style ?? settingsPreviewStyle,
+            rules: settingsPreviewRules,
+            intent: binding?.intent ?? writingIntent,
+            cleanup: binding?.cleanup ?? .inherit
+        )
+    }
+
+    func previewWritingProfile(_ text: String) async -> DictationOutputResult {
+        await outputPipeline.process(
+            text, profile: settingsPreviewProfile, snippetList: snippets,
+            cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
+            model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
+            language: RewriteValidation.detectedLanguage(text), autoCapitalize: autoCapitalize,
+            trailingSpace: appendTrailingSpace, preview: true
+        )
+    }
+
+    private var outputPipeline: DictationOutputPipeline {
+        DictationOutputPipeline(cleaner: transcriptCleanup, snippets: snippetExpander)
+    }
 
     /// Approximate process RSS (MB) sampled just before the last unload.
     @Published var processMemoryBeforeUnloadMB: Double?
@@ -305,6 +419,8 @@ final class AppState: ObservableObject {
     let transcriptCleanup: TranscriptCleaning
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
+    /// Identifies the app that will receive injected text.
+    let frontmostAppResolver: any FrontmostAppResolving
 
     /// Polls configured apps and pauses dictation while they run.
     let autoPauseMonitor = AutoPauseMonitor()
@@ -397,6 +513,10 @@ final class AppState: ObservableObject {
         snippetExpander: SnippetExpanding = SnippetExpander(),
         transcriptCleanup: TranscriptCleaning,
         permissionManager: (any PermissionManaging)? = nil,
+        // Not a default expression: `FrontmostAppResolver` is @MainActor and
+        // default arguments are evaluated outside the initializer's isolation,
+        // the same reason `cursorOverlay` has no default either.
+        frontmostAppResolver: (any FrontmostAppResolving)? = nil,
         skipSystemIntegration: Bool = false
     ) {
         self.audioEngine = audioEngine
@@ -408,6 +528,7 @@ final class AppState: ObservableObject {
         self.audioDucker = audioDucker
         self.cursorOverlay = cursorOverlay
         self.statsManager = statsManager
+        self.frontmostAppResolver = frontmostAppResolver ?? FrontmostAppResolver()
         self.snippetExpander = snippetExpander
         self.transcriptCleanup = transcriptCleanup
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
@@ -975,6 +1096,129 @@ final class AppState: ObservableObject {
         VocaLogger.debug(.appState, "Hotkey configuration synced (keyCode=\(hotKeyCode), modifiers=\(hotKeyModifiers.rawValue), mode=\(activationMode.rawValue))")
     }
 
+    // MARK: - Writing Styles
+
+    /// Resolve the style for a target app using the current preferences.
+    func resolveWritingStyle(for target: RunningAppSnapshot?) -> ResolvedWritingStyle {
+        WritingStyleResolver.resolve(
+            target: target,
+            bindings: writingStyleBindings,
+            defaultStyle: writingStyleDefault,
+            isEnabled: writingStyleEnabled,
+            defaultIntent: writingIntent
+        )
+    }
+
+    /// Recompute `activeWritingStyle` for the app the user is working in.
+    ///
+    /// Called when the menu bar popover appears and after settings changes —
+    /// deliberately not on a timer. Uses `styleTargetApp()` rather than the
+    /// bare frontmost app: opening the popover activates VocaMac, so by the
+    /// time this runs the frontmost app usually *is* VocaMac.
+    func refreshActiveWritingStyle() {
+        activeWritingStyle = resolveWritingStyle(for: frontmostAppResolver.styleTargetApp())
+    }
+
+    /// The app a menu bar action should apply to: whatever is in front, or the
+    /// app the user came from when VocaMac's own window has focus.
+    var writingStyleTargetApp: RunningAppSnapshot? {
+        frontmostAppResolver.styleTargetApp()
+    }
+
+    /// Bind the target app to a style, replacing any existing rule for it.
+    ///
+    /// This is the menu bar's one-tap fix for "that came out wrong".
+    @discardableResult
+    func bindFrontmostApp(to style: WritingStyle) -> String? {
+        guard let target = writingStyleTargetApp else {
+            VocaLogger.warning(.appState, "Cannot bind writing style: no target app")
+            showTemporaryError("No app to bind — switch to the app you want to style, then try again.")
+            return nil
+        }
+        var bindings = writingStyleBindings
+        let existing = bindings.last { $0.matches(target) }
+        bindings.removeAll { $0.matches(target) }
+        var binding = AppStyleBinding.from(snapshot: target, style: style)
+        binding.intent = existing?.intent ?? .preserve
+        binding.cleanup = existing?.cleanup ?? .inherit
+        bindings.append(binding)
+        writingStyleBindings = bindings
+        VocaLogger.info(.appState, "Bound \(target.displayName) to writing style '\(style.rawValue)'")
+        return target.displayName
+    }
+
+    /// Remove the target app's rule so it falls back to the default style.
+    @discardableResult
+    func unbindFrontmostApp() -> String? {
+        guard let target = writingStyleTargetApp else {
+            VocaLogger.warning(.appState, "Cannot clear writing style: no target app")
+            showTemporaryError("No app to clear — switch to the app you want to reset, then try again.")
+            return nil
+        }
+        let bindings = writingStyleBindings
+        let remaining = bindings.filter { !$0.matches(target) }
+        guard remaining.count != bindings.count else { return target.displayName }
+        writingStyleBindings = remaining
+        VocaLogger.info(.appState, "Cleared writing style rule for \(target.displayName)")
+        return target.displayName
+    }
+
+    /// Delete every app rule, leaving the default style in charge.
+    func removeAllWritingStyleBindings() {
+        guard !writingStyleBindings.isEmpty else { return }
+        writingStyleBindings = []
+        VocaLogger.info(.appState, "Removed all writing style rules")
+    }
+
+    /// Add every suggestion for an installed app that is not already bound.
+    ///
+    /// Discovery is one LaunchServices lookup per catalog entry — a few dozen
+    /// disk-backed queries — so it runs off the main actor and the caller shows
+    /// a loading state while it does. Nothing is created without this being
+    /// asked for: writing styles ship inert, because an app rule changes the
+    /// shape of an existing user's dictation and an upgrade does not get to
+    /// decide that for them.
+    ///
+    /// Returns how many rules were added. Bindings are re-read after the
+    /// lookup, so a rule the user added or removed while it ran is preserved.
+    @discardableResult
+    func addSuggestedWritingStyles() async -> Int {
+        let running = AppIdentityMatching.workspaceRunningApps()
+        let suggestions = await Task.detached(priority: .userInitiated) {
+            WritingStyleCatalog.suggestionsForInstalledApps(running: running)
+        }.value
+
+        let existing = writingStyleBindings
+        let merged = WritingStyleCatalog.merging(existing, with: suggestions)
+        guard merged.count != existing.count else {
+            VocaLogger.info(.appState, "No new writing style suggestions matched installed apps")
+            return 0
+        }
+        writingStyleBindings = merged
+        let added = merged.count - existing.count
+        VocaLogger.info(.appState, "Added \(added) suggested writing style rule(s)")
+        return added
+    }
+
+    /// Format sample text the way the given style would, for the Settings
+    /// preview. Uses the same engine as the real pipeline.
+    func writingStylePreview(_ sample: String, style: WritingStyle) -> String {
+        writingStylePreview(sample, rules: style.defaultRules)
+    }
+
+    /// Preview a specific rule set — a preset, or one app rule's overrides.
+    func writingStylePreview(_ sample: String, rules: WritingStyleRules) -> String {
+        let trimmed = sample.trimmingCharacters(in: .whitespacesAndNewlines)
+        let masked = snippetExpander.expandMasked(in: trimmed, using: snippets)
+        let styled = WritingStyleEngine.format(
+            masked.text,
+            rules: rules,
+            globalAutoCapitalize: autoCapitalize,
+            globalTrailingSpace: appendTrailingSpace
+        )
+        return masked.restore(in: styled)
+    }
+
     // MARK: - Force Recovery
 
     /// Forcibly reset the entire recording pipeline to idle state.
@@ -1026,6 +1270,11 @@ final class AppState: ObservableObject {
             showTemporaryError(message)
             return
         }
+
+        // Snapshot the target app now. Injection re-reads the frontmost app —
+        // that is what actually receives the text — and only falls back to this
+        // when VocaMac itself is in front at that point.
+        pendingTargetApp = frontmostAppResolver.currentFrontmostApp()
 
         guard appStatus == .idle else {
             // If stuck in .processing or .error for too long, force recovery
@@ -1231,31 +1480,36 @@ final class AppState: ObservableObject {
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !trimmedText.isEmpty {
-                // Cleanup (optional LLM) → polish → snippets.
-                // Snippet expansions are literal text the user authored, so
-                // auto-capitalization must not rewrite them (an email snippet
-                // would become Me@example.com). Cleanup runs first so spoken
-                // triggers still match.
-                let cleanedText = await cleanedTranscript(from: trimmedText)
-                // Cleanup can load a model and run inference for seconds. A new
-                // recording started in that window owns the cursor now, so the
-                // stale result must not be injected into whatever the user is
-                // typing into next.
-                guard generation == recordingGeneration else { return }
-                let polishedSource = DictationOutputFormatter.apply(
-                    cleanedText,
-                    autoCapitalize: autoCapitalize,
-                    appendTrailingSpace: appendTrailingSpace
-                )
-                let polished = expandSnippets(in: polishedSource)
+                let target = frontmostAppResolver.currentFrontmostApp()
+                    ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
+                let resolved = resolveWritingStyle(for: target)
+                let profile = injectResult ? (nextWritingProfile ?? resolved.profile) : settingsPreviewProfile
                 if injectResult {
-                    textInjector.inject(
-                        text: polished,
-                        preserveClipboard: preserveClipboard
-                    )
+                    nextWritingProfile = nil
+                    activeWritingStyle = resolved
+                }
+                let output = await outputPipeline.process(
+                    result.text, profile: profile, snippetList: snippets,
+                    cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
+                    model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
+                    language: result.detectedLanguage, autoCapitalize: autoCapitalize,
+                    trailingSpace: appendTrailingSpace, preview: !injectResult
+                )
+                guard generation == recordingGeneration, !Task.isCancelled else { return }
+                lastOutput = output
+                if injectResult {
+                    let current = frontmostAppResolver.currentFrontmostApp()
+                        ?? frontmostAppResolver.lastActiveApp() ?? pendingTargetApp
+                    guard Self.sameOutputTarget(target, current) else {
+                        heldOutput = output.text
+                        cursorOverlay.hide()
+                        errorMessage = "The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want."
+                        appStatus = .error
+                        return
+                    }
+                    textInjector.inject(text: output.text, preserveClipboard: preserveClipboard)
                 } else {
-                    // Settings Test Dictation: show only in the sidebar footer.
-                    settingsTestResultText = polished
+                    settingsTestResultText = output.text
                 }
             } else {
                 VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")
@@ -1934,14 +2188,17 @@ final class AppState: ObservableObject {
         transcriptCleanup.delete(kind)
     }
 
-    private func cleanedTranscript(from text: String) async -> String {
-        guard transcriptCleanupEnabled else { return text }
-        let kind = selectedCleanupModelKind
-        guard transcriptCleanup.isDownloaded(kind) else { return text }
-        // A cold model loads on the first dictation after launch. `load` is a
-        // no-op once the model is resident, and `clean` returns the input
-        // unchanged when the load did not produce one.
-        await transcriptCleanup.load(kind)
-        return await transcriptCleanup.clean(text, prompt: effectiveCleanupPrompt)
+    private static func sameOutputTarget(_ first: RunningAppSnapshot?, _ second: RunningAppSnapshot?) -> Bool {
+        switch (first, second) {
+        case (nil, nil): return true
+        case let (first?, second?):
+            return AppIdentityMatching.matches(
+                configuredBundleIdentifier: first.bundleIdentifier,
+                configuredProcessName: first.processName,
+                configuredID: first.bundleIdentifier ?? first.processName ?? first.displayName,
+                snapshot: second
+            )
+        default: return false
+        }
     }
 }

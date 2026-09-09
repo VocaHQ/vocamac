@@ -75,6 +75,17 @@ final class DictationOutputFormatterTests: XCTestCase {
         XCTAssertEqual(DictationOutputFormatter.appendTrailingSpace("para\n\n"), "para\n\n")
     }
 
+    // MARK: - Terminal punctuation
+
+    func testEnsureTerminalPeriodPreservesTrailingNewlines() {
+        XCTAssertEqual(DictationOutputFormatter.ensureTerminalPeriod("Hello\n"), "Hello.\n")
+        XCTAssertEqual(DictationOutputFormatter.ensureTerminalPeriod("Hello\n\n"), "Hello.\n\n")
+    }
+
+    func testEnsureTerminalPeriodDoesNotDoublePunctuateBeforeNewline() {
+        XCTAssertEqual(DictationOutputFormatter.ensureTerminalPeriod("Hello!\n"), "Hello!\n")
+    }
+
     // MARK: - Apply
 
     func testApplyBothFlags() {

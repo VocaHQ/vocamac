@@ -298,9 +298,14 @@ struct UserSettings {
     var selectedModelSize: ModelSize = .tiny
     var selectedLanguage: String = "auto"       // "auto" or ISO 639-1 code
 
-    // Output polish
+    // Output polish (global defaults)
     var appendTrailingSpace: Bool = true        // Space after each completed utterance
     var autoCapitalize: Bool = true             // Capitalize sentence starts
+
+    // Writing styles (per-app output shaping; overrides the polish defaults)
+    var writingStyleEnabled: Bool = true
+    var writingStyleDefault: WritingStyle = .plain
+    var writingStyleBindings: [AppStyleBinding] = []  // JSON envelope in UserDefaults
 
     // Performance / power
     var autoPauseEnabled: Bool = false
@@ -328,8 +333,60 @@ vocamac.autoPause.enabled = false
 vocamac.autoPause.apps = "[]"
 vocamac.modelKeepAlive.enabled = false
 vocamac.modelKeepAlive.idleTimeoutSeconds = 300
+vocamac.writingStyle.enabled = true
+vocamac.writingStyle.defaultStyle = "plain"
+vocamac.writingStyle.bindings = "{\"schemaVersion\":1,\"bindings\":[...]}"
 ...
 ```
+
+**Writing style bindings** are stored as a versioned JSON envelope rather than a
+bare array, so the shape can change without a lossy migration.
+
+Decoding is deliberately forgiving, because the failure mode it prevents is a
+user losing every rule they configured:
+
+- **Missing fields** in a `WritingStyleRules` payload take that field's default.
+  A rule set written before a field existed keeps working when the field is
+  added; synthesized `Codable` would throw instead.
+- **One unreadable rule** is dropped and logged. The rest of the list survives.
+- **A payload that is not JSON**, or one whose `schemaVersion` is newer than
+  this build understands, degrades to "no bindings" — the default style, never
+  a guess at an unknown shape.
+
+See `WritingStyleBindingStore.decode(json:)` and `WritingStyleRules.init(from:)`.
+
+### Wording and processing policy
+
+`AppStyleBinding` also stores `intent` (`preserve`, `professional`, `casual`) and
+`cleanup` (`inherit`, `off`, `raw`). Missing fields decode to `preserve` and
+`inherit`, keeping existing rules inert with respect to wording changes. These
+optional fields remain compatible with the version-1 binding envelope.
+
+`WritingProfile` snapshots the resolved format, rules, intent, and policy for an
+utterance. Professional/Casual require both the experimental intent toggle and
+Transcript Cleanup; model choice remains global. Code/Terminal bypass inference.
+Raw returns the original speech-engine text without trimming, snippets, or polish.
+Plain formatting continues to honor the global cleanup preference.
+
+`DictationOutputPipeline` recognizes snippet triggers before inference and uses
+validated ASCII tokens for exact spans. Command-bearing utterances and literal
+escapes use deterministic formatting. Other eligible utterances receive one
+cleanup-plus-intent inference, with original-wording fallback on rejected output,
+missing models, unsupported language, or context limits. Custom cleanup prompts
+apply only to Preserve; intent prompts have their own preservation contract.
+
+`DictationOutputResult` retains original text, final text, and an outcome summary
+in memory. Recording-generation checks discard obsolete results. A changed app
+holds the result for explicit copying instead of injecting into the new app.
+The next-dictation override is in-memory only and never edits app bindings.
+
+Model evaluation: set `VOCAMAC_WRITING_EVALUATION_REPORT` to an absolute path and
+run `swift test --filter WritingProfileModelEvaluationTests`. This uses an already
+installed model, performs no downloads or text injection, and records rules-only,
+LLM-only, and hybrid outputs over three repeated passes. Automated guards and
+unit tests do not establish semantic equivalence or style quality; inspect the
+report before changing the experimental status. Browser-tab and field identity
+are not inferred from a bundle ID.
 
 ### 3.8 `SystemCapabilities` — Hardware Detection Result
 

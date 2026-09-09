@@ -46,25 +46,13 @@ struct AutoPauseAppEntry: Codable, Identifiable, Hashable {
     }
 }
 
-/// Lightweight view of a running process used for matching and the picker UI.
-struct RunningAppSnapshot: Hashable {
-    var displayName: String
-    var bundleIdentifier: String?
-    var processName: String?
-}
-
 // MARK: - Pure matching
 
 enum AutoPauseMatching {
     /// Normalize a process or configured name for comparison.
+    /// Delegates to the shared app-identity rules.
     static func normalizeProcessName(_ name: String) -> String {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return "" }
-        let base = (trimmed as NSString).lastPathComponent.lowercased()
-        if base.hasSuffix(".exe") {
-            return String(base.dropLast(4))
-        }
-        return base
+        AppIdentityMatching.normalizeProcessName(name)
     }
 
     /// Return true when any configured entry matches a running snapshot.
@@ -86,23 +74,13 @@ enum AutoPauseMatching {
         guard !configured.isEmpty else { return nil }
 
         for entry in configured {
-            let entryBundle = entry.bundleIdentifier?.lowercased()
-            let entryProcess = entry.processName.map { normalizeProcessName($0) }
-                ?? normalizeProcessName(entry.id)
-
-            for snap in running {
-                if let entryBundle, let snapBundle = snap.bundleIdentifier?.lowercased(),
-                   entryBundle == snapBundle {
-                    return entry
-                }
-                if let snapProcess = snap.processName.map({ normalizeProcessName($0) }),
-                   !entryProcess.isEmpty, entryProcess == snapProcess {
-                    return entry
-                }
-                if let snapBundle = snap.bundleIdentifier.map({ normalizeProcessName($0) }),
-                   !entryProcess.isEmpty, entryProcess == snapBundle {
-                    return entry
-                }
+            for snap in running where AppIdentityMatching.matches(
+                configuredBundleIdentifier: entry.bundleIdentifier,
+                configuredProcessName: entry.processName,
+                configuredID: entry.id,
+                snapshot: snap
+            ) {
+                return entry
             }
         }
         return nil
@@ -110,19 +88,7 @@ enum AutoPauseMatching {
 
     /// Snapshot regular (and accessory) apps from NSWorkspace.
     static func workspaceRunningApps() -> [RunningAppSnapshot] {
-        NSWorkspace.shared.runningApplications.compactMap { app in
-            // Skip our own process and background-only agents without a name.
-            if app.bundleIdentifier == Bundle.main.bundleIdentifier {
-                return nil
-            }
-            let display = app.localizedName ?? app.bundleIdentifier ?? app.executableURL?.lastPathComponent
-            guard let display, !display.isEmpty else { return nil }
-            return RunningAppSnapshot(
-                displayName: display,
-                bundleIdentifier: app.bundleIdentifier,
-                processName: app.executableURL?.lastPathComponent ?? app.localizedName
-            )
-        }
+        AppIdentityMatching.workspaceRunningApps()
     }
 }
 

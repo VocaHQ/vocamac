@@ -105,6 +105,9 @@ final class ProcessMonitor: ObservableObject {
 }
 
 struct MenuBarView: View {
+    /// Confirmation text after binding or clearing a style, if any.
+    @State private var bindNotice: String?
+
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
@@ -132,11 +135,26 @@ struct MenuBarView: View {
             // Microphone selection
             microphoneSection
 
+            // Writing style for the app currently in front
+            if appState.writingStyleEnabled {
+                Divider()
+                writingStyleSection
+            }
+
             // Last Transcription
             if let transcription = appState.lastTranscription {
                 Divider()
                 transcriptionSection(transcription)
                     .vocaCard()
+            }
+            if let output = appState.lastOutput {
+                Text(output.summary).font(.caption).foregroundStyle(.secondary)
+                Text(output.text).font(.caption).lineLimit(4).textSelection(.enabled)
+            }
+            if let held = appState.heldOutput {
+                Text("Saved dictation — destination changed").font(.caption)
+                Text(held).font(.caption).lineLimit(4).textSelection(.enabled)
+                Button("Copy saved dictation") { appState.copyHeldOutput() }
             }
 
             // Permissions Warning
@@ -154,8 +172,101 @@ struct MenuBarView: View {
         .frame(width: 420)
         .background(VocaDesign.canvas)
         .tint(VocaDesign.accent)
-        .onAppear { processMonitor.start() }
+        .onAppear {
+            processMonitor.start()
+            // Recompute once when the popover opens rather than on a timer.
+            bindNotice = nil
+            appState.refreshActiveWritingStyle()
+        }
         .onDisappear { processMonitor.stop() }
+    }
+
+    // MARK: - Writing Style
+
+    /// Shows which style the next dictation will use, and lets the user
+    /// re-bind the frontmost app in one step when it looks wrong.
+    private var writingStyleSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            writingStyleRow
+            writingStyleNotice
+            Menu("Next dictation only") {
+                Button("Raw transcription") { appState.useRawForNextDictation() }
+                ForEach(WritingStyle.allCases) { style in
+                    Button(style.displayName) { appState.useNextWritingFormat(style) }
+                }
+                if appState.writingRewriteEnabled {
+                    Menu("Wording") {
+                        ForEach(WritingIntent.allCases) { intent in
+                            Button(intent.displayName) { appState.useNextWritingIntent(intent) }
+                        }
+                    }
+                }
+                Button("Use app profile") { appState.nextWritingProfile = nil }
+            }
+            .font(.caption)
+            if let profile = appState.nextWritingProfile {
+                Text("Next: \(profile.cleanup == .raw ? "Raw" : "\(profile.format.displayName) · \(profile.intent.displayName)")")
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var writingStyleRow: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Label("Style", systemImage: appState.activeWritingStyle.style.systemImage)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Menu {
+                ForEach(WritingStyle.allCases) { style in
+                    Button {
+                        bindNotice = appState.bindFrontmostApp(to: style)
+                            .map { "\(style.displayName) for \($0)" }
+                    } label: {
+                        if style == appState.activeWritingStyle.style {
+                            Label(style.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(style.displayName)
+                        }
+                    }
+                }
+
+                if appState.activeWritingStyle.matchedAppName != nil {
+                    Divider()
+                    Button("Use Default Style") {
+                        bindNotice = appState.unbindFrontmostApp().map { "Default style for \($0)" }
+                    }
+                }
+            } label: {
+                Text(writingStyleLabel)
+                    .font(.caption)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Choose the writing style for the app in front")
+        }
+    }
+
+    /// Confirmation for the last style change, cleared when the popover closes.
+    private var writingStyleNotice: some View {
+        Group {
+            if let bindNotice {
+                Text(bindNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    private var writingStyleLabel: String {
+        let style = appState.activeWritingStyle.style.displayName
+        if let app = appState.activeWritingStyle.matchedAppName {
+            return "\(style) — \(app)"
+        }
+        return "\(style) (default)"
     }
 
     // MARK: - Header

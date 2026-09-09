@@ -145,6 +145,8 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .writingStyles:
+                WritingStylesSettingsTab()
             case .snippets:
                 SnippetsSettingsTab()
             case .cleanup:
@@ -363,6 +365,10 @@ struct DictationSettingsPage: View {
                     detail: "Capitalize the beginning of each sentence while preserving existing capitals.",
                     isOn: $appState.autoCapitalize
                 )
+                Divider()
+                Text("These are the global defaults. Writing Styles can override them per app — for example, no sentence case in a code editor.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }

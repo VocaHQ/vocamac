@@ -291,6 +291,51 @@ final class WritingStyleCatalogTests: XCTestCase {
         XCTAssertEqual(once.count, twice.count)
     }
 
+    func testMergingExcludingDoesNotResurrectRemovedSuggestionIDs() {
+        let removed = [
+            AppStyleBinding(
+                id: "com.apple.Terminal",
+                displayName: "Terminal",
+                bundleIdentifier: "com.apple.Terminal",
+                style: .terminal
+            )
+        ]
+        let merged = WritingStyleCatalog.merging(
+            [],
+            with: WritingStyleCatalog.terminals,
+            excluding: removed
+        )
+        XCTAssertFalse(
+            merged.contains { $0.id == "com.apple.Terminal" },
+            "excluded suggestion IDs must not be re-appended"
+        )
+        XCTAssertTrue(
+            merged.contains { $0.displayName == "Ghostty" },
+            "unrelated suggestions must still merge"
+        )
+    }
+
+    func testMergingExcludingBlocksProcessNameAliasResurrection() {
+        // User had a hand-made process-name rule; discovery must not recreate
+        // the catalog's bundle-ID entry for the same app after they removed it.
+        let removed = [
+            AppStyleBinding(id: "ghostty", displayName: "Ghostty", processName: "ghostty", style: .terminal)
+        ]
+        let merged = WritingStyleCatalog.merging(
+            [],
+            with: WritingStyleCatalog.terminals,
+            excluding: removed
+        )
+        XCTAssertFalse(
+            merged.contains {
+                $0.displayName == "Ghostty"
+                    || $0.bundleIdentifier == "com.mitchellh.ghostty"
+                    || AppIdentityMatching.normalizeProcessName($0.processName ?? $0.id) == "ghostty"
+            },
+            "excluding a process-name rule must block the catalog alias"
+        )
+    }
+
     func testInstalledFilterUsesTheInjectedCheck() {
         let suggestions = WritingStyleCatalog.suggestionsForInstalledApps(
             running: [],

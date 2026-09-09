@@ -331,6 +331,33 @@ final class AppStateWritingStyleTests: XCTestCase {
         )
     }
 
+    /// Discovery also re-reads bindings after the lookup. Without a start-of-
+    /// flight removal snapshot, the append-only merge treats a mid-flight
+    /// remove (or Remove All) as "never configured" and silently restores the
+    /// catalog rule. Terminal is nearly always installed on CI Macs, so the
+    /// detached lookup will try to re-add it unless exclusions work.
+    func testSuggestionsDoNotRestoreARuleRemovedDuringDiscovery() async {
+        let (appState, _) = AppState.makeTestState()
+        let terminal = AppStyleBinding(
+            id: "com.apple.Terminal",
+            displayName: "Terminal",
+            bundleIdentifier: "com.apple.Terminal",
+            style: .terminal
+        )
+        appState.writingStyleBindings = [terminal]
+
+        async let discovery: Int = appState.addSuggestedWritingStyles()
+        appState.writingStyleBindings = []
+        _ = await discovery
+
+        XCTAssertFalse(
+            appState.writingStyleBindings.contains {
+                $0.id == terminal.id || $0.bundleIdentifier == "com.apple.Terminal"
+            },
+            "a suggestion removed while discovery was pending must not come back"
+        )
+    }
+
     func testSuggestionsDoNotClobberAnExistingUserRule() {
         let existing = [
             AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal", bundleIdentifier: "com.apple.Terminal", style: .chat)

@@ -176,9 +176,15 @@ enum WritingStyleCatalog {
 
     /// Merge suggestions into an existing binding list without disturbing
     /// anything the user already configured.
+    ///
+    /// - Parameter excluding: Rules the user deliberately removed while an
+    ///   async discovery was in flight. They occupy merge slots (id / bundle /
+    ///   process) so catalog entries for those apps are not resurrected, but
+    ///   they are not written back into the result.
     static func merging(
         _ existing: [AppStyleBinding],
-        with newSuggestions: [Suggestion]
+        with newSuggestions: [Suggestion],
+        excluding: [AppStyleBinding] = []
     ) -> [AppStyleBinding] {
         var result = existing
         var existingIDs = Set(existing.map(\.id))
@@ -193,6 +199,18 @@ enum WritingStyleCatalog {
                 return normalized.isEmpty ? nil : normalized
             }
         )
+
+        for binding in excluding {
+            existingIDs.insert(binding.id)
+            if let bundle = binding.bundleIdentifier?.lowercased() {
+                existingBundles.insert(bundle)
+            }
+            let name = binding.processName ?? binding.id
+            let normalized = AppIdentityMatching.normalizeProcessName(name)
+            if !normalized.isEmpty {
+                existingProcesses.insert(normalized)
+            }
+        }
 
         for suggestion in newSuggestions {
             if existingIDs.contains(suggestion.id) { continue }

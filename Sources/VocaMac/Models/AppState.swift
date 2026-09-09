@@ -1180,16 +1180,28 @@ final class AppState: ObservableObject {
     /// decide that for them.
     ///
     /// Returns how many rules were added. Bindings are re-read after the
-    /// lookup, so a rule the user added or removed while it ran is preserved.
+    /// lookup so a rule the user added while it ran is preserved. Rules they
+    /// removed (or cleared via Remove All) while discovery was pending are
+    /// snapshotted at start and passed as merge exclusions so the append-only
+    /// catalog merge cannot silently restore them.
     @discardableResult
     func addSuggestedWritingStyles() async -> Int {
         let running = AppIdentityMatching.workspaceRunningApps()
+        let bindingsAtStart = writingStyleBindings
         let suggestions = await Task.detached(priority: .userInitiated) {
             WritingStyleCatalog.suggestionsForInstalledApps(running: running)
         }.value
 
         let existing = writingStyleBindings
-        let merged = WritingStyleCatalog.merging(existing, with: suggestions)
+        let removedDuringFlight = Self.writingStyleBindingsRemoved(
+            from: bindingsAtStart,
+            to: existing
+        )
+        let merged = WritingStyleCatalog.merging(
+            existing,
+            with: suggestions,
+            excluding: removedDuringFlight
+        )
         guard merged.count != existing.count else {
             VocaLogger.info(.appState, "No new writing style suggestions matched installed apps")
             return 0
@@ -1198,6 +1210,32 @@ final class AppState: ObservableObject {
         let added = merged.count - existing.count
         VocaLogger.info(.appState, "Added \(added) suggested writing style rule(s)")
         return added
+    }
+
+    /// Bindings present in `before` but gone from `after` under the same merge
+    /// identity (id, bundle ID, or process name). Used so in-flight discovery
+    /// does not treat a deliberate removal as an unbound installed app.
+    private static func writingStyleBindingsRemoved(
+        from before: [AppStyleBinding],
+        to after: [AppStyleBinding]
+    ) -> [AppStyleBinding] {
+        before.filter { start in
+            !after.contains { current in
+                if current.id == start.id { return true }
+                if let left = current.bundleIdentifier?.lowercased(),
+                   let right = start.bundleIdentifier?.lowercased(),
+                   left == right {
+                    return true
+                }
+                let leftProcess = AppIdentityMatching.normalizeProcessName(
+                    current.processName ?? current.id
+                )
+                let rightProcess = AppIdentityMatching.normalizeProcessName(
+                    start.processName ?? start.id
+                )
+                return !leftProcess.isEmpty && leftProcess == rightProcess
+            }
+        }
     }
 
     /// Format sample text the way the given style would, for the Settings

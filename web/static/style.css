@@ -1963,28 +1963,84 @@ details.source-install summary {
   .deploy-glyph { order: -1; justify-self: start; width: 7.5rem; }
 }
 
-/* ---------- Hero install row ---------- */
+/* ---------- Hero install card ---------- */
 
-.hero-install { margin-top: 1.6rem; }
+/* Light, like the app window across the hero, so the commands read as part of
+   the same surface instead of a dark slab competing with the primary button. */
+.hero-install {
+  position: relative;
+  margin-top: 1.2rem;
+  overflow: hidden;
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-paper);
+}
 
-.hero-install-label {
-  margin-bottom: 0.55rem;
+.hero-install-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  /* Matches the copy button's 44px target so the two line up exactly. */
+  min-height: 44px;
+  padding: 0 0.85rem;
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--line);
+}
+
+.hero-install-name {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.hero-install-sub {
   color: var(--faint);
   font-family: var(--mono);
   font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
-/* Tighter than the install-section block: the hero has less room to spend. */
-.hero-install .code-block { margin: 0; }
-.hero-install .code-block pre { padding: 0.85rem 4.4rem 0.85rem 1rem; font-size: 0.8rem; line-height: 1.7; }
+.hero-install-sub::before { content: "\00b7"; margin-right: 0.5rem; }
 
-.hero-install-note {
-  margin-top: 0.7rem;
-  color: var(--faint);
+.hero-install pre {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  overflow-x: auto;
+  color: var(--ink);
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  line-height: 1.75;
 }
 
-.hero-install-note a { color: var(--brand-dark); }
+.hero-install .prompt { color: var(--brand); user-select: none; }
+
+/* The button sits in the bar rather than over the commands, and keeps a 44px
+   target while reading as a quiet control on a light ground. */
+.hero-install .copy-btn {
+  top: 0;
+  right: 0;
+  min-height: 44px;
+  color: var(--brand-dark);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  font-weight: 600;
+}
+
+.hero-install .copy-btn:hover { background: var(--paper); }
+
+.hero-install .copy-btn.is-copied {
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+}
+
+.btn-weight {
+  margin-left: 0.15rem;
+  opacity: 0.72;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-weight: 500;
+}

@@ -354,14 +354,18 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 /* ---------- Hero ---------- */
 
-.hero { padding: 4.5rem 0 5rem; }
+.hero { padding: 3.6rem 0 4.6rem; }
 
 .hero-inner {
   display: grid;
   gap: 3.5rem;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  align-items: center;
+  /* Stretch, so the stage matches the copy column instead of floating in the
+     middle of it. */
+  align-items: stretch;
 }
+
+.hero-copy { align-self: center; }
 
 .hero h1 {
   max-width: 15ch;
@@ -388,15 +392,15 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   display: flex;
   flex-wrap: wrap;
   gap: 0.85rem;
-  margin-top: 2.1rem;
+  margin-top: 1.8rem;
 }
 
 .hero-proof {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
-  margin-top: 2.1rem;
-  padding-top: 1.5rem;
+  margin-top: 1.8rem;
+  padding-top: 1.4rem;
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-family: var(--mono);
@@ -454,9 +458,130 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   padding: 1.5rem 1.6rem 1.6rem;
 }
 
-/* ---------- Hero workbench ---------- */
+/* ---------- Hero stage ----------
 
-.workbench { display: grid; gap: 1rem; }
+   One surface instead of two floating slabs: a menu bar pinned to the top
+   edge, the VocaMac panel below it, and the document the words land in under
+   that. The stage stretches to the copy column so neither side of the hero
+   ends in dead paper. */
+
+.hero-stage {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  max-height: 48rem;
+  overflow: hidden;
+  background: var(--paper-deep);
+  border: 1px solid var(--line-dark);
+  border-radius: 16px;
+  box-shadow: var(--shadow-window);
+}
+
+.stage-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0.9rem;
+  color: var(--paper-bright);
+  background: var(--dark-ink);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+}
+
+.stage-bar-app { font-weight: 600; }
+
+.stage-bar-extras {
+  display: inline-flex;
+  gap: 0.85rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.stage-rec {
+  display: inline-flex;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--brand-soft);
+}
+
+.stage-clock { color: var(--faint-inverse); }
+
+/* align-content centres the group when the stage is taller than its contents,
+   which is the usual case next to a four-line headline. */
+/* space-between puts the panel under the menu bar it lives in and drops the
+   document to the far end, which is both the spatial truth and what keeps a
+   stretched stage from pooling empty paper at one end. */
+/* The loop reads top to bottom: hold the key, VocaMac listens, the words land
+   in the document. Centred as a group so a stretched stage keeps its
+   composition instead of drifting apart. */
+.stage-desk {
+  display: grid;
+  flex: 1;
+  gap: 1rem;
+  align-content: center;
+  padding: 1.6rem 1.5rem 1.8rem;
+}
+
+.stage-key {
+  display: inline-flex;
+  gap: 0.7rem;
+  align-items: center;
+  justify-self: end;
+  padding: 0.6rem 0.9rem;
+  color: var(--muted);
+  background: var(--paper-bright);
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-paper);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.stage-key kbd {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+}
+
+.stage-panel { width: min(100%, 25rem); justify-self: end; }
+.stage-doc { width: min(100%, 26rem); justify-self: start; }
+
+.stage-flow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.stage-flow-arrow { color: var(--brand); font-size: 0.95rem; }
+
+.doc-body { padding: 1.15rem 1.25rem 1.5rem; }
+
+.doc-heading {
+  margin: 0 0 0.55rem;
+  font-family: var(--display);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+/* A line of the document, not an input: no field chrome around the words. */
+.doc-line {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
 
 .workbench-header {
   display: flex;
@@ -509,30 +634,10 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   animation: halo 2.4s var(--ease) infinite;
 }
 
-.menubar {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.45rem 0.9rem;
-  color: var(--paper-bright);
-  background: var(--dark-ink);
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 0.74rem;
-}
-
 .menubar-mark {
   width: 15px;
   height: 15px;
   filter: brightness(0) invert(1);
-}
-
-.menubar-status {
-  display: inline-flex;
-  gap: 0.55rem;
-  align-items: center;
-  margin-left: auto;
-  color: var(--brand-soft);
 }
 
 .rec-dot {
@@ -596,16 +701,6 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 /* Inline flow, not flex: as a flex item the caret parked at the end of the
    first line instead of following the last word once the text wrapped. */
-.editor-line {
-  min-height: 4rem;
-  padding: 1.05rem 1.15rem;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: 1rem;
-  line-height: 1.5;
-}
-
 /* Words land one after another, the way a transcript actually arrives. */
 .editor-text span {
   display: inline-block;
@@ -1798,6 +1893,8 @@ details.source-install summary {
 
   .hero-inner, .models-layout, .oss-layout { grid-template-columns: minmax(0, 1fr); }
   .hero h1 { max-width: 100%; }
+  .hero-stage { max-height: none; }
+  .stage-panel, .stage-doc { width: 100%; justify-self: stretch; }
   .steps { grid-template-columns: minmax(0, 1fr); }
   .footer-inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-hero-icon { width: 48px; height: 48px; border-radius: 14px; }
@@ -1829,6 +1926,11 @@ details.source-install summary {
   body { font-size: 1rem; }
 
   .hero { padding: 3rem 0 3.5rem; }
+
+  /* The desktop scale's 3.7rem floor is wider than a phone: "Your Mac types."
+     ran off the screen and got clipped by the body's overflow guard. Below the
+     copy column's own width the headline has to scale with the viewport. */
+  .hero h1 { font-size: clamp(2.4rem, 11vw, 3.7rem); }
   .hero-actions .btn { width: 100%; }
   .hero-proof { gap: 0.35rem 1.1rem; font-size: 0.72rem; }
 

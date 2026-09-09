@@ -28,37 +28,62 @@
             </div>
         </div>
 
-        <div class="workbench" role="img" aria-label="A VocaMac recording and text insertion preview">
-            <div class="menubar">
-                <img class="menubar-mark" src="/brand/voca-mark-white.svg" alt="" width="15" height="18">
-                <span>VocaMac</span>
-                <span class="menubar-status"><i class="rec-dot" aria-hidden="true"></i> recording</span>
+        <div class="hero-stage" role="img" aria-label="A Mac menu bar with VocaMac recording, and the dictated sentence landing in the document below">
+            <div class="stage-bar">
+                <span class="stage-bar-app">Editor</span>
+                <span class="stage-bar-extras">
+                    <img class="menubar-mark" src="/brand/voca-mark-white.svg" alt="" width="13" height="16">
+                    <span class="stage-rec"><i class="rec-dot" aria-hidden="true"></i> recording</span>
+                    <span class="stage-clock">9:41</span>
+                </span>
             </div>
-            <div class="window">
-                <div class="window-bar">
-                    <i class="window-dot window-dot-red" aria-hidden="true"></i>
-                    <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
-                    <i class="window-dot window-dot-green" aria-hidden="true"></i>
-                    <span class="window-title">VocaMac · menu bar</span>
+
+            <div class="stage-desk">
+                <div class="stage-key">
+                    <kbd>⌥</kbd>
+                    <span>Hold Right Option</span>
                 </div>
-                <div class="window-body">
-                    <div class="workbench-header">
-                        <div>
-                            <strong>Ready to dictate</strong>
-                            <span class="workbench-hint">Hold Right Option to record</span>
+
+                <p class="stage-flow"><span class="stage-flow-arrow" aria-hidden="true">↓</span> VocaMac starts listening</p>
+
+                <div class="window stage-panel">
+                    <div class="window-bar">
+                        <i class="window-dot window-dot-red" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-green" aria-hidden="true"></i>
+                        <span class="window-title">VocaMac · menu bar</span>
+                    </div>
+                    <div class="window-body">
+                        <div class="workbench-header">
+                            <div>
+                                <strong>Recording</strong>
+                                <span class="workbench-hint">Transcribing on this Mac</span>
+                            </div>
+                            <span class="status-badge"><i aria-hidden="true"></i> local</span>
                         </div>
-                        <span class="status-badge"><i aria-hidden="true"></i> local</span>
+                        <div class="waveform" aria-hidden="true">
+                            {{ range seq 42 }}<i></i>{{ end }}
+                        </div>
+                        <div class="workbench-meta">
+                            <span class="chip">model: {{ $p.engine.name }}</span>
+                            <span class="chip">audio stays on Mac</span>
+                        </div>
                     </div>
-                    <div class="waveform" aria-hidden="true">
-                        {{ range seq 42 }}<i></i>{{ end }}
+                </div>
+
+                <p class="stage-flow"><span class="stage-flow-arrow" aria-hidden="true">↓</span> inserted at your cursor</p>
+
+                <div class="window stage-doc">
+                    <div class="window-bar">
+                        <i class="window-dot window-dot-red" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-green" aria-hidden="true"></i>
+                        <span class="window-title">standup-notes.md</span>
                     </div>
-                    <div class="editor-line">
+                    <div class="doc-body">
+                        <p class="doc-heading">Standup notes</p>
                         {{/* Space between words only, never after the last one, so the caret sits against the text. */}}
-                        <span class="editor-text">{{ range $i, $word := split "VocaMac puts the words where I am already working" " " }}{{ if $i }} {{ end }}<span>{{ $word }}</span>{{ end }}</span><i class="caret" aria-hidden="true"></i>
-                    </div>
-                    <div class="workbench-meta">
-                        <span class="chip">model: {{ $p.engine.name }}</span>
-                        <span class="chip">audio stays on Mac</span>
+                        <p class="doc-line"><span class="editor-text">{{ range $i, $word := split "VocaMac puts the words where I am already working" " " }}{{ if $i }} {{ end }}<span>{{ $word }}</span>{{ end }}</span><i class="caret" aria-hidden="true"></i></p>
                     </div>
                 </div>
             </div>

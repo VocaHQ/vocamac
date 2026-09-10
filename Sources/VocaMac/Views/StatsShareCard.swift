@@ -164,13 +164,19 @@ enum StatsShareExporter {
     /// The card as a PNG file, then the post text. A file rather than an
     /// `NSImage` so Mail and AirDrop send a named PNG instead of a TIFF. If the
     /// card cannot be written, the text still goes on its own.
+    ///
+    /// Each share gets its own directory. A service can still be reading an
+    /// earlier share's file (a Mail draft, a pending AirDrop) when the next one
+    /// starts, and a shared path would swap that card for the newer one.
     @MainActor
     static func sharingItems(for snapshot: StatsShareSnapshot) -> [Any] {
         var items: [Any] = []
         if let png = renderPNG(snapshot) {
-            let url = FileManager.default.temporaryDirectory
-                .appendingPathComponent("VocaMac Stats.png")
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("VocaMac Share \(UUID().uuidString)", isDirectory: true)
+            let url = directory.appendingPathComponent("VocaMac Stats.png")
             do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try png.write(to: url, options: .atomic)
                 items.append(url)
             } catch {

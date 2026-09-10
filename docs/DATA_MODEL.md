@@ -451,6 +451,10 @@ skipped. Then:
 - A recording is only deleted from disk after the journal or index write that
   drops it has succeeded. A deletion that can't be saved leaves the file in
   place, so the history on disk never points at audio that's already gone.
+- Deleting one dictation, Delete All, and Delete Audio are all-or-nothing. If
+  the change can't be saved, the history is restored in memory, nothing is
+  removed from disk, and the user sees an error. What's on screen always
+  matches what the next launch loads.
 
 Storage limits:
 

@@ -52,7 +52,7 @@ struct HistorySettingsPage: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("Delete Audio") { appState.historyStore.deleteAllAudio() }
+                    Button("Delete Audio") { appState.deleteAllHistoryAudio() }
                         .disabled(appState.historyStore.entries.allSatisfy { !$0.hasAudio })
                     Button("Delete All…", role: .destructive) { confirmingDeleteAll = true }
                         .disabled(appState.historyStore.entries.isEmpty)

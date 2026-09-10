@@ -274,25 +274,85 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("index.corrupt.json").path))
     }
 
-    func testAudioIsRemovedOnlyAfterTheDeletionIsSaved() async throws {
+    /// Make both the journal and the index unwritable: a directory sits
+    /// where each file goes.
+    private func blockHistoryWrites() throws {
+        for name in ["journal.jsonl", "index.json"] {
+            let url = directory.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: url)
+            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        }
+    }
+
+    func testDeleteThatCantBeSavedIsUndone() async throws {
         let store = DictationHistoryStore(directory: directory)
         let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
         await store.waitForPendingWrites()
-        // Neither the journal nor the index can be written: a directory sits
-        // where each file goes.
-        let journal = directory.appendingPathComponent("journal.jsonl")
-        let index = directory.appendingPathComponent("index.json")
-        try? FileManager.default.removeItem(at: journal)
-        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: index)
-        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: true)
+        try blockHistoryWrites()
 
-        store.delete(id)
+        XCTAssertFalse(store.delete(id))
         await store.waitForPendingWrites()
 
+        XCTAssertNotNil(store.entry(id: id), "The entry is put back")
+        XCTAssertTrue(store.entry(id: id)?.hasAudio ?? false)
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
                       "A deletion that couldn't be saved must not delete the recording")
+    }
+
+    func testDeleteAllThatCantBeSavedIsUndone() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        await store.waitForPendingWrites()
+        try blockHistoryWrites()
+
+        XCTAssertFalse(store.deleteAll())
+        await store.waitForPendingWrites()
+
+        XCTAssertEqual(store.entries.map(\.id), [id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testDeleteAudioThatCantBeSavedIsUndone() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        await store.waitForPendingWrites()
+        try blockHistoryWrites()
+
+        XCTAssertFalse(store.deleteAllAudio())
+        await store.waitForPendingWrites()
+
+        XCTAssertTrue(store.entry(id: id)?.hasAudio ?? false)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testFailedSaveDoesNotLetALaterSaveDeleteAudio() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let first = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: first))))
+        await store.waitForPendingWrites()
+        try blockHistoryWrites()
+        XCTAssertFalse(store.delete(first))
+
+        // Writes work again; saving something else must not remove the
+        // recording of the deletion that never saved.
+        for name in ["journal.jsonl", "index.json"] {
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
+        _ = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        await store.waitForPendingWrites()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testDeletionsSucceedInMemory() async {
+        let store = DictationHistoryStore(directory: nil)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        XCTAssertTrue(store.delete(id))
+        XCTAssertTrue(store.deleteAll())
+        XCTAssertTrue(store.deleteAllAudio())
     }
 
     func testDroppingAudioKeepsTheFileUntilSaved() async throws {

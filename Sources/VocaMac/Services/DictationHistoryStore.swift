@@ -234,30 +234,55 @@ final class DictationHistoryStore: ObservableObject {
 
     // MARK: - Deleting
 
-    func delete(_ id: UUID) {
-        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+    // Deletions the user asks for are all-or-nothing: if the change can't be
+    // saved, the history is put back as it was and nothing is removed from
+    // disk, so what's on screen always matches what the next launch loads.
+    // Each returns whether the deletion was saved.
+
+    @discardableResult
+    func delete(_ id: UUID) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
+        let previous = entries
         var entry = entries.remove(at: index)
         removeAudio(of: &entry)
         // Saves the deletion, then deletes the recording.
-        appendToJournal(JournalRecord(delete: id))
+        guard appendToJournal(JournalRecord(delete: id)) else {
+            entries = previous
+            return false
+        }
+        return true
     }
 
-    func deleteAll() {
+    @discardableResult
+    func deleteAll() -> Bool {
+        let previous = entries
         entries = []
         pendingAudioRemovals = []
-        // Only wipe the recordings once the empty history is saved.
-        guard compact(), let folder = audioDirectory else { return }
-        ioQueue.async {
-            try? FileManager.default.removeItem(at: folder)
+        guard compact() else {
+            entries = previous
+            return false
         }
+        // Only wipe the recordings once the empty history is saved.
+        if let folder = audioDirectory {
+            ioQueue.async {
+                try? FileManager.default.removeItem(at: folder)
+            }
+        }
+        return true
     }
 
     /// Drop the audio of every entry but keep the text.
-    func deleteAllAudio() {
+    @discardableResult
+    func deleteAllAudio() -> Bool {
+        let previous = entries
         for index in entries.indices {
             removeAudio(of: &entries[index])
         }
-        compact()
+        guard compact() else {
+            entries = previous
+            return false
+        }
+        return true
     }
 
     /// Delete entries older than the retention window.
@@ -407,8 +432,12 @@ final class DictationHistoryStore: ObservableObject {
         return decoder
     }()
 
-    private func appendToJournal(_ record: JournalRecord) {
-        guard let directory, let journalURL else { return }
+    /// Save one change: append it to the journal, or failing that rewrite
+    /// the whole index. Returns false if neither worked, in which case any
+    /// recordings the change would have deleted are left on disk.
+    @discardableResult
+    private func appendToJournal(_ record: JournalRecord) -> Bool {
+        guard let directory, let journalURL else { return true }
         do {
             var line = try Self.encoder.encode(record)
             line.append(0x0A)
@@ -425,9 +454,10 @@ final class DictationHistoryStore: ObservableObject {
             if journalLineCount >= Self.compactionThreshold {
                 compact()
             }
+            return true
         } catch {
             VocaLogger.error(.history, "Could not append to the history journal: \(error.localizedDescription)")
-            compact()
+            return compact()
         }
     }
 
@@ -436,7 +466,8 @@ final class DictationHistoryStore: ObservableObject {
     /// failure here loses nothing.
     @discardableResult
     private func compact() -> Bool {
-        guard let directory, let indexURL else { return false }
+        // In-memory history has nothing to save.
+        guard let directory, let indexURL else { return true }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try Self.encoder.encode(entries).write(to: indexURL, options: .atomic)
@@ -448,6 +479,9 @@ final class DictationHistoryStore: ObservableObject {
             return true
         } catch {
             VocaLogger.error(.history, "Could not save dictation history: \(error.localizedDescription)")
+            // The change these removals belong to wasn't saved; a later save
+            // for something else must not delete them.
+            pendingAudioRemovals = []
             return false
         }
     }

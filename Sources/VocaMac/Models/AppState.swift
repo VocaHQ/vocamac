@@ -2571,11 +2571,21 @@ extension AppState {
     }
 
     func deleteHistoryEntry(_ id: UUID) {
-        historyStore.delete(id)
+        if !historyStore.delete(id) {
+            showTemporaryError("Couldn't delete that dictation because the history file couldn't be saved. Nothing was removed.")
+        }
     }
 
     func clearHistory() {
-        historyStore.deleteAll()
+        if !historyStore.deleteAll() {
+            showTemporaryError("Couldn't delete your history because the history file couldn't be saved. Nothing was removed.")
+        }
+    }
+
+    func deleteAllHistoryAudio() {
+        if !historyStore.deleteAllAudio() {
+            showTemporaryError("Couldn't delete the recordings because the history file couldn't be saved. Nothing was removed.")
+        }
     }
 
     /// Apply a retention change right away rather than at the next dictation.

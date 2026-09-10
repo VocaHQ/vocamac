@@ -238,16 +238,17 @@ final class DictationHistoryStore: ObservableObject {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         var entry = entries.remove(at: index)
         removeAudio(of: &entry)
+        // Saves the deletion, then deletes the recording.
         appendToJournal(JournalRecord(delete: id))
     }
 
     func deleteAll() {
         entries = []
-        compact()
-        if let folder = audioDirectory {
-            ioQueue.async {
-                try? FileManager.default.removeItem(at: folder)
-            }
+        pendingAudioRemovals = []
+        // Only wipe the recordings once the empty history is saved.
+        guard compact(), let folder = audioDirectory else { return }
+        ioQueue.async {
+            try? FileManager.default.removeItem(at: folder)
         }
     }
 
@@ -321,12 +322,29 @@ final class DictationHistoryStore: ObservableObject {
         appendToJournal(JournalRecord(upsert: entries[index]))
     }
 
+    /// Recordings to delete once the change that drops them is on disk.
+    private var pendingAudioRemovals: [URL] = []
+
+    /// Drop an entry's audio. The file itself is only deleted after the
+    /// journal or index write that records this change has succeeded (see
+    /// `flushAudioRemovals`), so an exit in between can never leave an entry
+    /// on disk whose audio is already gone.
     private func removeAudio(of entry: inout DictationHistoryEntry) {
         guard let url = audioURL(for: entry) else { return }
         entry.audioFileName = nil
         entry.audioBytes = nil
+        pendingAudioRemovals.append(url)
+    }
+
+    /// Delete recordings whose removal is now saved.
+    private func flushAudioRemovals() {
+        guard !pendingAudioRemovals.isEmpty else { return }
+        let urls = pendingAudioRemovals
+        pendingAudioRemovals = []
         ioQueue.async {
-            try? FileManager.default.removeItem(at: url)
+            for url in urls {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
     }
 
@@ -403,6 +421,7 @@ final class DictationHistoryStore: ObservableObject {
             try handle.seekToEnd()
             try handle.write(contentsOf: line)
             journalLineCount += 1
+            flushAudioRemovals()
             if journalLineCount >= Self.compactionThreshold {
                 compact()
             }
@@ -415,8 +434,9 @@ final class DictationHistoryStore: ObservableObject {
     /// Write the whole history to `index.json`, then clear the journal. The
     /// journal is only removed after the index is safely replaced, so a
     /// failure here loses nothing.
-    private func compact() {
-        guard let directory, let indexURL else { return }
+    @discardableResult
+    private func compact() -> Bool {
+        guard let directory, let indexURL else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try Self.encoder.encode(entries).write(to: indexURL, options: .atomic)
@@ -424,8 +444,11 @@ final class DictationHistoryStore: ObservableObject {
                 try? FileManager.default.removeItem(at: journalURL)
             }
             journalLineCount = 0
+            flushAudioRemovals()
+            return true
         } catch {
             VocaLogger.error(.history, "Could not save dictation history: \(error.localizedDescription)")
+            return false
         }
     }
 

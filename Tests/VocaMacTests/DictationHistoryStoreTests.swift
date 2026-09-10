@@ -274,6 +274,39 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("index.corrupt.json").path))
     }
 
+    func testAudioIsRemovedOnlyAfterTheDeletionIsSaved() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        await store.waitForPendingWrites()
+        // Neither the journal nor the index can be written: a directory sits
+        // where each file goes.
+        let journal = directory.appendingPathComponent("journal.jsonl")
+        let index = directory.appendingPathComponent("index.json")
+        try? FileManager.default.removeItem(at: journal)
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: index)
+        try FileManager.default.createDirectory(at: index, withIntermediateDirectories: true)
+
+        store.delete(id)
+        await store.waitForPendingWrites()
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path),
+                      "A deletion that couldn't be saved must not delete the recording")
+    }
+
+    func testDroppingAudioKeepsTheFileUntilSaved() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        store.complete(id, rawText: "hi", finalText: "Hi", summary: nil, language: nil,
+                       transcriptionSeconds: nil, keepAudio: false)
+        await store.waitForPendingWrites()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "Removed once the completion is saved")
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertEqual(relaunched.entry(id: id)?.status, .completed)
+    }
+
     func testRetentionResolvesUnknownValues() {
         XCTAssertEqual(HistoryRetention.resolved(stored: "bogus"), .month)
         XCTAssertEqual(HistoryRetention.resolved(stored: "week"), .week)

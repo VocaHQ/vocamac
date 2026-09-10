@@ -448,6 +448,9 @@ skipped. Then:
   journaled, naming its WAV file, before the file is written, so such a file
   can only be audio whose deletion was saved before its removal ran. Deleted
   recordings never come back.
+- A recording is only deleted from disk after the journal or index write that
+  drops it has succeeded. A deletion that can't be saved leaves the file in
+  place, so the history on disk never points at audio that's already gone.
 
 Storage limits:
 

@@ -100,6 +100,7 @@ final class AppState: ObservableObject {
                 audioEngine.onAudioSamples = nil
                 recordingTranscription?.cancel()
                 recordingTranscription = nil
+                isHandsFreeSession = false
             }
             if oldValue && !isRecording {
                 audioDucker.restore()
@@ -184,6 +185,17 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.transcriptCleanupEnabled) var transcriptCleanupEnabled: Bool = false
     @AppStorage(PreferenceKey.transcriptCleanupModel) var transcriptCleanupModel: String = CleanupModelKind.defaultKind.rawValue
     @AppStorage(PreferenceKey.transcriptCleanupPrompt) var transcriptCleanupPrompt: String = ""
+    @AppStorage(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
+    @AppStorage(PreferenceKey.historyKeepsAudio) var historyKeepsAudio: Bool = true
+    @AppStorage(PreferenceKey.historyRetention) var historyRetention: HistoryRetention = .defaultRetention
+    @AppStorage(PreferenceKey.escapeCancelsDictation) var escapeCancelsDictation: Bool = true
+    /// `HotKeyCombo.storageString`, or empty for no shortcut.
+    @AppStorage(PreferenceKey.pasteLastShortcut) var pasteLastShortcut: String = HotKeyCombo.defaultPasteLast.storageString
+    /// `HotKeyCombo.storageString`, or empty for no shortcut.
+    @AppStorage(PreferenceKey.handsFreeShortcut) var handsFreeShortcut: String = ""
+    @AppStorage(PreferenceKey.mouseTriggerButton) var mouseTriggerButton: Int = MouseTriggerButton.off.rawValue
+    @AppStorage(PreferenceKey.learnCorrectionsMode) var learnCorrectionsMode: LearnCorrectionsMode = .defaultMode
+    @AppStorage(PreferenceKey.useScreenContext) var useScreenContext: Bool = true
 
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
@@ -414,6 +426,43 @@ final class AppState: ObservableObject {
     /// Custom text snippets for expansion
     @Published var snippets: [Snippet] = []
 
+    /// Spoken forms rewritten to the user's text, for every engine.
+    @Published var wordReplacements: [WordReplacement] = []
+
+    /// Corrections noticed in dictated text, waiting for the user to accept.
+    @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
+
+    /// History entry whose audio is being transcribed again, if any.
+    @Published private(set) var retryingHistoryEntryID: UUID?
+
+    /// Settings page to show the next time the Settings window appears.
+    @Published var requestedSettingsPage: SettingsPage?
+
+    /// Failed dictation whose retry banner the user closed.
+    @Published private(set) var dismissedRecoveryEntryID: UUID?
+
+    /// History entry for the dictation being transcribed right now.
+    private var activeHistoryEntryID: UUID?
+
+    /// Whether the current recording was started with the hands-free
+    /// shortcut, so silence ends it the way it ends a double-tap recording.
+    private var isHandsFreeSession = false
+
+    /// True from the end of a recording until its text is delivered. Escape
+    /// cancels during this window as well as while recording.
+    private var isTranscribing = false {
+        didSet { refreshCancelKeyArming() }
+    }
+
+    /// Names and identifiers read from the screen when recording started.
+    private var screenContextTask: Task<[String], Never>?
+
+    /// Suggestions the user dismissed, so the same fix isn't offered again.
+    private var dismissedSuggestionKeys: Set<String> = []
+
+    /// Whether a word is ordinary vocabulary in a language. Replaceable in tests.
+    var isKnownWord: (String, String?) -> Bool
+
     // MARK: - Services
 
     let audioEngine: AudioRecording
@@ -431,6 +480,12 @@ final class AppState: ObservableObject {
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
     let frontmostAppResolver: any FrontmostAppResolving
+    /// Past dictations, their text, and their audio.
+    let historyStore: DictationHistoryStore
+    /// Reads names and identifiers from the screen; nil when disabled.
+    let screenContextReader: (any ScreenContextReading)?
+    /// Notices the user fixing dictated words; nil when disabled.
+    let correctionObserver: (any CorrectionObserving)?
 
     /// Polls configured apps and pauses dictation while they run.
     let autoPauseMonitor = AutoPauseMonitor()
@@ -527,6 +582,9 @@ final class AppState: ObservableObject {
         // default arguments are evaluated outside the initializer's isolation,
         // the same reason `cursorOverlay` has no default either.
         frontmostAppResolver: (any FrontmostAppResolving)? = nil,
+        historyStore: DictationHistoryStore? = nil,
+        screenContextReader: (any ScreenContextReading)? = nil,
+        correctionObserver: (any CorrectionObserving)? = nil,
         skipSystemIntegration: Bool = false
     ) {
         self.audioEngine = audioEngine
@@ -543,9 +601,19 @@ final class AppState: ObservableObject {
         self.transcriptCleanup = transcriptCleanup
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
+        // Tests and other headless runs keep history in memory and never read
+        // another app's text.
+        self.historyStore = historyStore
+            ?? DictationHistoryStore(directory: skipSystemIntegration ? nil : DictationHistoryStore.defaultDirectory)
+        self.screenContextReader = screenContextReader ?? (skipSystemIntegration ? nil : ScreenContextReader())
+        self.correctionObserver = correctionObserver ?? (skipSystemIntegration ? nil : CorrectionObserver())
+        self.isKnownWord = { word, language in
+            MainActor.assumeIsolated { SpellingOracle.shared.isKnownWord(word, language: language) }
+        }
 
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
         loadSnippets()
+        loadDictionary()
         if !skipSystemIntegration {
             syncLaunchAtLogin()
         }
@@ -572,6 +640,12 @@ final class AppState: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+
+        self.historyStore.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        self.historyStore.applyRetention(historyRetention)
     }
 
     /// Single production AppState instance for the process.
@@ -707,8 +781,8 @@ final class AppState: ObservableObject {
         audioEngine.onSilenceDetected = { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
-                if self.activationMode == .doubleTapToggle && self.isRecording {
-                    VocaLogger.info(.appState, "Silence detected — auto-stopping recording (double-tap mode)")
+                if (self.activationMode == .doubleTapToggle || self.isHandsFreeSession) && self.isRecording {
+                    VocaLogger.info(.appState, "Silence detected — auto-stopping recording (toggle session)")
                     await self.stopRecordingAndTranscribe()
                 }
             }
@@ -771,6 +845,31 @@ final class AppState: ObservableObject {
             }
         }
 
+        if let shortcutMonitor = hotKeyManager as? HotKeyShortcutMonitoring {
+            shortcutMonitor.onShortcut = { [weak self] action in
+                Task { @MainActor in
+                    await self?.handleShortcut(action)
+                }
+            }
+            shortcutMonitor.onCancel = { [weak self] in
+                Task { @MainActor in
+                    await self?.cancelDictation()
+                }
+            }
+        }
+        syncShortcutConfiguration()
+
+        // Escape is only claimed while there is a dictation to cancel.
+        $appStatus
+            .sink { [weak self] status in
+                self?.refreshCancelKeyArming(status: status)
+            }
+            .store(in: &cancellables)
+
+        correctionObserver?.onCorrections = { [weak self] corrections in
+            self?.receiveCorrections(corrections)
+        }
+
         // Wire permission manager: start hotkey listener when permissions granted
         permissionManager.onAllPermissionsGranted = { [weak self] in
             guard let self = self else { return }
@@ -820,6 +919,13 @@ final class AppState: ObservableObject {
             .dropFirst()  // skip the subscription replay of the just-loaded value
             .sink { [weak self] snippets in
                 self?.saveSnippets(snippets)
+            }
+            .store(in: &cancellables)
+
+        $wordReplacements
+            .dropFirst()
+            .sink { replacements in
+                Self.saveJSON(replacements, forKey: PreferenceKey.wordReplacements)
             }
             .store(in: &cancellables)
 
@@ -1316,6 +1422,13 @@ final class AppState: ObservableObject {
         cursorOverlay.hide()
         appStatus = .idle
         errorMessage = nil
+        isTranscribing = false
+        screenContextTask?.cancel()
+        screenContextTask = nil
+        if let id = activeHistoryEntryID {
+            historyStore.markCancelled(id)
+            activeHistoryEntryID = nil
+        }
     }
 
     /// Play start, then stop, for the tone currently selected in Settings.
@@ -1350,6 +1463,9 @@ final class AppState: ObservableObject {
         // when VocaMac itself is in front at that point.
         pendingTargetApp = frontmostAppResolver.currentFrontmostApp()
 
+        // Starting another dictation means the user is done fixing the last one.
+        correctionObserver?.flush()
+
         guard appStatus == .idle else {
             // If stuck in .processing or .error for too long, force recovery
             // so the user can start a fresh recording.
@@ -1382,6 +1498,7 @@ final class AppState: ObservableObject {
         recordingGeneration = UUID()
         let generation = recordingGeneration
         recordingInjectsResult = injectResult
+        startScreenContextCapture(injectResult: injectResult)
         appStatus = .recording
         isRecording = true
         errorMessage = nil
@@ -1530,6 +1647,16 @@ final class AppState: ObservableObject {
         }
 
         appStatus = .processing
+        isTranscribing = true
+        defer {
+            if generation == recordingGeneration { isTranscribing = false }
+        }
+
+        let contextTask = screenContextTask
+        screenContextTask = nil
+        // Saved before transcribing, so a crash or failure can't lose it.
+        let historyID = injectResult ? beginHistoryEntry(audio: audioData) : nil
+        activeHistoryEntryID = historyID
 
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
@@ -1555,7 +1682,10 @@ final class AppState: ObservableObject {
                 )
             }
 
-            guard generation == recordingGeneration else { return }
+            guard generation == recordingGeneration else {
+                if let historyID { historyStore.markCancelled(historyID) }
+                return
+            }
             lastTranscription = result
 
             // Update stats
@@ -1571,15 +1701,27 @@ final class AppState: ObservableObject {
                     nextWritingProfile = nil
                     activeWritingStyle = resolved
                 }
+                let contextTerms = await Self.awaitContextTerms(contextTask)
                 let output = await outputPipeline.process(
                     result.text, profile: profile, snippetList: snippets,
                     cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
                     model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
-                    trailingSpace: appendTrailingSpace, preview: !injectResult
+                    trailingSpace: appendTrailingSpace, preview: !injectResult,
+                    dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage)
                 )
-                guard generation == recordingGeneration, !Task.isCancelled else { return }
+                guard generation == recordingGeneration, !Task.isCancelled else {
+                    if let historyID { historyStore.markCancelled(historyID) }
+                    return
+                }
                 lastOutput = output
+                if let historyID {
+                    historyStore.complete(
+                        historyID, rawText: result.text, finalText: output.text, summary: output.summary,
+                        language: result.detectedLanguage, transcriptionSeconds: result.duration,
+                        keepAudio: historyKeepsAudio
+                    )
+                }
                 if injectResult {
                     let current = frontmostAppResolver.currentFrontmostApp()
                         ?? frontmostAppResolver.lastActiveApp() ?? pendingTargetApp
@@ -1591,11 +1733,19 @@ final class AppState: ObservableObject {
                         return
                     }
                     textInjector.inject(text: output.text, preserveClipboard: preserveClipboard)
+                    observeCorrections(to: output.text)
                 } else {
                     settingsTestResultText = output.text
                 }
             } else {
                 VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")
+                if let historyID {
+                    historyStore.complete(
+                        historyID, rawText: result.text, finalText: "", summary: nil,
+                        language: result.detectedLanguage, transcriptionSeconds: result.duration,
+                        keepAudio: historyKeepsAudio
+                    )
+                }
                 if !injectResult {
                     settingsTestResultText = nil
                 }
@@ -1604,9 +1754,19 @@ final class AppState: ObservableObject {
             cursorOverlay.hide()
             appStatus = .idle
         } catch {
-            guard generation == recordingGeneration else { return }
+            guard generation == recordingGeneration else {
+                if let historyID { historyStore.markCancelled(historyID) }
+                return
+            }
             cursorOverlay.hide()
-            errorMessage = "Transcription failed: \(error.localizedDescription)"
+            var message = "Transcription failed: \(error.localizedDescription)"
+            if let historyID {
+                historyStore.markFailed(historyID, message: error.localizedDescription)
+                if historyStore.entry(id: historyID)?.hasAudio == true {
+                    message += " Your audio is saved — retry it from the menu bar."
+                }
+            }
+            errorMessage = message
             appStatus = .error
 
             // Auto-recover after 3 seconds
@@ -1633,11 +1793,36 @@ final class AppState: ObservableObject {
         _ = await stopAudioEngine()
         isRecording = false
         audioLevel = 0.0
+        screenContextTask?.cancel()
+        screenContextTask = nil
         cursorOverlay.hide()
         hotKeyManager.resetKeyState()
         appStatus = .idle
         errorMessage = nil
-        VocaLogger.info(.appState, "Recording cancelled from overlay")
+        VocaLogger.info(.appState, "Recording cancelled")
+    }
+
+    /// Escape: throw away a recording, or drop a dictation still being
+    /// transcribed. A dictation cancelled mid-transcription keeps its audio in
+    /// history, so an accidental Escape can be undone with Retry.
+    func cancelDictation() async {
+        if isRecording || appStatus == .recording {
+            await cancelRecording()
+            return
+        }
+        guard isTranscribing else { return }
+        recordingGeneration = UUID()
+        finishingTranscription?.cancel()
+        isTranscribing = false
+        if let id = activeHistoryEntryID {
+            historyStore.markCancelled(id)
+            activeHistoryEntryID = nil
+        }
+        cursorOverlay.hide()
+        hotKeyManager.resetKeyState()
+        appStatus = .idle
+        errorMessage = nil
+        VocaLogger.info(.appState, "Dictation cancelled while transcribing")
     }
 
     /// Completes a recording the user ended while the microphone was still
@@ -2282,6 +2467,368 @@ final class AppState: ObservableObject {
                 snapshot: second
             )
         default: return false
+        }
+    }
+}
+
+// MARK: - History, Shortcuts, and Dictionary
+
+extension AppState {
+
+    // MARK: History
+
+    /// Record a dictation in history before it is transcribed. Returns nil
+    /// when history is off.
+    fileprivate func beginHistoryEntry(audio: [Float]) -> UUID? {
+        guard historyEnabled else { return nil }
+        historyStore.applyRetention(historyRetention)
+        let modelID = currentModel?.size.rawValue ?? selectedModelSize
+        return historyStore.begin(
+            audio: audio,
+            target: frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp,
+            modelID: modelID,
+            language: selectedLanguage == "auto" ? nil : selectedLanguage,
+            audioSeconds: Double(audio.count) / 16_000
+        )
+    }
+
+    /// The newest dictation, when it failed or was interrupted and can be
+    /// retried, unless the user dismissed the banner for it.
+    var recoverableHistoryEntry: DictationHistoryEntry? {
+        guard historyEnabled, let entry = historyStore.latestRecoverableEntry,
+              entry.id != dismissedRecoveryEntryID else { return nil }
+        return entry
+    }
+
+    /// Hide the retry banner for an entry; it stays in History.
+    func dismissRecovery(_ id: UUID) {
+        dismissedRecoveryEntryID = id
+    }
+
+    /// Transcribe a history entry's audio again with the current model and
+    /// settings, and copy the result. Never pastes: VocaMac's own window is
+    /// in front when this runs, so the paste-last shortcut puts it in place.
+    @discardableResult
+    func retryHistoryEntry(_ id: UUID) async -> String? {
+        guard retryingHistoryEntryID == nil,
+              let entry = historyStore.entry(id: id), entry.hasAudio else { return nil }
+        retryingHistoryEntryID = id
+        defer { retryingHistoryEntryID = nil }
+
+        do {
+            let samples = try await historyStore.loadAudio(for: entry)
+            await ensureModelLoaded()
+            guard whisperService.isModelLoaded else {
+                showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
+                return nil
+            }
+            let result = try await whisperService.transcribe(
+                audioData: samples,
+                language: selectedLanguage == "auto" ? nil : selectedLanguage,
+                translate: translationEnabled,
+                vocabulary: customVocabulary
+            )
+            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            var output: DictationOutputResult?
+            if !text.isEmpty {
+                let profile = resolveWritingStyle(for: entry.targetApp).profile
+                output = await outputPipeline.process(
+                    result.text, profile: profile, snippetList: snippets,
+                    cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
+                    model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
+                    language: result.detectedLanguage, autoCapitalize: autoCapitalize,
+                    trailingSpace: appendTrailingSpace,
+                    dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage)
+                )
+            }
+            historyStore.recordRetry(
+                id, rawText: result.text, finalText: output?.text ?? "", summary: output?.summary,
+                language: result.detectedLanguage, modelID: result.modelUsed.rawValue,
+                transcriptionSeconds: result.duration
+            )
+            guard let output else {
+                showTemporaryError("The retry didn't hear any words in that recording.")
+                return nil
+            }
+            lastOutput = output
+            copyToClipboard(output.text)
+            VocaLogger.info(.appState, "Retried dictation \(id) with \(result.modelUsed.displayName)")
+            return output.text
+        } catch {
+            showTemporaryError("Retry failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    func copyToClipboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    func deleteHistoryEntry(_ id: UUID) {
+        historyStore.delete(id)
+    }
+
+    func clearHistory() {
+        historyStore.deleteAll()
+    }
+
+    /// Apply a retention change right away rather than at the next dictation.
+    func applyHistoryRetention() {
+        historyStore.applyRetention(historyRetention)
+    }
+
+    /// Open Settings on a specific page (e.g. History from the menu bar).
+    func requestSettingsPage(_ page: SettingsPage) {
+        requestedSettingsPage = page
+    }
+
+    // MARK: Shortcuts
+
+    /// Push the extra shortcuts and the mouse trigger to the hotkey listener.
+    func syncShortcutConfiguration() {
+        guard let monitor = hotKeyManager as? HotKeyShortcutMonitoring else { return }
+        var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
+        if let combo = HotKeyCombo(storageString: pasteLastShortcut) {
+            shortcuts[.pasteLastDictation] = combo
+        }
+        if let combo = HotKeyCombo(storageString: handsFreeShortcut) {
+            shortcuts[.handsFreeToggle] = combo
+        }
+        monitor.updateShortcuts(shortcuts)
+        monitor.updateMouseTrigger(button: MouseTriggerButton.resolved(stored: mouseTriggerButton).rawValue)
+        refreshCancelKeyArming()
+    }
+
+    func shortcut(for action: HotKeyShortcutAction) -> HotKeyCombo? {
+        switch action {
+        case .pasteLastDictation: return HotKeyCombo(storageString: pasteLastShortcut)
+        case .handsFreeToggle: return HotKeyCombo(storageString: handsFreeShortcut)
+        }
+    }
+
+    func setShortcut(_ combo: HotKeyCombo?, for action: HotKeyShortcutAction) {
+        let stored = combo?.storageString ?? ""
+        switch action {
+        case .pasteLastDictation: pasteLastShortcut = stored
+        case .handsFreeToggle: handsFreeShortcut = stored
+        }
+        syncShortcutConfiguration()
+    }
+
+    func handleShortcut(_ action: HotKeyShortcutAction) async {
+        switch action {
+        case .pasteLastDictation:
+            pasteLastDictation()
+        case .handsFreeToggle:
+            await toggleHandsFreeDictation()
+        }
+    }
+
+    /// Start a dictation that runs until the shortcut is pressed again (or
+    /// silence ends it), whatever the activation mode is.
+    func toggleHandsFreeDictation() async {
+        if isRecording || appStatus == .recording {
+            await stopRecordingAndTranscribe()
+            return
+        }
+        isHandsFreeSession = true
+        await startRecording()
+        if !isRecording {
+            isHandsFreeSession = false
+        }
+    }
+
+    /// Type the most recent dictation again at the cursor.
+    func pasteLastDictation() {
+        guard !isRecording, appStatus != .recording else { return }
+        let fromHistory = historyEnabled ? historyStore.latestDeliveredText : nil
+        guard let text = fromHistory ?? lastOutput?.text ?? heldOutput,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            showTemporaryError("There's no dictation to paste yet.")
+            return
+        }
+        VocaLogger.info(.appState, "Pasting the last dictation again (\(text.count) chars)")
+        textInjector.inject(text: text, preserveClipboard: preserveClipboard)
+    }
+
+    fileprivate func refreshCancelKeyArming(status: AppStatus? = nil) {
+        guard let monitor = hotKeyManager as? HotKeyShortcutMonitoring else { return }
+        let current = status ?? appStatus
+        monitor.setCancelKeyArmed(escapeCancelsDictation && (current == .recording || isTranscribing))
+    }
+
+    // MARK: Dictionary
+
+    /// Vocabulary terms, one per entry. Stored in `customVocabulary` so the
+    /// Whisper recognition hint keeps working.
+    var vocabularyTerms: [String] {
+        WhisperService.vocabularyTerms(from: customVocabulary)
+    }
+
+    func setVocabularyTerms(_ terms: [String]) {
+        var seen = Set<String>()
+        let cleaned = terms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
+        customVocabulary = cleaned.joined(separator: "\n")
+    }
+
+    /// Add a term, replacing a differently-cased copy of it.
+    func addVocabularyTerm(_ term: String) {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var terms = vocabularyTerms.filter { $0.lowercased() != trimmed.lowercased() }
+        terms.append(trimmed)
+        setVocabularyTerms(terms)
+    }
+
+    func removeVocabularyTerm(_ term: String) {
+        setVocabularyTerms(vocabularyTerms.filter { $0 != term })
+    }
+
+    /// Add a replacement, merging into an existing one that already writes
+    /// the same text.
+    func addWordReplacement(heard: String, replacement: String) {
+        let heard = heard.trimmingCharacters(in: .whitespacesAndNewlines)
+        let replacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !heard.isEmpty, !replacement.isEmpty else { return }
+        if let index = wordReplacements.firstIndex(where: { $0.replacement == replacement }) {
+            let forms = wordReplacements[index].heardForms
+            guard !forms.contains(where: { $0.lowercased() == heard.lowercased() }) else { return }
+            wordReplacements[index].heard = (forms + [heard]).joined(separator: ", ")
+        } else {
+            wordReplacements.append(WordReplacement(heard: heard, replacement: replacement))
+        }
+    }
+
+    func dictionaryContext(contextTerms: [String], language: String?) -> DictionaryContext {
+        let isKnownWord = self.isKnownWord
+        return DictionaryContext(
+            vocabulary: vocabularyTerms,
+            replacements: wordReplacements,
+            contextTerms: contextTerms,
+            isKnownWord: { isKnownWord($0, language) }
+        )
+    }
+
+    /// Accept a noticed correction: the corrected spelling becomes a
+    /// vocabulary term, plus a replacement when the engine heard different
+    /// letters (not just different casing or spacing).
+    func acceptDictionarySuggestion(_ suggestion: CorrectionSuggestion) {
+        learn(heard: suggestion.heard, corrected: suggestion.corrected)
+        dictionarySuggestions.removeAll { $0.id == suggestion.id }
+        saveSuggestions()
+    }
+
+    func dismissDictionarySuggestion(_ suggestion: CorrectionSuggestion) {
+        dictionarySuggestions.removeAll { $0.id == suggestion.id }
+        dismissedSuggestionKeys.insert(suggestion.id)
+        saveSuggestions()
+    }
+
+    private func learn(heard: String, corrected: String) {
+        addVocabularyTerm(corrected)
+        if DictionaryCorrector.normalized(heard) != DictionaryCorrector.normalized(corrected) {
+            addWordReplacement(heard: heard, replacement: corrected)
+        }
+        VocaLogger.info(.dictionary, "Learned a spelling from a correction")
+    }
+
+    fileprivate func receiveCorrections(_ corrections: [CorrectionLearner.Correction]) {
+        let mode = learnCorrectionsMode
+        guard mode != .off else { return }
+        let known = Set(vocabularyTerms)
+        for correction in corrections where !known.contains(correction.corrected) {
+            let key = CorrectionSuggestion.key(heard: correction.heard, corrected: correction.corrected)
+            guard !dismissedSuggestionKeys.contains(key) else { continue }
+            if mode == .automatic {
+                learn(heard: correction.heard, corrected: correction.corrected)
+                continue
+            }
+            if let index = dictionarySuggestions.firstIndex(where: { $0.id == key }) {
+                dictionarySuggestions[index].occurrences += 1
+                dictionarySuggestions[index].lastSeen = Date()
+            } else {
+                dictionarySuggestions.insert(
+                    CorrectionSuggestion(heard: correction.heard, corrected: correction.corrected,
+                                         occurrences: 1, lastSeen: Date()),
+                    at: 0
+                )
+            }
+        }
+        dictionarySuggestions = Array(dictionarySuggestions.prefix(50))
+        saveSuggestions()
+    }
+
+    /// Feed corrections through the same path the observer uses. Tests only.
+    func _receiveCorrectionsForTesting(_ corrections: [CorrectionLearner.Correction]) {
+        receiveCorrections(corrections)
+    }
+
+    fileprivate func observeCorrections(to text: String) {
+        guard learnCorrectionsMode != .off, let correctionObserver,
+              let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
+        let isKnownWord = self.isKnownWord
+        correctionObserver.observe(insertedText: text, processID: processID) { isKnownWord($0, "en") }
+    }
+
+    /// Start reading names and identifiers from the screen while the user speaks.
+    fileprivate func startScreenContextCapture(injectResult: Bool) {
+        screenContextTask?.cancel()
+        screenContextTask = nil
+        guard injectResult, useScreenContext, let reader = screenContextReader else { return }
+        let isKnownWord = self.isKnownWord
+        screenContextTask = Task { @MainActor in
+            guard let text = await reader.captureFrontmostContext(), !Task.isCancelled else { return [] }
+            return ScreenContextTerms.extract(from: text) { isKnownWord($0, "en") }
+        }
+    }
+
+    /// The screen terms, if they arrive in time. Never holds up a dictation
+    /// for more than a moment on a slow app.
+    fileprivate static func awaitContextTerms(_ task: Task<[String], Never>?) async -> [String] {
+        guard let task else { return [] }
+        return await withTaskGroup(of: [String]?.self) { group in
+            group.addTask { await task.value }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first ?? []
+        }
+    }
+
+    fileprivate func loadDictionary() {
+        wordReplacements = Self.loadJSON([WordReplacement].self, forKey: PreferenceKey.wordReplacements) ?? []
+        dictionarySuggestions = Self.loadJSON([CorrectionSuggestion].self, forKey: PreferenceKey.dictionarySuggestions) ?? []
+        dismissedSuggestionKeys = Set(
+            UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
+        )
+    }
+
+    private func saveSuggestions() {
+        Self.saveJSON(dictionarySuggestions, forKey: PreferenceKey.dictionarySuggestions)
+        UserDefaults.standard.set(Array(dismissedSuggestionKeys), forKey: PreferenceKey.dismissedDictionarySuggestions)
+    }
+
+    fileprivate static func loadJSON<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        do {
+            return try JSONDecoder().decode(type, from: data)
+        } catch {
+            VocaLogger.error(.dictionary, "Could not read \(key): \(error)")
+            return nil
+        }
+    }
+
+    fileprivate static func saveJSON<T: Encodable>(_ value: T, forKey key: String) {
+        do {
+            UserDefaults.standard.set(try JSONEncoder().encode(value), forKey: key)
+        } catch {
+            VocaLogger.error(.dictionary, "Could not save \(key): \(error)")
         }
     }
 }

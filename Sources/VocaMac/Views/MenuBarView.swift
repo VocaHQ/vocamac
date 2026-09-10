@@ -141,6 +141,19 @@ struct MenuBarView: View {
                 writingStyleSection
             }
 
+            // A dictation that failed or was interrupted, with its audio saved
+            if let entry = appState.recoverableHistoryEntry {
+                Divider()
+                recoverySection(entry)
+                    .vocaCard()
+            }
+
+            // A spelling the user fixed, offered for the dictionary
+            if let suggestion = appState.dictionarySuggestions.first {
+                Divider()
+                suggestionSection(suggestion)
+            }
+
             // Last Transcription
             if let transcription = appState.lastTranscription {
                 Divider()
@@ -691,10 +704,108 @@ struct MenuBarView: View {
         .foregroundStyle(isDenied ? .red : .orange)
     }
 
+    // MARK: - Recovery and Suggestions
+
+    private func recoverySection(_ entry: DictationHistoryEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(recoveryTitle(entry), systemImage: "exclamationmark.arrow.circlepath")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.orange)
+            Text("The \(String(format: "%.0f", entry.audioSeconds))-second recording is saved. Retry transcribes it again and copies the text\(pasteShortcutHint).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                if appState.retryingHistoryEntryID == entry.id {
+                    ProgressView().controlSize(.small)
+                    Text("Transcribing…").font(.caption)
+                } else {
+                    Button("Retry") {
+                        Task { await appState.retryHistoryEntry(entry.id) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .disabled(appState.retryingHistoryEntryID != nil)
+                }
+                Button("Dismiss") { appState.dismissRecovery(entry.id) }
+                    .controlSize(.small)
+                Spacer()
+                Button("History…") { openHistory() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private func recoveryTitle(_ entry: DictationHistoryEntry) -> String {
+        switch entry.status {
+        case .interrupted: return "Your last dictation was interrupted"
+        case .cancelled: return "Your last dictation was cancelled"
+        default: return "Your last dictation failed"
+        }
+    }
+
+    private var pasteShortcutHint: String {
+        guard let combo = appState.shortcut(for: .pasteLastDictation) else { return "" }
+        return " — then press \(KeyCodeReference.displayName(for: combo)) to paste it"
+    }
+
+    private func suggestionSection(_ suggestion: CorrectionSuggestion) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "character.book.closed")
+                .foregroundStyle(VocaDesign.accent)
+            (Text("Spell it ") + Text(suggestion.corrected).fontWeight(.semibold) + Text(" next time?"))
+                .font(.caption)
+                .lineLimit(2)
+            Spacer()
+            Button("Add") { appState.acceptDictionarySuggestion(suggestion) }
+                .controlSize(.small)
+            Button {
+                appState.dismissDictionarySuggestion(suggestion)
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss suggestion")
+        }
+    }
+
+    private func openHistory() {
+        appState.requestSettingsPage(.history)
+        settingsManager.open(appState: appState)
+    }
+
     // MARK: - Actions
 
     private var actionsSection: some View {
         VStack(spacing: 2) {
+            Button {
+                openHistory()
+            } label: {
+                HStack {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .frame(width: 16)
+                    Text("History")
+                    Spacer()
+                    if let combo = appState.shortcut(for: .pasteLastDictation) {
+                        Text("Paste last: \(KeyCodeReference.displayName(for: combo))")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                }
+                .font(.body)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(Color.primary.opacity(0.0001))
+                )
+            }
+            .buttonStyle(MenuRowButtonStyle())
+
             Button {
                 settingsManager.open(appState: appState)
             } label: {

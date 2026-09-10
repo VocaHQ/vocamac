@@ -56,6 +56,34 @@ enum SettingsSearchIndex {
             keywords: ["space", "output", "glue", "whitespace"]
         ),
         SettingsSearchEntry(
+            id: "paste-last-shortcut",
+            page: .dictation,
+            title: "Paste Last Dictation",
+            subtitle: "Shortcut to type your last dictation again",
+            keywords: ["paste", "last", "again", "repeat", "shortcut", "clipboard"]
+        ),
+        SettingsSearchEntry(
+            id: "hands-free-shortcut",
+            page: .dictation,
+            title: "Hands-free Dictation",
+            subtitle: "Shortcut to start and stop without holding",
+            keywords: ["hands free", "toggle", "long", "shortcut", "lock"]
+        ),
+        SettingsSearchEntry(
+            id: "escape-cancel",
+            page: .dictation,
+            title: "Escape Cancels Dictation",
+            subtitle: "Throw away a recording with Escape",
+            keywords: ["escape", "esc", "cancel", "discard", "abort"]
+        ),
+        SettingsSearchEntry(
+            id: "mouse-trigger",
+            page: .dictation,
+            title: "Mouse Button",
+            subtitle: "Dictate with a middle or side mouse button",
+            keywords: ["mouse", "button", "middle", "side", "click"]
+        ),
+        SettingsSearchEntry(
             id: "auto-capitalize",
             page: .dictation,
             title: "Auto-Capitalize Sentences",
@@ -176,10 +204,47 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "vocabulary",
-            page: .speechModel,
-            title: "Custom Vocabulary",
-            subtitle: "Hint proper nouns to Whisper",
-            keywords: ["vocab", "dictionary", "terms"]
+            page: .dictionary,
+            title: "Vocabulary",
+            subtitle: "Spell names and jargon your way with every model",
+            keywords: ["vocab", "dictionary", "terms", "custom vocabulary", "names", "jargon", "spelling"]
+        ),
+        SettingsSearchEntry(
+            id: "word-replacements",
+            page: .dictionary,
+            title: "Replacements",
+            subtitle: "Type something else for a word a model gets wrong",
+            keywords: ["replace", "replacement", "correction", "misheard", "substitute", "fix"]
+        ),
+        SettingsSearchEntry(
+            id: "learn-corrections",
+            page: .dictionary,
+            title: "Learn from My Corrections",
+            subtitle: "Suggest words you fixed after dictating",
+            keywords: ["learn", "auto", "suggest", "correction", "edit"]
+        ),
+        SettingsSearchEntry(
+            id: "screen-context",
+            page: .dictionary,
+            title: "Spell Names from the Screen",
+            subtitle: "Match names and identifiers you can see",
+            keywords: ["context", "screen", "identifier", "variable", "code", "names", "accessibility"]
+        ),
+
+        // History
+        SettingsSearchEntry(
+            id: "history",
+            page: .history,
+            title: "Dictation History",
+            subtitle: "Find, copy, replay, and retry past dictations",
+            keywords: ["history", "past", "previous", "transcripts", "retry", "search", "recordings", "audio", "undo"]
+        ),
+        SettingsSearchEntry(
+            id: "history-retention",
+            page: .history,
+            title: "Keep History For",
+            subtitle: "Delete dictations after a day, a week, or a month",
+            keywords: ["retention", "delete", "privacy", "storage", "keep audio"]
         ),
 
         // Audio

@@ -87,6 +87,19 @@ protocol HotKeyMonitoring: AnyObject {
     func _updateConfiguration(keyCode: Int?, mode: ActivationMode?, doubleTapThreshold: Double?, safetyTimeout: Double?, modifiers: HotKeyModifiers?)
 }
 
+/// Extra global shortcuts, the Escape cancel key, and the mouse trigger.
+/// Separate from `HotKeyMonitoring` so existing conformances keep compiling;
+/// the default implementations do nothing.
+protocol HotKeyShortcutMonitoring: AnyObject {
+    var onShortcut: ((HotKeyShortcutAction) -> Void)? { get set }
+    var onCancel: (() -> Void)? { get set }
+    func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo])
+    func setCancelKeyArmed(_ armed: Bool)
+    func updateMouseTrigger(button: Int)
+}
+
+extension HotKeyManager: HotKeyShortcutMonitoring {}
+
 extension HotKeyMonitoring {
     func updateConfiguration(keyCode: Int? = nil, mode: ActivationMode? = nil, doubleTapThreshold: Double? = nil, safetyTimeout: Double? = nil, modifiers: HotKeyModifiers? = nil) {
         _updateConfiguration(keyCode: keyCode, mode: mode, doubleTapThreshold: doubleTapThreshold, safetyTimeout: safetyTimeout, modifiers: modifiers)

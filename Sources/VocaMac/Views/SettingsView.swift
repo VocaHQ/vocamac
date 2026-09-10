@@ -92,9 +92,20 @@ struct SettingsView: View {
                 pageBeforeSearch = newValue
             }
         }
+        .onAppear(perform: showRequestedPage)
+        .onChange(of: appState.requestedSettingsPage) { showRequestedPage() }
         .frame(minWidth: 760, minHeight: 580)
         .tint(VocaDesign.accent)
         .groupBoxStyle(VocaGroupBoxStyle())
+    }
+
+    /// Jump to a page another part of the app asked for (e.g. History from
+    /// the menu bar), once.
+    private func showRequestedPage() {
+        guard let page = appState.requestedSettingsPage else { return }
+        searchText = ""
+        selectedPage = page
+        appState.requestedSettingsPage = nil
     }
 
     private var settingsSidebar: some View {
@@ -145,6 +156,10 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .history:
+                HistorySettingsPage()
+            case .dictionary:
+                DictionarySettingsPage()
             case .writingStyles:
                 WritingStylesSettingsTab()
             case .snippets:
@@ -352,6 +367,8 @@ struct DictationSettingsPage: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+
+            ShortcutSettingsGroup()
 
             VocaSettingsGroup("Your Text") {
                 SettingsToggleRow(
@@ -1079,31 +1096,20 @@ struct ModelSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            if activeEngine?.supportsCustomVocabulary == true {
-                Divider()
+            Divider()
 
-                Text("Custom Vocabulary")
-                    .font(.subheadline.weight(.semibold))
-
-                TextEditor(text: $appState.customVocabulary)
-                    .font(.body)
-                    .frame(minHeight: 90)
-                    .overlay(alignment: .topLeading) {
-                        if appState.customVocabulary.isEmpty {
-                            Text("kubectl, PostgreSQL, nginx, Grafana")
-                                .foregroundStyle(.tertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                    }
-
-                let count = WhisperService.vocabularyTerms(from: appState.customVocabulary).count
-                Text(count == 0
-                     ? "Add names, jargon, or proper nouns (one per line or comma-separated) that get mis-transcribed."
-                     : "\(count) term\(count == 1 ? "" : "s"). Keep the list short; the model can only use the first 50 to 100 words as a hint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Vocabulary")
+                    Text(activeEngine?.supportsCustomVocabulary == true
+                         ? "Your dictionary spells names your way with every model; this model also uses it as a recognition hint."
+                         : "Your dictionary spells names your way with every model.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Button("Open Dictionary") { appState.requestSettingsPage(.dictionary) }
             }
     }
         .onChange(of: appState.selectedLanguage) {
@@ -1323,6 +1329,8 @@ struct AudioSettingsTab: View {
                     Text("60 seconds").tag(60)
                     Text("120 seconds").tag(120)
                     Text("300 seconds (5 min)").tag(300)
+                    Text("10 minutes").tag(600)
+                    Text("20 minutes").tag(1200)
                 }
                 .onChange(of: appState.maxRecordingDuration) {
                     appState.syncHotKeyConfiguration()

@@ -129,7 +129,7 @@ struct HotKeySelectionControl: View {
     }
 }
 
-private struct HotKeyRecorderButton: View {
+struct HotKeyRecorderButton: View {
     @Binding var isRecording: Bool
 
     let onStart: () -> Void

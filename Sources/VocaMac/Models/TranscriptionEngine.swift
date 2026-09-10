@@ -28,6 +28,18 @@ enum PreferenceKey {
     static let transcriptCleanupEnabled = "vocamac.transcriptCleanup.enabled"
     static let transcriptCleanupModel = "vocamac.transcriptCleanup.model"
     static let transcriptCleanupPrompt = "vocamac.transcriptCleanup.prompt"
+    static let historyEnabled = "vocamac.history.enabled"
+    static let historyKeepsAudio = "vocamac.history.keepAudio"
+    static let historyRetention = "vocamac.history.retention"
+    static let escapeCancelsDictation = "vocamac.shortcuts.escapeCancels"
+    static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
+    static let handsFreeShortcut = "vocamac.shortcuts.handsFree"
+    static let mouseTriggerButton = "vocamac.shortcuts.mouseButton"
+    static let wordReplacements = "vocamac.dictionary.replacements"
+    static let dictionarySuggestions = "vocamac.dictionary.suggestions"
+    static let dismissedDictionarySuggestions = "vocamac.dictionary.dismissedSuggestions"
+    static let learnCorrectionsMode = "vocamac.dictionary.learnMode"
+    static let useScreenContext = "vocamac.dictionary.screenContext"
 }
 
 /// The on-device inference engine backing a model in the catalog.

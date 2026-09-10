@@ -143,6 +143,8 @@ enum LogCategory: String {
     case updateChecker = "UpdateChecker"
     case onboarding = "Onboarding"
     case transcriptCleanup = "TranscriptCleanup"
+    case history = "History"
+    case dictionary = "Dictionary"
     case general = "General"
 }
 

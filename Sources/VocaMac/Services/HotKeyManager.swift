@@ -68,6 +68,29 @@ final class HotKeyManager {
     /// has had a chance to fire.
     private var safetyTimeoutSeconds: Double = 65.0
 
+    /// Extra shortcuts (paste last dictation, hands-free toggle) matched on
+    /// key-down with exactly these modifiers.
+    private var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
+
+    /// Base keys of shortcuts whose key-down was consumed, so the matching
+    /// key-up and any autorepeat are consumed too.
+    private var heldShortcutKeyCodes: Set<Int> = []
+
+    /// Whether Escape cancels right now. Armed only while a dictation is
+    /// recording or transcribing, so Escape reaches other apps the rest of
+    /// the time.
+    private var isCancelKeyArmed = false
+
+    /// Whether the current Escape press was consumed as a cancel.
+    private var isCancelKeyHeld = false
+
+    /// `CGEvent` button number that works like the hotkey (2 = middle,
+    /// 3 = back, 4 = forward). 0 turns the mouse trigger off.
+    private var mouseTriggerButton = 0
+
+    /// Whether the mouse trigger button's press was consumed.
+    private var isMouseButtonHeld = false
+
     // MARK: - Callbacks
 
     /// Called when recording should start
@@ -75,6 +98,12 @@ final class HotKeyManager {
 
     /// Called when recording should stop
     var onRecordingStop: (() -> Void)?
+
+    /// Called when one of the extra shortcuts is pressed.
+    var onShortcut: ((HotKeyShortcutAction) -> Void)?
+
+    /// Called when Escape is pressed while the cancel key is armed.
+    var onCancel: (() -> Void)?
 
     // MARK: - Accessibility Permission
 
@@ -120,11 +149,15 @@ final class HotKeyManager {
         self.isModifierKeyHeld = false
         self.isBaseKeyHeld = false
 
-        // Create event tap for key events and flags changed (modifier keys)
+        // Create event tap for key events, flags changed (modifier keys),
+        // and the extra mouse buttons that can act as the hotkey. Moves and
+        // primary clicks are not included, so the tap stays out of the way.
         let eventMask: CGEventMask = (
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseUp.rawValue)
         )
 
         // We need to pass `self` as a raw pointer to the C callback
@@ -173,6 +206,9 @@ final class HotKeyManager {
         isToggled = false
         isModifierKeyHeld = false
         isBaseKeyHeld = false
+        heldShortcutKeyCodes = []
+        isCancelKeyHeld = false
+        isMouseButtonHeld = false
         cancelSafetyTimer()
 
         VocaLogger.info(.hotKeyManager, "Stopped listening")
@@ -187,6 +223,7 @@ final class HotKeyManager {
         isToggled = false
         isModifierKeyHeld = false
         isBaseKeyHeld = false
+        isMouseButtonHeld = false
         cancelSafetyTimer()
         VocaLogger.debug(.hotKeyManager, "Key state reset")
     }
@@ -211,6 +248,22 @@ final class HotKeyManager {
         if let threshold = doubleTapThreshold { self.doubleTapThreshold = threshold }
         if let timeout = safetyTimeout { self.safetyTimeoutSeconds = timeout }
         if let modifiers = modifiers { self.requiredModifiers = modifiers }
+    }
+
+    /// Replace the extra shortcuts. An action missing from the map is off.
+    func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo]) {
+        self.shortcuts = shortcuts
+    }
+
+    /// Arm or disarm Escape as the cancel key.
+    func setCancelKeyArmed(_ armed: Bool) {
+        isCancelKeyArmed = armed
+    }
+
+    /// Use a mouse button as the hotkey (0 turns it off).
+    func updateMouseTrigger(button: Int) {
+        mouseTriggerButton = button
+        isMouseButtonHeld = false
     }
 
     // MARK: - Event Tap Callback
@@ -245,6 +298,10 @@ final class HotKeyManager {
     private func handleEvent(type: CGEventType, event: CGEvent) -> Bool {
         guard !isSelfGeneratedEvent(event) else { return false }
 
+        if type == .otherMouseDown || type == .otherMouseUp {
+            return handleMouseEvent(isDown: type == .otherMouseDown, event: event)
+        }
+
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
 
         // For modifier keys (like Option), we use flagsChanged events
@@ -258,10 +315,79 @@ final class HotKeyManager {
             }
             return handleModifierReleaseDuringCombo(flags: event.flags)
         } else if type == .keyDown || type == .keyUp {
-            return handleRegularKeyEvent(keyCode: keyCode, isKeyDown: type == .keyDown, event: event)
+            let isKeyDown = type == .keyDown
+            if handleCancelKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event) {
+                return true
+            }
+            if handleShortcutKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event) {
+                return true
+            }
+            return handleRegularKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event)
         }
 
         return false
+    }
+
+    /// Escape cancels while armed, whatever modifiers are held — in
+    /// push-to-talk the hotkey itself is usually still down.
+    private func handleCancelKeyEvent(keyCode: Int, isKeyDown: Bool, event: CGEvent) -> Bool {
+        guard keyCode == KeyCodeReference.escapeKeyCode else { return false }
+        if isKeyDown {
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                return isCancelKeyHeld
+            }
+            guard isCancelKeyArmed else { return false }
+            isCancelKeyHeld = true
+            VocaLogger.debug(.hotKeyManager, "Escape pressed — cancelling dictation")
+            DispatchQueue.main.async { [weak self] in
+                self?.onCancel?()
+            }
+            return true
+        }
+        guard isCancelKeyHeld else { return false }
+        isCancelKeyHeld = false
+        return true
+    }
+
+    /// Extra shortcuts fire on key-down with exactly their modifiers. One
+    /// identical to the activation hotkey is ignored so the hotkey keeps working.
+    private func handleShortcutKeyEvent(keyCode: Int, isKeyDown: Bool, event: CGEvent) -> Bool {
+        guard isKeyDown else {
+            return heldShortcutKeyCodes.remove(keyCode) != nil
+        }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return heldShortcutKeyCodes.contains(keyCode)
+        }
+        let modifiers = HotKeyModifiers(cgEventFlags: event.flags)
+        let activation = HotKeyCombo(keyCode: targetKeyCode, modifiers: requiredModifiers)
+        guard let action = HotKeyShortcutAction.allCases.first(where: { action in
+            guard let combo = shortcuts[action] else { return false }
+            return combo.keyCode == keyCode && combo.modifiers == modifiers && combo != activation
+        }) else { return false }
+
+        heldShortcutKeyCodes.insert(keyCode)
+        VocaLogger.debug(.hotKeyManager, "Shortcut pressed: \(action.rawValue)")
+        DispatchQueue.main.async { [weak self] in
+            self?.onShortcut?(action)
+        }
+        return true
+    }
+
+    /// The configured mouse button behaves exactly like the hotkey.
+    private func handleMouseEvent(isDown: Bool, event: CGEvent) -> Bool {
+        guard mouseTriggerButton > 0,
+              Int(event.getIntegerValueField(.mouseEventButtonNumber)) == mouseTriggerButton else {
+            return false
+        }
+        if isDown {
+            isMouseButtonHeld = true
+            handleKeyDown()
+            return true
+        }
+        guard isMouseButtonHeld else { return false }
+        isMouseButtonHeld = false
+        handleKeyUp()
+        return true
     }
 
     /// Detect a required modifier being released while a combo hotkey's base
@@ -506,6 +632,62 @@ extension HotKeyManager: HotKeyMonitoring {
     func _updateConfiguration(keyCode: Int?, mode: ActivationMode?, doubleTapThreshold: Double?, safetyTimeout: Double?, modifiers: HotKeyModifiers?) {
         updateConfiguration(keyCode: keyCode, mode: mode, doubleTapThreshold: doubleTapThreshold, safetyTimeout: safetyTimeout, modifiers: modifiers)
     }
+}
+
+// MARK: - Extra Shortcuts
+
+/// Actions bound to their own global shortcut, besides the activation hotkey.
+enum HotKeyShortcutAction: String, CaseIterable, Identifiable {
+    /// Type the last dictation again at the cursor.
+    case pasteLastDictation
+    /// Start or stop a dictation without holding anything.
+    case handsFreeToggle
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .pasteLastDictation: return "Paste last dictation"
+        case .handsFreeToggle: return "Hands-free dictation"
+        }
+    }
+}
+
+/// Mouse buttons that can start dictation, by `CGEvent` button number.
+enum MouseTriggerButton: Int, CaseIterable, Identifiable {
+    case off = 0
+    case middle = 2
+    case back = 3
+    case forward = 4
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .middle: return "Middle button"
+        case .back: return "Back button (button 4)"
+        case .forward: return "Forward button (button 5)"
+        }
+    }
+
+    static func resolved(stored: Int) -> MouseTriggerButton {
+        MouseTriggerButton(rawValue: stored) ?? .off
+    }
+}
+
+extension HotKeyCombo {
+    /// Compact preference form: "keyCode:modifiers".
+    var storageString: String { "\(keyCode):\(modifiers.rawValue)" }
+
+    init?(storageString: String) {
+        let parts = storageString.split(separator: ":")
+        guard parts.count == 2, let keyCode = Int(parts[0]), let modifiers = Int(parts[1]) else { return nil }
+        self.init(keyCode: keyCode, modifiers: HotKeyModifiers(rawValue: modifiers))
+    }
+
+    /// ⌃⌘V, matching Wispr Flow's paste-last shortcut.
+    static let defaultPasteLast = HotKeyCombo(keyCode: 9, modifiers: [.control, .command])
 }
 
 // MARK: - HotKeyModifiers Conversion

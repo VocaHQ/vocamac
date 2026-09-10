@@ -314,6 +314,24 @@ struct UserSettings {
     var modelKeepAliveEnabled: Bool = false
     var modelKeepAliveIdleTimeoutSeconds: Double = 300
 
+    // History
+    var historyEnabled: Bool = true
+    var historyKeepsAudio: Bool = true
+    var historyRetention: HistoryRetention = .month   // day, week, month, forever
+
+    // Shortcuts beyond the activation hotkey
+    var escapeCancelsDictation: Bool = true
+    var pasteLastShortcut: String = "9:9"      // HotKeyCombo.storageString ("keyCode:modifiers"), ⌃⌘V; "" = off
+    var handsFreeShortcut: String = ""         // off until the user records one
+    var mouseTriggerButton: Int = 0            // CGEvent button number; 0 = off, 2 middle, 3 back, 4 forward
+
+    // Personal dictionary
+    var customVocabulary: String = ""          // terms, newline-separated; also the Whisper prompt
+    var wordReplacements: [WordReplacement] = []          // JSON in UserDefaults
+    var dictionarySuggestions: [CorrectionSuggestion] = [] // JSON in UserDefaults
+    var learnCorrectionsMode: LearnCorrectionsMode = .suggest
+    var useScreenContext: Bool = true
+
     // App Behavior
     var launchAtLogin: Bool = false
     var preserveClipboard: Bool = true          // Restore clipboard after text injection
@@ -336,6 +354,18 @@ vocamac.modelKeepAlive.idleTimeoutSeconds = 300
 vocamac.writingStyle.enabled = true
 vocamac.writingStyle.defaultStyle = "plain"
 vocamac.writingStyle.bindings = "{\"schemaVersion\":1,\"bindings\":[...]}"
+vocamac.history.enabled = true
+vocamac.history.keepAudio = true
+vocamac.history.retention = "month"
+vocamac.shortcuts.escapeCancels = true
+vocamac.shortcuts.pasteLast = "9:9"
+vocamac.shortcuts.handsFree = ""
+vocamac.shortcuts.mouseButton = 0
+vocamac.dictionary.replacements = <JSON [WordReplacement]>
+vocamac.dictionary.suggestions = <JSON [CorrectionSuggestion]>
+vocamac.dictionary.dismissedSuggestions = ["heard→Corrected", ...]
+vocamac.dictionary.learnMode = "suggest"
+vocamac.dictionary.screenContext = true
 ...
 ```
 
@@ -387,6 +417,56 @@ LLM-only, and hybrid outputs over three repeated passes. Automated guards and
 unit tests do not establish semantic equivalence or style quality; inspect the
 report before changing the experimental status. Browser-tab and field identity
 are not inferred from a bundle ID.
+
+### Dictation history
+
+`DictationHistoryStore` keeps a `DictationHistoryEntry` per dictation, newest
+first. Each entry holds:
+
+- the engine's raw text and the text that was typed, plus the pipeline summary
+- the target app, model, language, and timings
+- a status: `pending`, `completed`, `empty`, `failed`, `interrupted`, or `cancelled`
+- the name of its WAV file (16-bit mono 16 kHz), when audio is kept
+
+The entry and its audio are written **before** transcription starts. A
+`pending` entry found at launch becomes `interrupted`, so a crash
+mid-dictation still leaves the audio to retry.
+
+Storage limits:
+
+- A successful dictation drops its audio when "Keep audio recordings" is off.
+  Failed, interrupted, and cancelled dictations keep their audio until they are
+  retried or deleted.
+- At most 2,000 entries are kept.
+- Audio is capped at 1 GB. The oldest recordings lose their audio first; their
+  text stays.
+- Retention (1 day, 7 days, 30 days, or forever) is applied at launch, at each
+  dictation, and whenever the setting changes.
+
+### Personal dictionary
+
+`DictionaryCorrector` runs inside `DictationOutputPipeline`, after the Raw
+check and before snippets, styles, and cleanup. It does three things, in this
+order:
+
+1. **Replacements.** Case-insensitive, whole-word matching; longest spoken form first.
+2. **Vocabulary terms.** Letters are matched ignoring case, spaces, and
+   punctuation, over up to four spoken words. On top of that, a conservative
+   fuzzy match fixes terms of 5 or more letters: edit distance ≤ 1 (≤ 2 for 9
+   or more letters), same first sound. It never applies when every word in the
+   match is ordinary vocabulary according to the spell checker (English only).
+3. **Screen terms.** Letter match only, never fuzzy. Several words are joined
+   into a camelCase, snake_case, or kebab-case identifier only for the Code and
+   Terminal formats.
+
+A term whose casing formatting could change (`iPhone`, `kubectl`, `GitHub`)
+travels through the snippet mask, so neither sentence case nor cleanup alters it.
+
+`CorrectionObserver` reads the focused field about 0.8 s after injection. It
+reads it again when the next dictation starts, or after 20 s. The text itself
+is never stored. `CorrectionLearner` reduces the two readings to spelling-level
+substitutions inside the dictated span. Depending on
+`vocamac.dictionary.learnMode`, those become suggestions or are added directly.
 
 ### 3.8 `SystemCapabilities` — Hardware Detection Result
 
@@ -490,7 +570,7 @@ enum UpdateState: Equatable {
 | User settings | `UserDefaults` | Permanent (until app uninstall or reset) |
 | Model files | `~/Library/Application Support/VocaMac/models/` | Permanent (user can delete) |
 | Audio buffers | In-memory `[Float]` | Discarded after transcription |
-| Transcription results | In-memory (MVP) | Lost on app restart (MVP) |
+| Transcription results | `~/Library/Application Support/VocaMac/History/` (`index.json` + `audio/*.wav`) | Per the history retention setting; off when history is disabled |
 | App state | In-memory `AppState` | Rebuilt on each launch |
 | System capabilities | Computed at launch | Rebuilt on each launch |
 | Update check cache | `UserDefaults` (`vocamac.update.*`) | Persisted across launches |
@@ -505,6 +585,9 @@ enum UpdateState: Equatable {
 │   ├── openai_whisper-small         ← Optional (downloaded)
 │   ├── openai_whisper-medium        ← Optional (downloaded)
 │   └── openai_whisper-large-v3     ← Optional (downloaded)
+├── History/
+│   ├── index.json             ← Dictation history entries
+│   └── audio/<entry-id>.wav   ← Recordings kept for playback and retry
 └── logs/                      ← Future: debug logging
 ```
 

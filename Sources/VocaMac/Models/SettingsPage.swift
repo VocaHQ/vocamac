@@ -9,7 +9,9 @@ import SwiftUI
 /// Top-level settings topics shown in the left sidebar.
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictation
+    case history
     case writingStyles
+    case dictionary
     case snippets
     case cleanup
     case speechModel
@@ -25,6 +27,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dictation: return "Dictation"
+        case .history: return "History"
+        case .dictionary: return "Dictionary"
         case .writingStyles: return "Writing Styles"
         case .snippets: return "Snippets"
         case .cleanup: return "Cleanup"
@@ -41,6 +45,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var subtitle: String {
         switch self {
         case .dictation: return "Make voice typing feel natural to you."
+        case .history: return "Find, copy, and retry what you've dictated."
+        case .dictionary: return "Teach VocaMac the words you use."
         case .writingStyles: return "Match formatting and tone to the app where your words land."
         case .snippets: return "Turn a short spoken phrase into the text you use often."
         case .cleanup: return "Polish your words with an optional model running on this Mac."
@@ -57,6 +63,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .dictation: return "mic"
+        case .history: return "clock.arrow.circlepath"
+        case .dictionary: return "character.book.closed"
         case .writingStyles: return "textformat"
         case .snippets: return "text.quote"
         case .cleanup: return "wand.and.stars"

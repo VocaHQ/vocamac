@@ -165,7 +165,7 @@ final class MockAudioDucker: AudioDucking {
 
 // MARK: - MockHotKeyManager
 
-final class MockHotKeyManager: HotKeyMonitoring {
+final class MockHotKeyManager: HotKeyMonitoring, HotKeyShortcutMonitoring {
     var isListening = false
     var eventTap: CFMachPort? = nil
     var onRecordingStart: (() -> Void)?
@@ -206,6 +206,25 @@ final class MockHotKeyManager: HotKeyMonitoring {
 
     func resetKeyState() {
         resetKeyStateCallCount += 1
+    }
+
+    // HotKeyShortcutMonitoring
+    var onShortcut: ((HotKeyShortcutAction) -> Void)?
+    var onCancel: (() -> Void)?
+    var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
+    var isCancelKeyArmed = false
+    var mouseTriggerButton = 0
+
+    func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo]) {
+        self.shortcuts = shortcuts
+    }
+
+    func setCancelKeyArmed(_ armed: Bool) {
+        isCancelKeyArmed = armed
+    }
+
+    func updateMouseTrigger(button: Int) {
+        mouseTriggerButton = button
     }
 
     func _updateConfiguration(keyCode: Int?, mode: ActivationMode?, doubleTapThreshold: Double?, safetyTimeout: Double?, modifiers: HotKeyModifiers?) {
@@ -696,7 +715,10 @@ extension AppState {
     static func makeTestState(
         modelManager: MockModelManager = MockModelManager(),
         whisperService: MockWhisperService = MockWhisperService(),
-        transcriptCleanup: MockTranscriptCleanup? = nil
+        transcriptCleanup: MockTranscriptCleanup? = nil,
+        historyStore: DictationHistoryStore? = nil,
+        screenContextReader: (any ScreenContextReading)? = nil,
+        correctionObserver: (any CorrectionObserving)? = nil
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
@@ -719,6 +741,15 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
+        for key in [
+            PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio, PreferenceKey.historyRetention,
+            PreferenceKey.escapeCancelsDictation, PreferenceKey.pasteLastShortcut, PreferenceKey.handsFreeShortcut,
+            PreferenceKey.mouseTriggerButton, PreferenceKey.wordReplacements, PreferenceKey.dictionarySuggestions,
+            PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
+            PreferenceKey.useScreenContext, "vocamac.customVocabulary",
+        ] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()
@@ -759,8 +790,14 @@ extension AppState {
             transcriptCleanup: cleanup,
             permissionManager: permissionManager,
             frontmostAppResolver: frontmostAppResolver,
+            historyStore: historyStore,
+            screenContextReader: screenContextReader,
+            correctionObserver: correctionObserver,
             skipSystemIntegration: true
         )
+        // Spell checking depends on the machine's dictionaries; tests use a
+        // small fixed word list instead.
+        appState.isKnownWord = { word, _ in TestWords.common.contains(word.lowercased()) }
         // Bypass host free-RAM probe so mock loads are not refused on CI.
         appState.modelFitsInMemory = { _ in true }
         return (appState, mocks)
@@ -780,4 +817,48 @@ struct TestMocks {
     let statsManager: MockStatsManager
     let frontmostAppResolver: MockFrontmostAppResolver
     let transcriptCleanup: MockTranscriptCleanup
+}
+
+
+// MARK: - Test Words
+
+enum TestWords {
+    /// Stand-in for the system spell checker in tests.
+    static let common: Set<String> = [
+        "the", "a", "an", "and", "i", "to", "is", "it", "in", "on", "of", "for", "with", "my", "me",
+        "open", "file", "hello", "world", "cloud", "there", "their", "big", "large", "meet", "at",
+        "send", "email", "call", "please", "user", "id", "service", "super", "base", "post", "apple",
+        "notes", "mail", "check", "this", "that", "we", "should", "use", "set", "value", "ask",
+        "about", "project", "today", "tomorrow", "update", "code", "run", "tests", "get", "hub",
+    ]
+}
+
+// MARK: - Mock Screen Context and Correction Observer
+
+@MainActor
+final class MockScreenContextReader: ScreenContextReading {
+    var text: String?
+    var captureCallCount = 0
+
+    func captureFrontmostContext() async -> String? {
+        captureCallCount += 1
+        return text
+    }
+}
+
+@MainActor
+final class MockCorrectionObserver: CorrectionObserving {
+    var onCorrections: (([CorrectionLearner.Correction]) -> Void)?
+    var observedTexts: [String] = []
+    var flushCallCount = 0
+
+    func observe(insertedText text: String, processID: pid_t, isKnownWord: @escaping (String) -> Bool) {
+        observedTexts.append(text)
+    }
+
+    func flush() {
+        flushCallCount += 1
+    }
+
+    func cancel() {}
 }

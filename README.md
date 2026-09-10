@@ -40,6 +40,9 @@
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
 - **👆 Double-Tap Toggle** - Double-tap the hotkey to start/stop recording.
+- **🕘 Dictation History** - Search, copy, replay, and retry past dictations. Audio is saved before transcription, so a crash or failed decode never loses what you said. Press ⌃⌘V to paste your last dictation again. History is local, with 1-day to forever retention, and can be turned off.
+- **⌨️ More Ways to Dictate** - Press Escape to cancel. A separate hands-free shortcut starts and stops dictation without holding a key. A middle or side mouse button works like the hotkey. Sessions can run up to 20 minutes.
+- **📖 Personal Dictionary** - Vocabulary and replacements work with every speech engine (“voca mac” → VocaMac, “get hub” → GitHub). VocaMac suggests words you corrected after dictating, and can spell names and code identifiers the way they appear on screen. All of this happens on your Mac.
 - **🧠 Engine and Model Choice** - Choose the local speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible options for your Apple Silicon Mac.
 - **⚡ Native Apple Acceleration** - CoreML + Metal + Neural Engine acceleration on Apple Silicon. No manual setup.
 - **📊 Visual Feedback** - Menu bar icon changes color during recording and processing. Audio level indicator shows input.

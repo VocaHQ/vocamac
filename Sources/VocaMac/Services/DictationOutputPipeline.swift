@@ -24,15 +24,28 @@ struct DictationOutputPipeline {
         language: String?,
         autoCapitalize: Bool,
         trailingSpace: Bool,
-        preview: Bool = false
+        preview: Bool = false,
+        dictionary: DictionaryContext? = nil
     ) async -> DictationOutputResult {
         func result(_ text: String, _ summary: String) -> DictationOutputResult {
             DictationOutputResult(original: original, text: text, summary: summary)
         }
         guard profile.cleanup != .raw else { return result(original, "Raw transcription") }
-        let masked = snippets.expandMasked(
-            in: original.trimmingCharacters(in: .whitespacesAndNewlines), using: snippetList
-        )
+
+        // The personal dictionary runs first, so snippets, styles, and cleanup
+        // all see the user's spelling. Terms whose exact casing matters travel
+        // through the snippet mask, which formatting and cleanup never touch.
+        var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        var protectedTerms: [Snippet] = []
+        if let dictionary, !dictionary.isEmpty {
+            let correction = DictionaryCorrector.correct(
+                input, context: dictionary,
+                allowIdentifierJoins: profile.format == .code || profile.format == .terminal
+            )
+            input = correction.text
+            protectedTerms = correction.protectedTerms.map { Snippet(trigger: $0, expansion: $0) }
+        }
+        let masked = snippets.expandMasked(in: input, using: snippetList + protectedTerms)
         func render(_ text: String, rules: WritingStyleRules) -> String {
             masked.restore(in: WritingStyleEngine.format(
                 text, rules: rules, globalAutoCapitalize: autoCapitalize,

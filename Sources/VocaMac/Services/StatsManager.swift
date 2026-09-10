@@ -58,6 +58,16 @@ class StatsManager: StatsManaging, ObservableObject {
                 let data = try Data(contentsOf: statsFileURL)
                 let decodedStats = try JSONDecoder().decode(UserStats.self, from: data)
                 var loadedStats = decodedStats
+                if loadedStats.timeZoneIdentifier == nil {
+                    // Before per-day transcription counts existed, a retained
+                    // zero-word bucket was the only evidence of a successful
+                    // emoji/punctuation-only transcription. Negative buckets
+                    // have already been removed by decoding, so migrate every
+                    // remaining zero bucket into explicit activity.
+                    for (key, count) in loadedStats.dailyWordCounts where count == 0 {
+                        loadedStats.dailyTranscriptionCounts[key] = 1
+                    }
+                }
                 if let identifier = loadedStats.timeZoneIdentifier,
                    let persistedTimeZone = TimeZone(identifier: identifier) {
                     statisticsTimeZone = persistedTimeZone

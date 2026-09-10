@@ -286,7 +286,7 @@ final class StatsManagerTests: XCTestCase {
         XCTAssertEqual(decoded.totalAudioDurationSeconds, 0)
         XCTAssertEqual(decoded.currentStreak, 0)
         XCTAssertEqual(decoded.bestStreak, 4)
-        XCTAssertEqual(decoded.dailyWordCounts["2026-09-10"], 0)
+        XCTAssertNil(decoded.dailyWordCounts["2026-09-10"])
     }
 
     @MainActor
@@ -310,9 +310,36 @@ final class StatsManagerTests: XCTestCase {
             now: { thirdDay }
         )
 
-        XCTAssertEqual(statsManager.stats.dailyWordCounts["2026-09-02"], 0)
+        XCTAssertNil(statsManager.stats.dailyWordCounts["2026-09-02"])
         XCTAssertEqual(statsManager.stats.currentStreak, 1)
         XCTAssertEqual(statsManager.stats.bestStreak, 1)
+    }
+
+    @MainActor
+    func testLegacyZeroWordBucketMigratesToExplicitActivity() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 9, day: 10)
+        ))
+        var savedStats = UserStats()
+        savedStats.totalTranscriptions = 1
+        savedStats.lastUsageDate = date
+        savedStats.currentStreak = 1
+        savedStats.bestStreak = 1
+        savedStats.dailyWordCounts = ["2026-09-10": 0]
+        try JSONEncoder().encode(savedStats).write(to: tempFileURL)
+
+        statsManager = StatsManager(statsFileURL: tempFileURL, calendar: calendar, now: { date })
+        statsManager.flushPendingSaves()
+
+        XCTAssertEqual(statsManager.stats.dailyTranscriptionCounts["2026-09-10"], 1)
+        XCTAssertEqual(statsManager.stats.currentStreak, 1)
+        let persistedStats = try JSONDecoder().decode(
+            UserStats.self,
+            from: Data(contentsOf: tempFileURL)
+        )
+        XCTAssertEqual(persistedStats.dailyTranscriptionCounts["2026-09-10"], 1)
     }
 
     @MainActor

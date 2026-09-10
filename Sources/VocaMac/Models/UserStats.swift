@@ -81,7 +81,9 @@ extension UserStats {
             [String: Int].self,
             forKey: .dailyWordCounts
         ) ?? dailyWordCounts
-        dailyWordCounts = decodedDailyCounts.mapValues { max(0, $0) }
+        // Negative buckets are corrupt, not zero-word activity. Drop them so
+        // the legacy migration can safely treat retained zero buckets as real.
+        dailyWordCounts = decodedDailyCounts.filter { $0.value >= 0 }
 
         let decodedDailyTranscriptionCounts = container.decodeLossily(
             [String: Int].self,

@@ -56,6 +56,25 @@ final class StatsShareCardTests: XCTestCase {
         XCTAssertTrue(message.hasSuffix(StatsShareComposer.siteURL), message)
     }
 
+    /// The share picker's destination is unknown, so the post has no handle.
+    func testSharePickerMessageOmitsHandle() {
+        let message = StatsShareComposer.message(for: makeSnapshot())
+
+        XCTAssertFalse(message.contains("@vocahq"), message)
+        XCTAssertTrue(message.contains("12,500 words"), message)
+        XCTAssertTrue(message.hasSuffix(StatsShareComposer.siteURL), message)
+    }
+
+    @MainActor
+    func testSharingItemsAreTheCardFileThenThePostText() throws {
+        let items = StatsShareExporter.sharingItems(for: makeSnapshot())
+
+        XCTAssertEqual(items.last as? String, StatsShareComposer.message(for: makeSnapshot()))
+        let card = try XCTUnwrap(items.first as? URL)
+        XCTAssertEqual(card.pathExtension, "png")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: card.path))
+    }
+
     /// X weighs most emoji as 2 units and normalizes every URL to 23, so
     /// `String.count` is not the metric X enforces.
     private func xPostLength(_ message: String) -> Int {

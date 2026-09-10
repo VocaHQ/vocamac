@@ -3,6 +3,7 @@
 //
 // View for displaying user usage statistics.
 
+import AppKit
 import SwiftUI
 
 struct StatsSettingsTab: View {
@@ -13,6 +14,7 @@ struct StatsSettingsTab: View {
     /// state it was scheduled for. Keying the reset on the destination let a
     /// second share to the same network inherit the first one's countdown.
     @State private var shareStateToken = 0
+    @State private var sharePickerAnchor = SharePickerAnchor()
 
     /// One state rather than two independent flags: "Copied!" and "Opening X…"
     /// are mutually exclusive, and a copy made during an open share window used
@@ -65,6 +67,7 @@ struct StatsSettingsTab: View {
                                     share(to: destination)
                                 }
                             }
+                            Button("Share with Other Apps…") { showSharePicker() }
                             Divider()
                             Button("Copy Card Image") { copyCardImage() }
                         } label: {
@@ -73,8 +76,9 @@ struct StatsSettingsTab: View {
                         .menuStyle(.borderlessButton)
                         .fixedSize()
                         .controlSize(.small)
+                        .background(SharePickerAnchorView(anchor: sharePickerAnchor))
                         .disabled(!hasStats)
-                        .help("Post your stats card, or copy it to the clipboard")
+                        .help("Post your stats card, send it to another app, or copy it to the clipboard")
                         .padding(.trailing, 8)
                     }
 
@@ -267,6 +271,21 @@ struct StatsSettingsTab: View {
         }
     }
 
+    /// For apps with no composer URL of their own. The picker pops up from the
+    /// Share menu's button.
+    private func showSharePicker() {
+        guard let view = sharePickerAnchor.view else {
+            setShareState(.failed("Couldn't open the share picker."), clearingAfter: 6)
+            return
+        }
+        let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
+        // The menu is still closing when its action runs, and a picker shown
+        // during that would be dismissed along with it.
+        DispatchQueue.main.async {
+            StatsShareExporter.showSharePicker(for: snapshot, relativeTo: view)
+        }
+    }
+
     private func copyCardImage() {
         let snapshot = StatsShareSnapshot.from(appState.statsManager.stats)
         guard StatsShareExporter.copyImage(toClipboard: snapshot) else {
@@ -305,6 +324,26 @@ struct StatsSettingsTab: View {
         if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
 
         return Self.displayDateFormatter.string(from: date)
+    }
+}
+
+/// Holds the AppKit view the share picker pops up from. SwiftUI's `Menu` has
+/// no view of its own to anchor an `NSSharingServicePicker` to.
+final class SharePickerAnchor {
+    weak var view: NSView?
+}
+
+private struct SharePickerAnchorView: NSViewRepresentable {
+    let anchor: SharePickerAnchor
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        anchor.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        anchor.view = nsView
     }
 }
 

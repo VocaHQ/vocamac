@@ -1,8 +1,8 @@
 // StatsShareCard.swift
 // VocaMac
 //
-// Branded stats card rendered to an image, copied to the clipboard and
-// optionally posted to a social composer.
+// Branded stats card rendered to an image, copied to the clipboard,
+// posted to a social composer, or handed to the system share picker.
 // Forced dark appearance so clipboard shares match the in-app Stats look.
 
 import AppKit
@@ -146,19 +146,51 @@ enum StatsShareExporter {
     /// Renders the branded card and copies a PNG to the general pasteboard.
     @MainActor
     static func copyImage(toClipboard snapshot: StatsShareSnapshot) -> Bool {
-        let card = StatsShareCard(snapshot: snapshot)
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 2
-        guard let nsImage = renderer.nsImage,
-              let tiff = nsImage.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else {
-            return false
-        }
+        guard let png = renderPNG(snapshot) else { return false }
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setData(png, forType: .png)
+    }
+
+    /// Opens the system share picker (Messages, Mail, AirDrop, Notes, …) with
+    /// the card and post text, anchored to `view`.
+    @MainActor
+    static func showSharePicker(for snapshot: StatsShareSnapshot, relativeTo view: NSView) {
+        let picker = NSSharingServicePicker(items: sharingItems(for: snapshot))
+        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+    }
+
+    /// The card as a PNG file, then the post text. A file rather than an
+    /// `NSImage` so Mail and AirDrop send a named PNG instead of a TIFF. If the
+    /// card cannot be written, the text still goes on its own.
+    @MainActor
+    static func sharingItems(for snapshot: StatsShareSnapshot) -> [Any] {
+        var items: [Any] = []
+        if let png = renderPNG(snapshot) {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("VocaMac Stats.png")
+            do {
+                try png.write(to: url, options: .atomic)
+                items.append(url)
+            } catch {
+                VocaLogger.warning(.general, "Stats share: could not write the card image: \(error.localizedDescription)")
+            }
+        }
+        items.append(StatsShareComposer.message(for: snapshot))
+        return items
+    }
+
+    @MainActor
+    private static func renderPNG(_ snapshot: StatsShareSnapshot) -> Data? {
+        let renderer = ImageRenderer(content: StatsShareCard(snapshot: snapshot))
+        renderer.scale = 2
+        guard let nsImage = renderer.nsImage,
+              let tiff = nsImage.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else {
+            return nil
+        }
+        return rep.representation(using: .png, properties: [:])
     }
 
     /// Opens the destination's composer with prefilled text, then copies the

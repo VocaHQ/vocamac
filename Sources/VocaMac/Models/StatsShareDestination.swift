@@ -72,11 +72,17 @@ enum StatsShareComposer {
 
     /// The post body. Kept short enough for X's 280-character limit.
     static func message(for snapshot: StatsShareSnapshot, destination: StatsShareDestination) -> String {
+        message(for: snapshot, handle: destination.handle)
+    }
+
+    /// The post body for the system share picker. The destination app is
+    /// unknown there, so it signs off with the site alone.
+    static func message(for snapshot: StatsShareSnapshot, handle: String? = nil) -> String {
         var lines = [
             "🎤 \(pluralized(snapshot.totalWords, "word")) talked into my Mac with VocaMac.",
             statLine(for: snapshot),
             "Every model runs on my Mac. Works fully offline, no audio ever leaves it. 🔒",
-            [destination.handle, siteURL].compactMap { $0 }.joined(separator: " · ")
+            [handle, siteURL].compactMap { $0 }.joined(separator: " · ")
         ]
         lines.removeAll { $0.isEmpty }
         return lines.joined(separator: "\n\n")

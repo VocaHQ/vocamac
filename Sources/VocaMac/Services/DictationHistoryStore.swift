@@ -25,8 +25,9 @@ final class DictationHistoryStore: ObservableObject {
     /// touch the user's Application Support folder).
     let directory: URL?
 
-    /// Serializes every file write, so an index write can never race another
-    /// and a retry's audio read always sees the finished WAV file.
+    /// Serializes audio file writes, reads, and deletions, so a retry's read
+    /// always sees the finished WAV file. The index and journal are written
+    /// synchronously on the main actor.
     private let ioQueue = DispatchQueue(label: "com.vocamac.history.io", qos: .utility)
 
     private static let sampleRate = 16_000
@@ -150,8 +151,8 @@ final class DictationHistoryStore: ObservableObject {
             }
         }
         entries.insert(entry, at: 0)
+        appendToJournal(JournalRecord(upsert: entry))
         enforceCaps()
-        persist()
         return entry.id
     }
 
@@ -223,17 +224,17 @@ final class DictationHistoryStore: ObservableObject {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         var entry = entries.remove(at: index)
         removeAudio(of: &entry)
-        persist()
+        appendToJournal(JournalRecord(delete: id))
     }
 
     func deleteAll() {
         entries = []
+        compact()
         if let folder = audioDirectory {
             ioQueue.async {
                 try? FileManager.default.removeItem(at: folder)
             }
         }
-        persist()
     }
 
     /// Drop the audio of every entry but keep the text.
@@ -241,7 +242,7 @@ final class DictationHistoryStore: ObservableObject {
         for index in entries.indices {
             removeAudio(of: &entries[index])
         }
-        persist()
+        compact()
     }
 
     /// Delete entries older than the retention window.
@@ -252,10 +253,10 @@ final class DictationHistoryStore: ObservableObject {
         guard !expired.isEmpty else { return }
         for var entry in expired {
             removeAudio(of: &entry)
+            appendToJournal(JournalRecord(delete: entry.id))
         }
         entries.removeAll { $0.createdAt < cutoff }
         VocaLogger.info(.history, "Removed \(expired.count) history entr\(expired.count == 1 ? "y" : "ies") past \(retention.displayName)")
-        persist()
     }
 
     // MARK: - Audio
@@ -278,8 +279,8 @@ final class DictationHistoryStore: ObservableObject {
         }
     }
 
-    /// Resolves once every write queued so far has finished. Tests use it to
-    /// read the files back; the app never needs to wait.
+    /// Resolves once every audio file operation queued so far has finished.
+    /// Tests use it to read the files back; the app never needs to wait.
     func waitForPendingWrites() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             ioQueue.async { continuation.resume() }
@@ -303,7 +304,7 @@ final class DictationHistoryStore: ObservableObject {
     private func update(_ id: UUID, _ change: (inout DictationHistoryEntry) -> Void) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         change(&entries[index])
-        persist()
+        appendToJournal(JournalRecord(upsert: entries[index]))
     }
 
     private func removeAudio(of entry: inout DictationHistoryEntry) {
@@ -320,6 +321,7 @@ final class DictationHistoryStore: ObservableObject {
             let overflow = entries[Self.maximumEntries...]
             for var entry in overflow {
                 removeAudio(of: &entry)
+                appendToJournal(JournalRecord(delete: entry.id))
             }
             entries.removeLast(entries.count - Self.maximumEntries)
         }
@@ -331,35 +333,113 @@ final class DictationHistoryStore: ObservableObject {
         while audioBytes > Self.maximumAudioBytes, index > 0 {
             if let bytes = entries[index].audioBytes {
                 removeAudio(of: &entries[index])
+                appendToJournal(JournalRecord(upsert: entries[index]))
                 audioBytes -= bytes
             }
             index -= 1
         }
     }
 
-    private func persist() {
-        guard let indexURL, let directory else { return }
-        // Entries are values, so the snapshot is encoded off the main thread.
-        let snapshot = entries
-        ioQueue.async {
-            do {
+    // MARK: - Index and Journal
+    //
+    // Every change is appended to `journal.jsonl` synchronously as one small
+    // line, so it is on disk before VocaMac moves on and survives a crash or
+    // force quit. The full `index.json` is rewritten only now and then — at
+    // launch, after bulk changes, and once the journal grows — and the
+    // journal is replayed over it on the next launch.
+
+    /// One journal line: an entry's latest state, or its deletion.
+    private struct JournalRecord: Codable {
+        var upsert: DictationHistoryEntry?
+        var delete: UUID?
+    }
+
+    /// Journal lines before the index is rewritten and the journal cleared.
+    static let compactionThreshold = 500
+
+    private var journalURL: URL? {
+        directory?.appendingPathComponent("journal.jsonl")
+    }
+
+    private var journalLineCount = 0
+
+    private static let encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
+    }()
+
+    private static let decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }()
+
+    private func appendToJournal(_ record: JournalRecord) {
+        guard let directory, let journalURL else { return }
+        do {
+            var line = try Self.encoder.encode(record)
+            line.append(0x0A)
+            if !FileManager.default.fileExists(atPath: journalURL.path) {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                try encoder.encode(snapshot).write(to: indexURL, options: .atomic)
-            } catch {
-                VocaLogger.error(.history, "Could not save dictation history: \(error.localizedDescription)")
+                FileManager.default.createFile(atPath: journalURL.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: journalURL)
+            defer { try? handle.close() }
+            try handle.seekToEnd()
+            try handle.write(contentsOf: line)
+            journalLineCount += 1
+            if journalLineCount >= Self.compactionThreshold {
+                compact()
+            }
+        } catch {
+            VocaLogger.error(.history, "Could not append to the history journal: \(error.localizedDescription)")
+            compact()
+        }
+    }
+
+    /// Write the whole history to `index.json`, then clear the journal. The
+    /// journal is only removed after the index is safely replaced, so a
+    /// failure here loses nothing.
+    private func compact() {
+        guard let directory, let indexURL else { return }
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try Self.encoder.encode(entries).write(to: indexURL, options: .atomic)
+            if let journalURL {
+                try? FileManager.default.removeItem(at: journalURL)
+            }
+            journalLineCount = 0
+        } catch {
+            VocaLogger.error(.history, "Could not save dictation history: \(error.localizedDescription)")
+        }
+    }
+
+    /// Apply journal lines over the loaded index. A torn last line (VocaMac
+    /// died mid-write) is skipped.
+    private func replayJournal(onto entries: inout [DictationHistoryEntry]) -> Bool {
+        guard let journalURL, let data = try? Data(contentsOf: journalURL), !data.isEmpty else { return false }
+        var byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+        for line in data.split(separator: 0x0A) where !line.isEmpty {
+            guard let record = try? Self.decoder.decode(JournalRecord.self, from: Data(line)) else {
+                VocaLogger.warning(.history, "Skipped an unreadable history journal line")
+                continue
+            }
+            if let entry = record.upsert {
+                byID[entry.id] = entry
+            } else if let id = record.delete {
+                byID[id] = nil
             }
         }
+        entries = byID.values.sorted { $0.createdAt > $1.createdAt }
+        return true
     }
 
     private func loadIndex() {
         var loaded: [DictationHistoryEntry] = []
         if let indexURL, FileManager.default.fileExists(atPath: indexURL.path) {
             do {
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                loaded = try decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
+                loaded = try Self.decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
             } catch {
                 // Keep the unreadable file aside rather than overwrite it on the
                 // next save. Its recordings are recovered below.
@@ -370,7 +450,7 @@ final class DictationHistoryStore: ObservableObject {
             }
         }
 
-        var changed = false
+        var changed = replayJournal(onto: &loaded)
         for index in loaded.indices {
             if loaded[index].status == .pending {
                 loaded[index].status = .interrupted
@@ -400,7 +480,7 @@ final class DictationHistoryStore: ObservableObject {
             VocaLogger.warning(.history, "\(interrupted) dictation(s) didn't finish; their audio is kept for retry")
         }
         if changed {
-            persist()
+            compact()
         }
     }
 

@@ -428,8 +428,17 @@ first. Each entry holds:
 - a status: `pending`, `completed`, `empty`, `failed`, `interrupted`, or `cancelled`
 - the name of its WAV file (16-bit mono 16 kHz), when audio is kept
 
-The WAV file is on disk **before** transcription starts. The index is written
-next. At launch:
+The WAV file is on disk **before** transcription starts.
+
+Every change to an entry is appended synchronously to `journal.jsonl` as one
+line holding the entry's latest state, or its deletion. The line is on disk
+before VocaMac moves on, so a completed dictation survives a crash or force
+quit. `index.json` holds the full history. It is rewritten at launch, after
+bulk changes (Delete All, Delete Audio), and whenever the journal reaches 500
+lines, and the journal is then cleared.
+
+At launch the journal is replayed over the index, and a torn last line is
+skipped. Then:
 
 - A `pending` entry becomes `interrupted`, so a crash mid-dictation still
   leaves the audio to retry.
@@ -592,7 +601,8 @@ enum UpdateState: Equatable {
 │   ├── openai_whisper-medium        ← Optional (downloaded)
 │   └── openai_whisper-large-v3     ← Optional (downloaded)
 ├── History/
-│   ├── index.json             ← Dictation history entries
+│   ├── index.json             ← Dictation history snapshot
+│   ├── journal.jsonl          ← Changes since the snapshot (replayed at launch)
 │   └── audio/<entry-id>.wav   ← Recordings kept for playback and retry
 └── logs/                      ← Future: debug logging
 ```

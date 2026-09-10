@@ -195,6 +195,47 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testCompletedDictationSurvivesAnImmediateExit() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        store.complete(id, rawText: "ship it", finalText: "Ship it. ", summary: nil, language: "en",
+                       transcriptionSeconds: 0.2, keepAudio: true)
+
+        // No waiting: a new instance reads what's on disk right now, as the
+        // next launch would after a crash.
+        let relaunched = DictationHistoryStore(directory: directory)
+        let entry = try XCTUnwrap(relaunched.entry(id: id))
+        XCTAssertEqual(entry.status, .completed)
+        XCTAssertEqual(entry.finalText, "Ship it. ")
+    }
+
+    func testDeletionsAreReplayedFromTheJournal() async {
+        let store = DictationHistoryStore(directory: directory)
+        let kept = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let removed = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        store.delete(removed)
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertNotNil(relaunched.entry(id: kept))
+        XCTAssertNil(relaunched.entry(id: removed))
+    }
+
+    func testTornJournalLineIsSkipped() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        store.complete(id, rawText: "hello", finalText: "Hello", summary: nil, language: nil,
+                       transcriptionSeconds: nil, keepAudio: true)
+        let journal = directory.appendingPathComponent("journal.jsonl")
+        let handle = try FileHandle(forWritingTo: journal)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data(#"{"upsert":{"id":"#.utf8))
+        try handle.close()
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertEqual(relaunched.entry(id: id)?.status, .completed)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journal.path), "Launch folds the journal into the index")
+    }
+
     func testRetentionResolvesUnknownValues() {
         XCTAssertEqual(HistoryRetention.resolved(stored: "bogus"), .month)
         XCTAssertEqual(HistoryRetention.resolved(stored: "week"), .week)

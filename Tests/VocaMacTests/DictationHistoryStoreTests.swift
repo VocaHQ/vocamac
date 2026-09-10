@@ -398,6 +398,29 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertEqual(DictationHistoryStore(directory: directory).entry(id: id)?.status, .failed)
     }
 
+    func testRetentionWithAFailingJournalNeverRestoresExpiredEntries() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let now = Date()
+        let old = now.addingTimeInterval(-10 * 24 * 60 * 60)
+        let first = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1, now: old)
+        let second = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1, now: old)
+        let recent = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1, now: now)
+        await store.waitForPendingWrites()
+        // The journal can't be appended to, but the index can be rewritten.
+        let journal = directory.appendingPathComponent("journal.jsonl")
+        try? FileManager.default.removeItem(at: journal)
+        try FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
+
+        store.applyRetention(.week, now: now)
+        await store.waitForPendingWrites()
+        try FileManager.default.removeItem(at: journal)
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertEqual(relaunched.entries.map(\.id), [recent])
+        XCTAssertNil(relaunched.entry(id: first))
+        XCTAssertNil(relaunched.entry(id: second))
+    }
+
     func testDeletionsSucceedInMemory() async {
         let store = DictationHistoryStore(directory: nil)
         let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)

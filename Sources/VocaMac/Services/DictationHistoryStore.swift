@@ -305,11 +305,13 @@ final class DictationHistoryStore: ObservableObject {
         let cutoff = now.addingTimeInterval(-maximumAge)
         let expired = entries.filter { $0.createdAt < cutoff }
         guard !expired.isEmpty else { return }
+        // Out of memory first, so a fallback full rewrite during the saves
+        // below can't write expired entries back.
+        entries.removeAll { $0.createdAt < cutoff }
         for var entry in expired {
             removeAudio(of: &entry)
             save(JournalRecord(delete: entry.id))
         }
-        entries.removeAll { $0.createdAt < cutoff }
         VocaLogger.info(.history, "Removed \(expired.count) history entr\(expired.count == 1 ? "y" : "ies") past \(retention.displayName)")
     }
 
@@ -403,12 +405,13 @@ final class DictationHistoryStore: ObservableObject {
 
     private func enforceCaps() {
         if entries.count > Self.maximumEntries {
-            let overflow = entries[Self.maximumEntries...]
+            let overflow = Array(entries[Self.maximumEntries...])
+            // Out of memory first, as in `applyRetention`.
+            entries.removeLast(entries.count - Self.maximumEntries)
             for var entry in overflow {
                 removeAudio(of: &entry)
                 save(JournalRecord(delete: entry.id))
             }
-            entries.removeLast(entries.count - Self.maximumEntries)
         }
 
         var audioBytes = entries.reduce(Int64(0)) { $0 + ($1.audioBytes ?? 0) }

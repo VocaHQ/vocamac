@@ -895,6 +895,7 @@ final class AppState: ObservableObject {
             .sink { [weak self] _ in
                 self?.audioDucker.restore()
                 self?.statsManager.flushPendingSaves()
+                self?.historyStore.saveIfNeeded()
             }
             .store(in: &cancellables)
 

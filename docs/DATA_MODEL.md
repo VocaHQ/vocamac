@@ -455,6 +455,13 @@ skipped. Then:
   the change can't be saved, the history is restored in memory, nothing is
   removed from disk, and the user sees an error. What's on screen always
   matches what the next launch loads.
+- Other changes stay in memory even when the disk refuses both the journal and
+  the index. Examples are a dictation finishing, failing, or being retried,
+  and retention. History is then marked as having unsaved changes, and the
+  History page shows a warning. The next save, or quitting VocaMac, rewrites
+  the whole index, so the change is kept once writes work again.
+- If a new entry can't be saved at all, no audio is written for it and the
+  dictation runs without history.
 
 Storage limits:
 

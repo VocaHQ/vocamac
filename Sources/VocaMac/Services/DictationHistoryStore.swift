@@ -21,6 +21,12 @@ final class DictationHistoryStore: ObservableObject {
     /// Newest first.
     @Published private(set) var entries: [DictationHistoryEntry] = []
 
+    /// True when a change is in memory but the disk refused both the journal
+    /// and the index. Every later save rewrites the whole index until one
+    /// succeeds (quitting tries once more), so the change is kept as soon as
+    /// the disk accepts writes again.
+    @Published private(set) var hasUnsavedChanges = false
+
     /// `nil` keeps history in memory only (tests, and runs that must not
     /// touch the user's Application Support folder).
     let directory: URL?
@@ -112,6 +118,10 @@ final class DictationHistoryStore: ObservableObject {
     /// a deletion — launch removes it and never brings deleted audio back. If
     /// VocaMac dies before the write finishes, or the write fails, the entry
     /// ends up without audio instead of pointing at a file that isn't there.
+    ///
+    /// If the entry itself can't be saved, no audio is written (launch would
+    /// delete a file no saved entry owns) and the returned id matches no
+    /// entry: the dictation carries on without history.
     @discardableResult
     func begin(
         audio: [Float]?,
@@ -142,7 +152,11 @@ final class DictationHistoryStore: ObservableObject {
             pendingAudio = nil
         }
         entries.insert(entry, at: 0)
-        appendToJournal(JournalRecord(upsert: entry))
+        guard appendToJournal(JournalRecord(upsert: entry)) else {
+            entries.removeAll { $0.id == id }
+            VocaLogger.error(.history, "Couldn't save a history entry; this dictation won't be kept")
+            return id
+        }
 
         if let pendingAudio {
             let fileURL = pendingAudio.folder.appendingPathComponent(pendingAudio.name)
@@ -293,7 +307,7 @@ final class DictationHistoryStore: ObservableObject {
         guard !expired.isEmpty else { return }
         for var entry in expired {
             removeAudio(of: &entry)
-            appendToJournal(JournalRecord(delete: entry.id))
+            save(JournalRecord(delete: entry.id))
         }
         entries.removeAll { $0.createdAt < cutoff }
         VocaLogger.info(.history, "Removed \(expired.count) history entr\(expired.count == 1 ? "y" : "ies") past \(retention.displayName)")
@@ -344,7 +358,21 @@ final class DictationHistoryStore: ObservableObject {
     private func update(_ id: UUID, _ change: (inout DictationHistoryEntry) -> Void) {
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
         change(&entries[index])
-        appendToJournal(JournalRecord(upsert: entries[index]))
+        save(JournalRecord(upsert: entries[index]))
+    }
+
+    /// Save a change that stays in memory even if the disk refuses it, such
+    /// as a dictation finishing. A refusal is retried by the next save.
+    private func save(_ record: JournalRecord) {
+        if !appendToJournal(record) {
+            hasUnsavedChanges = true
+        }
+    }
+
+    /// Retry a save the disk refused earlier. Called when VocaMac quits.
+    func saveIfNeeded() {
+        guard hasUnsavedChanges else { return }
+        compact()
     }
 
     /// Recordings to delete once the change that drops them is on disk.
@@ -378,7 +406,7 @@ final class DictationHistoryStore: ObservableObject {
             let overflow = entries[Self.maximumEntries...]
             for var entry in overflow {
                 removeAudio(of: &entry)
-                appendToJournal(JournalRecord(delete: entry.id))
+                save(JournalRecord(delete: entry.id))
             }
             entries.removeLast(entries.count - Self.maximumEntries)
         }
@@ -390,7 +418,7 @@ final class DictationHistoryStore: ObservableObject {
         while audioBytes > Self.maximumAudioBytes, index > 0 {
             if let bytes = entries[index].audioBytes {
                 removeAudio(of: &entries[index])
-                appendToJournal(JournalRecord(upsert: entries[index]))
+                save(JournalRecord(upsert: entries[index]))
                 audioBytes -= bytes
             }
             index -= 1
@@ -438,6 +466,10 @@ final class DictationHistoryStore: ObservableObject {
     @discardableResult
     private func appendToJournal(_ record: JournalRecord) -> Bool {
         guard let directory, let journalURL else { return true }
+        // An earlier change never reached disk; only a full rewrite covers it.
+        if hasUnsavedChanges {
+            return compact()
+        }
         do {
             var line = try Self.encoder.encode(record)
             line.append(0x0A)
@@ -475,6 +507,7 @@ final class DictationHistoryStore: ObservableObject {
                 try? FileManager.default.removeItem(at: journalURL)
             }
             journalLineCount = 0
+            hasUnsavedChanges = false
             flushAudioRemovals()
             return true
         } catch {
@@ -549,8 +582,8 @@ final class DictationHistoryStore: ObservableObject {
         if interrupted > 0 {
             VocaLogger.warning(.history, "\(interrupted) dictation(s) didn't finish; their audio is kept for retry")
         }
-        if changed {
-            compact()
+        if changed, !compact() {
+            hasUnsavedChanges = true
         }
     }
 

@@ -347,6 +347,57 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
+    func testEntryThatCantBeSavedWritesNoAudio() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        try blockHistoryWrites()
+
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        await store.waitForPendingWrites()
+
+        XCTAssertNil(store.entry(id: id), "The dictation carries on without history")
+        let audioFile = directory.appendingPathComponent("audio").appendingPathComponent("\(id.uuidString).wav")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audioFile.path),
+                       "No recording is written that no saved entry owns")
+        XCTAssertFalse(store.hasUnsavedChanges)
+    }
+
+    func testRefusedCompletionIsSavedOnceTheDiskRecovers() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        try blockHistoryWrites()
+
+        store.complete(id, rawText: "kept", finalText: "Kept", summary: nil, language: nil,
+                       transcriptionSeconds: nil, keepAudio: true)
+        XCTAssertTrue(store.hasUnsavedChanges)
+        XCTAssertEqual(store.entry(id: id)?.status, .completed, "The completion stays on screen")
+
+        for name in ["journal.jsonl", "index.json"] {
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
+        store.saveIfNeeded()
+        XCTAssertFalse(store.hasUnsavedChanges)
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertEqual(relaunched.entry(id: id)?.status, .completed)
+        XCTAssertEqual(relaunched.entry(id: id)?.finalText, "Kept")
+    }
+
+    func testNextSaveRewritesEverythingAfterARefusal() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        try blockHistoryWrites()
+        store.markFailed(id, message: "boom")
+        for name in ["journal.jsonl", "index.json"] {
+            try FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+        }
+
+        // An unrelated change saves the refused one too.
+        _ = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+
+        XCTAssertFalse(store.hasUnsavedChanges)
+        XCTAssertEqual(DictationHistoryStore(directory: directory).entry(id: id)?.status, .failed)
+    }
+
     func testDeletionsSucceedInMemory() async {
         let store = DictationHistoryStore(directory: nil)
         let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)

@@ -28,6 +28,15 @@ struct UserStats: Codable, Equatable {
     /// Key is date string in "yyyy-MM-dd" format
     var dailyWordCounts: [String: Int] = [:]
 
+    /// Daily successful-transcription counts used to distinguish activity from
+    /// a corrupt or legitimately zero-word daily bucket.
+    /// Key is date string in "yyyy-MM-dd" format.
+    var dailyTranscriptionCounts: [String: Int] = [:]
+
+    /// Time-zone identifier used to create and interpret daily buckets.
+    /// Keeping this stable prevents travel from reinterpreting historical keys.
+    var timeZoneIdentifier: String?
+
     /// Calculated average Words Per Minute (WPM).
     /// Note: This is "words-per-minute-of-audio", dividing total words by total audio duration.
     var averageWPM: Double {
@@ -73,6 +82,14 @@ extension UserStats {
             forKey: .dailyWordCounts
         ) ?? dailyWordCounts
         dailyWordCounts = decodedDailyCounts.mapValues { max(0, $0) }
+
+        let decodedDailyTranscriptionCounts = container.decodeLossily(
+            [String: Int].self,
+            forKey: .dailyTranscriptionCounts
+        ) ?? dailyTranscriptionCounts
+        dailyTranscriptionCounts = decodedDailyTranscriptionCounts.mapValues { max(0, $0) }
+
+        timeZoneIdentifier = container.decodeLossily(String.self, forKey: .timeZoneIdentifier)
     }
 }
 

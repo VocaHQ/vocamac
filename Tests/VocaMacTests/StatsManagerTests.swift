@@ -290,6 +290,56 @@ final class StatsManagerTests: XCTestCase {
     }
 
     @MainActor
+    func testZeroWordBucketWithoutTranscriptionActivityDoesNotInflateStreak() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let thirdDay = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 9, day: 3)
+        ))
+        var savedStats = UserStats()
+        savedStats.dailyWordCounts = [
+            "2026-09-01": 2,
+            "2026-09-02": -8,
+            "2026-09-03": 2
+        ]
+        try JSONEncoder().encode(savedStats).write(to: tempFileURL)
+
+        statsManager = StatsManager(
+            statsFileURL: tempFileURL,
+            calendar: calendar,
+            now: { thirdDay }
+        )
+
+        XCTAssertEqual(statsManager.stats.dailyWordCounts["2026-09-02"], 0)
+        XCTAssertEqual(statsManager.stats.currentStreak, 1)
+        XCTAssertEqual(statsManager.stats.bestStreak, 1)
+    }
+
+    @MainActor
+    func testZeroWordTranscriptionStillCountsAsActivity() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let date = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 9, day: 10)
+        ))
+        statsManager = StatsManager(statsFileURL: tempFileURL, calendar: calendar, now: { date })
+
+        statsManager.recordTranscription(VocaTranscription(
+            text: "🙂",
+            duration: 1,
+            detectedLanguage: "und",
+            audioLengthSeconds: 1,
+            modelUsed: .tiny,
+            timestamp: date
+        ))
+
+        XCTAssertEqual(statsManager.stats.dailyWordCounts["2026-09-10"], 0)
+        XCTAssertEqual(statsManager.stats.dailyTranscriptionCounts["2026-09-10"], 1)
+        XCTAssertEqual(statsManager.stats.currentStreak, 1)
+        XCTAssertEqual(statsManager.stats.bestStreak, 1)
+    }
+
+    @MainActor
     func testNonGregorianSystemCalendarStillWritesGregorianDayKeys() {
         var calendar = Calendar(identifier: .buddhist)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
@@ -361,6 +411,67 @@ final class StatsManagerTests: XCTestCase {
 
         XCTAssertEqual(statsManager.stats.currentStreak, 0)
         XCTAssertEqual(statsManager.stats.bestStreak, 2)
+    }
+
+    @MainActor
+    func testFutureBucketsDoNotSuppressOrInflateStreaks() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let currentDate = try XCTUnwrap(calendar.date(
+            from: DateComponents(year: 2026, month: 9, day: 2)
+        ))
+        var savedStats = UserStats()
+        savedStats.dailyWordCounts = [
+            "2026-09-01": 2,
+            "2026-09-02": 2,
+            "2026-09-10": 2,
+            "2026-09-11": 2,
+            "2026-09-12": 2
+        ]
+        try JSONEncoder().encode(savedStats).write(to: tempFileURL)
+
+        statsManager = StatsManager(
+            statsFileURL: tempFileURL,
+            calendar: calendar,
+            now: { currentDate }
+        )
+
+        XCTAssertEqual(statsManager.stats.currentStreak, 2)
+        XCTAssertEqual(statsManager.stats.bestStreak, 2)
+    }
+
+    @MainActor
+    func testReloadKeepsPersistedStatisticsTimeZone() throws {
+        var originCalendar = Calendar(identifier: .gregorian)
+        originCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Pacific/Kiritimati"))
+        let usageDate = Date(timeIntervalSince1970: 1_788_949_800) // 2026-09-09 10:30:00 UTC
+        let referenceDate = Date(timeIntervalSince1970: 1_788_951_600) // 2026-09-09 11:00:00 UTC
+        statsManager = StatsManager(
+            statsFileURL: tempFileURL,
+            calendar: originCalendar,
+            now: { referenceDate }
+        )
+        statsManager.recordTranscription(VocaTranscription(
+            text: "near midnight",
+            duration: 1,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1,
+            modelUsed: .tiny,
+            timestamp: usageDate
+        ))
+        statsManager.flushPendingSaves()
+
+        var destinationCalendar = Calendar(identifier: .gregorian)
+        destinationCalendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Etc/GMT+12"))
+        statsManager = StatsManager(
+            statsFileURL: tempFileURL,
+            calendar: destinationCalendar,
+            now: { referenceDate }
+        )
+
+        XCTAssertEqual(statsManager.stats.timeZoneIdentifier, originCalendar.timeZone.identifier)
+        XCTAssertEqual(statsManager.stats.dailyWordCounts["2026-09-10"], 2)
+        XCTAssertEqual(statsManager.stats.currentStreak, 1)
     }
 
     @MainActor

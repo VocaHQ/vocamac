@@ -209,6 +209,12 @@ final class SystemOutputAudioControl: OutputAudioControlling {
 /// Devices without a mute control get their volume set to zero and put back
 /// to the exact previous level, which, unlike lowering it partway, needs no
 /// tolerance to tell "still where we left it" from "the user moved it".
+///
+/// A mute the user switches off and on again during one recording looks the
+/// same as VocaMac's own and is undone with it. Telling them apart needs a
+/// mute-change listener, and a listener that took a headset's profile switch
+/// for the user unmuting would leave the output muted for good — worse than
+/// the double toggle it guards against.
 final class AudioDucker: AudioDucking {
 
     /// How a device was silenced, which decides how it is undone.
@@ -222,11 +228,14 @@ final class AudioDucker: AudioDucking {
         case zeroedVolume(from: Float)
     }
 
-    /// A device the ducker silenced and has not yet undone.
+    /// A device the ducker silenced.
     struct PendingRestore: Codable, Equatable {
         let deviceUID: String
         let silencing: Silencing
         let date: Date
+        /// When the end-of-recording restore undid it, leaving only the
+        /// settle check; `nil` while the device is still silenced.
+        var restoredAt: Date? = nil
     }
 
     static let pendingRestoreKey = "vocamac.duckOtherAudio.pendingMute"
@@ -246,6 +255,11 @@ final class AudioDucker: AudioDucking {
     /// device has been gone too long to assume its state is still ours.
     static let maxPendingAge: TimeInterval = 24 * 60 * 60
 
+    /// A relaunch this soon after a restore still runs the settle check the
+    /// previous process did not get to. Later, the record is dropped: the
+    /// output was already put back, and any mute since is the user's.
+    static let settleRecoveryWindow: TimeInterval = 60
+
     private let control: OutputAudioControlling
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -254,6 +268,7 @@ final class AudioDucker: AudioDucking {
     /// Silenced and not yet undone, keyed by device UID. Persisted.
     private var pending: [String: PendingRestore] = [:]
     /// Undone at the end of the last recording, awaiting the settle check.
+    /// Persisted, so a quit or crash inside the window is still covered.
     private var settling: [String: PendingRestore] = [:]
     /// Bumped to cancel a scheduled settle check.
     private var settleGeneration = 0
@@ -328,23 +343,27 @@ final class AudioDucker: AudioDucking {
 
     func restore() {
         guard !pending.isEmpty else { return }
-        let undone = undoPending(reason: "recording ended")
-        persistPending()
-        guard !undone.isEmpty || !pending.isEmpty else { return }
-        for record in undone {
+        let restoredAt = now()
+        for var record in undoPending(reason: "recording ended") {
+            record.restoredAt = restoredAt
             settling[record.deviceUID] = record
         }
+        persistRecords()
+        guard !settling.isEmpty || !pending.isEmpty else { return }
         scheduleSettleCheck()
     }
 
     func restoreAfterUnexpectedExit() {
         defaults.removeObject(forKey: Self.legacyPendingRestoreKey)
-        for record in loadPersisted() where pending[record.deviceUID] == nil {
+        for var record in loadPersisted() where pending[record.deviceUID] == nil {
+            if let restoredAt = record.restoredAt {
+                guard now().timeIntervalSince(restoredAt) <= Self.settleRecoveryWindow else { continue }
+                record.restoredAt = nil
+            }
             pending[record.deviceUID] = record
         }
-        guard !pending.isEmpty else { return }
         undoPending(reason: "previous run ended while muted")
-        persistPending()
+        persistRecords()
     }
 
     // MARK: Undo
@@ -389,10 +408,8 @@ final class AudioDucker: AudioDucking {
                 }
                 VocaLogger.info(.audioDucker, "Unmuted device \(deviceID) (\(reason))")
             }
-            if let volume {
-                restoreVolumeIfZeroed(volume, on: deviceID, reason: reason)
-            }
-            return true
+            guard let volume else { return true }
+            return restoreVolumeIfZeroed(volume, on: deviceID, reason: reason)
 
         case .zeroedVolume(let volume):
             guard let current = control.volume(of: deviceID) else {
@@ -410,19 +427,27 @@ final class AudioDucker: AudioDucking {
     }
 
     /// Covers drivers that mute by zeroing the volume and leave it there.
-    private func restoreVolumeIfZeroed(_ volume: Float, on deviceID: AudioDeviceID, reason: String) {
+    /// - Returns: `false` only when the volume is still zero and could not
+    ///   be put back, so the record is kept for a retry.
+    private func restoreVolumeIfZeroed(_ volume: Float, on deviceID: AudioDeviceID, reason: String) -> Bool {
         guard volume > Self.silentVolume,
               let current = control.volume(of: deviceID),
-              current <= Self.silentVolume,
-              control.setVolume(volume, of: deviceID) else { return }
+              current <= Self.silentVolume else { return true }
+        guard control.setVolume(volume, of: deviceID) else {
+            VocaLogger.warning(.audioDucker, "Unmuting left device \(deviceID) at 0% and it could not be restored (\(reason))")
+            return false
+        }
         VocaLogger.info(
             .audioDucker,
             "Unmuting left device \(deviceID) at 0% — restored \(Self.percent(volume)) (\(reason))"
         )
+        return true
     }
 
     // MARK: Settle check
 
+    /// Runs `runSettleCheck` after `settleDelay`, replacing any check
+    /// already scheduled.
     private func scheduleSettleCheck() {
         settleGeneration += 1
         let generation = settleGeneration
@@ -448,30 +473,36 @@ final class AudioDucker: AudioDucking {
             }
             // The device left mid-switch, or the unmute failed: keep the
             // record so the next recording or launch tries again.
-            pending[uid] = pending[uid] ?? record
+            var retry = record
+            retry.restoredAt = nil
+            pending[uid] = pending[uid] ?? retry
         }
-        persistPending()
+        persistRecords()
     }
 
     // MARK: Persistence
 
+    /// Takes ownership of what `duck` just did to `output`, and saves it.
     private func record(_ output: OutputDevice, _ silencing: Silencing) {
         pending[output.uid] = PendingRestore(deviceUID: output.uid, silencing: silencing, date: now())
-        persistPending()
+        persistRecords()
     }
 
-    /// Saves the pending set so a crash mid-dictation can be undone on the
-    /// next launch. An empty set clears the key.
-    private func persistPending() {
-        guard !pending.isEmpty else {
+    /// Saves the pending and settling records so a crash or quit can be
+    /// undone on the next launch. No records clears the key.
+    private func persistRecords() {
+        let records = pending.merging(settling) { pending, _ in pending }
+            .values
+            .sorted { $0.deviceUID < $1.deviceUID }
+        guard !records.isEmpty else {
             defaults.removeObject(forKey: Self.pendingRestoreKey)
             return
         }
-        let records = pending.values.sorted { $0.deviceUID < $1.deviceUID }
         guard let data = try? JSONEncoder().encode(records) else { return }
         defaults.set(data, forKey: Self.pendingRestoreKey)
     }
 
+    /// Records the previous process saved; empty if none or unreadable.
     private func loadPersisted() -> [PendingRestore] {
         guard let data = defaults.data(forKey: Self.pendingRestoreKey) else { return [] }
         return (try? JSONDecoder().decode([PendingRestore].self, from: data)) ?? []

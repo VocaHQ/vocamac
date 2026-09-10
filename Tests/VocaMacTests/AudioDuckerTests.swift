@@ -276,12 +276,13 @@ final class AudioDuckerTests: XCTestCase {
         let ducker = makeDucker()
         ducker.duck()
         ducker.restore()
-        XCTAssertTrue(persistedRecords().isEmpty)
 
         control.devices["speakers"]?.muted = true
         control.setMutedShouldFail = true
         runScheduled()
         XCTAssertEqual(persistedRecords().map(\.deviceUID), ["speakers"])
+        XCTAssertNil(persistedRecords().first?.restoredAt, "Back to an ordinary pending mute, not a settle record")
+        clock += AudioDucker.settleRecoveryWindow * 10
 
         control.setMutedShouldFail = false
         makeDucker().restoreAfterUnexpectedExit()
@@ -361,6 +362,23 @@ final class AudioDuckerTests: XCTestCase {
         XCTAssertEqual(speakers()?.volume, 0.8)
     }
 
+    func testFailedVolumeRestoreAfterUnmuteIsRetried() {
+        control.muteZeroesVolume = true
+        let ducker = makeDucker()
+        ducker.duck()
+
+        control.setVolumeShouldFail = true
+        ducker.restore()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(speakers()?.volume, 0)
+        XCTAssertNil(persistedRecords().first?.restoredAt, "Still owed a volume restore")
+
+        control.setVolumeShouldFail = false
+        runScheduled()
+        XCTAssertEqual(speakers()?.volume, 0.8)
+        XCTAssertTrue(persistedRecords().isEmpty)
+    }
+
     func testDriverThatMutesByZeroingTheVolumeGetsItsVolumeBack() {
         control.muteZeroesVolume = true
         let ducker = makeDucker()
@@ -422,13 +440,45 @@ final class AudioDuckerTests: XCTestCase {
 
     // MARK: Persistence and relaunch
 
-    func testMuteIsPersistedWhileActiveAndClearedAfterRestore() {
+    func testMuteIsPersistedUntilTheSettleCheckFinishes() {
         let ducker = makeDucker()
 
         ducker.duck()
         XCTAssertEqual(persistedRecords().map(\.deviceUID), ["speakers"])
+        XCTAssertNil(persistedRecords().first?.restoredAt)
 
         ducker.restore()
+        XCTAssertEqual(persistedRecords().first?.restoredAt, clock, "Kept, marked restored, for the settle check")
+
+        runScheduled()
+        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
+    }
+
+    func testQuitDuringTheSettleWindowIsCoveredByAQuickRelaunch() {
+        let ducker = makeDucker()
+        ducker.duck()
+        ducker.restore()  // willTerminate; the settle check never runs
+
+        control.devices["speakers"]?.muted = true  // route switch re-muted it
+        clock += 5
+
+        makeDucker().restoreAfterUnexpectedExit()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
+    }
+
+    func testSettleRecordIsIgnoredByALateRelaunch() {
+        let ducker = makeDucker()
+        ducker.duck()
+        ducker.restore()
+
+        control.devices["speakers"]?.muted = true  // the user muted it later
+        clock += AudioDucker.settleRecoveryWindow + 1
+        let writes = control.writeCount
+
+        makeDucker().restoreAfterUnexpectedExit()
+        XCTAssertEqual(speakers()?.muted, true, "Already put back once; this mute is the user's")
+        XCTAssertEqual(control.writeCount, writes)
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 

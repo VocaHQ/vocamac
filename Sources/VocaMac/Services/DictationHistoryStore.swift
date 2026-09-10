@@ -29,6 +29,13 @@ final class DictationHistoryStore: ObservableObject {
     /// and a retry's audio read always sees the finished WAV file.
     private let ioQueue = DispatchQueue(label: "com.vocamac.history.io", qos: .utility)
 
+    private static let sampleRate = 16_000
+
+    /// Size of a 16-bit mono WAV file with a 44-byte header.
+    static func wavByteCount(sampleCount: Int) -> Int64 {
+        Int64(44 + sampleCount * 2)
+    }
+
     static var defaultDirectory: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("VocaMac", isDirectory: true)
@@ -94,8 +101,14 @@ final class DictationHistoryStore: ObservableObject {
 
     // MARK: - Recording a Dictation
 
-    /// Record a dictation before it is transcribed and write its audio.
-    /// Returns the id to finish it with.
+    /// Record a dictation before it is transcribed. Returns once its audio
+    /// is on disk, so a crash or failure during transcription can't lose it,
+    /// with the id to finish it with.
+    ///
+    /// The WAV file is written before the index. If VocaMac dies between the
+    /// two, the next launch finds the unindexed file and restores it as an
+    /// interrupted dictation. If the write fails, the entry is recorded
+    /// without audio rather than pointing at a file that doesn't exist.
     @discardableResult
     func begin(
         audio: [Float]?,
@@ -104,7 +117,7 @@ final class DictationHistoryStore: ObservableObject {
         language: String?,
         audioSeconds: Double,
         now: Date = Date()
-    ) -> UUID {
+    ) async -> UUID {
         var entry = DictationHistoryEntry(
             createdAt: now,
             status: .pending,
@@ -117,16 +130,23 @@ final class DictationHistoryStore: ObservableObject {
         )
         if let audio, !audio.isEmpty, let folder = audioDirectory {
             let name = "\(entry.id.uuidString).wav"
-            entry.audioFileName = name
-            entry.audioBytes = Int64(44 + audio.count * 2)
             let fileURL = folder.appendingPathComponent(name)
-            ioQueue.async {
-                do {
-                    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                    try FailedAudioDump.wavData(from: audio, sampleRate: 16_000).write(to: fileURL, options: .atomic)
-                } catch {
-                    VocaLogger.error(.history, "Could not save dictation audio: \(error.localizedDescription)")
+            let saved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                ioQueue.async {
+                    do {
+                        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                        try FailedAudioDump.wavData(from: audio, sampleRate: Self.sampleRate)
+                            .write(to: fileURL, options: .atomic)
+                        continuation.resume(returning: true)
+                    } catch {
+                        VocaLogger.error(.history, "Could not save dictation audio: \(error.localizedDescription)")
+                        continuation.resume(returning: false)
+                    }
                 }
+            }
+            if saved {
+                entry.audioFileName = name
+                entry.audioBytes = Self.wavByteCount(sampleCount: audio.count)
             }
         }
         entries.insert(entry, at: 0)
@@ -334,42 +354,89 @@ final class DictationHistoryStore: ObservableObject {
     }
 
     private func loadIndex() {
-        guard let indexURL, FileManager.default.fileExists(atPath: indexURL.path) else { return }
-        do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            var loaded = try decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
-            var recovered = 0
-            for index in loaded.indices where loaded[index].status == .pending {
+        var loaded: [DictationHistoryEntry] = []
+        if let indexURL, FileManager.default.fileExists(atPath: indexURL.path) {
+            do {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                loaded = try decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
+            } catch {
+                // Keep the unreadable file aside rather than overwrite it on the
+                // next save. Its recordings are recovered below.
+                let backup = indexURL.deletingPathExtension().appendingPathExtension("corrupt.json")
+                try? FileManager.default.removeItem(at: backup)
+                try? FileManager.default.moveItem(at: indexURL, to: backup)
+                VocaLogger.error(.history, "Dictation history was unreadable and was set aside: \(error.localizedDescription)")
+            }
+        }
+
+        var changed = false
+        for index in loaded.indices {
+            if loaded[index].status == .pending {
                 loaded[index].status = .interrupted
-                recovered += 1
+                changed = true
             }
-            entries = loaded
-            if recovered > 0 {
-                VocaLogger.warning(.history, "\(recovered) dictation(s) were interrupted before they finished; their audio is kept for retry")
-                persist()
+            // Never advertise audio that isn't there.
+            if let name = loaded[index].audioFileName, let folder = audioDirectory,
+               !FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) {
+                loaded[index].audioFileName = nil
+                loaded[index].audioBytes = nil
+                changed = true
             }
-            removeOrphanedAudio()
-        } catch {
-            // Keep the unreadable file aside rather than overwrite it on the
-            // next save, so nothing is lost to a decoding bug.
-            let backup = indexURL.deletingPathExtension().appendingPathExtension("corrupt.json")
-            try? FileManager.default.removeItem(at: backup)
-            try? FileManager.default.moveItem(at: indexURL, to: backup)
-            VocaLogger.error(.history, "Dictation history was unreadable and was set aside: \(error.localizedDescription)")
+        }
+
+        let recovered = recoverUnindexedAudio(
+            referenced: Set(loaded.compactMap(\.audioFileName)),
+            knownIDs: Set(loaded.map(\.id))
+        )
+        if !recovered.isEmpty {
+            loaded = (loaded + recovered).sorted { $0.createdAt > $1.createdAt }
+            changed = true
+        }
+
+        entries = loaded
+        let interrupted = loaded.filter { $0.status == .interrupted }.count
+        if interrupted > 0 {
+            VocaLogger.warning(.history, "\(interrupted) dictation(s) didn't finish; their audio is kept for retry")
+        }
+        if changed {
+            persist()
         }
     }
 
-    /// Delete audio files no entry points at (a crash between writing the
-    /// audio and writing the index).
-    private func removeOrphanedAudio() {
-        guard let folder = audioDirectory else { return }
-        let referenced = Set(entries.compactMap(\.audioFileName))
-        ioQueue.async {
-            guard let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
-            for file in files where !referenced.contains(file) {
-                try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
+    /// Recordings on disk that the index doesn't list: VocaMac stopped
+    /// between writing the audio and writing the index. Each becomes an
+    /// interrupted dictation so it can still be retried.
+    private func recoverUnindexedAudio(referenced: Set<String>, knownIDs: Set<UUID>) -> [DictationHistoryEntry] {
+        guard let folder = audioDirectory,
+              let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [] }
+        var recovered: [DictationHistoryEntry] = []
+        for file in files where file.hasSuffix(".wav") && !referenced.contains(file) {
+            let url = folder.appendingPathComponent(file)
+            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
+            let bytes = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+            guard bytes > 44 else {
+                try? FileManager.default.removeItem(at: url)
+                continue
             }
+            let id = UUID(uuidString: String(file.dropLast(4))) ?? UUID()
+            // Audio of an entry that already has its text: a leftover the
+            // user chose not to keep, not a lost dictation.
+            guard !knownIDs.contains(id) else {
+                try? FileManager.default.removeItem(at: url)
+                continue
+            }
+            let samples = Double(bytes - 44) / 2
+            recovered.append(DictationHistoryEntry(
+                id: id,
+                createdAt: (attributes?[.creationDate] as? Date) ?? Date(),
+                status: .interrupted,
+                modelID: "",
+                audioSeconds: samples / Double(Self.sampleRate),
+                audioFileName: file,
+                audioBytes: bytes
+            ))
         }
+        return recovered
     }
 }

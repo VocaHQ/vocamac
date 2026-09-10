@@ -1655,8 +1655,13 @@ final class AppState: ObservableObject {
         let contextTask = screenContextTask
         screenContextTask = nil
         // Saved before transcribing, so a crash or failure can't lose it.
-        let historyID = injectResult ? beginHistoryEntry(audio: audioData) : nil
+        let historyID = injectResult ? await beginHistoryEntry(audio: audioData) : nil
         activeHistoryEntryID = historyID
+        guard generation == recordingGeneration else {
+            // Escape arrived while the audio was being saved.
+            if let historyID { historyStore.markCancelled(historyID) }
+            return
+        }
 
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
@@ -2479,11 +2484,11 @@ extension AppState {
 
     /// Record a dictation in history before it is transcribed. Returns nil
     /// when history is off.
-    fileprivate func beginHistoryEntry(audio: [Float]) -> UUID? {
+    fileprivate func beginHistoryEntry(audio: [Float]) async -> UUID? {
         guard historyEnabled else { return nil }
         historyStore.applyRetention(historyRetention)
         let modelID = currentModel?.size.rawValue ?? selectedModelSize
-        return historyStore.begin(
+        return await historyStore.begin(
             audio: audio,
             target: frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp,
             modelID: modelID,

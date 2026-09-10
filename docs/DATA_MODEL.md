@@ -428,9 +428,15 @@ first. Each entry holds:
 - a status: `pending`, `completed`, `empty`, `failed`, `interrupted`, or `cancelled`
 - the name of its WAV file (16-bit mono 16 kHz), when audio is kept
 
-The entry and its audio are written **before** transcription starts. A
-`pending` entry found at launch becomes `interrupted`, so a crash
-mid-dictation still leaves the audio to retry.
+The WAV file is on disk **before** transcription starts. The index is written
+next. At launch:
+
+- A `pending` entry becomes `interrupted`, so a crash mid-dictation still
+  leaves the audio to retry.
+- A WAV file the index doesn't list comes back as an `interrupted` entry. That
+  covers a crash between the two writes.
+- An entry whose WAV file is missing, or whose write failed, is shown without
+  audio.
 
 Storage limits:
 

@@ -25,7 +25,7 @@ final class DictationHistoryStoreTests: XCTestCase {
 
     func testCompletedDictationKeepsTextAndAudio() async throws {
         let store = DictationHistoryStore(directory: directory)
-        let id = store.begin(audio: audio, target: target, modelID: "tiny", language: "en", audioSeconds: 1)
+        let id = await store.begin(audio: audio, target: target, modelID: "tiny", language: "en", audioSeconds: 1)
         XCTAssertEqual(store.entry(id: id)?.status, .pending)
 
         store.complete(id, rawText: "hello world", finalText: "Hello world. ", summary: "Formatting only",
@@ -44,7 +44,7 @@ final class DictationHistoryStoreTests: XCTestCase {
 
     func testAudioIsDroppedOnSuccessWhenNotKept() async {
         let store = DictationHistoryStore(directory: directory)
-        let id = store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.complete(id, rawText: "hi", finalText: "Hi", summary: nil, language: nil,
                        transcriptionSeconds: nil, keepAudio: false)
         XCTAssertFalse(store.entry(id: id)?.hasAudio ?? true)
@@ -53,15 +53,15 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(files.isEmpty)
     }
 
-    func testFailedDictationIsRecoverable() {
+    func testFailedDictationIsRecoverable() async {
         let store = DictationHistoryStore(directory: directory)
-        let id = store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.markFailed(id, message: "decoder exploded")
         XCTAssertEqual(store.latestRecoverableEntry?.id, id)
         XCTAssertEqual(store.entry(id: id)?.errorMessage, "decoder exploded")
 
         // A later success supersedes it.
-        let next = store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let next = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.complete(next, rawText: "ok", finalText: "Ok", summary: nil, language: nil,
                        transcriptionSeconds: nil, keepAudio: true)
         XCTAssertNil(store.latestRecoverableEntry)
@@ -69,7 +69,7 @@ final class DictationHistoryStoreTests: XCTestCase {
 
     func testPendingEntryBecomesInterruptedAfterRelaunch() async {
         let store = DictationHistoryStore(directory: directory)
-        let id = store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         await store.waitForPendingWrites()
 
         let relaunched = DictationHistoryStore(directory: directory)
@@ -77,9 +77,9 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertEqual(relaunched.latestRecoverableEntry?.id, id)
     }
 
-    func testRetryUpdatesEntry() {
+    func testRetryUpdatesEntry() async {
         let store = DictationHistoryStore(directory: nil)
-        let id = store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.markFailed(id, message: "boom")
         store.recordRetry(id, rawText: "fixed", finalText: "Fixed", summary: nil, language: "en",
                           modelID: "parakeet", transcriptionSeconds: 0.2)
@@ -90,21 +90,21 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertNil(entry?.errorMessage)
     }
 
-    func testCancelOnlyAffectsPendingEntries() {
+    func testCancelOnlyAffectsPendingEntries() async {
         let store = DictationHistoryStore(directory: nil)
-        let id = store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let id = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.complete(id, rawText: "done", finalText: "Done", summary: nil, language: nil,
                        transcriptionSeconds: nil, keepAudio: true)
         store.markCancelled(id)
         XCTAssertEqual(store.entry(id: id)?.status, .completed)
     }
 
-    func testRetentionDeletesOldEntries() {
+    func testRetentionDeletesOldEntries() async {
         let store = DictationHistoryStore(directory: nil)
         let now = Date()
-        let old = store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1,
+        let old = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1,
                               now: now.addingTimeInterval(-3 * 24 * 60 * 60))
-        let recent = store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1, now: now)
+        let recent = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1, now: now)
         store.applyRetention(.day, now: now)
         XCTAssertNil(store.entry(id: old))
         XCTAssertNotNil(store.entry(id: recent))
@@ -113,12 +113,12 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertNotNil(store.entry(id: recent))
     }
 
-    func testSearchMatchesEveryWord() {
+    func testSearchMatchesEveryWord() async {
         let store = DictationHistoryStore(directory: nil)
-        let first = store.begin(audio: nil, target: target, modelID: "tiny", language: nil, audioSeconds: 1)
+        let first = await store.begin(audio: nil, target: target, modelID: "tiny", language: nil, audioSeconds: 1)
         store.complete(first, rawText: "ship the release", finalText: "Ship the release.", summary: nil,
                        language: nil, transcriptionSeconds: nil, keepAudio: true)
-        let second = store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let second = await store.begin(audio: nil, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.complete(second, rawText: "lunch plans", finalText: "Lunch plans.", summary: nil,
                        language: nil, transcriptionSeconds: nil, keepAudio: true)
 
@@ -130,7 +130,7 @@ final class DictationHistoryStoreTests: XCTestCase {
 
     func testDeleteAllRemovesEntriesAndAudio() async {
         let store = DictationHistoryStore(directory: directory)
-        store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
         store.deleteAll()
         await store.waitForPendingWrites()
         XCTAssertTrue(store.entries.isEmpty)
@@ -144,6 +144,55 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertTrue(entry.hasEditedOutput)
         entry.finalText = "Um gonna ship it."
         XCTAssertFalse(entry.hasEditedOutput)
+    }
+
+    func testFailedAudioWriteIsNotAdvertised() async throws {
+        // A file where the audio folder should be makes the write fail.
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try Data().write(to: directory.appendingPathComponent("audio"))
+        let store = DictationHistoryStore(directory: directory)
+
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+
+        XCTAssertNotNil(store.entry(id: id))
+        XCTAssertFalse(store.entry(id: id)?.hasAudio ?? true)
+    }
+
+    func testUnindexedAudioIsRecoveredAsInterrupted() async throws {
+        // VocaMac stopped after writing the audio but before the index.
+        let folder = directory.appendingPathComponent("audio", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let id = UUID()
+        try FailedAudioDump.wavData(from: audio, sampleRate: 16_000)
+            .write(to: folder.appendingPathComponent("\(id.uuidString).wav"))
+
+        let store = DictationHistoryStore(directory: directory)
+
+        let entry = try XCTUnwrap(store.entry(id: id))
+        XCTAssertEqual(entry.status, .interrupted)
+        XCTAssertTrue(entry.hasAudio)
+        XCTAssertEqual(entry.audioSeconds, 1, accuracy: 0.01)
+        XCTAssertEqual(store.latestRecoverableEntry?.id, id)
+        let samples = try await store.loadAudio(for: entry)
+        XCTAssertEqual(samples.count, audio.count)
+    }
+
+    func testMissingAudioFileIsNotAdvertisedAfterRelaunch() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        await store.waitForPendingWrites()
+        try FileManager.default.removeItem(at: XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id)))))
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        XCTAssertNotNil(relaunched.entry(id: id))
+        XCTAssertFalse(relaunched.entry(id: id)?.hasAudio ?? true)
+    }
+
+    func testAudioIsOnDiskWhenBeginReturns() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
     func testRetentionResolvesUnknownValues() {

@@ -462,8 +462,13 @@ final class AudioDuckerTests: XCTestCase {
         control.devices["speakers"]?.muted = true  // route switch re-muted it
         clock += 5
 
-        makeDucker().restoreAfterUnexpectedExit()
+        let relaunched = makeDucker()
+        relaunched.restoreAfterUnexpectedExit()
         XCTAssertEqual(speakers()?.muted, false)
+
+        control.devices["speakers"]?.muted = true  // the switch finishes after launch
+        runScheduled()
+        XCTAssertEqual(speakers()?.muted, false, "Startup schedules its own settle check")
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 
@@ -485,9 +490,11 @@ final class AudioDuckerTests: XCTestCase {
     func testRelaunchUnmutesWhatACrashLeftMuted() {
         makeDucker().duck()  // process dies here
 
-        makeDucker().restoreAfterUnexpectedExit()
-
+        let relaunched = makeDucker()
+        relaunched.restoreAfterUnexpectedExit()
         XCTAssertEqual(speakers()?.muted, false)
+
+        runScheduled()
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 

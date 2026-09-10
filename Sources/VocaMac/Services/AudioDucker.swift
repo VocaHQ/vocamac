@@ -343,14 +343,7 @@ final class AudioDucker: AudioDucking {
 
     func restore() {
         guard !pending.isEmpty else { return }
-        let restoredAt = now()
-        for var record in undoPending(reason: "recording ended") {
-            record.restoredAt = restoredAt
-            settling[record.deviceUID] = record
-        }
-        persistRecords()
-        guard !settling.isEmpty || !pending.isEmpty else { return }
-        scheduleSettleCheck()
+        undoPendingAndScheduleSettleCheck(reason: "recording ended")
     }
 
     func restoreAfterUnexpectedExit() {
@@ -362,11 +355,24 @@ final class AudioDucker: AudioDucking {
             }
             pending[record.deviceUID] = record
         }
-        undoPending(reason: "previous run ended while muted")
-        persistRecords()
+        // The headset may still be leaving its call profile, so settle here too.
+        undoPendingAndScheduleSettleCheck(reason: "previous run ended while muted")
     }
 
     // MARK: Undo
+
+    /// Undoes the pending records, keeps the finished ones for the settle
+    /// check, and schedules it while anything is left to check or retry.
+    private func undoPendingAndScheduleSettleCheck(reason: String) {
+        let restoredAt = now()
+        for var record in undoPending(reason: reason) {
+            record.restoredAt = restoredAt
+            settling[record.deviceUID] = record
+        }
+        persistRecords()
+        guard !settling.isEmpty || !pending.isEmpty else { return }
+        scheduleSettleCheck()
+    }
 
     /// Undoes every pending record whose device is connected, removing the
     /// ones that are finished. Records whose device is missing or whose

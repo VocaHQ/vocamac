@@ -1392,9 +1392,9 @@ struct AudioSettingsTab: View {
             }
 
             Section("Other Audio") {
-                Toggle("Lower other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
+                Toggle("Mute other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
 
-                Text("Turns the system volume down while the microphone is open — like the built-in dictation — and back up when you stop. Speakers only: it does not affect outputs without a software volume, such as HDMI.")
+                Text("Mutes your speakers or headphones while the microphone is open, then unmutes them when you stop. Only kicks in when something is playing, and leaves a mute you set yourself alone.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -92,8 +92,8 @@ final class AppState: ObservableObject {
     /// Every way a recording ends — stop, cancel, force recovery, a failed
     /// start, an input device change, auto-pause — sets this to `false`, so
     /// this is the one place that reliably sees the microphone close. Other
-    /// audio ducked for the recording is restored here rather than at each
-    /// of those exits; `restore()` is a no-op when nothing was ducked.
+    /// audio muted for the recording is restored here rather than at each
+    /// of those exits; `restore()` is a no-op when nothing was muted.
     @Published var isRecording: Bool = false {
         didSet {
             if !isRecording {
@@ -790,7 +790,7 @@ final class AppState: ObservableObject {
             .store(in: &cancellables)
 
         // Quit and Restart call `terminate` without setting `isRecording` to
-        // false, so the didSet restore never runs. Restore ducked volume here
+        // false, so the didSet restore never runs. Unmute other audio here
         // directly. A second restore is a no-op when nothing is pending.
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in
@@ -1380,6 +1380,7 @@ final class AppState: ObservableObject {
         }
 
         recordingGeneration = UUID()
+        let generation = recordingGeneration
         recordingInjectsResult = injectResult
         appStatus = .recording
         isRecording = true
@@ -1397,13 +1398,6 @@ final class AppState: ObservableObject {
         // Start recording immediately for instant responsiveness.
         // The start sound is played concurrently — any brief bleed into the
         // mic buffer is negligible and handled well by WhisperKit's noise model.
-        // Lower other audio before the microphone opens, so none of it lands
-        // in the first buffers. Restored from `isRecording`'s observer on
-        // every exit, including a start that fails below.
-        if duckOtherAudioEnabled {
-            audioDucker.duck()
-        }
-
         isStartingAudio = true
         pendingStopDuringStart = nil
         let session = whisperService.startStreaming(language: selectedLanguage == "auto" ? nil : selectedLanguage)
@@ -1452,8 +1446,23 @@ final class AppState: ObservableObject {
 
         // Play start sound after mic is active (fire-and-forget).
         // Off is a stored tone and stays silent even when this switch is on.
+        // Muting other audio would silence the cue too, so when that is on,
+        // let the cue finish first.
         if soundEffectsEnabled && isRecording && appStatus == .recording {
-            soundManager.playStartSound()
+            if duckOtherAudioEnabled {
+                await soundManager.playStartSoundAsync()
+            } else {
+                soundManager.playStartSound()
+            }
+        }
+
+        // Mute other audio once the microphone is live, so a start that never
+        // gets a route leaves playback alone. Undone from `isRecording`'s
+        // observer on every exit. The recording may have ended, or a new one
+        // begun, while the cue played.
+        if duckOtherAudioEnabled && isRecording && appStatus == .recording
+            && recordingGeneration == generation {
+            audioDucker.duck()
         }
     }
 

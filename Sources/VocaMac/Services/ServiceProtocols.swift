@@ -62,13 +62,13 @@ extension SoundPlaying {
 
 // MARK: - AudioDucking
 
-/// Lowers other audio while a recording is open and puts it back afterwards.
+/// Silences other audio while a recording is open and brings it back afterwards.
 protocol AudioDucking: AnyObject {
-    /// Lower the default output volume. A second call on the same already-ducked device is ignored.
+    /// Mute the default output if another app is playing and the user has not muted it already.
     func duck()
-    /// Put the volume back if it is still where `duck` left it.
+    /// Unmute what `duck` muted, if it is still muted.
     func restore()
-    /// Undo a duck the previous process did not get to restore (crash, kill).
+    /// Undo a mute the previous process did not get to restore (crash, kill).
     func restoreAfterUnexpectedExit()
 }
 

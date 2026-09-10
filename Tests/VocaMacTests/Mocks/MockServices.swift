@@ -116,6 +116,8 @@ final class MockSoundManager: SoundPlaying {
     var startSoundAsyncCallCount = 0
     var stopSoundAsyncCallCount = 0
     var playLog: [PlayEvent] = []
+    /// Runs while the awaited start cue "plays", to act mid-cue.
+    var whileStartSoundAsyncPlays: (() async -> Void)?
 
     func playStartSound() {
         startSoundCallCount += 1
@@ -125,6 +127,7 @@ final class MockSoundManager: SoundPlaying {
     func playStartSoundAsync() async {
         startSoundAsyncCallCount += 1
         playLog.append(.startAsync)
+        await whileStartSoundAsyncPlays?()
     }
 
     func playStopSound() {
@@ -144,9 +147,11 @@ final class MockAudioDucker: AudioDucking {
     var duckCallCount = 0
     var restoreCallCount = 0
     var restoreAfterUnexpectedExitCallCount = 0
+    var onDuck: (() -> Void)?
 
     func duck() {
         duckCallCount += 1
+        onDuck?()
     }
 
     func restore() {

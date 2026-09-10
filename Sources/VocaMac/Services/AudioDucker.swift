@@ -1,269 +1,480 @@
 // AudioDucker.swift
 // VocaMac
 //
-// Lowers the system output volume while a recording is open so music or a
-// video does not play at full volume into the microphone, then puts it back
-// the way it was. Apple's own dictation ducks other audio; macOS offers no
-// per-process ducking to third parties, so this drives the default output
-// device's main volume — the same control as the volume keys.
+// Mutes the default output while a recording is open so music or a video
+// does not play into the microphone, then unmutes it — what other dictation
+// apps (Wispr Flow, VoiceInk) do. macOS offers third parties no per-app
+// ducking, and lowering the main volume cannot be undone reliably: Bluetooth
+// headsets keep a separate volume while their microphone is open, so the
+// lowered level can neither be read back nor put back until well after the
+// recording ends. Mute is a single flag that survives that switch.
 
 import AudioToolbox
 import CoreAudio
 import Foundation
 
-// MARK: - OutputVolumeControlling
+// MARK: - OutputAudioControlling
 
-/// The default output device and its main volume in `0...1`.
-struct OutputVolumeSnapshot: Equatable {
-    let deviceID: AudioDeviceID
-    let volume: Float
+/// An output device: its CoreAudio ID for this session, and its UID, which
+/// stays the same across reconnects and relaunches.
+struct OutputDevice: Equatable {
+    let id: AudioDeviceID
+    let uid: String
 }
 
 /// The CoreAudio surface `AudioDucker` depends on, kept behind a protocol so
-/// the ducking policy can be tested without touching real hardware.
-protocol OutputVolumeControlling: AnyObject {
-    /// The default output device with its current main volume, or `nil` when
-    /// that device has no software-settable volume (HDMI and some AirPlay
-    /// outputs) — ducking is then impossible and silently skipped.
-    func defaultOutput() -> OutputVolumeSnapshot?
+/// the policy can be tested without touching real hardware.
+protocol OutputAudioControlling: AnyObject {
+    /// The current default output device, or `nil` if there is none.
+    func defaultOutputDevice() -> OutputDevice?
 
-    /// The main volume of a specific device, or `nil` if the device is gone
-    /// or has no software volume.
+    /// The current ID of the device with `uid`, or `nil` if it is not connected.
+    func deviceID(forUID uid: String) -> AudioDeviceID?
+
+    /// Whether any other process is playing audio right now.
+    func isOtherAudioPlaying(on deviceID: AudioDeviceID) -> Bool
+
+    /// The device's mute state, or `nil` when it has no settable mute control.
+    func isMuted(_ deviceID: AudioDeviceID) -> Bool?
+
+    /// Sets the device's mute state. Returns `false` on failure.
+    @discardableResult
+    func setMuted(_ muted: Bool, on deviceID: AudioDeviceID) -> Bool
+
+    /// The device's main volume in `0...1`, or `nil` when it has no
+    /// software-settable volume.
     func volume(of deviceID: AudioDeviceID) -> Float?
 
-    /// Sets the main volume of a specific device. Returns `false` on failure.
+    /// Sets the device's main volume. Returns `false` on failure.
     @discardableResult
     func setVolume(_ volume: Float, of deviceID: AudioDeviceID) -> Bool
 }
 
-// MARK: - SystemOutputVolumeControl
+// MARK: - SystemOutputAudioControl
 
-/// CoreAudio implementation of `OutputVolumeControlling`. Not unit-tested:
+/// CoreAudio implementation of `OutputAudioControlling`. Not unit-tested:
 /// it is thin, and its behaviour depends on the output device in use.
-final class SystemOutputVolumeControl: OutputVolumeControlling {
+final class SystemOutputAudioControl: OutputAudioControlling {
 
-    private var volumeAddress = AudioObjectPropertyAddress(
-        mSelector: kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
-        mScope: kAudioDevicePropertyScopeOutput,
-        mElement: kAudioObjectPropertyElementMain
-    )
+    private let systemObject = AudioObjectID(kAudioObjectSystemObject)
 
-    func defaultOutput() -> OutputVolumeSnapshot? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var deviceID = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
-        )
-        guard status == noErr, deviceID != kAudioObjectUnknown else { return nil }
-        guard let volume = volume(of: deviceID) else { return nil }
-        return OutputVolumeSnapshot(deviceID: deviceID, volume: volume)
+    func defaultOutputDevice() -> OutputDevice? {
+        var deviceID = AudioDeviceID(kAudioObjectUnknown)
+        guard read(systemObject, kAudioHardwarePropertyDefaultOutputDevice, into: &deviceID),
+              deviceID != kAudioObjectUnknown,
+              let uid = uid(of: deviceID) else { return nil }
+        return OutputDevice(id: deviceID, uid: uid)
+    }
+
+    func deviceID(forUID uid: String) -> AudioDeviceID? {
+        objectList(kAudioHardwarePropertyDevices).first { self.uid(of: $0) == uid }
+    }
+
+    func isOtherAudioPlaying(on deviceID: AudioDeviceID) -> Bool {
+        // Process objects let VocaMac's own cue be told apart from other
+        // apps' audio. Before macOS 14.2, fall back to whether anything at
+        // all is running on the device.
+        if #available(macOS 14.2, *) {
+            let ownPID = ProcessInfo.processInfo.processIdentifier
+            let processes = objectList(kAudioHardwarePropertyProcessObjectList)
+            if !processes.isEmpty {
+                return processes.contains { process in
+                    var pid: pid_t = 0
+                    var isRunningOutput: UInt32 = 0
+                    return read(process, kAudioProcessPropertyPID, into: &pid)
+                        && pid != ownPID
+                        && read(process, kAudioProcessPropertyIsRunningOutput, into: &isRunningOutput)
+                        && isRunningOutput != 0
+                }
+            }
+        }
+        var isRunning: UInt32 = 0
+        guard read(deviceID, kAudioDevicePropertyDeviceIsRunningSomewhere, into: &isRunning) else {
+            // Unknown: muting something silent is harmless, missing music is not.
+            return true
+        }
+        return isRunning != 0
+    }
+
+    func isMuted(_ deviceID: AudioDeviceID) -> Bool? {
+        guard isSettable(deviceID, kAudioDevicePropertyMute) else { return nil }
+        var muted: UInt32 = 0
+        guard read(deviceID, kAudioDevicePropertyMute, scope: kAudioDevicePropertyScopeOutput, into: &muted) else {
+            return nil
+        }
+        return muted != 0
+    }
+
+    @discardableResult
+    func setMuted(_ muted: Bool, on deviceID: AudioDeviceID) -> Bool {
+        write(deviceID, kAudioDevicePropertyMute, value: UInt32(muted ? 1 : 0))
     }
 
     func volume(of deviceID: AudioDeviceID) -> Float? {
-        guard AudioObjectHasProperty(deviceID, &volumeAddress) else { return nil }
-        var settable: DarwinBoolean = false
-        guard AudioObjectIsPropertySettable(deviceID, &volumeAddress, &settable) == noErr,
-              settable.boolValue else { return nil }
+        guard isSettable(deviceID, kAudioHardwareServiceDeviceProperty_VirtualMainVolume) else { return nil }
         var volume: Float32 = 0
-        var size = UInt32(MemoryLayout<Float32>.size)
-        guard AudioObjectGetPropertyData(deviceID, &volumeAddress, 0, nil, &size, &volume) == noErr else {
-            return nil
-        }
+        guard read(
+            deviceID,
+            kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            scope: kAudioDevicePropertyScopeOutput,
+            into: &volume
+        ) else { return nil }
         return volume
     }
 
     @discardableResult
     func setVolume(_ volume: Float, of deviceID: AudioDeviceID) -> Bool {
-        var value = Float32(min(max(volume, 0), 1))
-        let size = UInt32(MemoryLayout<Float32>.size)
-        return AudioObjectSetPropertyData(deviceID, &volumeAddress, 0, nil, size, &value) == noErr
+        write(
+            deviceID,
+            kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+            value: Float32(min(max(volume, 0), 1))
+        )
+    }
+
+    // MARK: Property access
+
+    private func uid(of deviceID: AudioDeviceID) -> String? {
+        var uid: Unmanaged<CFString>?
+        guard read(deviceID, kAudioDevicePropertyDeviceUID, into: &uid), let uid else { return nil }
+        return uid.takeRetainedValue() as String
+    }
+
+    private func objectList(_ selector: AudioObjectPropertySelector) -> [AudioObjectID] {
+        var address = Self.address(selector, scope: kAudioObjectPropertyScopeGlobal)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(systemObject, &address, 0, nil, &size) == noErr else { return [] }
+        let stride = MemoryLayout<AudioObjectID>.stride
+        var objects = [AudioObjectID](repeating: 0, count: Int(size) / stride)
+        guard !objects.isEmpty,
+              AudioObjectGetPropertyData(systemObject, &address, 0, nil, &size, &objects) == noErr else { return [] }
+        return Array(objects.prefix(Int(size) / stride))
+    }
+
+    private func isSettable(_ deviceID: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> Bool {
+        var address = Self.address(selector, scope: kAudioDevicePropertyScopeOutput)
+        guard AudioObjectHasProperty(deviceID, &address) else { return false }
+        var settable: DarwinBoolean = false
+        return AudioObjectIsPropertySettable(deviceID, &address, &settable) == noErr && settable.boolValue
+    }
+
+    private func read<Value>(
+        _ object: AudioObjectID,
+        _ selector: AudioObjectPropertySelector,
+        scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal,
+        into value: inout Value
+    ) -> Bool {
+        var address = Self.address(selector, scope: scope)
+        var size = UInt32(MemoryLayout<Value>.size)
+        return withUnsafeMutablePointer(to: &value) { pointer in
+            AudioObjectGetPropertyData(object, &address, 0, nil, &size, pointer) == noErr
+        }
+    }
+
+    private func write<Value>(
+        _ deviceID: AudioDeviceID,
+        _ selector: AudioObjectPropertySelector,
+        value: Value
+    ) -> Bool {
+        var address = Self.address(selector, scope: kAudioDevicePropertyScopeOutput)
+        let size = UInt32(MemoryLayout<Value>.size)
+        return withUnsafePointer(to: value) { pointer in
+            AudioObjectSetPropertyData(deviceID, &address, 0, nil, size, pointer) == noErr
+        }
+    }
+
+    private static func address(
+        _ selector: AudioObjectPropertySelector,
+        scope: AudioObjectPropertyScope
+    ) -> AudioObjectPropertyAddress {
+        AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
     }
 }
 
 // MARK: - AudioDucker
 
-/// Ducks the default output for the duration of a recording and restores it
-/// afterwards. The volume is shared system state, so the rules are
-/// conservative: restore only what was lowered, only on the device it was
-/// lowered on, and only if nobody moved the slider in between.
+/// Mutes the default output for the duration of a recording and unmutes it
+/// afterwards. The output is shared system state, so the rules are
+/// conservative:
 ///
-/// Pending restores are keyed by device so an unresolved restore on one
-/// output does not block ducking a different readable output, and is never
-/// discarded just to start that later duck. They are also persisted, so a
-/// crash mid-dictation does not leave the Mac quiet: the next launch calls
-/// `restoreAfterUnexpectedExit()`.
+/// - Only touch the output when another app is actually playing.
+/// - Never take over a mute the user set; if they unmute during the
+///   recording, do not mute again.
+/// - Undo only on the device that was muted, found by UID so a reconnect or
+///   relaunch still finds it.
+/// - Undoing is idempotent: it acts only while the device is still silenced
+///   the way the ducker left it. That makes it safe to repeat once the output
+///   route has settled — a Bluetooth headset leaves its call profile a couple
+///   of seconds after the microphone closes — and after a crash.
+///
+/// Devices without a mute control get their volume set to zero and put back
+/// to the exact previous level, which, unlike lowering it partway, needs no
+/// tolerance to tell "still where we left it" from "the user moved it".
 final class AudioDucker: AudioDucking {
 
-    /// What `restore()` needs: where the volume was, and where it was put.
-    struct PendingRestore: Codable, Equatable {
-        let deviceID: UInt32
-        let originalVolume: Float
-        let duckedVolume: Float
+    /// How a device was silenced, which decides how it is undone.
+    enum Silencing: Codable, Equatable {
+        /// Muted with the device's mute control. `volume` is the main volume
+        /// at that moment: some USB drivers mute by zeroing it and leave it
+        /// there after unmuting.
+        case muted(volume: Float?)
+        /// The device has no working mute control, so its volume was set to
+        /// zero from `volume`.
+        case zeroedVolume(from: Float)
     }
 
-    static let pendingRestoreKey = "vocamac.duckOtherAudio.pendingRestore"
+    /// A device the ducker silenced and has not yet undone.
+    struct PendingRestore: Codable, Equatable {
+        let deviceUID: String
+        let silencing: Silencing
+        let date: Date
+    }
 
-    /// Fraction of the current volume kept while dictating. Loud enough to
-    /// keep following a video, quiet enough not to reach the microphone.
-    static let duckedFraction: Float = 0.25
+    static let pendingRestoreKey = "vocamac.duckOtherAudio.pendingMute"
+    /// Written by the volume-lowering version of this feature. Its records
+    /// cannot be trusted (see the file header), so they are dropped.
+    static let legacyPendingRestoreKey = "vocamac.duckOtherAudio.pendingRestore"
 
-    /// Volumes closer than this count as untouched. CoreAudio may hand back
-    /// a value that differs from what was set by float rounding.
-    static let volumeTolerance: Float = 0.01
+    /// Volumes at or below this count as silent.
+    static let silentVolume: Float = 0.01
 
-    private let control: OutputVolumeControlling
+    /// How long after a recording ends to check the output once more. A
+    /// Bluetooth headset takes about two seconds to leave its call profile
+    /// after the microphone closes.
+    static let settleDelay: TimeInterval = 3
+
+    /// A pending restore older than this is dropped rather than applied: the
+    /// device has been gone too long to assume its state is still ours.
+    static let maxPendingAge: TimeInterval = 24 * 60 * 60
+
+    private let control: OutputAudioControlling
     private let defaults: UserDefaults
-    /// Unresolved restores keyed by CoreAudio device ID.
-    private var pending: [UInt32: PendingRestore] = [:]
+    private let now: () -> Date
+    private let schedule: (TimeInterval, @escaping () -> Void) -> Void
+
+    /// Silenced and not yet undone, keyed by device UID. Persisted.
+    private var pending: [String: PendingRestore] = [:]
+    /// Undone at the end of the last recording, awaiting the settle check.
+    private var settling: [String: PendingRestore] = [:]
+    /// Bumped to cancel a scheduled settle check.
+    private var settleGeneration = 0
 
     init(
-        control: OutputVolumeControlling = SystemOutputVolumeControl(),
-        defaults: UserDefaults = .standard
+        control: OutputAudioControlling = SystemOutputAudioControl(),
+        defaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        schedule: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        }
     ) {
         self.control = control
         self.defaults = defaults
+        self.now = now
+        self.schedule = schedule
     }
 
     // MARK: AudioDucking
 
     func duck() {
-        guard let output = control.defaultOutput() else {
-            VocaLogger.info(.audioDucker, "Default output has no software volume — not ducking")
+        // Run a settle check still waiting on the last recording now, so a
+        // device it would have unmuted is not mistaken for a user's mute.
+        settleGeneration += 1
+        runSettleCheck(reason: "before a new recording")
+
+        guard let output = control.defaultOutputDevice() else {
+            VocaLogger.info(.audioDucker, "No default output device — not muting")
             return
         }
-        guard pending[output.deviceID] == nil else {
-            VocaLogger.debug(.audioDucker, "Already ducked — ignoring second duck")
+        guard pending[output.uid] == nil else {
+            VocaLogger.debug(.audioDucker, "Output is still muted from an earlier recording — leaving it")
+            return
+        }
+        guard control.isOtherAudioPlaying(on: output.id) else {
+            VocaLogger.debug(.audioDucker, "Nothing else is playing — leaving the output alone")
             return
         }
 
-        let hadPending = !pending.isEmpty
-        attemptRestore(except: output.deviceID, reason: "before ducking another device")
+        let volume = control.volume(of: output.id)
+        if let isMuted = control.isMuted(output.id) {
+            if isMuted {
+                VocaLogger.info(.audioDucker, "Output is already muted — leaving it as the user set it")
+                return
+            }
+            if control.setMuted(true, on: output.id), control.isMuted(output.id) == true {
+                record(output, .muted(volume: volume))
+                VocaLogger.info(.audioDucker, "Muted device \(output.id) while dictating")
+                return
+            }
+            // Some drivers acknowledge the write and do nothing. Put the flag
+            // back in case it half-applied, then use the volume instead.
+            control.setMuted(false, on: output.id)
+            VocaLogger.warning(.audioDucker, "Mute did not take on device \(output.id) — using the volume instead")
+        }
 
-        let target = output.volume * Self.duckedFraction
-        guard output.volume - target > Self.volumeTolerance else {
-            VocaLogger.debug(.audioDucker, "Output already at \(Self.percent(output.volume)) — nothing to duck")
-            if hadPending { persistPending() }
+        guard let volume else {
+            VocaLogger.info(.audioDucker, "Output has no mute or software volume (e.g. HDMI) — not muting")
             return
         }
-        guard control.setVolume(target, of: output.deviceID) else {
-            VocaLogger.warning(.audioDucker, "Could not set volume on device \(output.deviceID)")
-            if hadPending { persistPending() }
+        guard volume > Self.silentVolume else {
+            VocaLogger.debug(.audioDucker, "Output volume is already at zero — nothing to mute")
             return
         }
-        let record = PendingRestore(
-            deviceID: output.deviceID,
-            originalVolume: output.volume,
-            duckedVolume: target
-        )
-        pending[output.deviceID] = record
-        persistPending()
-        VocaLogger.info(
-            .audioDucker,
-            "Ducked device \(output.deviceID): \(Self.percent(output.volume)) → \(Self.percent(target))"
-        )
+        guard control.setVolume(0, of: output.id) else {
+            VocaLogger.warning(.audioDucker, "Could not set the volume on device \(output.id)")
+            return
+        }
+        record(output, .zeroedVolume(from: volume))
+        VocaLogger.info(.audioDucker, "Set device \(output.id) to 0% while dictating (was \(Self.percent(volume)))")
     }
 
     func restore() {
         guard !pending.isEmpty else { return }
-        attemptRestore(reason: "recording ended")
+        let undone = undoPending(reason: "recording ended")
         persistPending()
+        guard !undone.isEmpty || !pending.isEmpty else { return }
+        for record in undone {
+            settling[record.deviceUID] = record
+        }
+        scheduleSettleCheck()
     }
 
     func restoreAfterUnexpectedExit() {
-        if pending.isEmpty {
-            pending = loadPersisted()
+        defaults.removeObject(forKey: Self.legacyPendingRestoreKey)
+        for record in loadPersisted() where pending[record.deviceUID] == nil {
+            pending[record.deviceUID] = record
         }
         guard !pending.isEmpty else { return }
-        attemptRestore(reason: "previous run ended while ducked")
+        undoPending(reason: "previous run ended while muted")
         persistPending()
     }
 
-    // MARK: Restore policy
+    // MARK: Undo
 
-    /// Applies the restore policy for `record`.
-    /// - Returns: `true` when the pending record may be discarded, `false` when
-    ///   it must be kept so a later retry can still restore the original volume.
-    ///
-    /// Discard (`true`) when the restore write succeeded, or the user moved
-    /// the volume outside ducked tolerance.
-    /// Keep (`false`) when `setVolume` failed while still at the ducked volume,
-    /// or `volume(of:)` returned nil (device unreadability / transient failure).
-    private func finishRestore(_ record: PendingRestore, reason: String) -> Bool {
-        guard let current = control.volume(of: record.deviceID) else {
-            VocaLogger.warning(
-                .audioDucker,
-                "Could not read volume on device \(record.deviceID) — keeping pending restore for retry (\(reason))"
-            )
-            return false
+    /// Undoes every pending record whose device is connected, removing the
+    /// ones that are finished. Records whose device is missing or whose
+    /// write failed stay pending for a later retry; stale ones are dropped.
+    /// - Returns: the records that were removed because they are finished.
+    @discardableResult
+    private func undoPending(reason: String) -> [PendingRestore] {
+        var finished: [PendingRestore] = []
+        for (uid, record) in pending {
+            if now().timeIntervalSince(record.date) > Self.maxPendingAge {
+                VocaLogger.info(.audioDucker, "Dropping a mute too old to undo safely")
+                pending.removeValue(forKey: uid)
+                continue
+            }
+            guard let deviceID = control.deviceID(forUID: uid) else {
+                VocaLogger.info(.audioDucker, "The muted output is not connected — will unmute it when it is (\(reason))")
+                continue
+            }
+            if undo(record, on: deviceID, reason: reason) {
+                pending.removeValue(forKey: uid)
+                finished.append(record)
+            }
         }
-        guard abs(current - record.duckedVolume) <= Self.volumeTolerance else {
-            VocaLogger.info(
-                .audioDucker,
-                "Volume moved to \(Self.percent(current)) while ducked — leaving it alone (\(reason))"
-            )
+        return finished
+    }
+
+    /// Puts `deviceID` back if it is still silenced the way `record` says.
+    /// Idempotent: a device that is no longer silenced — already undone, or
+    /// changed by the user — is left alone.
+    /// - Returns: `true` when finished, `false` when a write failed and a
+    ///   retry may still help.
+    private func undo(_ record: PendingRestore, on deviceID: AudioDeviceID, reason: String) -> Bool {
+        switch record.silencing {
+        case .muted(let volume):
+            if control.isMuted(deviceID) == true {
+                guard control.setMuted(false, on: deviceID) else {
+                    VocaLogger.warning(.audioDucker, "Could not unmute device \(deviceID) (\(reason))")
+                    return false
+                }
+                VocaLogger.info(.audioDucker, "Unmuted device \(deviceID) (\(reason))")
+            }
+            if let volume {
+                restoreVolumeIfZeroed(volume, on: deviceID, reason: reason)
+            }
             return true
-        }
-        if control.setVolume(record.originalVolume, of: record.deviceID) {
-            VocaLogger.info(
-                .audioDucker,
-                "Restored device \(record.deviceID) to \(Self.percent(record.originalVolume)) (\(reason))"
-            )
+
+        case .zeroedVolume(let volume):
+            guard let current = control.volume(of: deviceID) else {
+                VocaLogger.warning(.audioDucker, "Could not read the volume on device \(deviceID) (\(reason))")
+                return false
+            }
+            guard current <= Self.silentVolume else { return true }
+            guard control.setVolume(volume, of: deviceID) else {
+                VocaLogger.warning(.audioDucker, "Could not restore the volume on device \(deviceID) (\(reason))")
+                return false
+            }
+            VocaLogger.info(.audioDucker, "Restored device \(deviceID) to \(Self.percent(volume)) (\(reason))")
             return true
-        } else {
-            VocaLogger.warning(.audioDucker, "Could not restore volume on device \(record.deviceID) (\(reason))")
-            return false
         }
     }
 
-    // MARK: Pending set
+    /// Covers drivers that mute by zeroing the volume and leave it there.
+    private func restoreVolumeIfZeroed(_ volume: Float, on deviceID: AudioDeviceID, reason: String) {
+        guard volume > Self.silentVolume,
+              let current = control.volume(of: deviceID),
+              current <= Self.silentVolume,
+              control.setVolume(volume, of: deviceID) else { return }
+        VocaLogger.info(
+            .audioDucker,
+            "Unmuting left device \(deviceID) at 0% — restored \(Self.percent(volume)) (\(reason))"
+        )
+    }
 
-    /// Runs `finishRestore` for every pending record except `excludedDeviceID`.
-    /// Removes only records that finish successfully; unreadable and failed-write
-    /// pendings stay so a later retry can still restore them.
-    private func attemptRestore(except excludedDeviceID: UInt32? = nil, reason: String) {
-        let deviceIDs = pending.keys.filter { $0 != excludedDeviceID }
-        for deviceID in deviceIDs {
-            guard let record = pending[deviceID] else { continue }
-            if finishRestore(record, reason: reason) {
-                pending.removeValue(forKey: deviceID)
-            }
+    // MARK: Settle check
+
+    private func scheduleSettleCheck() {
+        settleGeneration += 1
+        let generation = settleGeneration
+        schedule(Self.settleDelay) { [weak self] in
+            guard let self, self.settleGeneration == generation else { return }
+            self.runSettleCheck(reason: "output settled")
         }
+    }
+
+    /// Undoes once more what the last recording's restore undid, in case the
+    /// output route switched back to a silenced state, and retries anything
+    /// still pending.
+    private func runSettleCheck(reason: String) {
+        if !pending.isEmpty {
+            undoPending(reason: reason)
+        }
+        let records = settling
+        settling = [:]
+        for (uid, record) in records {
+            if let deviceID = control.deviceID(forUID: uid),
+               undo(record, on: deviceID, reason: reason) {
+                continue
+            }
+            // The device left mid-switch, or the unmute failed: keep the
+            // record so the next recording or launch tries again.
+            pending[uid] = pending[uid] ?? record
+        }
+        persistPending()
     }
 
     // MARK: Persistence
 
-    /// Encodes the full pending set so a crash mid-dictation can restore later.
-    /// An empty set clears the key rather than leaving a stale record.
+    private func record(_ output: OutputDevice, _ silencing: Silencing) {
+        pending[output.uid] = PendingRestore(deviceUID: output.uid, silencing: silencing, date: now())
+        persistPending()
+    }
+
+    /// Saves the pending set so a crash mid-dictation can be undone on the
+    /// next launch. An empty set clears the key.
     private func persistPending() {
         guard !pending.isEmpty else {
             defaults.removeObject(forKey: Self.pendingRestoreKey)
             return
         }
-        let records = pending.values.sorted { $0.deviceID < $1.deviceID }
+        let records = pending.values.sorted { $0.deviceUID < $1.deviceUID }
         guard let data = try? JSONEncoder().encode(records) else { return }
         defaults.set(data, forKey: Self.pendingRestoreKey)
     }
 
-    /// Reads pending restores left by a previous run. Accepts both the current
-    /// array encoding and a legacy single `PendingRestore` object.
-    private func loadPersisted() -> [UInt32: PendingRestore] {
-        guard let data = defaults.data(forKey: Self.pendingRestoreKey) else { return [:] }
-        if let records = try? JSONDecoder().decode([PendingRestore].self, from: data) {
-            var map: [UInt32: PendingRestore] = [:]
-            for record in records {
-                map[record.deviceID] = record
-            }
-            return map
-        }
-        if let record = try? JSONDecoder().decode(PendingRestore.self, from: data) {
-            return [record.deviceID: record]
-        }
-        return [:]
+    private func loadPersisted() -> [PendingRestore] {
+        guard let data = defaults.data(forKey: Self.pendingRestoreKey) else { return [] }
+        return (try? JSONDecoder().decode([PendingRestore].self, from: data)) ?? []
     }
 
     /// Formats `volume` as a whole-number percent for log lines.

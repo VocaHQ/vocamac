@@ -208,7 +208,7 @@ enum SettingsSearchIndex {
             id: "other-audio",
             page: .audio,
             title: "Other Audio",
-            subtitle: "Lower music while dictating",
+            subtitle: "Mute music while dictating",
             keywords: ["duck", "mute", "music", "volume", "quiet", "lower", "playback", "youtube"]
         ),
 

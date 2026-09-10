@@ -1,7 +1,7 @@
 // AppStateDuckingTests.swift
 // VocaMac Tests
 //
-// Other audio is lowered when the microphone opens and restored on every way
+// Other audio is muted once the microphone is live and restored on every way
 // a recording can end — not only the happy path.
 
 import AppKit
@@ -13,6 +13,7 @@ final class AppStateDuckingTests: XCTestCase {
 
     override func tearDown() {
         UserDefaults.standard.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
+        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
         super.tearDown()
     }
 
@@ -42,6 +43,39 @@ final class AppStateDuckingTests: XCTestCase {
         await appState.stopRecordingAndTranscribe()
 
         XCTAssertEqual(mocks.audioDucker.duckCallCount, 0)
+    }
+
+    func testStartCueFinishesBeforeOtherAudioIsMuted() async {
+        let (appState, mocks) = makeDuckingState()
+        appState.soundEffectsEnabled = true
+        var cuesPlayedBeforeMute: [MockSoundManager.PlayEvent] = []
+        mocks.audioDucker.onDuck = { cuesPlayedBeforeMute = mocks.soundManager.playLog }
+
+        await appState.startRecording()
+
+        XCTAssertEqual(cuesPlayedBeforeMute, [.startAsync], "Muting first would silence the cue")
+        XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0)
+    }
+
+    func testCueStaysFireAndForgetWhenMutingIsOff() async {
+        let (appState, mocks) = makeDuckingState()
+        appState.duckOtherAudioEnabled = false
+        appState.soundEffectsEnabled = true
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.soundManager.playLog, [.start])
+    }
+
+    func testRecordingThatEndsDuringTheCueIsNeverMuted() async {
+        let (appState, mocks) = makeDuckingState()
+        appState.soundEffectsEnabled = true
+        mocks.soundManager.whileStartSoundAsyncPlays = { await appState.cancelRecording() }
+
+        await appState.startRecording()
+
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertEqual(mocks.audioDucker.duckCallCount, 0, "Muting after the recording ended would strand the mute")
     }
 
     func testDeniedMicrophoneNeverDucks() async {
@@ -82,14 +116,14 @@ final class AppStateDuckingTests: XCTestCase {
         XCTAssertEqual(mocks.audioDucker.restoreCallCount, 1)
     }
 
-    func testFailedAudioEngineStartRestores() async {
+    func testFailedAudioEngineStartNeverMutes() async {
         let (appState, mocks) = makeDuckingState()
         mocks.audioEngine.startRecordingResult = false
 
         await appState.startRecording()
 
-        XCTAssertEqual(mocks.audioDucker.duckCallCount, 1, "Ducked before the engine was asked to start")
-        XCTAssertEqual(mocks.audioDucker.restoreCallCount, 1, "…and undone when the start failed")
+        XCTAssertEqual(mocks.audioDucker.duckCallCount, 0, "No live microphone, so playback is left alone")
+        XCTAssertFalse(appState.isRecording)
     }
 
     func testInputDeviceChangeMidRecordingRestores() async {

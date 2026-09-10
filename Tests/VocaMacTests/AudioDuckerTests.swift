@@ -1,35 +1,86 @@
 // AudioDuckerTests.swift
 // VocaMac Tests
 //
-// The ducking policy against a fake output device. The volume is shared
-// system state, so most of these pin down when the ducker must *not* touch it.
+// The mute-while-dictating policy against a fake output device. The output
+// is shared system state, so most of these pin down when the ducker must
+// *not* touch it, and that whatever it did touch always comes back.
 
+import CoreAudio
 import XCTest
 @testable import VocaMac
 
 // MARK: - Fake output
 
-final class FakeOutputVolumeControl: OutputVolumeControlling {
-    /// Volumes by device. A device missing here "has no software volume".
-    var volumes: [UInt32: Float] = [:]
-    var defaultDeviceID: UInt32? = 1
-    var setCalls: [(deviceID: UInt32, volume: Float)] = []
-    var setShouldFail = false
-
-    func defaultOutput() -> OutputVolumeSnapshot? {
-        guard let id = defaultDeviceID, let volume = volumes[id] else { return nil }
-        return OutputVolumeSnapshot(deviceID: id, volume: volume)
+final class FakeOutputAudioControl: OutputAudioControlling {
+    struct Device {
+        var id: AudioDeviceID
+        /// `nil`: the device has no mute control.
+        var muted: Bool?
+        /// `nil`: the device has no software volume.
+        var volume: Float?
+        var isOtherAudioPlaying = true
     }
 
-    func volume(of deviceID: UInt32) -> Float? {
-        volumes[deviceID]
+    /// Devices by UID. A device missing here is not connected.
+    var devices: [String: Device] = [:]
+    var defaultUID: String? = "speakers"
+
+    var setMutedShouldFail = false
+    /// Drivers that acknowledge a mute write and do nothing.
+    var muteWritesAreIgnored = false
+    /// Drivers that mute by zeroing the volume, and leave it at zero on unmute.
+    var muteZeroesVolume = false
+    var setVolumeShouldFail = false
+
+    private(set) var muteWrites: [(uid: String, muted: Bool)] = []
+    private(set) var volumeWrites: [(uid: String, volume: Float)] = []
+
+    var writeCount: Int { muteWrites.count + volumeWrites.count }
+
+    private func uid(of deviceID: AudioDeviceID) -> String? {
+        devices.first { $0.value.id == deviceID }?.key
+    }
+
+    func defaultOutputDevice() -> OutputDevice? {
+        guard let uid = defaultUID, let device = devices[uid] else { return nil }
+        return OutputDevice(id: device.id, uid: uid)
+    }
+
+    func deviceID(forUID uid: String) -> AudioDeviceID? {
+        devices[uid]?.id
+    }
+
+    func isOtherAudioPlaying(on deviceID: AudioDeviceID) -> Bool {
+        uid(of: deviceID).flatMap { devices[$0]?.isOtherAudioPlaying } ?? false
+    }
+
+    func isMuted(_ deviceID: AudioDeviceID) -> Bool? {
+        uid(of: deviceID).flatMap { devices[$0]?.muted }
     }
 
     @discardableResult
-    func setVolume(_ volume: Float, of deviceID: UInt32) -> Bool {
-        setCalls.append((deviceID, volume))
-        guard !setShouldFail, volumes[deviceID] != nil else { return false }
-        volumes[deviceID] = volume
+    func setMuted(_ muted: Bool, on deviceID: AudioDeviceID) -> Bool {
+        guard let uid = uid(of: deviceID), devices[uid]?.muted != nil else { return false }
+        muteWrites.append((uid, muted))
+        guard !setMutedShouldFail else { return false }
+        guard !muteWritesAreIgnored else { return true }
+        devices[uid]?.muted = muted
+        if muted && muteZeroesVolume {
+            devices[uid]?.volume = 0
+        }
+        return true
+    }
+
+    func volume(of deviceID: AudioDeviceID) -> Float? {
+        uid(of: deviceID).flatMap { devices[$0]?.volume }
+    }
+
+    @discardableResult
+    func setVolume(_ volume: Float, of deviceID: AudioDeviceID) -> Bool {
+        guard let uid = uid(of: deviceID), devices[uid]?.volume != nil else { return false }
+        volumeWrites.append((uid, volume))
+        guard !setVolumeShouldFail else { return false }
+        devices[uid]?.volume = volume
         return true
     }
 }
@@ -40,288 +91,387 @@ final class AudioDuckerTests: XCTestCase {
 
     private var defaults: UserDefaults!
     private var suiteName: String!
-    private var control: FakeOutputVolumeControl!
+    private var control: FakeOutputAudioControl!
+    private var clock = Date(timeIntervalSince1970: 1_800_000_000)
+    private var scheduled: [(delay: TimeInterval, work: () -> Void)] = []
 
     override func setUp() {
         super.setUp()
         suiteName = "AudioDuckerTests.\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suiteName)
-        control = FakeOutputVolumeControl()
-        control.volumes = [1: 0.8]
+        control = FakeOutputAudioControl()
+        control.devices = ["speakers": .init(id: 10, muted: false, volume: 0.8)]
+        scheduled = []
     }
 
     override func tearDown() {
         defaults.removePersistentDomain(forName: suiteName)
         defaults = nil
+        control = nil
         super.tearDown()
     }
 
     private func makeDucker() -> AudioDucker {
-        AudioDucker(control: control, defaults: defaults)
+        AudioDucker(
+            control: control,
+            defaults: defaults,
+            now: { [unowned self] in self.clock },
+            schedule: { [unowned self] delay, work in self.scheduled.append((delay, work)) }
+        )
     }
 
-    /// Production persists an array of records; older builds stored one object.
-    private func persistedRecords() -> [AudioDucker.PendingRestore]? {
-        guard let data = defaults.data(forKey: AudioDucker.pendingRestoreKey) else { return nil }
-        if let records = try? JSONDecoder().decode([AudioDucker.PendingRestore].self, from: data) {
-            return records
-        }
-        if let record = try? JSONDecoder().decode(AudioDucker.PendingRestore.self, from: data) {
-            return [record]
-        }
-        return nil
+    /// Runs the settle check the ducker scheduled, as if its delay had passed.
+    private func runScheduled() {
+        let work = scheduled
+        scheduled = []
+        work.forEach { $0.work() }
+    }
+
+    private func persistedRecords() -> [AudioDucker.PendingRestore] {
+        guard let data = defaults.data(forKey: AudioDucker.pendingRestoreKey) else { return [] }
+        return (try? JSONDecoder().decode([AudioDucker.PendingRestore].self, from: data)) ?? []
+    }
+
+    private func speakers() -> FakeOutputAudioControl.Device? {
+        control.devices["speakers"]
     }
 
     // MARK: Happy path
 
-    func testDuckLowersToAQuarterAndRestoreBringsItBack() {
+    func testMutesWhileDictatingAndUnmutesAfterwards() {
         let ducker = makeDucker()
 
         ducker.duck()
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
+        XCTAssertEqual(speakers()?.muted, true)
 
         ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(speakers()?.volume, 0.8, "Muting never touches the volume")
+        XCTAssertTrue(control.volumeWrites.isEmpty)
     }
 
-    // MARK: Leave the volume alone when…
+    func testRestoreSchedulesOneSettleCheck() {
+        let ducker = makeDucker()
+        ducker.duck()
+        ducker.restore()
 
-    func testNoSoftwareVolumeMeansNothingHappens() {
-        control.volumes = [:]
+        XCTAssertEqual(scheduled.count, 1)
+        XCTAssertEqual(scheduled.first?.delay, AudioDucker.settleDelay)
+
+        runScheduled()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(control.muteWrites.count, 2, "Mute, unmute — the settle check finds nothing left to do")
+    }
+
+    // MARK: Leave the output alone when…
+
+    func testNothingPlayingMeansTheOutputIsNotTouched() {
+        control.devices["speakers"]?.isOtherAudioPlaying = false
         let ducker = makeDucker()
 
         ducker.duck()
         ducker.restore()
 
-        XCTAssertTrue(control.setCalls.isEmpty)
+        XCTAssertEqual(control.writeCount, 0)
+        XCTAssertTrue(scheduled.isEmpty)
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 
-    func testAlreadyQuietOutputIsNotTouched() {
-        control.volumes = [1: 0.0]
+    func testAMuteTheUserSetStaysTheirs() {
+        control.devices["speakers"]?.muted = true
         let ducker = makeDucker()
 
         ducker.duck()
         ducker.restore()
+        runScheduled()
 
-        XCTAssertTrue(control.setCalls.isEmpty, "Ducking silence would only record a pointless restore")
+        XCTAssertEqual(speakers()?.muted, true, "VocaMac did not mute it, so it must not unmute it")
+        XCTAssertEqual(control.writeCount, 0)
     }
 
-    func testUserMovingTheSliderWhileDuckedWinsOverRestore() {
+    func testUnmutingMidDictationIsRespected() {
         let ducker = makeDucker()
         ducker.duck()
 
-        control.volumes[1] = 0.6  // the user turned it up mid-dictation
+        control.devices["speakers"]?.muted = false  // volume key mid-dictation
 
         ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.6, accuracy: 0.001, "Their choice stands")
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey), "User-moved volume is terminal; drop the record")
+        runScheduled()
+
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(control.muteWrites.count, 1, "Only the original mute — nothing re-muted or re-unmuted")
     }
 
-    func testRestoreTargetsTheDeviceThatWasDuckedNotTheNewDefault() {
-        control.volumes = [1: 0.8, 2: 0.5]
+    func testNoDefaultOutputMeansNothingHappens() {
+        control.defaultUID = nil
         let ducker = makeDucker()
+
         ducker.duck()
-
-        control.defaultDeviceID = 2  // headphones plugged in mid-dictation
-
         ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001, "The speakers get their volume back")
-        XCTAssertEqual(control.volumes[2]!, 0.5, accuracy: 0.001, "The headphones were never touched")
+
+        XCTAssertEqual(control.writeCount, 0)
     }
 
-    func testDeviceGoneAtRestoreIsLeftAlone() {
+    func testOutputWithNeitherMuteNorVolumeIsSkipped() {
+        control.devices["speakers"] = .init(id: 10, muted: nil, volume: nil)
         let ducker = makeDucker()
+
         ducker.duck()
-
-        control.volumes = [:]
-        let callsBefore = control.setCalls.count
-
         ducker.restore()
-        XCTAssertEqual(control.setCalls.count, callsBefore, "No device to restore on")
-        XCTAssertNotNil(
-            defaults.data(forKey: AudioDucker.pendingRestoreKey),
-            "Nil volume read is not terminal; keep the record for retry"
-        )
-    }
 
-    func testNilVolumeReadKeepsPendingUntilALaterRestoreSucceeds() {
-        let ducker = makeDucker()
-        ducker.duck()
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
-
-        control.volumes = [:]
-        ducker.restore()
-        XCTAssertNotNil(
-            defaults.data(forKey: AudioDucker.pendingRestoreKey),
-            "Nil read keeps persistence so restore can retry"
-        )
-
-        control.volumes = [1: 0.2]
-        ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
+        XCTAssertEqual(control.writeCount, 0)
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 
-    func testUnreadablePendingAllowsASecondDuckOnADifferentDevice() {
+    // MARK: Bluetooth headsets (the reported bug)
+
+    /// AirPods report a separate volume while their microphone is open, and
+    /// return to the music-mode volume a couple of seconds after it closes.
+    /// The volume-lowering version read the call-mode volume at restore,
+    /// decided the user had moved the slider, and left music quiet; every
+    /// dictation then lowered it further until it was silent.
+    func testHeadsetVolumeSwitchingProfilesDoesNotStrandTheMute() {
+        control.devices = ["airpods": .init(id: 88, muted: false, volume: 0.69)]
+        control.defaultUID = "airpods"
         let ducker = makeDucker()
-        ducker.duck()
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
 
-        control.volumes = [:]
+        ducker.duck()
+        control.devices["airpods"]?.volume = 0.73  // mic open: call-mode volume
+
         ducker.restore()
-        XCTAssertNotNil(
-            defaults.data(forKey: AudioDucker.pendingRestoreKey),
-            "Nil volume read keeps the original pending restore"
-        )
+        control.devices["airpods"]?.volume = 0.69  // mic closed: music volume is back
+        runScheduled()
 
-        control.volumes = [2: 0.8]
-        control.defaultDeviceID = 2
-        ducker.duck()
+        XCTAssertEqual(control.devices["airpods"]?.muted, false)
+        XCTAssertEqual(control.devices["airpods"]?.volume, 0.69)
+        XCTAssertTrue(control.volumeWrites.isEmpty)
+    }
 
-        XCTAssertEqual(control.volumes[2]!, 0.2, accuracy: 0.001, "The new default output is ducked")
-        guard let records = persistedRecords() else {
-            XCTFail("Expected pending restores to remain persisted")
-            return
+    func testRepeatedDictationsNeverCompound() {
+        let ducker = makeDucker()
+
+        for _ in 0..<10 {
+            ducker.duck()
+            ducker.restore()
+            runScheduled()
         }
-        let byDevice = Dictionary(uniqueKeysWithValues: records.map { ($0.deviceID, $0) })
-        XCTAssertEqual(records.count, 2, "Ducking B must not discard A's unresolved pending")
-        XCTAssertEqual(byDevice[1]!.originalVolume, 0.8, accuracy: 0.001)
-        XCTAssertEqual(byDevice[1]!.duckedVolume, 0.2, accuracy: 0.001)
-        XCTAssertEqual(byDevice[2]!.originalVolume, 0.8, accuracy: 0.001)
-        XCTAssertEqual(byDevice[2]!.duckedVolume, 0.2, accuracy: 0.001)
 
-        control.volumes[1] = 0.2
-        ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001, "A is restored once it is readable again")
-        XCTAssertEqual(control.volumes[2]!, 0.8, accuracy: 0.001, "B is restored with A")
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(speakers()?.volume, 0.8)
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 
-    func testSecondDuckWhileDuckedIsIgnored() {
+    func testSettleCheckUnmutesIfTheRouteSwitchMutesAgain() {
         let ducker = makeDucker()
         ducker.duck()
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
-        XCTAssertEqual(control.setCalls.count, 1, "First duck writes the ducked volume once")
-        XCTAssertEqual(control.setCalls[0].volume, 0.2, accuracy: 0.001)
-
-        ducker.duck()
-        XCTAssertEqual(
-            control.setCalls.count, 1,
-            "A second duck must not restore then re-duck while volume is still readable"
-        )
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
-        XCTAssertNotNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-
         ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
+
+        control.devices["speakers"]?.muted = true  // profile switch brought the muted state back
+
+        runScheduled()
+        XCTAssertEqual(speakers()?.muted, false)
     }
 
-    func testRestoreWithoutDuckIsANoOp() {
-        let ducker = makeDucker()
-        ducker.restore()
-        XCTAssertTrue(control.setCalls.isEmpty)
-    }
-
-    func testSetFailureRecordsNothingToRestore() {
-        control.setShouldFail = true
-        let ducker = makeDucker()
-
-        ducker.duck()
-
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-        control.setShouldFail = false
-        ducker.restore()
-        XCTAssertEqual(control.setCalls.count, 1, "Only the failed duck attempt, no restore")
-    }
-
-    // MARK: Surviving a crash
-
-    func testPendingRestoreIsPersistedWhileDucked() {
+    func testSettleCheckThatCannotUnmuteKeepsTheRecordForRelaunch() {
         let ducker = makeDucker()
         ducker.duck()
-        XCTAssertNotNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-
         ducker.restore()
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-    }
+        XCTAssertTrue(persistedRecords().isEmpty)
 
-    func testNextLaunchRestoresAVolumeTheCrashedRunLeftLow() {
-        makeDucker().duck()
-        // Process dies here. `control.volumes[1]` is still 0.2.
+        control.devices["speakers"]?.muted = true
+        control.setMutedShouldFail = true
+        runScheduled()
+        XCTAssertEqual(persistedRecords().map(\.deviceUID), ["speakers"])
 
-        let relaunched = makeDucker()
-        relaunched.restoreAfterUnexpectedExit()
-
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-    }
-
-    func testNextLaunchLeavesAVolumeTheUserAlreadyFixed() {
-        makeDucker().duck()
-        control.volumes[1] = 0.5  // they turned it back up themselves
-
-        let relaunched = makeDucker()
-        relaunched.restoreAfterUnexpectedExit()
-
-        XCTAssertEqual(control.volumes[1]!, 0.5, accuracy: 0.001)
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey), "Stale record is cleared either way")
-    }
-
-    func testNextLaunchWithNothingPendingDoesNothing() {
+        control.setMutedShouldFail = false
         makeDucker().restoreAfterUnexpectedExit()
-        XCTAssertTrue(control.setCalls.isEmpty)
+        XCTAssertEqual(speakers()?.muted, false)
     }
 
-    func testLegacySinglePendingRestoreStillLoadsOnRelaunch() {
-        let legacy = AudioDucker.PendingRestore(deviceID: 1, originalVolume: 0.8, duckedVolume: 0.2)
-        guard let data = try? JSONEncoder().encode(legacy) else {
-            XCTFail("Failed to encode a legacy single pending restore")
-            return
-        }
-        defaults.set(data, forKey: AudioDucker.pendingRestoreKey)
-        control.volumes = [1: 0.2]
-
-        let relaunched = makeDucker()
-        relaunched.restoreAfterUnexpectedExit()
-
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
-        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-    }
-
-    // MARK: Failed restore keeps the record for retry
-
-    func testFailedRestoreKeepsPendingSoARetryCanSucceed() {
+    func testANewRecordingRunsTheWaitingSettleCheckFirst() {
         let ducker = makeDucker()
         ducker.duck()
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
-
-        control.setShouldFail = true
         ducker.restore()
 
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001, "Volume stays ducked when the write fails")
-        XCTAssertNotNil(defaults.data(forKey: AudioDucker.pendingRestoreKey), "Record stays so restore can retry")
+        control.devices["speakers"]?.muted = true  // route switch re-muted it
+        ducker.duck()  // next dictation, before the settle check fires
 
-        control.setShouldFail = false
+        XCTAssertEqual(speakers()?.muted, true)
+        XCTAssertEqual(persistedRecords().map(\.deviceUID), ["speakers"], "Muted by VocaMac, not the user")
         ducker.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
+        XCTAssertEqual(speakers()?.muted, false)
+    }
+
+    func testANewRecordingCancelsThePendingSettleCheck() {
+        let ducker = makeDucker()
+        ducker.duck()
+        ducker.restore()
+
+        ducker.duck()  // next dictation, before the settle check fires
+        XCTAssertEqual(speakers()?.muted, true)
+
+        runScheduled()
+        XCTAssertEqual(speakers()?.muted, true, "The stale check must not unmute the new recording")
+    }
+
+    // MARK: Devices without a working mute
+
+    func testNoMuteControlZeroesTheVolumeAndPutsTheExactLevelBack() {
+        control.devices["speakers"] = .init(id: 10, muted: nil, volume: 0.57)
+        let ducker = makeDucker()
+
+        ducker.duck()
+        XCTAssertEqual(speakers()?.volume, 0)
+
+        ducker.restore()
+        XCTAssertEqual(speakers()?.volume, 0.57)
+    }
+
+    func testZeroedVolumeTheUserTurnsUpIsLeftAlone() {
+        control.devices["speakers"] = .init(id: 10, muted: nil, volume: 0.57)
+        let ducker = makeDucker()
+        ducker.duck()
+
+        control.devices["speakers"]?.volume = 0.3
+
+        ducker.restore()
+        runScheduled()
+        XCTAssertEqual(speakers()?.volume, 0.3)
+    }
+
+    func testAlreadySilentOutputWithoutMuteIsNotTouched() {
+        control.devices["speakers"] = .init(id: 10, muted: nil, volume: 0)
+        let ducker = makeDucker()
+
+        ducker.duck()
+        ducker.restore()
+
+        XCTAssertEqual(control.writeCount, 0)
+    }
+
+    func testIgnoredMuteFallsBackToTheVolume() {
+        control.muteWritesAreIgnored = true
+        let ducker = makeDucker()
+
+        ducker.duck()
+        XCTAssertEqual(speakers()?.volume, 0)
+        XCTAssertEqual(control.muteWrites.map(\.muted), [true, false], "Tried, then put the flag back")
+
+        ducker.restore()
+        XCTAssertEqual(speakers()?.volume, 0.8)
+    }
+
+    func testDriverThatMutesByZeroingTheVolumeGetsItsVolumeBack() {
+        control.muteZeroesVolume = true
+        let ducker = makeDucker()
+
+        ducker.duck()
+        XCTAssertEqual(speakers()?.volume, 0)
+
+        ducker.restore()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(speakers()?.volume, 0.8)
+    }
+
+    // MARK: Device changes
+
+    func testRestoresTheDeviceItMutedEvenAfterTheDefaultChanged() {
+        control.devices["headphones"] = .init(id: 20, muted: false, volume: 0.5)
+        let ducker = makeDucker()
+        ducker.duck()
+
+        control.defaultUID = "headphones"  // headphones connected mid-dictation
+
+        ducker.restore()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertEqual(control.devices["headphones"]?.muted, false)
+        XCTAssertFalse(control.muteWrites.contains { $0.uid == "headphones" })
+    }
+
+    func testDisconnectedDeviceIsUnmutedWhenItComesBackUnderANewID() {
+        control.devices = ["airpods": .init(id: 88, muted: false, volume: 0.7)]
+        control.defaultUID = "airpods"
+        let ducker = makeDucker()
+        ducker.duck()
+
+        let airpods = control.devices.removeValue(forKey: "airpods")
+        ducker.restore()
+        XCTAssertEqual(persistedRecords().map(\.deviceUID), ["airpods"], "Kept for when it returns")
+
+        control.devices["airpods"] = airpods.map { .init(id: 131, muted: $0.muted, volume: $0.volume) }
+        runScheduled()
+
+        XCTAssertEqual(control.devices["airpods"]?.muted, false)
+        XCTAssertTrue(persistedRecords().isEmpty)
+    }
+
+    func testFailedUnmuteIsRetriedAtTheSettleCheck() {
+        let ducker = makeDucker()
+        ducker.duck()
+
+        control.setMutedShouldFail = true
+        ducker.restore()
+        XCTAssertEqual(speakers()?.muted, true)
+        XCTAssertEqual(persistedRecords().count, 1)
+
+        control.setMutedShouldFail = false
+        runScheduled()
+        XCTAssertEqual(speakers()?.muted, false)
+        XCTAssertTrue(persistedRecords().isEmpty)
+    }
+
+    // MARK: Persistence and relaunch
+
+    func testMuteIsPersistedWhileActiveAndClearedAfterRestore() {
+        let ducker = makeDucker()
+
+        ducker.duck()
+        XCTAssertEqual(persistedRecords().map(\.deviceUID), ["speakers"])
+
+        ducker.restore()
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
     }
 
-    func testFailedCrashRecoveryKeepsPersistedRecordForRetry() {
-        makeDucker().duck()
+    func testRelaunchUnmutesWhatACrashLeftMuted() {
+        makeDucker().duck()  // process dies here
 
-        control.setShouldFail = true
-        let relaunched = makeDucker()
-        relaunched.restoreAfterUnexpectedExit()
+        makeDucker().restoreAfterUnexpectedExit()
 
-        XCTAssertEqual(control.volumes[1]!, 0.2, accuracy: 0.001)
-        XCTAssertNotNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
-
-        control.setShouldFail = false
-        relaunched.restore()
-        XCTAssertEqual(control.volumes[1]!, 0.8, accuracy: 0.001)
+        XCTAssertEqual(speakers()?.muted, false)
         XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
+    }
+
+    func testRelaunchLeavesAnOutputTheUserAlreadyUnmuted() {
+        makeDucker().duck()
+        control.devices["speakers"]?.muted = false
+        let writes = control.writeCount
+
+        makeDucker().restoreAfterUnexpectedExit()
+
+        XCTAssertEqual(control.writeCount, writes)
+    }
+
+    func testRelaunchDropsAMuteTooOldToTrust() {
+        makeDucker().duck()
+        clock += AudioDucker.maxPendingAge + 60
+
+        makeDucker().restoreAfterUnexpectedExit()
+
+        XCTAssertEqual(speakers()?.muted, true)
+        XCTAssertNil(defaults.data(forKey: AudioDucker.pendingRestoreKey))
+    }
+
+    func testRelaunchWithNothingPendingDoesNothing() {
+        makeDucker().restoreAfterUnexpectedExit()
+        XCTAssertEqual(control.writeCount, 0)
+    }
+
+    func testRelaunchDiscardsTheOldVolumeRecord() {
+        defaults.set(Data("[{\"deviceID\":88}]".utf8), forKey: AudioDucker.legacyPendingRestoreKey)
+
+        makeDucker().restoreAfterUnexpectedExit()
+
+        XCTAssertNil(defaults.data(forKey: AudioDucker.legacyPendingRestoreKey))
+        XCTAssertEqual(control.writeCount, 0)
     }
 }

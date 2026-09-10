@@ -186,7 +186,7 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.transcriptCleanupModel) var transcriptCleanupModel: String = CleanupModelKind.defaultKind.rawValue
     @AppStorage(PreferenceKey.transcriptCleanupPrompt) var transcriptCleanupPrompt: String = ""
     @AppStorage(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
-    @AppStorage(PreferenceKey.historyKeepsAudio) var historyKeepsAudio: Bool = true
+    @AppStorage(PreferenceKey.historyKeepsAudio) var historyKeepsAudio: Bool = false
     @AppStorage(PreferenceKey.historyRetention) var historyRetention: HistoryRetention = .defaultRetention
     @AppStorage(PreferenceKey.escapeCancelsDictation) var escapeCancelsDictation: Bool = true
     /// `HotKeyCombo.storageString`, or empty for no shortcut.

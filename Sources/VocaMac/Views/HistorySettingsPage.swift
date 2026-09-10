@@ -118,6 +118,8 @@ struct HistoryEntryRow: View {
     let entry: DictationHistoryEntry
     @ObservedObject var player: HistoryAudioPlayer
     @State private var showsOriginal = false
+    @State private var isOriginalHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isRetrying: Bool { appState.retryingHistoryEntryID == entry.id }
 
@@ -160,17 +162,70 @@ struct HistoryEntryRow: View {
             }
 
             if entry.hasEditedOutput {
-                DisclosureGroup(isExpanded: $showsOriginal) {
-                    Text(entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                            showsOriginal.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(VocaDesign.accent.opacity(0.12))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(VocaDesign.accent)
+                                    .rotationEffect(.degrees(showsOriginal ? 90 : 0))
+                            }
+                            .frame(width: 20, height: 20)
+
+                            Text("Original transcript")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            if let summary = entry.summary {
+                                Text(summary)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(VocaDesign.accent)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(VocaDesign.accent.opacity(0.10), in: Capsule())
+                            }
+
+                            Spacer(minLength: 8)
+
+                            Text(showsOriginal ? "Hide" : "Show")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                } label: {
-                    Text("Original transcript\(entry.summary.map { " · \($0)" } ?? "")")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Original transcript")
+                    .accessibilityValue(showsOriginal ? "Expanded" : "Collapsed")
+                    .accessibilityHint("Shows the text before cleanup and writing style changes")
+
+                    if showsOriginal {
+                        Divider()
+                            .padding(.horizontal, 10)
+
+                        Text(entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines))
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(10)
+                    }
                 }
+                .background(
+                    Color.primary.opacity(isOriginalHovered ? 0.065 : 0.035),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
+                .onHover { isOriginalHovered = $0 }
             }
         }
     }

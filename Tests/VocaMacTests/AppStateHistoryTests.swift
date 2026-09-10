@@ -33,6 +33,22 @@ final class AppStateHistoryTests: XCTestCase {
         XCTAssertEqual(entry?.appName, "Notes")
     }
 
+    func testHistoryDefaultsToTextWithoutSuccessfulAudio() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VocaMacHistoryDefaults-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let (appState, mocks) = AppState.makeTestState(historyStore: DictationHistoryStore(directory: directory))
+
+        XCTAssertTrue(appState.historyEnabled)
+        XCTAssertFalse(appState.historyKeepsAudio)
+
+        await dictate(appState, mocks, text: "keep the words")
+
+        let entry = try XCTUnwrap(appState.historyStore.entries.first)
+        XCTAssertEqual(entry.finalText, mocks.textInjector.lastInjectedText)
+        XCTAssertFalse(entry.hasAudio)
+    }
+
     func testHistoryCanBeTurnedOff() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.historyEnabled = false

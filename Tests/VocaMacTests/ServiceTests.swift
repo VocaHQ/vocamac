@@ -105,7 +105,7 @@ final class TextInjectorTests: XCTestCase {
     /// A delayed clipboard change must not become the value consumed by the
     /// paste event. This models a clipboard manager or an older restore task
     /// racing with the current transcription.
-    func testClipboardFallbackReassertsTranscriptionBeforePaste() {
+    func testClipboardFallbackReassertsTranscriptionBeforePaste() async {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
@@ -113,7 +113,6 @@ final class TextInjectorTests: XCTestCase {
 
         var pastedTexts: [String] = []
         let pasteExpectation = expectation(description: "transcription paste event")
-        let finishedExpectation = expectation(description: "clipboard restoration")
 
         let injector = TextInjector(
             pasteboard: pasteboard,
@@ -135,11 +134,12 @@ final class TextInjectorTests: XCTestCase {
             pasteboard.clearContents()
             pasteboard.setString("clipboard manager value", forType: .string)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            finishedExpectation.fulfill()
-        }
 
-        wait(for: [pasteExpectation, finishedExpectation], timeout: 1.0)
+        await fulfillment(of: [pasteExpectation], timeout: 5.0)
+        // Wait for the injection to finish restoring the clipboard rather
+        // than a fixed delay: a busy CI runner can hold the main thread long
+        // enough for a timer to fire before the restore has run.
+        await TextInjector.waitForInjectionQueueIdleForTesting()
 
         XCTAssertEqual(pastedTexts, ["spoken transcription"])
         XCTAssertEqual(

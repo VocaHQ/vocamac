@@ -442,10 +442,12 @@ skipped. Then:
 
 - A `pending` entry becomes `interrupted`, so a crash mid-dictation still
   leaves the audio to retry.
-- A WAV file the index doesn't list comes back as an `interrupted` entry. That
-  covers a crash between the two writes.
-- An entry whose WAV file is missing, or whose write failed, is shown without
-  audio.
+- An entry whose WAV file is missing is shown without audio. That covers a
+  crash during the audio write, and a failed write.
+- A file in `audio/` that no entry refers to is deleted. Each entry is
+  journaled, naming its WAV file, before the file is written, so such a file
+  can only be audio whose deletion was saved before its removal ran. Deleted
+  recordings never come back.
 
 Storage limits:
 

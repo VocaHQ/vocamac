@@ -106,10 +106,12 @@ final class DictationHistoryStore: ObservableObject {
     /// is on disk, so a crash or failure during transcription can't lose it,
     /// with the id to finish it with.
     ///
-    /// The WAV file is written before the index. If VocaMac dies between the
-    /// two, the next launch finds the unindexed file and restores it as an
-    /// interrupted dictation. If the write fails, the entry is recorded
-    /// without audio rather than pointing at a file that doesn't exist.
+    /// The entry is journaled, naming its WAV file, *before* the file is
+    /// written. So every recording on disk belongs to an entry the journal
+    /// knows about, and a file nothing refers to can only be left over from
+    /// a deletion — launch removes it and never brings deleted audio back. If
+    /// VocaMac dies before the write finishes, or the write fails, the entry
+    /// ends up without audio instead of pointing at a file that isn't there.
     @discardableResult
     func begin(
         audio: [Float]?,
@@ -129,14 +131,26 @@ final class DictationHistoryStore: ObservableObject {
             language: language,
             audioSeconds: audioSeconds
         )
+        let id = entry.id
+        let pendingAudio: (samples: [Float], folder: URL, name: String)?
         if let audio, !audio.isEmpty, let folder = audioDirectory {
-            let name = "\(entry.id.uuidString).wav"
-            let fileURL = folder.appendingPathComponent(name)
+            let name = "\(id.uuidString).wav"
+            entry.audioFileName = name
+            entry.audioBytes = Self.wavByteCount(sampleCount: audio.count)
+            pendingAudio = (audio, folder, name)
+        } else {
+            pendingAudio = nil
+        }
+        entries.insert(entry, at: 0)
+        appendToJournal(JournalRecord(upsert: entry))
+
+        if let pendingAudio {
+            let fileURL = pendingAudio.folder.appendingPathComponent(pendingAudio.name)
             let saved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
                 ioQueue.async {
                     do {
-                        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                        try FailedAudioDump.wavData(from: audio, sampleRate: Self.sampleRate)
+                        try FileManager.default.createDirectory(at: pendingAudio.folder, withIntermediateDirectories: true)
+                        try FailedAudioDump.wavData(from: pendingAudio.samples, sampleRate: Self.sampleRate)
                             .write(to: fileURL, options: .atomic)
                         continuation.resume(returning: true)
                     } catch {
@@ -145,15 +159,15 @@ final class DictationHistoryStore: ObservableObject {
                     }
                 }
             }
-            if saved {
-                entry.audioFileName = name
-                entry.audioBytes = Self.wavByteCount(sampleCount: audio.count)
+            if !saved {
+                update(id) { entry in
+                    entry.audioFileName = nil
+                    entry.audioBytes = nil
+                }
             }
         }
-        entries.insert(entry, at: 0)
-        appendToJournal(JournalRecord(upsert: entry))
         enforceCaps()
-        return entry.id
+        return id
     }
 
     /// Finish a dictation that produced a result (possibly empty).
@@ -437,12 +451,14 @@ final class DictationHistoryStore: ObservableObject {
 
     private func loadIndex() {
         var loaded: [DictationHistoryEntry] = []
+        var indexWasUnreadable = false
         if let indexURL, FileManager.default.fileExists(atPath: indexURL.path) {
             do {
                 loaded = try Self.decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
             } catch {
                 // Keep the unreadable file aside rather than overwrite it on the
-                // next save. Its recordings are recovered below.
+                // next save, and keep its recordings too.
+                indexWasUnreadable = true
                 let backup = indexURL.deletingPathExtension().appendingPathExtension("corrupt.json")
                 try? FileManager.default.removeItem(at: backup)
                 try? FileManager.default.moveItem(at: indexURL, to: backup)
@@ -465,13 +481,10 @@ final class DictationHistoryStore: ObservableObject {
             }
         }
 
-        let recovered = recoverUnindexedAudio(
-            referenced: Set(loaded.compactMap(\.audioFileName)),
-            knownIDs: Set(loaded.map(\.id))
-        )
-        if !recovered.isEmpty {
-            loaded = (loaded + recovered).sorted { $0.createdAt > $1.createdAt }
-            changed = true
+        // With the index unreadable, "unreferenced" would mean every
+        // recording it listed; leave them for the set-aside file.
+        if !indexWasUnreadable {
+            removeUnreferencedAudio(referenced: Set(loaded.compactMap(\.audioFileName)))
         }
 
         entries = loaded
@@ -484,39 +497,16 @@ final class DictationHistoryStore: ObservableObject {
         }
     }
 
-    /// Recordings on disk that the index doesn't list: VocaMac stopped
-    /// between writing the audio and writing the index. Each becomes an
-    /// interrupted dictation so it can still be retried.
-    private func recoverUnindexedAudio(referenced: Set<String>, knownIDs: Set<UUID>) -> [DictationHistoryEntry] {
+    /// Delete files in the audio folder no entry refers to. Because an entry
+    /// is journaled before its audio is written, these can only be recordings
+    /// whose deletion was saved but whose file removal hadn't run yet (or a
+    /// temporary file from a write that never finished). Deleted audio stays
+    /// deleted.
+    private func removeUnreferencedAudio(referenced: Set<String>) {
         guard let folder = audioDirectory,
-              let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return [] }
-        var recovered: [DictationHistoryEntry] = []
-        for file in files where file.hasSuffix(".wav") && !referenced.contains(file) {
-            let url = folder.appendingPathComponent(file)
-            let attributes = try? FileManager.default.attributesOfItem(atPath: url.path)
-            let bytes = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
-            guard bytes > 44 else {
-                try? FileManager.default.removeItem(at: url)
-                continue
-            }
-            let id = UUID(uuidString: String(file.dropLast(4))) ?? UUID()
-            // Audio of an entry that already has its text: a leftover the
-            // user chose not to keep, not a lost dictation.
-            guard !knownIDs.contains(id) else {
-                try? FileManager.default.removeItem(at: url)
-                continue
-            }
-            let samples = Double(bytes - 44) / 2
-            recovered.append(DictationHistoryEntry(
-                id: id,
-                createdAt: (attributes?[.creationDate] as? Date) ?? Date(),
-                status: .interrupted,
-                modelID: "",
-                audioSeconds: samples / Double(Self.sampleRate),
-                audioFileName: file,
-                audioBytes: bytes
-            ))
+              let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
+        for file in files where !referenced.contains(file) {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
         }
-        return recovered
     }
 }

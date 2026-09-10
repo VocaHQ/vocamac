@@ -158,23 +158,46 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertFalse(store.entry(id: id)?.hasAudio ?? true)
     }
 
-    func testUnindexedAudioIsRecoveredAsInterrupted() async throws {
-        // VocaMac stopped after writing the audio but before the index.
-        let folder = directory.appendingPathComponent("audio", isDirectory: true)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let id = UUID()
-        try FailedAudioDump.wavData(from: audio, sampleRate: 16_000)
-            .write(to: folder.appendingPathComponent("\(id.uuidString).wav"))
-
+    func testDeletedAudioStaysDeletedAfterAnImmediateExit() async throws {
         let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        store.delete(id)
+        await store.waitForPendingWrites()
+        // Simulate VocaMac exiting after the deletion was saved but before
+        // the queued file removal ran.
+        try FailedAudioDump.wavData(from: audio, sampleRate: 16_000).write(to: url)
 
-        let entry = try XCTUnwrap(store.entry(id: id))
+        let relaunched = DictationHistoryStore(directory: directory)
+
+        XCTAssertNil(relaunched.entry(id: id))
+        XCTAssertTrue(relaunched.entries.isEmpty, "Deleted audio must never come back as a dictation")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testAudioFromDeleteAllStaysDeleted() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        store.deleteAll()
+        await store.waitForPendingWrites()
+        try FileManager.default.createDirectory(at: store.audioDirectory!, withIntermediateDirectories: true)
+        try FailedAudioDump.wavData(from: audio, sampleRate: 16_000).write(to: url)
+
+        XCTAssertTrue(DictationHistoryStore(directory: directory).entries.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: url.path))
+    }
+
+    func testEntryIsJournaledBeforeItsAudioIsWritten() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        // A crash during the write: the entry is known, its file isn't there.
+        try FileManager.default.removeItem(at: XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id)))))
+
+        let relaunched = DictationHistoryStore(directory: directory)
+        let entry = try XCTUnwrap(relaunched.entry(id: id))
         XCTAssertEqual(entry.status, .interrupted)
-        XCTAssertTrue(entry.hasAudio)
-        XCTAssertEqual(entry.audioSeconds, 1, accuracy: 0.01)
-        XCTAssertEqual(store.latestRecoverableEntry?.id, id)
-        let samples = try await store.loadAudio(for: entry)
-        XCTAssertEqual(samples.count, audio.count)
+        XCTAssertFalse(entry.hasAudio)
     }
 
     func testMissingAudioFileIsNotAdvertisedAfterRelaunch() async throws {
@@ -234,6 +257,21 @@ final class DictationHistoryStoreTests: XCTestCase {
         let relaunched = DictationHistoryStore(directory: directory)
         XCTAssertEqual(relaunched.entry(id: id)?.status, .completed)
         XCTAssertFalse(FileManager.default.fileExists(atPath: journal.path), "Launch folds the journal into the index")
+    }
+
+    func testUnreadableIndexKeepsRecordings() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)
+        let url = try XCTUnwrap(store.audioURL(for: XCTUnwrap(store.entry(id: id))))
+        await store.waitForPendingWrites()
+        // Force an index snapshot, then corrupt it.
+        _ = DictationHistoryStore(directory: directory)
+        try Data("not json".utf8).write(to: directory.appendingPathComponent("index.json"))
+
+        _ = DictationHistoryStore(directory: directory)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("index.corrupt.json").path))
     }
 
     func testRetentionResolvesUnknownValues() {

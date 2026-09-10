@@ -261,12 +261,23 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vocamac.app.actions</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>vocamac</string></array>
+        </dict>
+    </array>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VocaMac needs microphone access to capture your voice for transcription.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

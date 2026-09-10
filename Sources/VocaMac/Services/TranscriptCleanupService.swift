@@ -100,23 +100,28 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func clean(_ text: String, prompt: String) async -> String {
-        await attemptClean(text, prompt: prompt, recordingFailures: true).output
+        await attemptClean(text, prompt: prompt, recordingFailures: true, allowsTransform: false).output
     }
 
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt {
-        await attemptClean(text, prompt: prompt, recordingFailures: true)
+        await attemptClean(text, prompt: prompt, recordingFailures: true, allowsTransform: false)
     }
 
     /// Same pass as `clean`, but reporting what happened and without letting a
     /// hand-typed experiment trip the give-up counter that guards dictation.
     func preview(_ text: String, prompt: String) async -> CleanupAttempt {
-        await attemptClean(text, prompt: prompt, recordingFailures: false)
+        await attemptClean(text, prompt: prompt, recordingFailures: false, allowsTransform: false)
+    }
+
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt {
+        await attemptClean(text, prompt: prompt, recordingFailures: false, allowsTransform: true)
     }
 
     private func attemptClean(
         _ text: String,
         prompt: String,
-        recordingFailures: Bool
+        recordingFailures: Bool,
+        allowsTransform: Bool
     ) async -> CleanupAttempt {
         let started = Date()
         func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
@@ -166,7 +171,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
         do {
             let raw = try await runInference(llm: llm, prompt: activePrompt, input: formatted)
-            if let accepted = TranscriptCleanup.acceptedOutput(raw, original: trimmed) {
+            let accepted = allowsTransform
+                ? TranscriptCleanup.acceptedTransformOutput(raw, original: trimmed)
+                : TranscriptCleanup.acceptedOutput(raw, original: trimmed)
+            if let accepted {
                 if recordingFailures { consecutiveFailures = 0 }
                 VocaLogger.info(.transcriptCleanup, "Cleanup produced \(accepted.count) characters")
                 return result(accepted, accepted == trimmed ? .unchanged : .cleaned)

@@ -6,6 +6,18 @@
 
 import SwiftUI
 
+extension Notification.Name {
+    static let vocaOpenURL = Notification.Name("com.vocamac.open-url")
+}
+
+final class VocaApplicationDelegate: NSObject, NSApplicationDelegate {
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls {
+            NotificationCenter.default.post(name: .vocaOpenURL, object: url)
+        }
+    }
+}
+
 /// Manages the settings window for menu-bar-only apps
 @MainActor
 final class SettingsWindowManager: ObservableObject {
@@ -234,15 +246,25 @@ final class OnboardingWindowManager: ObservableObject {
 }
 
 struct VocaMacApp: App {
+    @NSApplicationDelegateAdaptor(VocaApplicationDelegate.self) private var applicationDelegate
     @StateObject private var appState = AppState.production()
     @StateObject private var settingsManager = SettingsWindowManager()
     @StateObject private var updateWindowManager = UpdateWindowManager()
     @StateObject private var onboardingManager = OnboardingWindowManager()
+    @StateObject private var fileTranscriptionManager = FileTranscriptionWindowManager()
+    @StateObject private var scratchpadManager = ScratchpadWindowManager()
+    @StateObject private var meetingCaptureManager = MeetingCaptureWindowManager()
 
     var body: some Scene {
         // Menu bar presence — the primary UI for VocaMac
         MenuBarExtra {
-            MenuBarView(settingsManager: settingsManager, updateWindowManager: updateWindowManager)
+            MenuBarView(
+                settingsManager: settingsManager,
+                updateWindowManager: updateWindowManager,
+                fileTranscriptionManager: fileTranscriptionManager,
+                scratchpadManager: scratchpadManager,
+                meetingCaptureManager: meetingCaptureManager
+            )
                 .environmentObject(appState)
         } label: {
             MenuBarIcon(appStatus: appState.appStatus)
@@ -276,6 +298,28 @@ struct VocaMacApp: App {
         ) { [self] _ in
             Task { @MainActor [self] in
                 self.onboardingManager.open(appState: self.appState, force: true)
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .vocaOpenURL,
+            object: nil,
+            queue: .main
+        ) { [self] notification in
+            guard let url = notification.object as? URL,
+                  let link = VocaDeepLink(url: url) else { return }
+            Task { @MainActor [self] in
+                await appState.handleDeepLink(link)
+                switch link {
+                case .history, .settings:
+                    settingsManager.open(appState: appState)
+                case .transcribeFile:
+                    fileTranscriptionManager.open(appState: appState)
+                case .scratchpad:
+                    scratchpadManager.open(appState: appState)
+                case .startDictation, .stopDictation, .toggleDictation, .pasteLast:
+                    break
+                }
             }
         }
 

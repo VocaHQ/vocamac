@@ -6,6 +6,7 @@
 
 import Foundation
 import Combine
+import ApplicationServices
 @testable import VocaMac
 
 // MARK: - MockAudioEngine
@@ -210,6 +211,7 @@ final class MockHotKeyManager: HotKeyMonitoring, HotKeyShortcutMonitoring {
 
     // HotKeyShortcutMonitoring
     var onShortcut: ((HotKeyShortcutAction) -> Void)?
+    var onShortcutReleased: ((HotKeyShortcutAction) -> Void)?
     var onCancel: (() -> Void)?
     var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
     var isCancelKeyArmed = false
@@ -314,6 +316,7 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var lastAudioLevel: Float?
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
+    var lastTranscript: String?
 
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
@@ -336,6 +339,7 @@ final class MockCursorOverlay: CursorOverlayManaging {
     func updateAudioLevel(_ level: Float) {
         lastAudioLevel = level
     }
+    func updateTranscript(_ text: String) { lastTranscript = text }
 }
 
 // MARK: - MockModelManager
@@ -471,7 +475,16 @@ final class MockWhisperService: SpeechTranscribing {
     typealias LoadRequest = (name: String?, folder: URL?)
 
     var streamingFactory: ((String?) -> RecordingTranscription?)?
-    func startStreaming(language: String?) -> RecordingTranscription? { streamingFactory?(language) }
+    var streamingPartialHandler: (@Sendable (String) -> Void)?
+    var lastStreamingVocabulary: String?
+    func startStreaming(
+        language: String?, vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?
+    ) -> RecordingTranscription? {
+        lastStreamingVocabulary = vocabulary
+        streamingPartialHandler = onPartial
+        return streamingFactory?(language)
+    }
     var loadedModelName: String? = "openai_whisper-tiny"
     var isModelLoaded: Bool = true
     var lastTranscribedAudioData: [Float]?
@@ -718,7 +731,8 @@ extension AppState {
         transcriptCleanup: MockTranscriptCleanup? = nil,
         historyStore: DictationHistoryStore? = nil,
         screenContextReader: (any ScreenContextReading)? = nil,
-        correctionObserver: (any CorrectionObserving)? = nil
+        correctionObserver: (any CorrectionObserving)? = nil,
+        selectedTextService: (any SelectedTextAccessing)? = nil
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
@@ -726,6 +740,7 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelCount")
         UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        UserDefaults.standard.removeObject(forKey: "vocamac.translationEnabled")
         // Output polish defaults leak between test *processes* via
         // UserDefaults, so reset them here rather than in each test.
         UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
@@ -747,6 +762,9 @@ extension AppState {
             PreferenceKey.mouseTriggerButton, PreferenceKey.wordReplacements, PreferenceKey.dictionarySuggestions,
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
+            PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
+            PreferenceKey.commandModeShortcut, PreferenceKey.websiteStyleBindings,
+            PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -793,6 +811,7 @@ extension AppState {
             historyStore: historyStore,
             screenContextReader: screenContextReader,
             correctionObserver: correctionObserver,
+            selectedTextService: selectedTextService,
             skipSystemIntegration: true
         )
         // Spell checking depends on the machine's dictionaries; tests use a
@@ -838,11 +857,42 @@ enum TestWords {
 @MainActor
 final class MockScreenContextReader: ScreenContextReading {
     var text: String?
+    var documentURL: URL?
     var captureCallCount = 0
+    var documentURLCallCount = 0
 
     func captureFrontmostContext() async -> String? {
         captureCallCount += 1
         return text
+    }
+
+    func captureFrontmostDocumentURL() async -> URL? {
+        documentURLCallCount += 1
+        return documentURL
+    }
+}
+
+@MainActor
+final class MockSelectedTextService: SelectedTextAccessing {
+    var selectedText = ""
+    var replacement: String?
+    var captureCallCount = 0
+    var replaceCallCount = 0
+
+    func captureSelection() async -> SelectedTextSnapshot? {
+        captureCallCount += 1
+        guard !selectedText.isEmpty else { return nil }
+        return SelectedTextSnapshot(
+            element: AXElementBox(element: AXUIElementCreateSystemWide()),
+            processID: 42,
+            text: selectedText
+        )
+    }
+
+    func replaceSelection(_ snapshot: SelectedTextSnapshot, with text: String) async -> Bool {
+        replaceCallCount += 1
+        replacement = text
+        return true
     }
 }
 

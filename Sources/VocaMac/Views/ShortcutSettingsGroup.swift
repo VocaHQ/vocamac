@@ -21,6 +21,11 @@ struct ShortcutSettingsGroup: View {
                 detail: "Press once to start and again to stop, without holding anything. Silence ends it too, per Settings → Audio."
             )
             Divider()
+            ShortcutRecorderRow(
+                action: .commandMode,
+                detail: "Select text in another app, then hold this shortcut and say an edit such as ‘make this shorter’ or ‘translate to Spanish’."
+            )
+            Divider()
             SettingsToggleRow(
                 title: "Escape cancels dictation",
                 detail: "Press Escape while recording or transcribing to throw the dictation away. A dictation cancelled while transcribing stays in History to retry.",

@@ -222,8 +222,26 @@ final class AppStateHistoryTests: XCTestCase {
         appState.writingStyleDefault = .code
         await dictate(appState, mocks, text: "log the user id")
         XCTAssertEqual(reader.captureCallCount, 1)
+        XCTAssertTrue(mocks.whisperService.lastVocabulary?.contains("userId") == true)
         XCTAssertTrue(mocks.textInjector.lastInjectedText?.contains("userId") == true,
                       mocks.textInjector.lastInjectedText ?? "")
+    }
+
+    func testWebsiteRuleOverridesBrowserAppRule() async {
+        let reader = MockScreenContextReader()
+        reader.documentURL = URL(string: "https://docs.example.com/editor")
+        let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
+        appState.useScreenContext = false
+        appState.writingStyleDefault = .chat
+        appState.websiteStyleBindings = [WebsiteStyleBinding(
+            hostPattern: "docs.example.com", displayName: "Docs", style: .code
+        )]
+
+        await dictate(appState, mocks, text: "open config dot json")
+
+        XCTAssertEqual(reader.documentURLCallCount, 1)
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "open config.json")
+        XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Docs")
     }
 
     func testScreenContextCanBeTurnedOff() async {

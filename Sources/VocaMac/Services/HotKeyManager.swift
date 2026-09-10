@@ -75,6 +75,7 @@ final class HotKeyManager {
     /// Base keys of shortcuts whose key-down was consumed, so the matching
     /// key-up and any autorepeat are consumed too.
     private var heldShortcutKeyCodes: Set<Int> = []
+    private var heldShortcutActions: [Int: HotKeyShortcutAction] = [:]
 
     /// Whether Escape cancels right now. Armed only while a dictation is
     /// recording or transcribing, so Escape reaches other apps the rest of
@@ -101,6 +102,10 @@ final class HotKeyManager {
 
     /// Called when one of the extra shortcuts is pressed.
     var onShortcut: ((HotKeyShortcutAction) -> Void)?
+
+    /// Called when a consumed shortcut's base key is released. Command Mode
+    /// uses this for its hold-to-command gesture; toggle shortcuts ignore it.
+    var onShortcutReleased: ((HotKeyShortcutAction) -> Void)?
 
     /// Called when Escape is pressed while the cancel key is armed.
     var onCancel: (() -> Void)?
@@ -207,6 +212,7 @@ final class HotKeyManager {
         isModifierKeyHeld = false
         isBaseKeyHeld = false
         heldShortcutKeyCodes = []
+        heldShortcutActions = [:]
         isCancelKeyHeld = false
         isMouseButtonHeld = false
         cancelSafetyTimer()
@@ -353,7 +359,13 @@ final class HotKeyManager {
     /// identical to the activation hotkey is ignored so the hotkey keeps working.
     private func handleShortcutKeyEvent(keyCode: Int, isKeyDown: Bool, event: CGEvent) -> Bool {
         guard isKeyDown else {
-            return heldShortcutKeyCodes.remove(keyCode) != nil
+            let consumed = heldShortcutKeyCodes.remove(keyCode) != nil
+            if let action = heldShortcutActions.removeValue(forKey: keyCode) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onShortcutReleased?(action)
+                }
+            }
+            return consumed
         }
         if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
             return heldShortcutKeyCodes.contains(keyCode)
@@ -366,6 +378,7 @@ final class HotKeyManager {
         }) else { return false }
 
         heldShortcutKeyCodes.insert(keyCode)
+        heldShortcutActions[keyCode] = action
         VocaLogger.debug(.hotKeyManager, "Shortcut pressed: \(action.rawValue)")
         DispatchQueue.main.async { [weak self] in
             self?.onShortcut?(action)
@@ -642,6 +655,8 @@ enum HotKeyShortcutAction: String, CaseIterable, Identifiable {
     case pasteLastDictation
     /// Start or stop a dictation without holding anything.
     case handsFreeToggle
+    /// Hold while speaking an instruction that transforms selected text.
+    case commandMode
 
     var id: String { rawValue }
 
@@ -649,6 +664,7 @@ enum HotKeyShortcutAction: String, CaseIterable, Identifiable {
         switch self {
         case .pasteLastDictation: return "Paste last dictation"
         case .handsFreeToggle: return "Hands-free dictation"
+        case .commandMode: return "Command Mode"
         }
     }
 }

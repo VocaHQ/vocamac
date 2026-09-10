@@ -450,6 +450,20 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(appState.writingStyleBindings.first?.style, .code)
     }
 
+    func testRebindingStyleKeepsPerAppCleanupOverrides() {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        appState.writingStyleBindings = [AppStyleBinding(
+            id: "com.todesktop.230313mzl4w4u92", displayName: "Cursor",
+            bundleIdentifier: "com.todesktop.230313mzl4w4u92", style: .plain,
+            cleanupLevel: .light, cleanupPrompt: "Keep issue identifiers exact"
+        )]
+
+        XCTAssertEqual(appState.bindFrontmostApp(to: .code), "Cursor")
+        XCTAssertEqual(appState.writingStyleBindings.first?.cleanupLevel, .light)
+        XCTAssertEqual(appState.writingStyleBindings.first?.cleanupPrompt, "Keep issue identifiers exact")
+    }
+
     func testInjectionFallsBackToTheLastActiveApp() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.appendTrailingSpace = false

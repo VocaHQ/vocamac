@@ -71,6 +71,27 @@ enum AccessibilityTextReader {
         return range.location + range.length
     }
 
+    static func selectedText(of element: AXUIElement) -> String? {
+        copyString(element, kAXSelectedTextAttribute)
+    }
+
+    /// URL exposed by Safari and Chromium focused web areas through AXURL or
+    /// AXDocument. Walk a bounded parent chain because the focused text box is
+    /// usually nested below the web area that owns the document attribute.
+    static func documentURL(processID: pid_t) -> URL? {
+        guard var element = focusedTextElement(processID: processID) else { return nil }
+        for _ in 0..<8 {
+            if let value = copyURLString(element, kAXURLAttribute)
+                ?? copyURLString(element, kAXDocumentAttribute),
+               let url = URL(string: value), url.scheme != nil {
+                return url
+            }
+            guard let parent = copyElement(element, kAXParentAttribute) else { break }
+            element = parent
+        }
+        return nil
+    }
+
     /// The text visible in the element, falling back to the text around the
     /// caret, plus the window title. Used only to find names and identifiers.
     static func visibleContext(processID: pid_t) -> String? {
@@ -133,6 +154,15 @@ enum AccessibilityTextReader {
         guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return nil }
         return ref as? String
     }
+
+    private static func copyURLString(_ element: AXUIElement, _ attribute: String) -> String? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success,
+              let ref else { return nil }
+        if let value = ref as? String { return value }
+        if let value = ref as? URL { return value.absoluteString }
+        return nil
+    }
 }
 
 // MARK: - Screen Context
@@ -142,6 +172,11 @@ enum AccessibilityTextReader {
 protocol ScreenContextReading: AnyObject {
     /// Visible text of the frontmost app's focused field and window title.
     func captureFrontmostContext() async -> String?
+    func captureFrontmostDocumentURL() async -> URL?
+}
+
+extension ScreenContextReading {
+    func captureFrontmostDocumentURL() async -> URL? { nil }
 }
 
 @MainActor
@@ -151,6 +186,15 @@ final class ScreenContextReader: ScreenContextReading {
         return await withCheckedContinuation { continuation in
             AccessibilityTextReader.queue.async {
                 continuation.resume(returning: AccessibilityTextReader.visibleContext(processID: processID))
+            }
+        }
+    }
+
+    func captureFrontmostDocumentURL() async -> URL? {
+        guard let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        return await withCheckedContinuation { continuation in
+            AccessibilityTextReader.queue.async {
+                continuation.resume(returning: AccessibilityTextReader.documentURL(processID: processID))
             }
         }
     }

@@ -139,6 +139,18 @@ enum TranscriptCleanup {
         return cleaned
     }
 
+    /// Command Mode is explicitly allowed to change length and language. Keep
+    /// the chatbot/refusal and runaway-output gates, but not semantic overlap.
+    static func acceptedTransformOutput(_ raw: String, original: String) -> String? {
+        let cleaned = sanitize(raw)
+        guard !cleaned.isEmpty, cleaned != "..." else { return nil }
+        let lowered = cleaned.lowercased()
+        let refusals = ["i cannot", "i can't", "i am an ai", "i'm an ai", "as an ai"]
+        guard !refusals.contains(where: { lowered.hasPrefix($0) }) else { return nil }
+        guard cleaned.count <= max(original.count * 8, original.count + 2_000) else { return nil }
+        return cleaned
+    }
+
     static func isUsable(_ cleaned: String, original: String) -> Bool {
         let trimmed = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, trimmed != "..." else { return false }

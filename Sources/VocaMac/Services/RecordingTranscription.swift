@@ -100,3 +100,78 @@ actor AudioChunkCursor {
         return Array(samples[offset..<end])
     }
 }
+
+/// Turns a batch engine into a bounded live preview without making partial
+/// text authoritative. One task drains microphone chunks immediately while a
+/// second periodically decodes a snapshot; EOF always gets one final decode.
+enum IncrementalAudioTranscriber {
+    private actor Buffer {
+        private var samples: [Float] = []
+        private var ended = false
+
+        func append(_ chunk: [Float]) { samples.append(contentsOf: chunk) }
+        func finish() { ended = true }
+        func snapshot() -> (samples: [Float], ended: Bool) { (samples, ended) }
+    }
+
+    static func run(
+        chunks: AsyncThrowingStream<[Float], Error>,
+        updateEverySamples: Int = 32_000,
+        transcribe: @escaping @Sendable ([Float]) async throws -> VocaTranscription,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> VocaTranscription {
+        let buffer = Buffer()
+        return try await withThrowingTaskGroup(of: VocaTranscription?.self) { group in
+            group.addTask {
+                for try await chunk in chunks {
+                    try Task.checkCancellation()
+                    await buffer.append(chunk)
+                }
+                await buffer.finish()
+                return nil
+            }
+            group.addTask {
+                var lastDecodedCount = 0
+                var lastPartial = ""
+                while true {
+                    try Task.checkCancellation()
+                    let snapshot = await buffer.snapshot()
+                    let shouldDecode = !snapshot.samples.isEmpty
+                        && (snapshot.ended || (
+                            onPartial != nil
+                                && snapshot.samples.count - lastDecodedCount >= updateEverySamples
+                        ))
+                    if shouldDecode {
+                        lastDecodedCount = snapshot.samples.count
+                        do {
+                            let result = try await transcribe(snapshot.samples)
+                            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !snapshot.ended, !text.isEmpty, text != lastPartial {
+                                lastPartial = text
+                                onPartial?(text)
+                            }
+                            if snapshot.ended { return result }
+                        } catch {
+                            if snapshot.ended { throw error }
+                            VocaLogger.debug(
+                                .general,
+                                "Live preview decode was not ready; the complete recording remains authoritative"
+                            )
+                        }
+                    } else if snapshot.ended {
+                        throw RecordingTranscription.StreamError.incomplete
+                    }
+                    try await Task.sleep(nanoseconds: 250_000_000)
+                }
+            }
+
+            while let next = try await group.next() {
+                if let result = next {
+                    group.cancelAll()
+                    return result
+                }
+            }
+            throw RecordingTranscription.StreamError.incomplete
+        }
+    }
+}

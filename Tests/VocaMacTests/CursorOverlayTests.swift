@@ -48,8 +48,8 @@ final class OverlayLayoutTests: XCTestCase {
         let content = OverlayLayout.contentSize(for: .live)
         let size = OverlayLayout.size(for: .live)
 
-        XCTAssertEqual(content, CGSize(width: 240, height: 72))
-        XCTAssertEqual(size, CGSize(width: 244, height: 76))
+        XCTAssertEqual(content, CGSize(width: 340, height: 104))
+        XCTAssertEqual(size, CGSize(width: 344, height: 108))
         XCTAssertLessThan(size.width, 360)
     }
 }

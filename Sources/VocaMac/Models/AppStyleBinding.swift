@@ -25,6 +25,8 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
     var isEnabled: Bool
     var intent: WritingIntent
     var cleanup: WritingCleanupPolicy
+    var cleanupLevel: CleanupLevel?
+    var cleanupPrompt: String?
 
     init(
         id: String,
@@ -35,7 +37,9 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
         ruleOverrides: WritingStyleRules? = nil,
         isEnabled: Bool = true,
         intent: WritingIntent = .preserve,
-        cleanup: WritingCleanupPolicy = .inherit
+        cleanup: WritingCleanupPolicy = .inherit,
+        cleanupLevel: CleanupLevel? = nil,
+        cleanupPrompt: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
@@ -46,6 +50,8 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
         self.isEnabled = isEnabled
         self.intent = intent
         self.cleanup = cleanup
+        self.cleanupLevel = cleanupLevel
+        self.cleanupPrompt = cleanupPrompt
     }
 
     /// The rules this binding actually applies.
@@ -84,7 +90,8 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
 
     // Older builds wrote bindings without `isEnabled`; treat those as enabled.
     private enum CodingKeys: String, CodingKey {
-        case id, displayName, bundleIdentifier, processName, style, ruleOverrides, isEnabled, intent, cleanup
+        case id, displayName, bundleIdentifier, processName, style, ruleOverrides, isEnabled, intent, cleanup,
+             cleanupLevel, cleanupPrompt
     }
 
     init(from decoder: Decoder) throws {
@@ -98,6 +105,8 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
         intent = (try? container.decode(WritingIntent.self, forKey: .intent)) ?? .preserve
         cleanup = (try? container.decode(WritingCleanupPolicy.self, forKey: .cleanup)) ?? .inherit
+        cleanupLevel = try? container.decodeIfPresent(CleanupLevel.self, forKey: .cleanupLevel)
+        cleanupPrompt = try? container.decodeIfPresent(String.self, forKey: .cleanupPrompt)
     }
 }
 

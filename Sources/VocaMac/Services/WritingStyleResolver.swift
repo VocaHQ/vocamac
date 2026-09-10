@@ -14,9 +14,14 @@ struct ResolvedWritingStyle: Equatable {
     let matchedAppName: String?
     var intent: WritingIntent = .preserve
     var cleanup: WritingCleanupPolicy = .inherit
+    var cleanupLevel: CleanupLevel?
+    var cleanupPrompt: String?
 
     var profile: WritingProfile {
-        WritingProfile(format: style, rules: rules, intent: intent, cleanup: cleanup)
+        WritingProfile(
+            format: style, rules: rules, intent: intent, cleanup: cleanup,
+            cleanupLevel: cleanupLevel, cleanupPrompt: cleanupPrompt
+        )
     }
 
     /// The unshaped result: global preferences only.
@@ -64,7 +69,9 @@ enum WritingStyleResolver {
                     rules: match.effectiveRules,
                     matchedAppName: match.displayName,
                     intent: match.intent,
-                    cleanup: match.cleanup
+                    cleanup: match.cleanup,
+                    cleanupLevel: match.cleanupLevel,
+                    cleanupPrompt: match.cleanupPrompt
                 )
             }
         }
@@ -74,6 +81,25 @@ enum WritingStyleResolver {
             rules: defaultStyle.defaultRules,
             matchedAppName: nil,
             intent: defaultIntent
+        )
+    }
+
+    /// Website rules override the receiving browser's app rule. Matching uses
+    /// only the URL host and never stores page content or browsing history.
+    static func applyingWebsiteRule(
+        _ resolved: ResolvedWritingStyle,
+        url: URL?,
+        bindings: [WebsiteStyleBinding]
+    ) -> ResolvedWritingStyle {
+        guard let url, let match = bindings.last(where: { $0.matches(url) }) else { return resolved }
+        return ResolvedWritingStyle(
+            style: match.style,
+            rules: match.style.defaultRules,
+            matchedAppName: match.displayName,
+            intent: match.intent,
+            cleanup: match.cleanup,
+            cleanupLevel: match.cleanupLevel,
+            cleanupPrompt: match.cleanupPrompt
         )
     }
 }

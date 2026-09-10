@@ -14,6 +14,8 @@ struct CleanupSettingsPage: View {
     @State private var tryItResult: CleanupAttempt?
     @State private var tryItRunning = false
     @State private var isPromptExpanded = false
+    @State private var apiKeyDraft = ""
+    @State private var endpointNotice: String?
 
     /// Seeded with something that exercises the behaviours the models differ
     /// on: fillers, a stutter, and dictated punctuation.
@@ -38,23 +40,100 @@ struct CleanupSettingsPage: View {
                 // Setup state belongs here rather than in the paragraph above,
                 // which kept telling people to download a model while the row
                 // below reported one ready.
-                if appState.transcriptCleanupEnabled && !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
-                    Text("Cleanup is on, but the selected model is not downloaded yet. Dictation will inject the raw transcript until you download one.")
+                if appState.cleanupEndpoint.isLocal {
+                    if appState.transcriptCleanupEnabled,
+                       !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
+                        Text("Cleanup is on, but the selected model is not downloaded yet. Dictation will inject the raw transcript until you download one.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    } else if !hasDownloadedModel {
+                        Text("Off until a model is downloaded — pick one below.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if appState.cleanupEndpoint.isLocal {
+                    statusRow
+                } else if appState.cleanupEndpoint.validationProblem() == nil {
+                    Label("Endpoint configured", systemImage: "checkmark.circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
-                } else if !hasDownloadedModel {
-                    Text("Off until a model is downloaded — pick one below.")
+                        .foregroundStyle(VocaDesign.success)
+                }
+
+                Picker("Cleanup level", selection: $appState.transcriptCleanupLevel) {
+                    ForEach(CleanupLevel.allCases) { level in
+                        Text(level.displayName).tag(level)
+                    }
+                }
+                Text(appState.transcriptCleanupLevel.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VocaSettingsGroup("Inference") {
+                Picker("Run cleanup with", selection: endpointProvider) {
+                    ForEach(CleanupProvider.allCases) { provider in
+                        Text(provider.displayName).tag(provider)
+                    }
+                }
+
+                if !appState.cleanupEndpoint.isLocal {
+                    TextField("Base URL", text: endpointBaseURL)
+                        .textFieldStyle(.roundedBorder)
+                    TextField("Model", text: endpointModel)
+                        .textFieldStyle(.roundedBorder)
+                    SecureField(
+                        appState.cleanupEndpointHasAPIKey ? "API key saved in Keychain" : "API key (optional for local servers)",
+                        text: $apiKeyDraft
+                    )
+                    HStack {
+                        Button("Save API Key") {
+                            do {
+                                try appState.saveCleanupAPIKey(apiKeyDraft)
+                                apiKeyDraft = ""
+                                endpointNotice = "API key saved in Keychain."
+                            } catch {
+                                endpointNotice = "Could not save the key: \(error.localizedDescription)"
+                            }
+                        }
+                        .disabled(apiKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        if appState.cleanupEndpointHasAPIKey {
+                            Button("Remove Key", role: .destructive) {
+                                do {
+                                    try appState.deleteCleanupAPIKey()
+                                    endpointNotice = "API key removed."
+                                } catch {
+                                    endpointNotice = "Could not remove the key: \(error.localizedDescription)"
+                                }
+                            }
+                        }
+                        Spacer()
+                    }
+                    if let problem = appState.cleanupEndpoint.validationProblem() {
+                        Label(problem, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Text("Only the cleanup prompt and transcript text are sent when this provider is selected. Use HTTPS whenever the endpoint is not on this Mac. Endpoint settings can be exported; the API key never is.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("The bundled GGUF model runs entirely on this Mac. This remains the default.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-
-                statusRow
+                if let endpointNotice {
+                    Text(endpointNotice).font(.caption).foregroundStyle(.secondary)
+                }
             }
 
-            VocaSettingsGroup("Cleanup Model") {
-                ForEach(CleanupModelKind.allCases) { kind in
-                    CleanupModelRow(kind: kind)
-                    if kind != CleanupModelKind.allCases.last { Divider() }
+            if appState.cleanupEndpoint.isLocal {
+                VocaSettingsGroup("Cleanup Model") {
+                    ForEach(CleanupModelKind.allCases) { kind in
+                        CleanupModelRow(kind: kind)
+                        if kind != CleanupModelKind.allCases.last { Divider() }
+                    }
                 }
             }
 
@@ -170,6 +249,47 @@ struct CleanupSettingsPage: View {
         }
     }
 
+    private var endpointProvider: Binding<CleanupProvider> {
+        Binding(
+            get: { appState.cleanupEndpoint.provider },
+            set: { provider in
+                var configuration = appState.cleanupEndpoint
+                let previous = configuration.provider
+                configuration.provider = provider
+                if configuration.baseURL.isEmpty || configuration.baseURL == previous.defaultBaseURL {
+                    configuration.baseURL = provider.defaultBaseURL
+                }
+                if configuration.model.isEmpty || configuration.model == previous.defaultModel {
+                    configuration.model = provider.defaultModel
+                }
+                appState.cleanupEndpoint = configuration
+                Task { await appState.syncTranscriptCleanup() }
+            }
+        )
+    }
+
+    private var endpointBaseURL: Binding<String> {
+        Binding(
+            get: { appState.cleanupEndpoint.baseURL },
+            set: { value in
+                var configuration = appState.cleanupEndpoint
+                configuration.baseURL = value
+                appState.cleanupEndpoint = configuration
+            }
+        )
+    }
+
+    private var endpointModel: Binding<String> {
+        Binding(
+            get: { appState.cleanupEndpoint.model },
+            set: { value in
+                var configuration = appState.cleanupEndpoint
+                configuration.model = value
+                appState.cleanupEndpoint = configuration
+            }
+        )
+    }
+
     @ViewBuilder
     private func tryItOutput(_ result: CleanupAttempt) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -224,9 +344,9 @@ struct CleanupSettingsPage: View {
 
     private var promptBudget: Int {
         let draft = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return appState.transcriptCleanup.inputBudget(
-            forPrompt: draft.isEmpty ? TranscriptCleanup.defaultPrompt : draft
-        )
+        let prompt = draft.isEmpty ? TranscriptCleanup.defaultPrompt : draft
+        if !appState.cleanupEndpoint.isLocal { return max(0, 64_000 - prompt.count) }
+        return appState.transcriptCleanup.inputBudget(forPrompt: prompt)
     }
 
     /// An empty stored prompt means "use the default", so a draft that matches

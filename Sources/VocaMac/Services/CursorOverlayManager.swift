@@ -22,7 +22,7 @@ enum OverlayLayout {
         case .minimal:
             return CGSize(width: 108, height: 44)
         case .live:
-            return CGSize(width: 240, height: 72)
+            return CGSize(width: 340, height: 104)
         }
     }
 
@@ -138,6 +138,7 @@ final class CursorOverlayManager {
         viewModel.phase = .connecting
         viewModel.audioLevel = 0
         viewModel.elapsedSeconds = 0
+        viewModel.transcript = ""
         viewModel.isActive = true
 
         if let overlayPanel {
@@ -186,6 +187,7 @@ final class CursorOverlayManager {
         viewModel.phase = .recording
         viewModel.audioLevel = 0
         viewModel.elapsedSeconds = 0
+        viewModel.transcript = ""
         VocaLogger.debug(.cursorOverlay, "Overlay transitioned to recording")
     }
 
@@ -228,6 +230,11 @@ final class CursorOverlayManager {
         let smoothing: Float = target > viewModel.audioLevel ? 0.78 : 0.28
         viewModel.audioLevel += (target - viewModel.audioLevel) * smoothing
         viewModel.waveformTick &+= 1
+    }
+
+    func updateTranscript(_ text: String) {
+        guard overlayPanel != nil, viewModel.style == .live else { return }
+        viewModel.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Layout
@@ -350,6 +357,7 @@ final class MicIndicatorViewModel: ObservableObject {
     @Published var position: OverlayPosition = .nearCursor
     @Published var waveformTick: Int = 0
     @Published var elapsedSeconds: Int = 0
+    @Published var transcript: String = ""
 }
 
 // MARK: - Waveform Metrics
@@ -565,6 +573,12 @@ struct HandyOverlayView: View {
         VStack(spacing: 0) {
             liveHeader
             liveControlRow
+            Text(viewModel.transcript.isEmpty ? "Words will appear here as you speak" : viewModel.transcript)
+                .font(.system(size: 11))
+                .foregroundStyle(viewModel.transcript.isEmpty ? secondaryText : primaryText)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Live transcript")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)

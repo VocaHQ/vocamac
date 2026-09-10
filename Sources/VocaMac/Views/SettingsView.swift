@@ -418,6 +418,7 @@ struct SettingsToggleRow: View {
 
 struct ApplicationSettingsPage: View {
     @EnvironmentObject var appState: AppState
+    @State private var backupNotice: String?
 
     var body: some View {
         Form {
@@ -457,9 +458,51 @@ struct ApplicationSettingsPage: View {
                 .pickerStyle(.radioGroup)
                 .disabled(appState.overlayStyle == .off)
             }
+
+            Section("Settings Backup") {
+                Text("Export preferences, shortcuts, app and website rules, snippets, and dictionary entries. History, stats, scratchpad text, downloaded models, and API keys are not included.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Export Settings…", action: exportSettings)
+                    Button("Import Settings…", action: importSettings)
+                }
+                if let backupNotice {
+                    Text(backupNotice).font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+
+    private func exportSettings() {
+        let panel = NSSavePanel()
+        panel.title = "Export VocaMac Settings"
+        panel.nameFieldStringValue = "vocamac-settings.json"
+        panel.allowedContentTypes = [.json]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsArchiveService.encode().write(to: url, options: .atomic)
+            backupNotice = "Settings exported. API keys were not included."
+        } catch {
+            backupNotice = "Could not export settings: \(error.localizedDescription)"
+        }
+    }
+
+    private func importSettings() {
+        let panel = NSOpenPanel()
+        panel.title = "Import VocaMac Settings"
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsArchiveService.restore(Data(contentsOf: url))
+            appState.reloadImportedSettings()
+            backupNotice = "Settings imported. Existing API keys were left unchanged."
+        } catch {
+            backupNotice = "Could not import settings: \(error.localizedDescription)"
+        }
     }
 }
 
@@ -1408,6 +1451,11 @@ struct AudioSettingsTab: View {
             }
 
             Section("Input Device") {
+                Toggle("Use an external microphone when the lid is closed", isOn: $appState.externalMicWhenLidClosed)
+                Text("When your MacBook is closed, VocaMac temporarily chooses an available non-built-in input for the recording. Your saved microphone choice is not changed.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
                     Text("System Default").tag("")
                     if selectedAudioDeviceIsUnavailable {

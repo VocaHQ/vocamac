@@ -21,6 +21,7 @@ struct DictationOutputPipeline {
         rewritingEnabled: Bool,
         model: CleanupModelKind,
         customPrompt: String,
+        cleanupLevel: CleanupLevel = .medium,
         language: String?,
         autoCapitalize: Bool,
         trailingSpace: Bool,
@@ -35,7 +36,11 @@ struct DictationOutputPipeline {
         // The personal dictionary runs first, so snippets, styles, and cleanup
         // all see the user's spelling. Terms whose exact casing matters travel
         // through the snippet mask, which formatting and cleanup never touch.
+        let effectiveLevel = profile.cleanupLevel ?? cleanupLevel
         var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        if profile.cleanup == .inherit, cleanupEnabled, effectiveLevel == .high {
+            input = SpokenCorrectionResolver.resolve(input)
+        }
         var protectedTerms: [Snippet] = []
         if let dictionary, !dictionary.isEmpty {
             let correction = DictionaryCorrector.correct(
@@ -53,7 +58,7 @@ struct DictationOutputPipeline {
             ))
         }
         let fallback = render(masked.text, rules: profile.rules)
-        guard profile.allowsRewrite, cleanupEnabled else {
+        guard profile.allowsRewrite, cleanupEnabled, effectiveLevel != .none else {
             return result(fallback, "Formatting only")
         }
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
@@ -81,10 +86,16 @@ struct DictationOutputPipeline {
             || RewriteValidation.containsNonLatinLetters(masked.text)) {
             return result(fallback, "Writing intent skipped — English preview only")
         }
-        guard cleaner.isDownloaded(model) else {
-            return result(fallback, "Rewrite skipped — download a local cleanup model in Settings")
+        if let problem = cleaner.availabilityProblem(for: model) {
+            return result(fallback, "Rewrite skipped — \(problem)")
         }
-        let prompt = RewriteValidation.prompt(intent: intent, customCleanup: customPrompt)
+        let selectedPrompt = profile.cleanupPrompt?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let basePrompt = (selectedPrompt?.isEmpty == false) ? (selectedPrompt ?? customPrompt) : customPrompt
+        let prompt = RewriteValidation.prompt(
+            intent: intent,
+            customCleanup: effectiveLevel.prompt(custom: basePrompt)
+        )
         let source = masked.text
         let protected = await Task.detached(priority: .userInitiated) {
             RewriteProtectedText(source)

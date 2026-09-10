@@ -698,7 +698,8 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
 
         XCTAssertEqual(cleanup.loadCallCount, 1)
         XCTAssertEqual(cleanup.previewCallCount, 1)
-        XCTAssertEqual(cleanup.lastPrompt, "custom prompt")
+        XCTAssertTrue(cleanup.lastPrompt?.contains("custom prompt") == true)
+        XCTAssertTrue(cleanup.lastPrompt?.contains("Apply medium cleanup") == true)
         XCTAssertEqual(result.output, "Hello.")
         XCTAssertTrue(result.didChangeText)
     }

@@ -70,6 +70,13 @@ enum SettingsSearchIndex {
             keywords: ["hands free", "toggle", "long", "shortcut", "lock"]
         ),
         SettingsSearchEntry(
+            id: "command-mode-shortcut",
+            page: .dictation,
+            title: "Command Mode",
+            subtitle: "Voice-edit selected text while holding a shortcut",
+            keywords: ["command", "selected text", "rewrite", "translate", "shortcut", "hold"]
+        ),
+        SettingsSearchEntry(
             id: "escape-cancel",
             page: .dictation,
             title: "Escape Cancels Dictation",
@@ -121,6 +128,20 @@ enum SettingsSearchIndex {
             keywords: ["cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding"]
         ),
         SettingsSearchEntry(
+            id: "website-style-rules",
+            page: .writingStyles,
+            title: "Website Rules",
+            subtitle: "Choose formatting and cleanup by browser domain",
+            keywords: ["website", "domain", "browser", "safari", "chrome", "url", "per-site"]
+        ),
+        SettingsSearchEntry(
+            id: "app-cleanup-prompt",
+            page: .writingStyles,
+            title: "Per-App Cleanup Prompt",
+            subtitle: "Custom cleanup instructions for an app or website",
+            keywords: ["custom", "prompt", "per-app", "per-site", "instructions", "cleanup"]
+        ),
+        SettingsSearchEntry(
             id: "spoken-symbols",
             page: .writingStyles,
             title: "Spoken Filenames and Paths",
@@ -164,6 +185,20 @@ enum SettingsSearchIndex {
             title: "Cleanup Model",
             subtitle: "Download Qwen for on-device cleanup",
             keywords: ["qwen", "model", "download", "0.5b", "0.6b", "gguf"]
+        ),
+        SettingsSearchEntry(
+            id: "cleanup-level",
+            page: .cleanup,
+            title: "Cleanup Level",
+            subtitle: "None, Light, Medium, or High",
+            keywords: ["level", "none", "light", "medium", "high", "corrections"]
+        ),
+        SettingsSearchEntry(
+            id: "cleanup-provider",
+            page: .cleanup,
+            title: "Cleanup Provider",
+            subtitle: "On-device, Ollama, LM Studio, or OpenAI-compatible",
+            keywords: ["endpoint", "ollama", "lm studio", "openai", "api key", "server", "remote"]
         ),
         SettingsSearchEntry(
             id: "cleanup-try",
@@ -256,6 +291,13 @@ enum SettingsSearchIndex {
             keywords: ["mic", "device", "input", "audio"]
         ),
         SettingsSearchEntry(
+            id: "closed-lid-microphone",
+            page: .audio,
+            title: "External Microphone with Lid Closed",
+            subtitle: "Automatically use a non-built-in input in clamshell mode",
+            keywords: ["external", "microphone", "lid", "closed", "clamshell", "dock"]
+        ),
+        SettingsSearchEntry(
             id: "silence",
             page: .audio,
             title: "Silence Detection",
@@ -333,6 +375,13 @@ enum SettingsSearchIndex {
             title: "Recording Overlay",
             subtitle: "Style and position near the cursor",
             keywords: ["overlay", "cursor", "indicator", "mic", "position", "style"]
+        ),
+        SettingsSearchEntry(
+            id: "settings-backup",
+            page: .application,
+            title: "Settings Backup",
+            subtitle: "Export or import VocaMac preferences",
+            keywords: ["settings", "backup", "export", "import", "transfer", "json"]
         ),
 
         // Stats / Advanced / About

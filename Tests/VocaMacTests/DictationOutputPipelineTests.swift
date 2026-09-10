@@ -7,12 +7,18 @@ final class DictationOutputPipelineTests: XCTestCase {
         _ input: String, cleaner: MockTranscriptCleanup,
         format: WritingStyle = .plain, intent: WritingIntent = .preserve,
         cleanup: WritingCleanupPolicy = .inherit, enabled: Bool = true,
-        experimental: Bool = true, snippets: [Snippet] = [], language: String? = "en"
+        experimental: Bool = true, snippets: [Snippet] = [], language: String? = "en",
+        level: CleanupLevel = .medium, cleanupPrompt: String? = nil
     ) async -> DictationOutputResult {
         await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander()).process(
-            input, profile: WritingProfile(format: format, rules: format.defaultRules, intent: intent, cleanup: cleanup),
+            input,
+            profile: WritingProfile(
+                format: format, rules: format.defaultRules, intent: intent,
+                cleanup: cleanup, cleanupPrompt: cleanupPrompt
+            ),
             snippetList: snippets, cleanupEnabled: enabled, rewritingEnabled: experimental,
             model: .defaultKind, customPrompt: "Custom cleanup instructions",
+            cleanupLevel: level,
             language: language, autoCapitalize: true, trailingSpace: false
         )
     }
@@ -24,6 +30,36 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(result.text, text)
         XCTAssertEqual(cleaner.loadCallCount, 0)
         XCTAssertEqual(cleaner.cleanCallCount, 0)
+    }
+
+    func testNoneLevelSkipsTheCleanupModel() async {
+        let cleaner = MockTranscriptCleanup()
+        let result = await process("um hello", cleaner: cleaner, level: .none)
+        XCTAssertEqual(cleaner.cleanCallCount, 0)
+        XCTAssertEqual(result.text, "Um hello")
+        XCTAssertEqual(result.summary, "Formatting only")
+    }
+
+    func testHighLevelResolvesNumericCorrectionOnlyWhenCleanupIsEnabled() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { $0 }
+        let corrected = await process("meet at 2 actually 3", cleaner: cleaner, level: .high)
+        XCTAssertEqual(corrected.text, "Meet at 3")
+
+        let disabled = await process(
+            "meet at 2 actually 3", cleaner: MockTranscriptCleanup(), enabled: false, level: .high
+        )
+        XCTAssertEqual(disabled.text, "Meet at 2 actually 3")
+    }
+
+    func testProfileCleanupPromptOverridesTheGlobalPrompt() async {
+        let cleaner = MockTranscriptCleanup()
+        _ = await process(
+            "hello there", cleaner: cleaner,
+            cleanupPrompt: "Keep the app-specific terminology"
+        )
+        XCTAssertTrue(cleaner.lastPrompt?.contains("Keep the app-specific terminology") == true)
+        XCTAssertFalse(cleaner.lastPrompt?.contains("Custom cleanup instructions") == true)
     }
 
     func testTechnicalFormatsNeverRunModelEvenWithWordingEnabled() async {

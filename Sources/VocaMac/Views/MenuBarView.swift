@@ -111,6 +111,9 @@ struct MenuBarView: View {
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
     @ObservedObject var updateWindowManager: UpdateWindowManager
+    @ObservedObject var fileTranscriptionManager: FileTranscriptionWindowManager
+    @ObservedObject var scratchpadManager: ScratchpadWindowManager
+    @ObservedObject var meetingCaptureManager: MeetingCaptureWindowManager
     @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var audioDevices: [AudioDevice] = []
 
@@ -424,6 +427,15 @@ struct MenuBarView: View {
             if appState.appStatus == .recording {
                 ObservedAudioLevelView(meter: appState.audioMeter)
                     .frame(height: 6)
+
+                if !appState.liveTranscript.isEmpty {
+                    Text(appState.liveTranscript)
+                        .font(.callout)
+                        .lineLimit(4)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityLabel("Live transcript")
+                }
 
                 // Stop/recovery button — visible during recording so the user
                 // can unstick the app if the hotkey isn't responding
@@ -780,6 +792,48 @@ struct MenuBarView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 2) {
+            Button {
+                scratchpadManager.open(appState: appState)
+            } label: {
+                HStack {
+                    Image(systemName: "note.text").frame(width: 16)
+                    Text("Scratchpad…")
+                    Spacer()
+                }
+                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowButtonStyle())
+
+            Button {
+                meetingCaptureManager.open(appState: appState)
+            } label: {
+                HStack {
+                    Image(systemName: "macbook.and.iphone").frame(width: 16)
+                    Text("Transcribe System Audio…")
+                    Spacer()
+                }
+                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowButtonStyle())
+
+            Button {
+                fileTranscriptionManager.open(appState: appState)
+            } label: {
+                HStack {
+                    Image(systemName: "waveform.badge.plus").frame(width: 16)
+                    Text("Transcribe a File…")
+                    Spacer()
+                }
+                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(MenuRowButtonStyle())
+
             Button {
                 openHistory()
             } label: {

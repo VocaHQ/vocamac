@@ -15,8 +15,7 @@ enum OverlayStyle: String, CaseIterable, Codable, Identifiable {
 
     /// Show the larger Handy-inspired status panel.
     ///
-    /// The current transcription pipeline is batch-based, so live words will be
-    /// added when a streaming-capable transcription path is available.
+    /// Shows partial words while Whisper or Parakeet is decoding.
     case live
 
     var id: String { rawValue }
@@ -36,7 +35,7 @@ enum OverlayStyle: String, CaseIterable, Codable, Identifiable {
         case .minimal:
             return "Show a compact waveform while recording and a spinner while transcribing."
         case .live:
-            return "Show a larger waveform and status panel; live words appear when supported."
+            return "Show a larger waveform and live words while Whisper or Parakeet is listening."
         }
     }
 }

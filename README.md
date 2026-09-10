@@ -34,19 +34,21 @@
 
 ## ✨ Features
 
-- **🔒 100% Local** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline.
-- **✍️ Per-App Writing Styles** - Choose an output format and wording per app, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse your local cleanup model in one pass. Suggested friend-chat apps default to Casual, while mail apps default to Formal after you opt in. Code and Terminal bypass the model; Raw bypasses cleanup, snippets, and formatting. Wording changes currently support English only and safely fall back to the original text.
+- **🔒 Local Speech** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline. Optional remote cleanup sends text only when you explicitly configure it.
+- **✍️ Per-App and Website Writing Styles** - Choose output format, cleanup level, and optional cleanup instructions per app or browser domain, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse the selected cleanup provider in one pass. Code and Terminal bypass the model; Raw bypasses cleanup, snippets, and formatting.
 - **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
 - **👆 Double-Tap Toggle** - Double-tap the hotkey to start/stop recording.
 - **🕘 Dictation History** - Search, copy, replay, and retry past dictations. Audio is saved before transcription, so a crash or failed decode never loses what you said. Press ⌃⌘V to paste your last dictation again. History is local, with 1-day to forever retention, and can be turned off.
 - **⌨️ More Ways to Dictate** - Press Escape to cancel. A separate hands-free shortcut starts and stops dictation without holding a key. A middle or side mouse button works like the hotkey. Sessions can run up to 20 minutes.
+- **🪄 Command Mode** - Select editable text, hold a configurable shortcut, and speak an instruction such as “make this shorter” or “translate to Spanish.” The original selection is left untouched if the model response or Accessibility replacement fails validation.
 - **📖 Personal Dictionary** - Vocabulary and replacements work with every speech engine (“voca mac” → VocaMac, “get hub” → GitHub). VocaMac suggests words you corrected after dictating, and can spell names and code identifiers the way they appear on screen. All of this happens on your Mac.
 - **🧠 Engine and Model Choice** - Choose the local speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible options for your Apple Silicon Mac.
 - **⚡ Native Apple Acceleration** - CoreML + Metal + Neural Engine acceleration on Apple Silicon. No manual setup.
-- **📊 Visual Feedback** - Menu bar icon changes color during recording and processing. Audio level indicator shows input.
-- **✨ Transcript Cleanup (optional)** - Run a small local language model over the finished transcript to drop filler words and false starts and punctuate what you said. Off by default, needs a one-time model download, and never leaves your Mac.
+- **📊 Live Visual Feedback** - Menu bar and overlay show audio level and partial words while Whisper or Parakeet is decoding; only the complete recording produces the final transcript.
+- **✨ Transcript Cleanup (optional)** - Choose None, Light, Medium, or High cleanup and run it with a local GGUF model by default. Ollama, LM Studio, and OpenAI-compatible endpoints are opt-in; only the cleanup prompt and transcript are sent when one is selected, and API keys stay in Keychain.
+- **🧰 Local Workflow Tools** - Drag and drop audio or video for transcription, dictate into a floating scratchpad, capture up to 20 minutes of system audio with a private Core Audio tap, automate with App Intents or `vocamac://` links, and export or import non-secret settings.
 - **🔄 Auto-Updates** - Built-in update checker queries GitHub Releases on launch and lets you download and install the latest version in one click from within the app.
 - **⚙️ Configurable** - Choose hotkey presets or record a custom activation key reserved by VocaMac while it runs, models, languages, silence detection thresholds, and more.
 

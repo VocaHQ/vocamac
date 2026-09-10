@@ -1417,7 +1417,8 @@ final class AudioEngine {
                 name: name,
                 isDefault: deviceID == defaultDeviceID,
                 sampleRate: audioDeviceSampleRate(for: deviceID),
-                channelCount: inputChannelCount(for: deviceID)
+                channelCount: inputChannelCount(for: deviceID),
+                isBuiltIn: audioDeviceTransportType(for: deviceID) == kAudioDeviceTransportTypeBuiltIn
             )
         }
         .sorted { lhs, rhs in
@@ -2034,6 +2035,19 @@ struct AudioDevice: Identifiable, Hashable {
     let isDefault: Bool
     let sampleRate: Double
     let channelCount: Int
+    let isBuiltIn: Bool
+
+    init(
+        id: String, name: String, isDefault: Bool,
+        sampleRate: Double, channelCount: Int, isBuiltIn: Bool = false
+    ) {
+        self.id = id
+        self.name = name
+        self.isDefault = isDefault
+        self.sampleRate = sampleRate
+        self.channelCount = channelCount
+        self.isBuiltIn = isBuiltIn
+    }
 }
 
 // MARK: - AudioRecording Conformance

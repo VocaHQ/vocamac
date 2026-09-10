@@ -92,6 +92,7 @@ protocol HotKeyMonitoring: AnyObject {
 /// the default implementations do nothing.
 protocol HotKeyShortcutMonitoring: AnyObject {
     var onShortcut: ((HotKeyShortcutAction) -> Void)? { get set }
+    var onShortcutReleased: ((HotKeyShortcutAction) -> Void)? { get set }
     var onCancel: (() -> Void)? { get set }
     func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo])
     func setCancelKeyArmed(_ armed: Bool)
@@ -138,6 +139,7 @@ protocol CursorOverlayManaging: AnyObject {
     func transitionToRecording()
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
+    func updateTranscript(_ text: String)
 }
 
 // MARK: - ModelManaging
@@ -179,7 +181,11 @@ extension ModelManaging {
 protocol SpeechTranscribing: AnyObject {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
-    func startStreaming(language: String?) -> RecordingTranscription?
+    func startStreaming(
+        language: String?,
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?
+    ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
@@ -187,7 +193,11 @@ protocol SpeechTranscribing: AnyObject {
 }
 
 extension SpeechTranscribing {
-    func startStreaming(language: String?) -> RecordingTranscription? { nil }
+    func startStreaming(
+        language: String?,
+        vocabulary: String = "",
+        onPartial: (@Sendable (String) -> Void)? = nil
+    ) -> RecordingTranscription? { nil }
 
     func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: ((String) -> Void)? = nil) async throws {
         try await _loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
@@ -288,6 +298,10 @@ protocol TranscriptCleaning: AnyObject {
     func clean(_ text: String, prompt: String) async -> String
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt
     func preview(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Transform selected text for Command Mode. Unlike transcript cleanup,
+    /// this may intentionally translate, expand, or substantially shorten it.
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt
+    func availabilityProblem(for kind: CleanupModelKind) -> String?
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func pruneUnknownModels()
     func download(_ kind: CleanupModelKind) async
@@ -298,8 +312,16 @@ protocol TranscriptCleaning: AnyObject {
 }
 
 extension TranscriptCleaning {
+    func availabilityProblem(for kind: CleanupModelKind) -> String? {
+        isDownloaded(kind) ? nil : "download a local cleanup model in Settings"
+    }
+
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt {
         let output = await clean(text, prompt: prompt)
         return CleanupAttempt(output: output, outcome: output == text ? .unchanged : .cleaned, duration: 0)
+    }
+
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt {
+        await preview(text, prompt: prompt)
     }
 }

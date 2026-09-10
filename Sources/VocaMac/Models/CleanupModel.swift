@@ -78,6 +78,7 @@ enum CleanupModelRecommendation: Equatable {
 enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
     case qwen25_0_5b_q4_k_m
     case qwen3_0_6b_q4_k_m
+    case qwen25_1_5b_q4_k_m
 
     var id: String { rawValue }
 
@@ -147,7 +148,23 @@ enum CleanupModelCatalog {
         recommendation: .compact
     )
 
-    static let all: [CleanupModelDescriptor] = [recommended, compact]
+    /// Large enough for selected-text commands and translation. This stays
+    /// optional because routine cleanup is faster and lighter on the 0.5B model.
+    static let quality = CleanupModelDescriptor(
+        kind: .qwen25_1_5b_q4_k_m,
+        displayName: "Qwen 2.5 1.5B",
+        summary: "For Command Mode and more complex edits. Better at following transformations and translation than the compact cleanup models.",
+        sizeDescription: "~1.12 GB",
+        fileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
+        url: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf")!,
+        expectedSHA256: "6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e",
+        expectedByteCount: 1_117_320_736,
+        maxTokenCount: 8192,
+        ramRequiredGB: 2.2,
+        recommendation: .quality
+    )
+
+    static let all: [CleanupModelDescriptor] = [recommended, compact, quality]
 
     static func descriptor(for kind: CleanupModelKind) -> CleanupModelDescriptor {
         all.first { $0.kind == kind } ?? recommended

@@ -82,4 +82,14 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("Heading\nlike, then more", "Heading\nthen more").text, "Heading\nthen more")
         XCTAssertEqual(merge("First line\nif if second", "First line\nif second").text, "First line\nif second")
     }
+
+    func testDeletionsAcrossLinesKeepTheDeepestBreak() {
+        // A "scratch that" deletion spanning a paragraph break.
+        XCTAssertEqual(
+            merge("Keep this.\nDrop this line\n\nand this, scratch that,\nNext paragraph", "Keep this.\nNext paragraph").text,
+            "Keep this.\n\nNext paragraph"
+        )
+        // The next word's own break doesn't erase a deeper removed one.
+        XCTAssertEqual(merge("One\n\num\nTwo", "One\nTwo").text, "One\n\nTwo")
+    }
 }

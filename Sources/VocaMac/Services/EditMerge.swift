@@ -65,15 +65,14 @@ enum EditMerge {
         }
 
         var output: [Emitted] = []
-        // A line break that belonged to a removed word; the next word written
-        // takes it, so "Heading\num then" becomes "Heading\nthen".
+        // Line breaks that belonged to removed words: the next word written
+        // keeps the deepest break among them and its own, so "Heading\num
+        // then" becomes "Heading\nthen" and a deletion spanning a paragraph
+        // break still leaves the paragraph break.
         var pendingLineBreak: String?
         func write(_ token: Token, leading: String) {
-            if let lineBreak = pendingLineBreak, !leading.contains("\n") {
-                output.append(Emitted(token: token, leading: lineBreak))
-            } else {
-                output.append(Emitted(token: token, leading: leading))
-            }
+            let chosen = deepestBreak([pendingLineBreak, leading].compactMap { $0 }) ?? leading
+            output.append(Emitted(token: token, leading: chosen))
             pendingLineBreak = nil
         }
         var applied = 0
@@ -114,9 +113,7 @@ enum EditMerge {
                 previous: output.last?.token, next: next
             )
             if isSafe(hunk, level: level, isKnownWord: isKnownWord) {
-                if let lineBreak = hunk.removed.first(where: { $0.leading.contains("\n") })?.leading {
-                    pendingLineBreak = lineBreak
-                }
+                pendingLineBreak = deepestBreak(hunk.removed.map(\.leading) + [pendingLineBreak].compactMap { $0 })
                 for token in hunk.added { write(token, leading: token.leading) }
                 applied += 1
             } else {
@@ -134,6 +131,13 @@ enum EditMerge {
             }
         }
         return Result(text: render(output), applied: applied, skipped: skipped)
+    }
+
+    /// The whitespace with the most line breaks, or nil when none has one.
+    private static func deepestBreak(_ candidates: [String]) -> String? {
+        candidates.filter { $0.contains("\n") }.max { lhs, rhs in
+            lhs.filter { $0 == "\n" }.count < rhs.filter { $0 == "\n" }.count
+        }
     }
 
     /// Share of the user's words the answer must keep to count as an edit.

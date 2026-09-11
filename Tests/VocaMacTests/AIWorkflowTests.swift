@@ -126,6 +126,8 @@ final class AIConfigurationTests: XCTestCase {
             XCTAssertTrue(descriptor.url.lastPathComponent == descriptor.fileName)
         }
         XCTAssertFalse(CleanupModelKind.cleanupChoices.contains(.qwen25_7b_q4_k_m))
+        // Only the model in both lists is labelled as shared.
+        XCTAssertEqual(CleanupModelKind.allCases.filter(\.isShared), [.qwen25_1_5b_q4_k_m])
     }
 
     func testEndpointAndWebsiteRulesRoundTrip() {

@@ -105,6 +105,11 @@ enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
     var descriptor: CleanupModelDescriptor {
         CleanupModelCatalog.descriptor(for: self)
     }
+
+    var supportsCleanup: Bool { Self.cleanupChoices.contains(self) }
+    var supportsCommandMode: Bool { Self.commandModeChoices.contains(self) }
+    /// Listed for both features; one download serves both.
+    var isShared: Bool { supportsCleanup && supportsCommandMode }
 }
 
 /// One downloadable GGUF used for post-transcription cleanup.
@@ -166,7 +171,7 @@ enum CleanupModelCatalog {
     static let quality = CleanupModelDescriptor(
         kind: .qwen25_1_5b_q4_k_m,
         displayName: "Qwen 2.5 1.5B",
-        summary: "Lightest Command Mode model. Handles shortening, tone changes, and simple translation. About 2 seconds for a paragraph.",
+        summary: "Handles both cleanup and Command Mode. Slower than 0.5B for cleanup, and the lightest model that follows spoken edits such as shortening, tone changes, and simple translation.",
         sizeDescription: "~1.12 GB",
         fileName: "qwen2.5-1.5b-instruct-q4_k_m.gguf",
         url: URL(string: "https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/resolve/91cad51170dc346986eccefdc2dd33a9da36ead9/qwen2.5-1.5b-instruct-q4_k_m.gguf")!,

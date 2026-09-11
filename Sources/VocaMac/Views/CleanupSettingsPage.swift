@@ -440,6 +440,10 @@ struct CleanupModelRow: View {
                         .background(badgeColor.opacity(0.2))
                         .foregroundStyle(badgeColor)
                         .cornerRadius(4)
+
+                    if kind.isShared {
+                        SharedModelBadge(title: "Cleanup + Command Mode")
+                    }
                 }
 
                 HStack(spacing: 4) {
@@ -453,6 +457,10 @@ struct CleanupModelRow: View {
                 Text(descriptor.summary)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+
+                if let shared = sharedUseNote {
+                    SharedModelNote(text: shared)
+                }
             }
 
             Spacer()
@@ -519,13 +527,27 @@ struct CleanupModelRow: View {
                 appState.deleteCleanupModel(kind)
             }
         } message: {
-            Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
+            Text(deleteMessage)
         }
     }
 
     private var isDownloadingOtherModel: Bool {
         if case .downloading(let active, _) = appState.transcriptCleanup.modelState { return active != kind }
         return false
+    }
+
+    /// Shared models say what else they do, and whether Command Mode is
+    /// using this very download.
+    private var sharedUseNote: String? {
+        guard kind.isShared else { return nil }
+        return appState.commandModeEngine == .local(kind)
+            ? "Also your Command Mode model — one download serves both."
+            : "Can also run Command Mode — one download serves both."
+    }
+
+    private var deleteMessage: String {
+        let base = "Removes \(descriptor.sizeDescription) from disk. You can download it again later."
+        return appState.commandModeEngine == .local(kind) ? base + " Command Mode uses this model too." : base
     }
 
     private var badgeColor: Color {
@@ -650,7 +672,12 @@ private struct CommandLocalModelRow: View {
         HStack(alignment: .firstTextBaseline) {
             CommandEngineSelectionMark(isSelected: isSelected)
             VStack(alignment: .leading, spacing: 2) {
-                Text(descriptor.displayName).font(.callout)
+                HStack(spacing: 6) {
+                    Text(descriptor.displayName).font(.callout)
+                    if kind.isShared {
+                        SharedModelBadge(title: "Cleanup + Command Mode")
+                    }
+                }
                 Text("\(descriptor.sizeDescription) • ~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
@@ -658,6 +685,9 @@ private struct CommandLocalModelRow: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let shared = sharedUseNote {
+                    SharedModelNote(text: shared)
+                }
             }
             Spacer()
             trailing
@@ -703,6 +733,13 @@ private struct CommandLocalModelRow: View {
                 }
             }
         }
+    }
+
+    private var sharedUseNote: String? {
+        guard kind.isShared else { return nil }
+        return isCleanupModel
+            ? "Also your Smart Cleanup model — one download serves both. Delete it from Cleanup Model above."
+            : "Can also run Smart Cleanup — one download serves both."
     }
 
     private var isDownloadingAnotherModel: Bool {
@@ -785,5 +822,33 @@ private struct CommandModeExamples: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Example instructions: " + Self.phrases.joined(separator: ", "))
+    }
+}
+
+/// Marks a model listed under both Smart Cleanup and Command Mode, so the
+/// same name in two lists reads as one download with two uses.
+private struct SharedModelBadge: View {
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: "square.on.square")
+            .font(.caption2)
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(VocaDesign.command.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
+            .foregroundStyle(VocaDesign.command)
+            .help("This model works for both Smart Cleanup and Command Mode. It is downloaded once and shared.")
+    }
+}
+
+private struct SharedModelNote: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "arrow.triangle.2.circlepath")
+            .font(.caption2)
+            .foregroundStyle(VocaDesign.command)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }

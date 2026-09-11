@@ -65,6 +65,9 @@ struct MeetingCaptureView: View {
             Spacer()
         }
         .padding(24).background(VocaDesign.canvas).tint(VocaDesign.accent)
+        .onChange(of: capture.didReachLimit) {
+            if capture.didReachLimit, !isTranscribing { stop() }
+        }
         .onDisappear { if capture.isCapturing { _ = capture.stop() } }
     }
 

@@ -215,6 +215,21 @@ final class TextInjector {
             deliverFallback(accessibilityInjectionOverride(text) ? .inserted : .unavailable)
             return
         }
+        // AX writes into another process are deliberately kept off the main
+        // thread. An in-process AXTextField is different: AppKit services the
+        // write directly against its NSTextView and asserts that selection
+        // mutation happens on the main queue (macOS 26). This occurs when a
+        // user dictates into one of VocaMac's own text fields. Keep that one
+        // path on main; a rejected write still falls back to Cmd+V below.
+        if targetPID == ProcessInfo.processInfo.processIdentifier {
+            let interval = PerformanceTrace.begin("TextAccessibilityQueryAndWrite")
+            let inserted = accessibilityWorkerOverride.map {
+                $0(text) ? AccessibilityInsertion.inserted : .unavailable
+            } ?? injectViaAccessibility(text: text, targetPID: targetPID)
+            PerformanceTrace.end(interval)
+            deliverFallback(inserted)
+            return
+        }
         Self.accessibilityQueue.async { [self] in
             let interval = PerformanceTrace.begin("TextAccessibilityQueryAndWrite")
             let inserted = accessibilityWorkerOverride.map { $0(text) ? AccessibilityInsertion.inserted : .unavailable }

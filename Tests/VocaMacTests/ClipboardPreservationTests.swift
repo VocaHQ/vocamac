@@ -78,6 +78,25 @@ private final class ChangingClipboardProvider: NSObject, NSPasteboardItemDataPro
 }
 
 extension ClipboardPreservationTests {
+    func testInProcessAccessibilityWriteStaysOnMainQueue() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        let inserted = expectation(description: "in-process accessibility insertion")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityWorkerOverride: { _ in
+                XCTAssertTrue(Thread.isMainThread)
+                inserted.fulfill()
+                return true
+            }, frontmostPIDProvider: { ProcessInfo.processInfo.processIdentifier }
+        )
+
+        injector.inject(text: "result", preserveClipboard: false)
+
+        await fulfillment(of: [inserted], timeout: 1)
+        await drainInjectionQueue()
+    }
+
     func testSlowAccessibilityWorkerDoesNotBlockMainQueue() async {
         let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
         defer { board.releaseGlobally() }

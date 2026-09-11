@@ -115,7 +115,7 @@ struct CleanupSettingsPage: View {
                             .font(.caption)
                             .foregroundStyle(.orange)
                     }
-                    Text("Only the cleanup prompt and transcript text are sent when this provider is selected. Use HTTPS whenever the endpoint is not on this Mac. Endpoint settings can be exported; the API key never is.")
+                    Text("Only the cleanup prompt and transcript text are sent when this provider is selected. Use HTTPS whenever the endpoint is not on this Mac. Cleanup endpoint settings and API keys are never exported.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {

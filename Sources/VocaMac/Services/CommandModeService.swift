@@ -11,6 +11,7 @@ struct SelectedTextSnapshot: @unchecked Sendable {
     let element: AXElementBox
     let processID: pid_t
     let text: String
+    let range: CFRange?
 }
 
 @MainActor
@@ -32,29 +33,50 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
                     return
                 }
                 continuation.resume(returning: SelectedTextSnapshot(
-                    element: AXElementBox(element: element), processID: pid, text: selected
+                    element: AXElementBox(element: element),
+                    processID: pid,
+                    text: selected,
+                    range: AccessibilityTextReader.selectedTextRange(of: element)
                 ))
             }
         }
     }
 
     func replaceSelection(_ snapshot: SelectedTextSnapshot, with text: String) async -> Bool {
-        await withCheckedContinuation { continuation in
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == snapshot.processID else {
+            return false
+        }
+        return await withCheckedContinuation { continuation in
             AccessibilityTextReader.queue.async {
-                var currentPID: pid_t = 0
-                guard AXUIElementGetPid(snapshot.element.element, &currentPID) == .success,
-                      currentPID == snapshot.processID else {
+                guard let focused = AccessibilityTextReader.focusedTextElement(processID: snapshot.processID),
+                      CFEqual(focused, snapshot.element.element),
+                      AccessibilityTextReader.selectedText(of: focused) == snapshot.text,
+                      Self.rangesMatch(
+                        AccessibilityTextReader.selectedTextRange(of: focused),
+                        snapshot.range
+                      ) else {
                     continuation.resume(returning: false)
                     return
                 }
-                AXUIElementSetMessagingTimeout(snapshot.element.element, 0.2)
+                AXUIElementSetMessagingTimeout(focused, 0.2)
                 let status = AXUIElementSetAttributeValue(
-                    snapshot.element.element,
+                    focused,
                     kAXSelectedTextAttribute as CFString,
                     text as CFTypeRef
                 )
                 continuation.resume(returning: status == .success)
             }
+        }
+    }
+
+    nonisolated static func rangesMatch(_ lhs: CFRange?, _ rhs: CFRange?) -> Bool {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return lhs.location == rhs.location && lhs.length == rhs.length
+        case (.none, .none):
+            return true
+        default:
+            return false
         }
     }
 }

@@ -858,6 +858,7 @@ enum TestWords {
 final class MockScreenContextReader: ScreenContextReading {
     var text: String?
     var documentURL: URL?
+    var documentURLs: [URL?] = []
     var captureCallCount = 0
     var documentURLCallCount = 0
 
@@ -868,6 +869,7 @@ final class MockScreenContextReader: ScreenContextReading {
 
     func captureFrontmostDocumentURL() async -> URL? {
         documentURLCallCount += 1
+        if !documentURLs.isEmpty { return documentURLs.removeFirst() }
         return documentURL
     }
 }
@@ -885,7 +887,8 @@ final class MockSelectedTextService: SelectedTextAccessing {
         return SelectedTextSnapshot(
             element: AXElementBox(element: AXUIElementCreateSystemWide()),
             processID: 42,
-            text: selectedText
+            text: selectedText,
+            range: CFRange(location: 0, length: selectedText.utf16.count)
         )
     }
 

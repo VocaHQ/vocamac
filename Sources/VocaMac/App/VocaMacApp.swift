@@ -308,7 +308,28 @@ struct VocaMacApp: App {
         ) { [self] notification in
             guard let url = notification.object as? URL,
                   let link = VocaDeepLink(url: url) else { return }
+            let returnTarget: NSRunningApplication?
+            if link.requiresExternalConfirmation {
+                returnTarget = NSWorkspace.shared.frontmostApplication
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Allow VocaMac action?"
+                alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
+                alert.addButton(withTitle: "Allow")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            } else {
+                returnTarget = nil
+            }
             Task { @MainActor [self] in
+                // The confirmation window activates VocaMac. Put the user's
+                // original destination back in front before recording or text
+                // insertion resolves its target.
+                if let returnTarget,
+                   returnTarget.bundleIdentifier != Bundle.main.bundleIdentifier {
+                    returnTarget.activate()
+                    try? await Task.sleep(for: .milliseconds(150))
+                }
                 await appState.handleDeepLink(link)
                 switch link {
                 case .history, .settings:

@@ -1767,7 +1767,7 @@ final class AppState: ObservableObject {
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
             let contextTerms = await Self.awaitContextTerms(contextTask)
-            let documentURL = await Self.awaitDocumentURL(documentURLTask)
+            let capturedDocumentURL = await Self.awaitDocumentURL(documentURLTask)
             let recognitionVocabulary = Self.recognitionVocabulary(
                 customVocabulary, contextTerms: contextTerms
             )
@@ -1816,6 +1816,7 @@ final class AppState: ObservableObject {
             if !trimmedText.isEmpty {
                 let target = frontmostAppResolver.currentFrontmostApp()
                     ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
+                let documentURL = await revalidatedDocumentURL(capturedDocumentURL)
                 let resolved = resolveWritingStyle(for: target, documentURL: documentURL)
                 let profile = injectResult ? (nextWritingProfile ?? resolved.profile) : settingsPreviewProfile
                 if injectResult {
@@ -3151,6 +3152,23 @@ extension AppState {
             group.cancelAll()
             return first
         }
+    }
+
+    /// A browser can navigate while transcription runs. Apply a website rule
+    /// only when the output is still going to the host captured at recording
+    /// start; a failed refresh is safer than formatting for a stale page.
+    private func revalidatedDocumentURL(_ capturedURL: URL?) async -> URL? {
+        guard !websiteStyleBindings.isEmpty,
+              let capturedURL,
+              let reader = screenContextReader,
+              let currentURL = await reader.captureFrontmostDocumentURL(),
+              capturedURL.host?.lowercased() == currentURL.host?.lowercased() else {
+            if capturedURL != nil {
+                VocaLogger.warning(.appState, "Website changed before dictation output; skipping the captured website rule")
+            }
+            return nil
+        }
+        return currentURL
     }
 
     /// Whisper gets the same ephemeral screen terms as the post-corrector.

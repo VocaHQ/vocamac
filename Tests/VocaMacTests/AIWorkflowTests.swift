@@ -153,6 +153,18 @@ final class AIConfigurationTests: XCTestCase {
     }
 }
 
+final class SystemAudioAccumulatorTests: XCTestCase {
+    func testDurationLimitIsReportedOnceWhenExactlyReached() {
+        let accumulator = SystemAudioAccumulator(maximumDurationSeconds: 1)
+        accumulator.reset(sampleRate: 2)
+
+        XCTAssertFalse(accumulator.appendMonoSamples([0.1]))
+        XCTAssertTrue(accumulator.appendMonoSamples([0.2]))
+        XCTAssertFalse(accumulator.appendMonoSamples([0.3]))
+        XCTAssertTrue(accumulator.reachedLimit())
+    }
+}
+
 final class SpokenCorrectionResolverTests: XCTestCase {
     func testExplicitNumericCorrectionKeepsTheReplacement() {
         XCTAssertEqual(
@@ -183,6 +195,15 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertNil(VocaDeepLink(url: URL(string: "vocamac://unknown")!))
         XCTAssertNil(VocaDeepLink(url: URL(string: "https://vocamac.com")!))
     }
+
+    func testOnlyPrivilegedExternalLinksRequireConfirmation() {
+        XCTAssertTrue(VocaDeepLink.pasteLast.requiresExternalConfirmation)
+        XCTAssertTrue(VocaDeepLink.startDictation.requiresExternalConfirmation)
+        XCTAssertTrue(VocaDeepLink.stopDictation.requiresExternalConfirmation)
+        XCTAssertTrue(VocaDeepLink.toggleDictation.requiresExternalConfirmation)
+        XCTAssertFalse(VocaDeepLink.settings.requiresExternalConfirmation)
+        XCTAssertFalse(VocaDeepLink.transcribeFile.requiresExternalConfirmation)
+    }
 }
 
 final class SettingsArchiveTests: XCTestCase {
@@ -204,6 +225,7 @@ final class SettingsArchiveTests: XCTestCase {
 
     func testArchiveUsesAllowlistAndRestoresKnownValues() throws {
         defaults.set(true, forKey: PreferenceKey.historyEnabled)
+        defaults.set("https://private.example/v1", forKey: PreferenceKey.cleanupEndpoint)
         defaults.set("secret", forKey: "vocamac.scratchpad.text")
         defaults.set("not-exported", forKey: "unknown")
 
@@ -213,8 +235,22 @@ final class SettingsArchiveTests: XCTestCase {
 
         XCTAssertTrue(defaults.bool(forKey: PreferenceKey.historyEnabled))
         let json = String(decoding: data, as: UTF8.self)
+        XCTAssertFalse(json.contains("private.example"))
         XCTAssertFalse(json.contains("secret"))
         XCTAssertFalse(json.contains("not-exported"))
+    }
+
+    func testRestoreCannotRedirectCleanupEndpoint() throws {
+        defaults.set("https://trusted.example/v1", forKey: PreferenceKey.cleanupEndpoint)
+        let archive = SettingsArchive(values: [
+            PreferenceKey.cleanupEndpoint: .string("https://attacker.example/v1"),
+        ])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+
+        try SettingsArchiveService.restore(try encoder.encode(archive), defaults: defaults)
+
+        XCTAssertEqual(defaults.string(forKey: PreferenceKey.cleanupEndpoint), "https://trusted.example/v1")
     }
 
     func testRestoreRejectsNewerFormatWithoutChangingDefaults() throws {
@@ -231,6 +267,19 @@ final class SettingsArchiveTests: XCTestCase {
 }
 
 final class CommandModePromptTests: XCTestCase {
+    func testSelectionRangesMustStillMatchBeforeReplacement() {
+        XCTAssertTrue(AccessibilitySelectedTextService.rangesMatch(
+            CFRange(location: 4, length: 7),
+            CFRange(location: 4, length: 7)
+        ))
+        XCTAssertFalse(AccessibilitySelectedTextService.rangesMatch(
+            CFRange(location: 5, length: 7),
+            CFRange(location: 4, length: 7)
+        ))
+        XCTAssertFalse(AccessibilitySelectedTextService.rangesMatch(nil, CFRange(location: 4, length: 7)))
+        XCTAssertTrue(AccessibilitySelectedTextService.rangesMatch(nil, nil))
+    }
+
     func testPromptTreatsSelectionAsDataAndIncludesInstruction() {
         let prompt = CommandModePrompt.make(instruction: "translate to Spanish")
         XCTAssertTrue(prompt.contains("translate to Spanish"))

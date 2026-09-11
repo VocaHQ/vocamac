@@ -10,6 +10,7 @@ import os
 
 final class SystemAudioAccumulator: @unchecked Sendable {
     static let maximumDurationSeconds = 20 * 60
+    private let maximumDurationSeconds: Double
     private struct State {
         var samples: [Float] = []
         var sampleRate = 48_000.0
@@ -17,20 +18,24 @@ final class SystemAudioAccumulator: @unchecked Sendable {
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
 
+    init(maximumDurationSeconds: Double = Double(SystemAudioAccumulator.maximumDurationSeconds)) {
+        self.maximumDurationSeconds = maximumDurationSeconds
+    }
+
     func reset(sampleRate: Double) {
         state.withLock { $0 = State(samples: [], sampleRate: sampleRate) }
     }
 
-    func append(_ input: UnsafePointer<AudioBufferList>, format: AudioStreamBasicDescription) {
+    func append(_ input: UnsafePointer<AudioBufferList>, format: AudioStreamBasicDescription) -> Bool {
         guard format.mFormatID == kAudioFormatLinearPCM,
               format.mFormatFlags & kAudioFormatFlagIsFloat != 0,
-              format.mBitsPerChannel == 32 else { return }
+              format.mBitsPerChannel == 32 else { return false }
         let buffers = UnsafeMutableAudioBufferListPointer(UnsafeMutablePointer(mutating: input))
         let channels = max(1, Int(format.mChannelsPerFrame))
         var mono: [Float] = []
         if format.mFormatFlags & kAudioFormatFlagIsNonInterleaved != 0 {
             let available = min(channels, buffers.count)
-            guard available > 0 else { return }
+            guard available > 0 else { return false }
             let frames = buffers.prefix(available).map { Int($0.mDataByteSize) / MemoryLayout<Float>.size }.min() ?? 0
             mono = Array(repeating: 0, count: frames)
             for channel in 0..<available {
@@ -39,7 +44,7 @@ final class SystemAudioAccumulator: @unchecked Sendable {
             }
         } else {
             guard let buffer = buffers.first,
-                  let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { return }
+                  let data = buffer.mData?.assumingMemoryBound(to: Float.self) else { return false }
             let frames = Int(buffer.mDataByteSize) / (MemoryLayout<Float>.size * channels)
             mono.reserveCapacity(frames)
             for frame in 0..<frames {
@@ -48,12 +53,20 @@ final class SystemAudioAccumulator: @unchecked Sendable {
                 mono.append(sum / Float(channels))
             }
         }
-        let captured = mono
-        state.withLock { state in
-            let limit = Int(state.sampleRate * Double(Self.maximumDurationSeconds))
+        return appendMonoSamples(mono)
+    }
+
+    /// Appends already-mixed samples and returns true exactly once when the
+    /// duration limit is first reached.
+    func appendMonoSamples(_ captured: [Float]) -> Bool {
+        guard !captured.isEmpty else { return false }
+        return state.withLock { state in
+            let wasAtLimit = state.didReachLimit
+            let limit = Int(state.sampleRate * maximumDurationSeconds)
             let remaining = max(0, limit - state.samples.count)
             state.samples.append(contentsOf: captured.prefix(remaining))
-            if captured.count > remaining { state.didReachLimit = true }
+            if captured.count >= remaining { state.didReachLimit = true }
+            return state.didReachLimit && !wasAtLimit
         }
     }
 
@@ -143,8 +156,10 @@ final class SystemAudioCapture: ObservableObject {
         accumulator.reset(sampleRate: format.mSampleRate)
 
         var proc: AudioDeviceIOProcID?
-        status = AudioDeviceCreateIOProcIDWithBlock(&proc, aggregate, queue) { [accumulator] _, input, _, _, _ in
-            accumulator.append(input, format: format)
+        status = AudioDeviceCreateIOProcIDWithBlock(&proc, aggregate, queue) { [weak self, accumulator] _, input, _, _, _ in
+            if accumulator.append(input, format: format) {
+                Task { @MainActor [weak self] in self?.stopAtDurationLimit() }
+            }
         }
         guard status == noErr, let proc else { cleanup(); throw CaptureError.coreAudio("attach the capture callback", status) }
         ioProcID = proc
@@ -160,6 +175,13 @@ final class SystemAudioCapture: ObservableObject {
         let samples = accumulator.normalizedSamples()
         VocaLogger.info(.audioEngine, "System-audio process tap stopped with \(samples.count) samples")
         return samples
+    }
+
+    private func stopAtDurationLimit() {
+        guard isCapturing else { return }
+        cleanup()
+        didReachLimit = true
+        VocaLogger.info(.audioEngine, "System-audio process tap stopped at the 20-minute limit")
     }
 
     private func cleanup() {

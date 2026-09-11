@@ -239,9 +239,28 @@ final class AppStateHistoryTests: XCTestCase {
 
         await dictate(appState, mocks, text: "open config dot json")
 
-        XCTAssertEqual(reader.documentURLCallCount, 1)
+        XCTAssertEqual(reader.documentURLCallCount, 2)
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "open config.json")
         XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Docs")
+    }
+
+    func testWebsiteRuleIsSkippedWhenBrowserNavigatesDuringTranscription() async {
+        let reader = MockScreenContextReader()
+        reader.documentURLs = [
+            URL(string: "https://docs.example.com/editor"),
+            URL(string: "https://chat.example.com/room"),
+        ]
+        let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
+        appState.useScreenContext = false
+        appState.writingStyleDefault = .chat
+        appState.websiteStyleBindings = [WebsiteStyleBinding(
+            hostPattern: "docs.example.com", displayName: "Docs", style: .code
+        )]
+
+        await dictate(appState, mocks, text: "open config dot json")
+
+        XCTAssertEqual(reader.documentURLCallCount, 2)
+        XCTAssertNotEqual(appState.activeWritingStyle.matchedAppName, "Docs")
     }
 
     func testScreenContextCanBeTurnedOff() async {

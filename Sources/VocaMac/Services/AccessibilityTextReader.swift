@@ -61,13 +61,18 @@ enum AccessibilityTextReader {
         return value
     }
 
-    static func caretLocation(of element: AXUIElement) -> Int? {
+    static func selectedTextRange(of element: AXUIElement) -> CFRange? {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &ref) == .success,
               let ref, CFGetTypeID(ref) == AXValueGetTypeID() else { return nil }
         var range = CFRange()
         // swiftlint:disable:next force_cast
         guard AXValueGetValue(ref as! AXValue, .cfRange, &range) else { return nil }
+        return range
+    }
+
+    static func caretLocation(of element: AXUIElement) -> Int? {
+        guard let range = selectedTextRange(of: element) else { return nil }
         return range.location + range.length
     }
 

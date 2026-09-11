@@ -460,7 +460,7 @@ struct ApplicationSettingsPage: View {
             }
 
             Section("Settings Backup") {
-                Text("Export preferences, shortcuts, app and website rules, snippets, and dictionary entries. History, stats, scratchpad text, downloaded models, and API keys are not included.")
+                Text("Export preferences, shortcuts, app and website rules, snippets, and dictionary entries. History, stats, scratchpad text, downloaded models, cleanup endpoints, and API keys are not included.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack {
@@ -484,7 +484,7 @@ struct ApplicationSettingsPage: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try SettingsArchiveService.encode().write(to: url, options: .atomic)
-            backupNotice = "Settings exported. API keys were not included."
+            backupNotice = "Settings exported. Cleanup endpoints and API keys were not included."
         } catch {
             backupNotice = "Could not export settings: \(error.localizedDescription)"
         }
@@ -499,7 +499,7 @@ struct ApplicationSettingsPage: View {
         do {
             try SettingsArchiveService.restore(Data(contentsOf: url))
             appState.reloadImportedSettings()
-            backupNotice = "Settings imported. Existing API keys were left unchanged."
+            backupNotice = "Settings imported. The existing cleanup endpoint and API key were left unchanged."
         } catch {
             backupNotice = "Could not import settings: \(error.localizedDescription)"
         }

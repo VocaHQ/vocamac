@@ -13,6 +13,28 @@ enum VocaDeepLink: Equatable {
     case transcribeFile
     case scratchpad
 
+    /// Recording and text injection are privileged side effects when invoked
+    /// by another process through the custom URL scheme. App Intents are an
+    /// explicit Shortcuts surface and do not use this gate.
+    var requiresExternalConfirmation: Bool {
+        switch self {
+        case .startDictation, .stopDictation, .toggleDictation, .pasteLast:
+            return true
+        case .history, .settings, .transcribeFile, .scratchpad:
+            return false
+        }
+    }
+
+    var confirmationDescription: String {
+        switch self {
+        case .startDictation: return "start microphone recording"
+        case .stopDictation: return "stop recording and type the transcript"
+        case .toggleDictation: return "start or stop microphone recording"
+        case .pasteLast: return "type your last saved dictation"
+        case .history, .settings, .transcribeFile, .scratchpad: return "open VocaMac"
+        }
+    }
+
     init?(url: URL) {
         guard url.scheme?.lowercased() == "vocamac" else { return nil }
         let command = [url.host, url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))]

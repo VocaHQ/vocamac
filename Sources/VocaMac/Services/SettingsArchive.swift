@@ -43,7 +43,7 @@ struct SettingsArchive: Codable, Equatable {
 
 enum SettingsArchiveService {
     /// Deliberate allowlist: user content (history, stats, scratchpad) and the
-    /// endpoint API key are not settings backups.
+    /// cleanup endpoint and API key are not settings backups.
     static let keys: Set<String> = [
         "vocamac.activationMode", "vocamac.customVocabulary", "vocamac.doubleTapThreshold",
         "vocamac.hotKeyCode", "vocamac.hotKeyModifiers", "vocamac.launchAtLogin",
@@ -54,7 +54,7 @@ enum SettingsArchiveService {
         "vocamac.showCursorIndicator", "vocamac.silenceDuration", "vocamac.silenceThreshold",
         "vocamac.soundEffectsEnabled", "vocamac.translationEnabled", "vocamac.snippets",
         PreferenceKey.appendTrailingSpace, PreferenceKey.autoCapitalize, PreferenceKey.autoPauseEnabled,
-        PreferenceKey.autoPauseApps, PreferenceKey.autoPausePollInterval, PreferenceKey.cleanupEndpoint,
+        PreferenceKey.autoPauseApps, PreferenceKey.autoPausePollInterval,
         PreferenceKey.commandModeShortcut, PreferenceKey.dictationTone, PreferenceKey.duckOtherAudioEnabled,
         PreferenceKey.escapeCancelsDictation, PreferenceKey.externalMicWhenLidClosed,
         PreferenceKey.handsFreeShortcut, PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio,

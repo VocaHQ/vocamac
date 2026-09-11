@@ -162,11 +162,19 @@ struct DictationOutputPipeline {
             attempt = await cleaner.attempt(protected.text, prompt: prompt)
         }
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
+        // The model's answer, including one the service's whole-answer check
+        // refused: its safe edits are still worth having.
+        let modelText: String
         switch attempt.outcome {
-        case .rejected(let reason), .skipped(let reason):
-            return result(fallback, noting("Rewrite skipped — \(reason)"))
         case .cleaned, .unchanged:
-            break
+            modelText = attempt.output
+        case .rejected(let reason):
+            guard let candidate = attempt.rejectedCandidate else {
+                return result(fallback, noting("Rewrite skipped — \(reason)"))
+            }
+            modelText = candidate
+        case .skipped(let reason):
+            return result(fallback, noting("Rewrite skipped — \(reason)"))
         }
 
         // Never interpret words the model invented, or words that became
@@ -183,7 +191,7 @@ struct DictationOutputPipeline {
         /// The user's own words minus the filler the model found, or nil when
         /// it found none that is safe to remove.
         func salvage() -> String? {
-            let deletions = CleanupSalvage.safeDeletions(original: protected.text, candidate: attempt.output)
+            let deletions = CleanupSalvage.safeDeletions(original: protected.text, candidate: modelText)
             guard !deletions.isEmpty,
                   let trimmed = protected.restoreValidated(
                     WritingStyleEngine.removeWordRuns(deletions, from: protected.text, prose: !technical)
@@ -203,24 +211,49 @@ struct DictationOutputPipeline {
             return result(salvaged, "\(styleName) style — model removed filler only, commands kept exact")
         }
 
-        guard let candidate = protected.restoreValidated(attempt.output),
-              let formatting = protected.formattingMask(attempt.output),
-              RewriteValidation.accepts(candidate, original: masked.text) else {
-            // The full rewrite changed something it shouldn't have. Keep the
-            // filler it removed and set the rest aside.
-            if let salvaged = salvage() {
-                return result(salvaged, "Filler removed — the rest of the rewrite was set aside for safety")
-            }
-            return result(fallback, noting("Rewrite rejected — original wording retained"))
+        func finish(_ formatting: MaskedText) -> String {
+            let formatted = WritingStyleEngine.format(
+                formatting.text, rules: finalRules, globalAutoCapitalize: autoCapitalize,
+                globalTrailingSpace: trailingSpace
+            )
+            return masked.restore(in: formatting.restore(in: formatted))
         }
-        let formatted = WritingStyleEngine.format(
-            formatting.text, rules: finalRules, globalAutoCapitalize: autoCapitalize,
-            globalTrailingSpace: trailingSpace
+
+        // Formal and Casual exist to reword, so a rewrite that passes every
+        // check is used whole.
+        if intent != .preserve,
+           let candidate = protected.restoreValidated(modelText),
+           let formatting = protected.formattingMask(modelText),
+           RewriteValidation.accepts(candidate, original: masked.text) {
+            let summary = candidate == masked.text ? noting("Wording unchanged") : "\(intent.displayName) wording applied"
+            return result(finish(formatting), summary)
+        }
+
+        // Otherwise — and always for cleanup, whose job is only fillers,
+        // stutters, punctuation, and spelling — take the model's edits one at
+        // a time and leave any risky one as spoken. Nothing is rejected whole.
+        let spellingLanguage: String? = isEnglishText ? "en" : "und"
+        let merged = EditMerge.merge(
+            original: protected.text, candidate: modelText, level: effectiveLevel,
+            isKnownWord: { dictionary?.isKnownWord($0) ?? SpellingOracle.shared.isKnownWord($0, language: spellingLanguage) }
         )
-        let output = masked.restore(in: formatting.restore(in: formatted))
-        let summary = candidate == masked.text ? noting("Wording unchanged")
-            : intent == .preserve ? "Cleaned up" : "\(intent.displayName) wording applied"
-        return result(output, summary)
+        if protected.restoreValidated(merged.text) != nil,
+           let formatting = protected.formattingMask(merged.text) {
+            let summary: String
+            switch (merged.applied, merged.skipped) {
+            case (0, 0): summary = "Wording unchanged"
+            case (0, _): summary = "Kept your wording — the model only suggested rewording"
+            case (_, 0): summary = "Cleaned up"
+            default: summary = "Cleaned up · \(merged.skipped) risky edit\(merged.skipped == 1 ? "" : "s") left as spoken"
+            }
+            return result(finish(formatting), noting(summary))
+        }
+        // Only if the merge itself lost a name or protected token, which it
+        // is built not to: fall back to plain filler removal.
+        if let salvaged = salvage() {
+            return result(salvaged, noting("Cleaned up — filler only"))
+        }
+        return result(fallback, noting("Kept your wording — the model only suggested rewording"))
     }
 
     /// Code and Terminal utterances shorter than this are treated as commands.
@@ -395,21 +428,26 @@ enum RewriteValidation {
     }
 
     static func accepts(_ candidate: String, original: String) -> Bool {
-        guard TranscriptCleanup.isUsable(candidate, original: original) else { return false }
+        rejectionReason(candidate, original: original) == nil
+    }
+
+    /// Which check a whole rewrite fails, or nil when it passes.
+    static func rejectionReason(_ candidate: String, original: String) -> String? {
+        guard TranscriptCleanup.isUsable(candidate, original: original) else { return "unusable output" }
         guard substrings(#"\d+(?:[.,:/-]\d+)*"#, in: candidate)
-                == substrings(#"\d+(?:[.,:/-]\d+)*"#, in: original) else { return false }
-        guard negations(candidate) == negations(original) else { return false }
-        guard participants(candidate) == participants(original) else { return false }
+                == substrings(#"\d+(?:[.,:/-]\d+)*"#, in: original) else { return "numbers changed" }
+        guard negations(candidate) == negations(original) else { return "negation changed" }
+        guard participants(candidate) == participants(original) else { return "pronouns changed" }
         let qualifiers = #"(?i)\b(?:might|may|must|perhaps|probably|possibly|always|sometimes|only|unless)\b"#
         guard substrings(qualifiers, in: candidate.lowercased())
-            == substrings(qualifiers, in: original.lowercased()) else { return false }
+            == substrings(qualifiers, in: original.lowercased()) else { return "qualifier changed" }
         // The small shipped models have no multilingual style qualification.
-        if containsNonLatinLetters(original), candidate != original { return false }
-        // Catch dropped questions, paragraphs, and excessive rewriting. These
-        // bounds deliberately prefer a false rejection over a changed message.
-        guard candidate.filter({ $0 == "?" }).count >= original.filter({ $0 == "?" }).count,
-              candidate.components(separatedBy: "\n").count == original.components(separatedBy: "\n").count else {
-            return false
+        if containsNonLatinLetters(original), candidate != original { return "non-Latin text changed" }
+        guard candidate.filter({ $0 == "?" }).count >= original.filter({ $0 == "?" }).count else {
+            return "question dropped"
+        }
+        guard candidate.components(separatedBy: "\n").count == original.components(separatedBy: "\n").count else {
+            return "line breaks changed"
         }
         let before = words(original)
         let after = words(candidate)
@@ -418,11 +456,13 @@ enum RewriteValidation {
         let sourceCounts = meaningful.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         let outputCounts = after.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         for (word, count) in sourceCounts where count > 1 {
-            guard outputCounts[word, default: 0] >= count else { return false }
+            guard outputCounts[word, default: 0] >= count else { return "repeated word dropped (\(word))" }
         }
         let overlap = meaningful.filter { after.contains($0) }.count
-        guard meaningful.isEmpty || Double(overlap) / Double(meaningful.count) >= 0.6 else { return false }
-        return true
+        guard meaningful.isEmpty || Double(overlap) / Double(meaningful.count) >= 0.6 else {
+            return "too much rewording"
+        }
+        return nil
     }
 
     static func containsLiteralEscape(_ text: String) -> Bool {

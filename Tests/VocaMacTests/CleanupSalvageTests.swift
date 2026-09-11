@@ -104,7 +104,8 @@ final class TechnicalCleanupPipelineTests: XCTestCase {
         let (result, _) = await process("Hi, I have gone gone through Sergey conversations", format: .chat) { _ in
             "Hi, I have gone through our conversations."
         }
-        XCTAssertEqual(result.text, "Hi, I have gone through Sergey conversations")
-        XCTAssertTrue(result.summary.hasPrefix("Filler removed"))
+        // The stutter and the period are kept; "Sergey" → "our" is not.
+        XCTAssertEqual(result.text, "Hi, I have gone through Sergey conversations.")
+        XCTAssertTrue(result.summary.contains("1 risky edit left as spoken"), result.summary)
     }
 }

@@ -35,6 +35,9 @@ struct CleanupAttempt: Equatable {
     let output: String
     let outcome: Outcome
     let duration: TimeInterval
+    /// The model's answer when the whole-answer check threw it out. Its safe
+    /// edits can still be applied one by one (`EditMerge`).
+    var rejectedCandidate: String? = nil
 
     var didChangeText: Bool { outcome == .cleaned }
 
@@ -42,7 +45,7 @@ struct CleanupAttempt: Equatable {
         switch outcome {
         case .cleaned: return "Cleaned up"
         case .unchanged: return "Model returned the text unchanged"
-        case .rejected(let why): return "Discarded — \(why). Dictation would paste the original."
+        case .rejected(let why): return "Not usable whole — \(why). Dictation applies its safe edits one by one."
         case .skipped(let why): return "Skipped — \(why)"
         }
     }

@@ -58,7 +58,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         cleaner.cleanHandler = { _ in "Something completely different." }
         let result = await process("Hi, um, I hope you're good", cleaner: cleaner)
         XCTAssertEqual(result.text, "Hi, I hope you're good")
-        XCTAssertTrue(result.summary.hasPrefix("Rewrite rejected"))
+        XCTAssertTrue(result.summary.hasPrefix("Kept your wording"), result.summary)
     }
 
     func testLightLevelAndFormattingOnlyKeepHesitations() async {
@@ -201,7 +201,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         }
     }
 
-    func testChangedFactsFallBackToDeterministicOutput() async {
+    func testChangedFactsAreNeverTakenFromTheModel() async {
         for (input, output) in [
             ("do not deploy today", "Deploy today."),
             ("the meeting is at 15", "The meeting is at 50."),
@@ -214,8 +214,11 @@ final class DictationOutputPipelineTests: XCTestCase {
             let cleaner = MockTranscriptCleanup()
             cleaner.cleanHandler = { _ in output }
             let result = await process(input, cleaner: cleaner, intent: .professional)
-            XCTAssertTrue(result.summary.contains("rejected"), input)
-            XCTAssertEqual(result.text, DictationOutputFormatter.apply(input, autoCapitalize: true, appendTrailingSpace: false))
+            // Every word the user said survives exactly; at most the model's
+            // punctuation is taken. Nothing is "rejected" whole.
+            let words = { (text: String) in RewriteValidation.substrings(#"[\p{L}\p{N}']+"#, in: text.lowercased()) }
+            XCTAssertEqual(words(result.text), words(input), input)
+            XCTAssertFalse(result.summary.contains("rejected"), input)
         }
     }
 

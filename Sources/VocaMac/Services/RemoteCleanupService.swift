@@ -198,7 +198,12 @@ final class RemoteCleanupService: TranscriptCleaning {
                 ? TranscriptCleanup.acceptedTransformOutput(raw, original: trimmed)
                 : TranscriptCleanup.acceptedOutput(raw, original: trimmed)
             guard let accepted else {
-                return result(text, .rejected("the rewrite failed the safety check"))
+                let sanitized = TranscriptCleanup.sanitize(raw)
+                return CleanupAttempt(
+                    output: text, outcome: .rejected("the rewrite failed the safety check"),
+                    duration: Date().timeIntervalSince(start),
+                    rejectedCandidate: sanitized.isEmpty ? nil : sanitized
+                )
             }
             return result(accepted, accepted == trimmed ? .unchanged : .cleaned)
         } catch let error where Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {

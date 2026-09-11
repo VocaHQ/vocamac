@@ -49,14 +49,14 @@ enum CleanupSalvage {
 
     // MARK: - Safety rules
 
-    private static let commaFillers: Set<String> = [
+    static let commaFillers: Set<String> = [
         "like", "you know", "basically", "kind of", "sort of", "i guess", "you see",
     ]
-    private static let openingFillers: Set<String> = [
+    static let openingFillers: Set<String> = [
         "so", "well", "okay", "ok", "alright", "right", "now",
     ]
     /// Words people double on purpose: "very very", "no no", "bye bye".
-    private static let intentionalRepeats: Set<String> = [
+    static let intentionalRepeats: Set<String> = [
         "very", "really", "so", "much", "many", "more", "no", "yes", "yeah", "bye", "ha",
         "hey", "please", "go", "again", "far", "long", "too", "super", "now", "well",
         "right", "okay", "ok", "wait", "come", "knock", "what", "why", "that", "had",

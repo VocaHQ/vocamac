@@ -203,7 +203,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             if recordingFailures {
                 recordFailure(reason: raw.isEmpty || raw == "..." ? "produced no output" : "produced unusable output")
             }
-            return result(text, .rejected(why))
+            let sanitized = TranscriptCleanup.sanitize(raw)
+            return CleanupAttempt(
+                output: text, outcome: .rejected(why), duration: Date().timeIntervalSince(started),
+                rejectedCandidate: sanitized.isEmpty || sanitized == "..." ? nil : sanitized
+            )
         } catch CleanupInferenceError.deadlineExceeded {
             let limit = Int(allowsTransform ? Self.transformTimeoutSeconds : Self.timeoutSeconds)
             if recordingFailures {

@@ -442,6 +442,18 @@ final class CommandModePromptTests: XCTestCase {
         )
     }
 
+    func testSessionPreviewIsOneShortLine() {
+        let session = CommandModeSession(
+            selection: "First line\n\n  second   line " + String(repeating: "x", count: 100),
+            appName: "Discord", engineName: "Qwen 3 4B Instruct"
+        )
+        XCTAssertFalse(session.selectionPreview.contains("\n"))
+        XCTAssertTrue(session.selectionPreview.hasPrefix("First line second line"))
+        XCTAssertEqual(session.selectionPreview.count, 80)
+        XCTAssertTrue(session.selectionPreview.hasSuffix("…"))
+        XCTAssertEqual(session.phase, .listening)
+    }
+
     func testReplacementKeepsTheSelectionsSurroundingWhitespace() {
         XCTAssertEqual(
             TranscriptCleanup.preservingOuterWhitespace(of: "  first line\n", in: "First line."),
@@ -554,7 +566,11 @@ final class CommandModeFlowTests: XCTestCase {
 
         await app.beginCommandMode()
         XCTAssertTrue(mocks.cursorOverlay.isCommandMode)
+        XCTAssertEqual(app.commandModeSession?.phase, .listening)
+        XCTAssertEqual(app.commandModeSession?.characterCount, 36)
         await app.stopRecordingAndTranscribe()
+        XCTAssertNil(app.commandModeSession, "The menu bar and overlay return to dictation")
+        XCTAssertFalse(mocks.cursorOverlay.isCommandMode)
 
         XCTAssertEqual(selection.replacement, "A short sentence.")
         XCTAssertEqual(cleanup.lastLoadedKind, .qwen25_1_5b_q4_k_m)
@@ -608,6 +624,7 @@ final class CommandModeFlowTests: XCTestCase {
         await app.stopRecordingAndTranscribe()
 
         XCTAssertEqual(cleanup.cancelTransformCallCount, 1)
+        XCTAssertNil(app.commandModeSession)
         XCTAssertEqual(selection.replaceCallCount, 0)
         XCTAssertNil(selection.replacement)
         XCTAssertEqual(app.appStatus, .idle)
@@ -624,11 +641,17 @@ final class CommandModeFlowTests: XCTestCase {
             text: "fix the capitalization", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
+        var sessionWhileRewriting: CommandModeSession?
+        cleanup.onTransform = { [weak app] in
+            await MainActor.run { sessionWhileRewriting = app?.commandModeSession }
+        }
 
         await app.beginCommandMode()
         await app.stopRecordingAndTranscribe()
 
         XCTAssertEqual(selection.replacement, "First line.\n")
+        XCTAssertEqual(sessionWhileRewriting?.phase, .rewriting)
+        XCTAssertEqual(sessionWhileRewriting?.instruction, "fix the capitalization")
     }
 
     func testCleanupModelIsReloadedAfterALargerCommandModel() async {

@@ -20,6 +20,16 @@ enum VocaDesign {
     /// system green next to it reads as two different greens rather than one
     /// meaning.
     static var success: Color { accent }
+
+    /// Command Mode's own color. Editing selected text is a different act
+    /// from dictating, so every surface that shows it — overlay, menu bar
+    /// icon, menu, settings — uses violet instead of the dictation green.
+    static let command = Color(nsColor: commandNSColor)
+    static let commandNSColor = NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.72, green: 0.62, blue: 1.0, alpha: 1)
+            : NSColor(red: 0.44, green: 0.28, blue: 0.86, alpha: 1)
+    }
     static let canvas = Color(nsColor: .windowBackgroundColor)
     static let surface = Color(nsColor: .controlBackgroundColor)
     static let line = Color.primary.opacity(0.10)

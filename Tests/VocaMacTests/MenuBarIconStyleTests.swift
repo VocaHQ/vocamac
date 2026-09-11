@@ -21,6 +21,19 @@ final class MenuBarIconStyleTests: XCTestCase {
         )
     }
 
+    func testCommandModeShowsAWandWhileListeningAndRewriting() {
+        XCTAssertEqual(
+            MenuBarIconStyle.style(for: .recording, isCommandMode: true),
+            .systemSymbol(name: "wand.and.stars")
+        )
+        XCTAssertEqual(
+            MenuBarIconStyle.style(for: .processing, isCommandMode: true),
+            .systemSymbol(name: "wand.and.stars")
+        )
+        // An error or idle state is not Command Mode's to show.
+        XCTAssertEqual(MenuBarIconStyle.style(for: .idle, isCommandMode: true), .systemSymbolTemplate(name: "mic.fill"))
+    }
+
     func testErrorUsesSystemSymbol() {
         XCTAssertEqual(
             MenuBarIconStyle.style(for: .error),

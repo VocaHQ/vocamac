@@ -540,14 +540,19 @@ struct CommandModeSettingsGroup: View {
 
     var body: some View {
         VocaSettingsGroup("Command Mode") {
-            Text("Select text in any app, use the shortcut, and say what to change — “make this shorter”, “fix the grammar”, “translate to Spanish”. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
+            CommandModeReadinessBanner()
+
+            Text("Select text in any app, use the shortcut, and say what to change. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            CommandModeExamples()
+
             ShortcutRecorderRow(
                 action: .commandMode,
-                detail: "Press once, speak, and press again — or hold it while speaking."
+                detail: "Press once, speak, and press again — or hold it while speaking.",
+                title: "Shortcut"
             )
 
             Divider()
@@ -611,7 +616,7 @@ private struct CommandEngineRow: View {
             }
             Spacer()
             if appState.commandModeEngine == engine {
-                Text("In use").font(.caption).foregroundStyle(VocaDesign.success)
+                Text("In use").font(.caption).foregroundStyle(VocaDesign.command)
             } else {
                 Button("Use") { appState.commandModeEngine = engine }
                     .controlSize(.small)
@@ -677,7 +682,7 @@ private struct CommandLocalModelRow: View {
         } else {
             HStack(spacing: 8) {
                 if isSelected {
-                    Text("In use").font(.caption).foregroundStyle(VocaDesign.success)
+                    Text("In use").font(.caption).foregroundStyle(VocaDesign.command)
                 } else {
                     Button("Use") { appState.commandModeEngine = .local(kind) }
                         .controlSize(.small)
@@ -703,8 +708,74 @@ private struct CommandEngineSelectionMark: View {
 
     var body: some View {
         Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-            .foregroundStyle(isSelected ? VocaDesign.accent : .secondary)
+            .foregroundStyle(isSelected ? VocaDesign.command : .secondary)
             .frame(width: 20)
             .accessibilityLabel(isSelected ? "Selected" : "Not selected")
+    }
+}
+
+/// One line that says whether Command Mode will work right now, and if not,
+/// the single thing to do about it. Without a shortcut the feature is
+/// invisible, so that case leads.
+private struct CommandModeReadinessBanner: View {
+    @EnvironmentObject var appState: AppState
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let (symbol, message, color) = state
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(color)
+            Text(message)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(color.opacity(colorScheme == .dark ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    private var state: (String, String, Color) {
+        let engine = appState.commandModeEngine
+        guard let combo = appState.shortcut(for: .commandMode) else {
+            return ("keyboard", "Command Mode is off. Record a shortcut below to turn it on.", .orange)
+        }
+        if let problem = appState.commandModeProblem(for: engine) {
+            return ("exclamationmark.triangle.fill", problem, .orange)
+        }
+        let keys = KeyCodeReference.displayName(for: combo)
+        return (
+            "wand.and.stars",
+            "Ready — select text, press \(keys), and speak. Edits run with \(engine.displayName).",
+            VocaDesign.command
+        )
+    }
+}
+
+/// Instructions that show the range of what Command Mode can do.
+private struct CommandModeExamples: View {
+    private static let phrases = [
+        "make this shorter", "fix grammar and spelling", "make it more formal",
+        "turn this into bullet points", "translate to Spanish", "write a polite reply",
+    ]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6, alignment: .leading)],
+                  alignment: .leading, spacing: 6) {
+            ForEach(Self.phrases, id: \.self) { phrase in
+                Text("“\(phrase)”")
+                    .font(.caption)
+                    .foregroundStyle(VocaDesign.command)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(VocaDesign.command.opacity(0.10), in: Capsule())
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Example instructions: " + Self.phrases.joined(separator: ", "))
     }
 }

@@ -63,6 +63,8 @@ struct ShortcutRecorderRow: View {
     @EnvironmentObject var appState: AppState
     let action: HotKeyShortcutAction
     let detail: String
+    /// Overrides the action name where the surrounding group already names it.
+    var title: String?
 
     @State private var isRecording = false
     @State private var wasListeningBeforeRecording = false
@@ -74,7 +76,7 @@ struct ShortcutRecorderRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(action.displayName)
+                    Text(title ?? action.displayName)
                     Text(detail)
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

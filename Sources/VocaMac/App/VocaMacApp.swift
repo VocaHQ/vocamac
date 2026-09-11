@@ -267,7 +267,7 @@ struct VocaMacApp: App {
             )
                 .environmentObject(appState)
         } label: {
-            MenuBarIcon(appStatus: appState.appStatus)
+            MenuBarIcon(appStatus: appState.appStatus, isCommandMode: appState.commandModeSession != nil)
                 .onAppear {
                     // Trigger startup from the SwiftUI lifecycle so it only runs
                     // on the AppState instance that SwiftUI actually retains.
@@ -417,13 +417,14 @@ struct VocaMacApp: App {
 ///   • error      → orange warning (non-template, colored)
 struct MenuBarIcon: View {
     let appStatus: AppStatus
+    var isCommandMode = false
 
     var body: some View {
         Image(nsImage: makeMenuBarIcon())
     }
 
     private func makeMenuBarIcon() -> NSImage {
-        switch MenuBarIconStyle.style(for: appStatus) {
+        switch MenuBarIconStyle.style(for: appStatus, isCommandMode: isCommandMode) {
         case .brandMarkTemplate:
             if let mark = sizedMark() {
                 mark.isTemplate = true
@@ -504,6 +505,7 @@ struct MenuBarIcon: View {
     }
 
     private var statusColor: NSColor {
+        if isCommandMode { return VocaDesign.commandNSColor }
         switch appStatus {
         case .idle:       return BrandAssets.brandGreen
         case .recording:  return BrandAssets.brandGreen

@@ -397,9 +397,18 @@ struct MenuBarView: View {
 
                 Spacer()
 
-                Text(activationModeHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(activationModeHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if appState.appStatus == .idle,
+                       let combo = appState.shortcut(for: .commandMode) {
+                        Label("Edit selection: \(KeyCodeReference.displayName(for: combo))", systemImage: "wand.and.stars")
+                            .font(.caption2)
+                            .foregroundStyle(VocaDesign.command)
+                            .help("Select text in any app, press this, and say how to change it")
+                    }
+                }
             }
 
             if let unloadMessage = appState.modelUnloadStatusMessage,
@@ -424,10 +433,17 @@ struct MenuBarView: View {
                 .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
+            if let session = appState.commandModeSession {
+                commandSessionCard(session)
+            }
+
             // Audio level indicator (visible during recording)
             if appState.appStatus == .recording {
-                ObservedAudioLevelView(meter: appState.audioMeter)
-                    .frame(height: 6)
+                ObservedAudioLevelView(
+                    meter: appState.audioMeter,
+                    tint: appState.commandModeSession == nil ? nil : VocaDesign.command
+                )
+                .frame(height: 6)
 
                 if !appState.liveTranscript.isEmpty {
                     Text(appState.liveTranscript)
@@ -445,18 +461,36 @@ struct MenuBarView: View {
                         await appState.stopRecordingAndTranscribe()
                     }
                 } label: {
-                    Label("Stop Recording", systemImage: "stop.circle.fill")
-                        .font(.callout)
-                        .foregroundStyle(.red)
+                    if appState.commandModeSession != nil {
+                        Label("Finish Instruction", systemImage: "checkmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(VocaDesign.command)
+                    } else {
+                        Label("Stop Recording", systemImage: "stop.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.red)
+                    }
                 }
                 .buttonStyle(.plain)
             }
 
             // Processing indicator
             if appState.appStatus == .processing {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                if appState.commandModeSession != nil {
+                    HStack {
+                        ProgressView().controlSize(.small).tint(VocaDesign.command)
+                        Spacer()
+                        Button("Cancel Edit") {
+                            Task { @MainActor in await appState.cancelDictation() }
+                        }
+                        .controlSize(.small)
+                        .help("Leave the selection unchanged (Esc)")
+                    }
+                } else {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }
 
             // Force recovery button — visible in error state
@@ -901,12 +935,55 @@ struct MenuBarView: View {
         .padding(.horizontal, -8)
     }
 
+    /// Shown while Command Mode listens or rewrites: what is being edited,
+    /// where, and how to back out.
+    private func commandSessionCard(_ session: CommandModeSession) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .foregroundStyle(VocaDesign.command)
+                Text(session.phase == .rewriting
+                     ? "Rewriting with \(session.engineName)"
+                     : "Say how to change the selection")
+                    .font(.callout.weight(.medium))
+                Spacer(minLength: 0)
+            }
+            if session.phase == .rewriting, let instruction = session.instruction, !instruction.isEmpty {
+                Text("“\(instruction)”")
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+            Text("Editing “\(session.selectionPreview)”")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Text(commandSessionDetail(session))
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(VocaDesign.command.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(VocaDesign.command.opacity(0.35))
+        )
+        .accessibilityElement(children: .combine)
+    }
+
+    private func commandSessionDetail(_ session: CommandModeSession) -> String {
+        var parts = ["\(session.characterCount) characters"]
+        if let app = session.appName, !app.isEmpty { parts[0] += " in \(app)" }
+        parts.append("Esc leaves it unchanged")
+        return parts.joined(separator: " · ")
+    }
+
     private func commandEditSection(_ edit: CommandModeEdit) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Label("Last Edit", systemImage: "wand.and.stars")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(VocaDesign.command)
                 Spacer()
                 Text(edit.engineName)
                     .font(.caption2)
@@ -967,6 +1044,13 @@ struct MenuBarView: View {
     }
 
     private var statusText: String {
+        if let session = appState.commandModeSession {
+            switch (appState.appStatus, session.phase) {
+            case (.recording, _): return "Command Mode — listening"
+            case (_, .rewriting): return "Rewriting selection…"
+            default: return "Transcribing instruction…"
+            }
+        }
         if appState.isAutoPaused {
             return appState.autoPauseTriggerDisplayName.map { "Paused (\($0))" } ?? "Auto-paused"
         }
@@ -979,6 +1063,7 @@ struct MenuBarView: View {
     }
 
     private var statusColor: Color {
+        if appState.commandModeSession != nil { return VocaDesign.command }
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
         case .idle:       return VocaDesign.success

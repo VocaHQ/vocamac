@@ -67,6 +67,41 @@ enum PermissionStatus: String {
     case denied
 }
 
+/// What the menu bar, its icon, and the overlay show while Command Mode runs.
+struct CommandModeSession: Equatable {
+    enum Phase: Equatable {
+        /// Recording the spoken instruction.
+        case listening
+        /// The model is producing the replacement.
+        case rewriting
+    }
+
+    var phase: Phase
+    /// The start of the selection on one line, for "Editing “…”".
+    let selectionPreview: String
+    let characterCount: Int
+    let appName: String?
+    let engineName: String
+    /// The transcribed instruction, once known.
+    var instruction: String?
+
+    init(
+        phase: Phase = .listening,
+        selection: String,
+        appName: String?,
+        engineName: String,
+        instruction: String? = nil
+    ) {
+        self.phase = phase
+        let oneLine = selection.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        self.selectionPreview = oneLine.count > 80 ? String(oneLine.prefix(79)) + "…" : oneLine
+        self.characterCount = selection.count
+        self.appName = appName
+        self.engineName = engineName
+        self.instruction = instruction
+    }
+}
+
 /// One completed Command Mode edit.
 struct CommandModeEdit: Equatable {
     let instruction: String
@@ -134,6 +169,10 @@ final class AppState: ObservableObject {
     /// The most recent Command Mode edit, so its original can be copied back.
     /// Cleared by the next dictation.
     @Published private(set) var lastCommandEdit: CommandModeEdit?
+    /// The Command Mode session in progress, from capture to replacement.
+    @Published private(set) var commandModeSession: CommandModeSession? {
+        didSet { cursorOverlay.setCommandSession(commandModeSession) }
+    }
     /// A file or system-audio capture is being transcribed.
     @Published private(set) var isTranscribingMedia = false
 
@@ -1617,7 +1656,7 @@ final class AppState: ObservableObject {
         // not captured by anyone.
         if showCursorIndicator && overlayStyle != .off {
             cursorOverlay.show(style: overlayStyle, position: overlayPosition)
-            cursorOverlay.setCommandMode(activeCommandSelection != nil)
+            cursorOverlay.setCommandSession(commandModeSession)
         }
 
         // Start recording immediately for instant responsiveness.
@@ -1642,6 +1681,8 @@ final class AppState: ObservableObject {
             vocabulary: customVocabulary,
             onPartial: partialHandler
         )
+        // Only promise live words when an engine will actually send them.
+        cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in
             { samples, offset in session.append(samples, at: offset) }
@@ -1852,7 +1893,8 @@ final class AppState: ObservableObject {
             // last-dictation card and the dictated-words stats.
             if let selection = activeCommandSelection {
                 activeCommandSelection = nil
-                cursorOverlay.setCommandMode(true)
+                commandModeSession?.phase = .rewriting
+                commandModeSession?.instruction = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 await finishCommandMode(
                     instruction: result.text,
                     selection: selection,
@@ -3048,6 +3090,11 @@ extension AppState {
         }
         activeCommandSelection = selection
         activeCommandEngine = engine
+        commandModeSession = CommandModeSession(
+            selection: selection.text,
+            appName: frontmostAppResolver.currentFrontmostApp()?.displayName,
+            engineName: engine.displayName
+        )
         VocaLogger.info(
             .appState,
             "Command Mode captured a " + String(selection.text.count) + "-character selection"
@@ -3077,7 +3124,10 @@ extension AppState {
         engine: CommandModeEngine,
         generation: UUID
     ) async {
-        defer { finishCommandModelUse(engine) }
+        defer {
+            commandModeSession = nil
+            finishCommandModelUse(engine)
+        }
         let instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !instruction.isEmpty else {
             cursorOverlay.hide()
@@ -3153,6 +3203,7 @@ extension AppState {
     /// model, and hand the llama.cpp slot back to cleanup.
     private func resetCommandModeState() {
         activeCommandSelection = nil
+        commandModeSession = nil
         commandModePressStartedAt = nil
         commandModeShouldStopAfterStart = false
         activeCommandTransformer?.cancelTransform()

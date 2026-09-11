@@ -140,13 +140,17 @@ protocol CursorOverlayManaging: AnyObject {
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
     func updateTranscript(_ text: String)
-    /// Label the overlay as a Command Mode session (an edit of selected text)
-    /// rather than a dictation. `show` resets it to dictation.
-    func setCommandMode(_ active: Bool)
+    /// Show the overlay as a Command Mode session (an edit of selected text)
+    /// rather than a dictation, or nil for dictation. `show` resets it.
+    func setCommandSession(_ session: CommandModeSession?)
+    /// Whether partial words will arrive for this recording, so the live
+    /// panel doesn't promise words an engine never sends.
+    func setLiveWordsAvailable(_ available: Bool)
 }
 
 extension CursorOverlayManaging {
-    func setCommandMode(_ active: Bool) {}
+    func setCommandSession(_ session: CommandModeSession?) {}
+    func setLiveWordsAvailable(_ available: Bool) {}
 }
 
 // MARK: - ModelManaging

@@ -317,15 +317,21 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
     var lastTranscript: String?
-    var isCommandMode = false
+    var commandSession: CommandModeSession?
+    var isCommandMode: Bool { commandSession != nil }
+    var liveWordsAvailable: Bool?
 
-    func setCommandMode(_ active: Bool) {
-        isCommandMode = active
+    func setCommandSession(_ session: CommandModeSession?) {
+        commandSession = session
+    }
+
+    func setLiveWordsAvailable(_ available: Bool) {
+        liveWordsAvailable = available
     }
 
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
-        isCommandMode = false
+        commandSession = nil
         lastStyle = style
         lastPosition = position
     }

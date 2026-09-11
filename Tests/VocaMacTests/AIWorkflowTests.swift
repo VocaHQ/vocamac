@@ -352,6 +352,17 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertEqual(archive.values[PreferenceKey.historyEnabled], .bool(true))
     }
 
+    func testClipboardConsentIsNeverImported() throws {
+        let archive = SettingsArchive(values: [PreferenceKey.commandModeClipboardFallback: .bool(true)])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try SettingsArchiveService.restore(try encoder.encode(archive), defaults: defaults)
+        XCTAssertFalse(defaults.bool(forKey: PreferenceKey.commandModeClipboardFallback))
+
+        defaults.set(true, forKey: PreferenceKey.commandModeClipboardFallback)
+        XCTAssertNil(SettingsArchiveService.make(defaults: defaults).values[PreferenceKey.commandModeClipboardFallback])
+    }
+
     func testRestoreCannotRedirectCleanupEndpoint() throws {
         defaults.set("https://trusted.example/v1", forKey: PreferenceKey.cleanupEndpoint)
         let archive = SettingsArchive(values: [
@@ -427,7 +438,8 @@ final class CommandModePromptTests: XCTestCase {
             snapshot, probe: .selected(element: element, processID: 8, text: "hello", range: nil)
         ))
         XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .empty))
-        XCTAssertTrue(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .unavailable))
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .unavailable),
+                       "An unverifiable selection is left alone")
     }
 
     func testVSCodeEmptySelectionLineCopyIsNotASelection() {
@@ -648,6 +660,15 @@ final class CommandModeFlowTests: XCTestCase {
         await app.stopRecordingAndTranscribe()
 
         XCTAssertEqual(app.historyStore.entries.map(\.finalText), ["Other text."], "The expired edit is gone")
+    }
+
+    func testDictionaryTreatsAutoAsUnknownLanguage() {
+        let (app, _) = AppState.makeTestState()
+        var seen: [String?] = []
+        app.isKnownWord = { _, language in seen.append(language); return false }
+        _ = app.dictionaryContext(contextTerms: [], language: "auto").isKnownWord("namratha")
+        _ = app.dictionaryContext(contextTerms: [], language: "en").isKnownWord("namratha")
+        XCTAssertEqual(seen, [nil, "en"])
     }
 
     func testEditsStayOutOfHistoryWhenHistoryIsOff() async {

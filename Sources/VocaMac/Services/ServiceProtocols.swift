@@ -335,6 +335,8 @@ protocol TranscriptCleaning: TextTransforming {
     var isLoaded: Bool { get }
     /// The model currently resident, when one is.
     var loadedKind: CleanupModelKind? { get }
+    /// False when text leaves this Mac (a remote endpoint).
+    var isOnDevice: Bool { get }
     nonisolated func inputBudget(forPrompt prompt: String) -> Int
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
@@ -353,6 +355,7 @@ protocol TranscriptCleaning: TextTransforming {
 
 extension TranscriptCleaning {
     var loadedKind: CleanupModelKind? { nil }
+    var isOnDevice: Bool { true }
 
     func availabilityProblem(for kind: CleanupModelKind) -> String? {
         isDownloaded(kind) ? nil : "download a local cleanup model in Settings"

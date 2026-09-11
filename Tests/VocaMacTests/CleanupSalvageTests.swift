@@ -60,7 +60,7 @@ final class TechnicalCleanupPipelineTests: XCTestCase {
         let (result, cleaner) = await process(
             "can you, like, check the build logs for the failing test", format: .terminal
         ) { _ in "Can you check the build logs for the failing test?" }
-        XCTAssertEqual(cleaner.cleanCallCount, 1)
+        XCTAssertEqual(cleaner.previewCallCount, 1, "Terminal answers never count toward the give-up limit")
         XCTAssertTrue(cleaner.lastPrompt?.contains("terminal or code editor") == true)
         // The model's capital and question mark are not taken; its deletion is.
         XCTAssertEqual(result.text, "can you, check the build logs for the failing test")
@@ -69,7 +69,7 @@ final class TechnicalCleanupPipelineTests: XCTestCase {
 
     func testShortCommandsSkipTheModel() async {
         let (result, cleaner) = await process("git push origin", format: .terminal) { _ in "Git push origin." }
-        XCTAssertEqual(cleaner.cleanCallCount, 0)
+        XCTAssertEqual(cleaner.previewCallCount, 0)
         XCTAssertEqual(result.text, "git push origin")
         XCTAssertTrue(result.summary.contains("short command"))
     }
@@ -79,6 +79,25 @@ final class TechnicalCleanupPipelineTests: XCTestCase {
             "Show the git log for last week."
         }
         XCTAssertEqual(result.text, "git log --oneline for the last week")
+    }
+
+    func testRemovingAnOpeningHesitationNeverRecasesACommand() async {
+        let (result, _) = await process("Um git push origin", format: .terminal) { $0 }
+        XCTAssertEqual(result.text, "git push origin")
+        XCTAssertEqual(WritingStyleEngine.removeHesitations("Um git push.", prose: false).text, "git push.")
+    }
+
+    func testCommandsNeverGoToARemoteEndpoint() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.isOnDevice = false
+        cleaner.cleanHandler = { _ in "check the logs" }
+        let result = await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander()).process(
+            "can you, like, check the logs please", profile: WritingProfile(format: .terminal, rules: WritingStyle.terminal.defaultRules),
+            snippetList: [], cleanupEnabled: true, rewritingEnabled: true, model: .defaultKind,
+            customPrompt: "", cleanupLevel: .medium, language: "en", autoCapitalize: true, trailingSpace: false
+        )
+        XCTAssertEqual(cleaner.previewCallCount + cleaner.cleanCallCount, 0)
+        XCTAssertTrue(result.summary.contains("aren't sent"))
     }
 
     func testRejectedProseRewriteKeepsItsFillerRemoval() async {

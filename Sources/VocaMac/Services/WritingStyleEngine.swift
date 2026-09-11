@@ -182,11 +182,11 @@ enum WritingStyleEngine {
     /// are you?", "you? Um I hope" → "you? I hope", "hello world um." →
     /// "hello world.". An utterance that was nothing but hesitation becomes
     /// empty, so an accidental "uh" types nothing.
-    static func removeHesitations(_ text: String) -> (text: String, removed: Bool) {
+    static func removeHesitations(_ text: String, prose: Bool = true) -> (text: String, removed: Bool) {
         guard let expression = hesitationWordExpression else { return (text, false) }
         let ranges = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).map(\.range)
         guard !ranges.isEmpty else { return (text, false) }
-        return (removeWordRuns(ranges, from: text), true)
+        return (removeWordRuns(ranges, from: text, prose: prose), true)
     }
 
     /// Delete whole words and repair what they leave behind. Each range
@@ -199,7 +199,11 @@ enum WritingStyleEngine {
     /// end the words carried moves to the word before ("hello, um." →
     /// "hello."), and a capitalized sentence opener hands its capital to the
     /// next word ("Um I hope" → "I hope").
-    static func removeWordRuns(_ ranges: [NSRange], from text: String) -> String {
+    ///
+    /// With `prose` off (Code and Terminal) nothing but the deletion happens:
+    /// a command's case and punctuation are data, so "Um git push" becomes
+    /// "git push", never "Git push".
+    static func removeWordRuns(_ ranges: [NSRange], from text: String, prose: Bool = true) -> String {
         let result = NSMutableString(string: text)
         func character(_ index: Int) -> Character {
             Character(UnicodeScalar(result.character(at: index)) ?? " ")
@@ -233,6 +237,7 @@ enum WritingStyleEngine {
             let start = end == NSMaxRange(run) ? previous + 1 : run.location
             result.deleteCharacters(in: NSRange(location: start, length: end - start))
 
+            guard prose else { continue }
             if atSentenceStart {
                 if words.first?.isUppercase == true {
                     var next = start

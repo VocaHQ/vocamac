@@ -217,6 +217,7 @@ final class RemoteCleanupService: TranscriptCleaning {
         .networkConnectionLost, .notConnectedToInternet,
     ]
 
+    var isOnDevice: Bool { false }
     func isDownloaded(_ kind: CleanupModelKind) -> Bool { isLoaded }
     func pruneUnknownModels() {}
     func download(_ kind: CleanupModelKind) async {}

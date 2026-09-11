@@ -675,46 +675,44 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(appState.selectedCleanupModelKind, .qwen3_0_6b_q4_k_m)
     }
 
-    func testPreviewSaysWhenNoModelIsDownloaded() async {
+    func testTryItSaysWhenNoModelIsDownloaded() async {
         let cleanup = MockTranscriptCleanup()
         cleanup.downloadedKinds = []
         let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
 
-        let result = await appState.previewCleanup("so um hello", prompt: TranscriptCleanup.defaultPrompt)
+        let result = await appState.tryCleanup("so um hello", prompt: TranscriptCleanup.defaultPrompt)
 
         XCTAssertEqual(cleanup.previewCallCount, 0)
-        XCTAssertEqual(result.output, "so um hello")
-        XCTAssertFalse(result.didChangeText)
-        guard case .skipped(let why) = result.outcome else {
-            return XCTFail("expected a skip, got \(result.outcome)")
-        }
-        XCTAssertTrue(why.contains("not downloaded"))
+        XCTAssertTrue(result.summary.contains("download"), result.summary)
+        // "um" goes without a model, exactly as it would in a dictation.
+        XCTAssertEqual(result.text, "So hello")
     }
 
-    func testPreviewLoadsTheModelAndReportsAChange() async {
+    func testTryItRunsTheModelThroughTheDictationPipeline() async {
         let cleanup = MockTranscriptCleanup()
         cleanup.cleanHandler = { _ in "Hello." }
         let (appState, _) = AppState.makeTestState(transcriptCleanup: cleanup)
 
-        let result = await appState.previewCleanup("so um hello", prompt: "custom prompt")
+        let result = await appState.tryCleanup("so um hello", prompt: "custom prompt")
 
         XCTAssertEqual(cleanup.loadCallCount, 1)
-        XCTAssertEqual(cleanup.previewCallCount, 1)
+        XCTAssertEqual(cleanup.previewCallCount, 1, "Preview never counts toward the give-up limit")
         XCTAssertTrue(cleanup.lastPrompt?.contains("custom prompt") == true)
         XCTAssertTrue(cleanup.lastPrompt?.contains("Apply medium cleanup") == true)
-        XCTAssertEqual(result.output, "Hello.")
-        XCTAssertTrue(result.didChangeText)
+        XCTAssertEqual(result.text, "Hello.")
+        XCTAssertTrue(result.changedText)
     }
 
-    func testPreviewDoesNotRunTheDictationPath() async {
+    func testTryItDoesNotRunTheDictationPath() async {
         // The panel must never inject or touch the dictation counters.
         let cleanup = MockTranscriptCleanup()
         let (appState, mocks) = AppState.makeTestState(transcriptCleanup: cleanup)
 
-        _ = await appState.previewCleanup("hello there", prompt: TranscriptCleanup.defaultPrompt)
+        _ = await appState.tryCleanup("hello there", prompt: TranscriptCleanup.defaultPrompt)
 
         XCTAssertEqual(cleanup.cleanCallCount, 0)
         XCTAssertNil(mocks.textInjector.lastInjectedText)
+        XCTAssertNil(appState.lastTranscription)
     }
 
     func testOnboardingSetupEnablesCleanupWithoutBlocking() async {

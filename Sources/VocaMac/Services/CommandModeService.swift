@@ -156,7 +156,13 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
             return false
         }
         if snapshot.source == .accessibility {
-            let probe = await Self.probe(frontmostPID: snapshot.deliveryProcessID)
+            var probe = await Self.probe(frontmostPID: snapshot.deliveryProcessID)
+            if case .unavailable = probe {
+                // One slow answer is common right after a model run; a second
+                // miss means the selection can't be verified, so leave it.
+                try? await Task.sleep(nanoseconds: 150_000_000)
+                probe = await Self.probe(frontmostPID: snapshot.deliveryProcessID)
+            }
             guard Self.selectionStillMatches(snapshot, probe: probe) else { return false }
         }
 
@@ -188,11 +194,9 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
             return owner == snapshot.processID
                 && text == snapshot.text
                 && (range == nil || snapshot.range == nil || rangesMatch(range, snapshot.range))
-        case .unavailable:
-            // Couldn't re-read (a slow app timed out). Delivery is still
-            // locked to the same app, which is all the clipboard path has.
-            return true
-        case .empty, .secure, .readOnly:
+        case .unavailable, .empty, .secure, .readOnly:
+            // A selection that can't be read again can't be shown to be the
+            // one that was edited; replacing it could overwrite new text.
             return false
         }
     }

@@ -38,6 +38,10 @@ struct DictationOutputPipeline {
         // through the snippet mask, which formatting and cleanup never touch.
         let effectiveLevel = profile.cleanupLevel ?? cleanupLevel
         var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Parakeet and Apple Speech report "auto" when no language was chosen;
+        // that says nothing about the text, so judge the text instead.
+        let isEnglishText = Self.knownLanguage(language).map(Self.isEnglish)
+            ?? RewriteValidation.likelyEnglish(input)
 
         // "um" and "uh" go without a model, in every style that cleans up —
         // including Code and Terminal, which never reach the model, and when a
@@ -45,9 +49,10 @@ struct DictationOutputPipeline {
         // per-app "Formatting only" keeps wording as spoken. English only:
         // "um" is a word in German ("um 5 Uhr").
         var removedHesitations = false
-        if profile.cleanup == .inherit, effectiveLevel.removesHesitations,
-           Self.isEnglish(language ?? RewriteValidation.detectedLanguage(input)) {
-            (input, removedHesitations) = WritingStyleEngine.removeHesitations(input)
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations, isEnglishText {
+            (input, removedHesitations) = WritingStyleEngine.removeHesitations(
+                input, prose: profile.format.supportsWording
+            )
         }
         func noting(_ summary: String) -> String {
             removedHesitations ? summary + " · “um”/“uh” removed" : summary
@@ -119,9 +124,13 @@ struct DictationOutputPipeline {
 
         let intent = (rewritingEnabled && !technical) ? profile.intent : .preserve
         if intent != .preserve,
-           (language?.lowercased().split(separator: "-").first != "en"
-            || RewriteValidation.containsNonLatinLetters(masked.text)) {
+           (!isEnglishText || RewriteValidation.containsNonLatinLetters(masked.text)) {
             return result(fallback, noting("Writing intent skipped — English preview only"))
+        }
+        // Commands and code stay on this Mac: a remote cleanup endpoint gets
+        // prose only.
+        if technical, !cleaner.isOnDevice {
+            return result(fallback, noting("\(styleName) style — commands aren't sent to the cleanup endpoint"))
         }
         if let problem = cleaner.availabilityProblem(for: model) {
             return result(fallback, noting("Rewrite skipped — \(problem)"))
@@ -144,7 +153,10 @@ struct DictationOutputPipeline {
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
         guard cleaner.isLoaded else { return result(fallback, noting("Rewrite skipped — model could not load")) }
         let attempt: CleanupAttempt
-        if preview {
+        // A Code/Terminal answer is only mined for deletions, so an odd one
+        // mustn't count toward the give-up limit that turns cleanup off for
+        // every app.
+        if preview || technical {
             attempt = await cleaner.preview(protected.text, prompt: prompt)
         } else {
             attempt = await cleaner.attempt(protected.text, prompt: prompt)
@@ -174,7 +186,7 @@ struct DictationOutputPipeline {
             let deletions = CleanupSalvage.safeDeletions(original: protected.text, candidate: attempt.output)
             guard !deletions.isEmpty,
                   let trimmed = protected.restoreValidated(
-                    WritingStyleEngine.removeWordRuns(deletions, from: protected.text)
+                    WritingStyleEngine.removeWordRuns(deletions, from: protected.text, prose: !technical)
                   ),
                   !trimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return masked.restore(in: WritingStyleEngine.format(
@@ -216,6 +228,14 @@ struct DictationOutputPipeline {
 
     static func isEnglish(_ language: String?) -> Bool {
         language?.lowercased().split(separator: "-").first == "en"
+    }
+
+    /// A language code that actually names a language; nil for the "auto",
+    /// "und", or empty placeholders engines report when none was chosen.
+    static func knownLanguage(_ language: String?) -> String? {
+        guard let language = language?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !language.isEmpty, language != "auto", language != "und" else { return nil }
+        return language
     }
 }
 
@@ -321,6 +341,26 @@ struct RewriteProtectedText: Sendable {
 enum RewriteValidation {
     static func detectedLanguage(_ text: String) -> String? {
         NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue
+    }
+
+    /// For text whose engine gave no language: is it English enough to drop
+    /// "um" and "uh"? The hesitations themselves mislead the recognizer —
+    /// "hello world um um" reads as Portuguese — so it judges the text
+    /// without them. Only a confident call for another language says no:
+    /// "wir treffen uns um 5 Uhr" is German at 100%, while "git status" is a
+    /// weak guess that shouldn't block cleanup.
+    static func likelyEnglish(_ text: String) -> Bool {
+        guard let expression = try? NSRegularExpression(pattern: #"(?i)\b(?:u+m+|u+h+m*|e+r+m+|h+m+)\b"#) else {
+            return false
+        }
+        let words = expression.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " "
+        )
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(words)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
+        guard let top = hypotheses.max(by: { $0.value < $1.value }) else { return true }
+        return top.key == .english || top.value < 0.5
     }
 
     static func prompt(intent: WritingIntent, customCleanup: String) -> String {

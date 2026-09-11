@@ -11,7 +11,7 @@ struct CleanupSettingsPage: View {
     @State private var didLoadPrompt = false
     @State private var promptCommit: Task<Void, Never>?
     @State private var tryItInput = CleanupSettingsPage.sampleUtterance
-    @State private var tryItResult: CleanupAttempt?
+    @State private var tryItResult: CleanupTryResult?
     @State private var tryItRunning = false
     @State private var isPromptExpanded = false
     @State private var apiKeyDraft = ""
@@ -140,7 +140,7 @@ struct CleanupSettingsPage: View {
             CommandModeSettingsGroup()
 
             VocaSettingsGroup("Try It") {
-                Text("Try a sample transcript. The result stays in this window.")
+                Text("Runs a sample through the same cleanup as a dictation — “um” removal, the model, and its safety checks — and shows what would be typed. The result stays in this window.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -293,14 +293,15 @@ struct CleanupSettingsPage: View {
     }
 
     @ViewBuilder
-    private func tryItOutput(_ result: CleanupAttempt) -> some View {
+    private func tryItOutput(_ result: CleanupTryResult) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: result.didChangeText ? "checkmark.circle.fill" : "info.circle")
-                    .foregroundStyle(result.didChangeText ? VocaDesign.success : .orange)
+                Image(systemName: result.changedText ? "checkmark.circle.fill" : "info.circle")
+                    .foregroundStyle(result.changedText ? VocaDesign.success : .orange)
                 Text(result.summary)
                     .font(.caption)
-                    .foregroundStyle(result.didChangeText ? .primary : .secondary)
+                    .foregroundStyle(result.changedText ? .primary : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Text(String(format: "%.1fs", result.duration))
                     .font(.caption2)
@@ -308,7 +309,7 @@ struct CleanupSettingsPage: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(result.output)
+            Text(result.text.isEmpty ? "Nothing would be typed." : result.text)
                 .font(.system(.callout, design: .default))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -327,7 +328,7 @@ struct CleanupSettingsPage: View {
         let input = tryItInput
         tryItRunning = true
         Task { @MainActor in
-            let result = await appState.previewCleanup(input, prompt: prompt)
+            let result = await appState.tryCleanup(input, prompt: prompt)
             tryItResult = result
             tryItRunning = false
         }

@@ -663,6 +663,7 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
 
     var isLoaded = false
     var loadedKind: CleanupModelKind? { isLoaded ? lastLoadedKind : nil }
+    var isOnDevice = true
     var pruneCallCount = 0
 
     var objectWillChangePublisher: AnyPublisher<Void, Never> {

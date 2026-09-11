@@ -102,6 +102,18 @@ struct CommandModeSession: Equatable {
     }
 }
 
+/// What Settings → Cleanup → Try It shows.
+struct CleanupTryResult: Equatable {
+    let input: String
+    let text: String
+    let summary: String
+    let duration: TimeInterval
+
+    var changedText: Bool {
+        text.trimmingCharacters(in: .whitespacesAndNewlines) != input.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 /// One completed Command Mode edit.
 struct CommandModeEdit: Equatable {
     let instruction: String
@@ -2679,29 +2691,25 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Run one cleanup pass on text the user typed into Settings, so they can
-    /// see what the model does before trusting it with a dictation. Loads the
-    /// model on demand — testing should not require enabling the feature first.
-    func previewCleanup(_ text: String, prompt: String) async -> CleanupAttempt {
-        let cleaner = activeCleanupService
-        if !cleanupEndpoint.isLocal {
-            return await cleaner.preview(
-                text,
-                prompt: transcriptCleanupLevel.prompt(custom: prompt)
-            )
-        }
-        let kind = selectedCleanupModelKind
-        guard transcriptCleanup.isDownloaded(kind) else {
-            return CleanupAttempt(
-                output: text,
-                outcome: .skipped("\(kind.descriptor.displayName) is not downloaded yet"),
-                duration: 0
-            )
-        }
-        await transcriptCleanup.load(kind)
-        return await transcriptCleanup.preview(
-            text,
-            prompt: transcriptCleanupLevel.prompt(custom: prompt)
+    /// Run text the user typed into Settings through the same cleanup a
+    /// dictation gets — "um" removal, the model, and the safety checks — so
+    /// "Try It" shows what would actually be typed, not the model's raw
+    /// answer. Uses the default writing style, loads the model on demand, and
+    /// works before cleanup is switched on.
+    func tryCleanup(_ text: String, prompt: String) async -> CleanupTryResult {
+        let started = Date()
+        let output = await outputPipeline.process(
+            text, profile: resolveWritingStyle(for: nil).profile, snippetList: snippets,
+            cleanupEnabled: true, rewritingEnabled: writingRewriteEnabled,
+            model: selectedCleanupModelKind, customPrompt: prompt,
+            cleanupLevel: transcriptCleanupLevel,
+            // Like an engine that reports no language: the pipeline judges it.
+            language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
+            trailingSpace: false, preview: true
+        )
+        return CleanupTryResult(
+            input: text, text: output.text, summary: output.summary,
+            duration: Date().timeIntervalSince(started)
         )
     }
 
@@ -3169,7 +3177,13 @@ extension AppState {
             commandModeSession = nil
             finishCommandModelUse(engine)
         }
-        let instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        var instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "um, make this shorter" — the model doesn't need the hesitation, and
+        // History and the Last Edit card shouldn't show it.
+        if DictationOutputPipeline.knownLanguage(transcription.detectedLanguage).map(DictationOutputPipeline.isEnglish)
+            ?? RewriteValidation.likelyEnglish(instruction) {
+            instruction = WritingStyleEngine.removeHesitations(instruction).text
+        }
         guard !instruction.isEmpty else {
             cursorOverlay.hide()
             showTemporaryError("No editing command was detected. Your selection was not changed.")
@@ -3381,6 +3395,9 @@ extension AppState {
 
     func dictionaryContext(contextTerms: [String], language: String?) -> DictionaryContext {
         let isKnownWord = self.isKnownWord
+        // "auto" from Parakeet or Apple Speech isn't a language; passed on, it
+        // made every word count as known and switched off name fixes.
+        let language = DictationOutputPipeline.knownLanguage(language)
         return DictionaryContext(
             vocabulary: vocabularyTerms,
             replacements: wordReplacements,

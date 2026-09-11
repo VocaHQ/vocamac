@@ -68,6 +68,21 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertTrue(formattingOnly.text.lowercased().hasPrefix("um"))
     }
 
+    func testUnlabelledTextIsJudgedWithoutItsHesitations() {
+        XCTAssertTrue(RewriteValidation.likelyEnglish("hello world um um"))
+        XCTAssertTrue(RewriteValidation.likelyEnglish("so um hello"))
+        XCTAssertTrue(RewriteValidation.likelyEnglish("Uh"))
+        XCTAssertFalse(RewriteValidation.likelyEnglish("wir treffen uns um 5 Uhr"))
+    }
+
+    func testEnginesThatReportAutoStillGetHesitationRemoval() async {
+        // Parakeet reports "auto" when no language is chosen.
+        let result = await process("hello world um um", cleaner: MockTranscriptCleanup(), enabled: false, language: "auto")
+        XCTAssertEqual(result.text, "Hello world")
+        XCTAssertNil(DictationOutputPipeline.knownLanguage("auto"))
+        XCTAssertEqual(DictationOutputPipeline.knownLanguage("en-US"), "en-us")
+    }
+
     func testHesitationRemovalIsEnglishOnly() async {
         let german = await process("wir treffen uns um 5 Uhr", cleaner: MockTranscriptCleanup(), enabled: false, language: "de")
         XCTAssertTrue(german.text.contains(" um 5 Uhr"))

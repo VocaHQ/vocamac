@@ -83,6 +83,16 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(DictationOutputPipeline.knownLanguage("en-US"), "en-us")
     }
 
+    func testSpokenCorrectionsResolveWithoutTheModel() async {
+        let cleaner = MockTranscriptCleanup()
+        let result = await process("let's do it tomorrow, oh, no, Wednesday", cleaner: cleaner, enabled: false)
+        XCTAssertEqual(result.text, "Let's do it Wednesday")
+        XCTAssertTrue(result.summary.contains("spoken correction applied"), result.summary)
+        // Light keeps every word, corrections included.
+        let light = await process("let's do it tomorrow, no, Wednesday", cleaner: MockTranscriptCleanup(), enabled: false, level: .light)
+        XCTAssertTrue(light.text.contains("tomorrow"))
+    }
+
     func testHesitationRemovalIsEnglishOnly() async {
         let german = await process("wir treffen uns um 5 Uhr", cleaner: MockTranscriptCleanup(), enabled: false, language: "de")
         XCTAssertTrue(german.text.contains(" um 5 Uhr"))
@@ -133,7 +143,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertNil(protected.restoreValidated("Hi Sergei, how are you?"), "So does respelling it")
     }
 
-    func testHighLevelResolvesNumericCorrectionOnlyWhenCleanupIsEnabled() async {
+    func testNumericCorrectionsResolveWithOrWithoutTheModel() async {
         let cleaner = MockTranscriptCleanup()
         cleaner.cleanHandler = { $0 }
         let corrected = await process("meet at 2 actually 3", cleaner: cleaner, level: .high)
@@ -142,7 +152,8 @@ final class DictationOutputPipelineTests: XCTestCase {
         let disabled = await process(
             "meet at 2 actually 3", cleaner: MockTranscriptCleanup(), enabled: false, level: .high
         )
-        XCTAssertEqual(disabled.text, "Meet at 2 actually 3")
+        // Rule-based, so Smart Cleanup being off doesn't matter.
+        XCTAssertEqual(disabled.text, "Meet at 3")
     }
 
     func testProfileCleanupPromptOverridesTheGlobalPrompt() async {

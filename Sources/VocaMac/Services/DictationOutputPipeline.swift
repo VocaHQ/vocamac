@@ -54,15 +54,24 @@ struct DictationOutputPipeline {
                 input, prose: profile.format.supportsWording
             )
         }
-        func noting(_ summary: String) -> String {
-            removedHesitations ? summary + " · “um”/“uh” removed" : summary
-        }
         if removedHesitations, input.isEmpty {
             return result("", "Only “um” or “uh” was heard — nothing typed")
         }
 
-        if profile.cleanup == .inherit, cleanupEnabled, effectiveLevel == .high {
-            input = SpokenCorrectionResolver.resolve(input)
+        // "let's do it tomorrow, oh, no, Wednesday" → "let's do it Wednesday".
+        // Rule-based, so like hesitation removal it runs without a model, at
+        // Medium and High, and in any language the resolver knows.
+        var resolvedCorrections = 0
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+            (input, resolvedCorrections) = SpokenCorrectionResolver.resolveCounting(input)
+        }
+        func noting(_ summary: String) -> String {
+            var notes: [String] = []
+            if resolvedCorrections > 0 {
+                notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
+            }
+            if removedHesitations { notes.append("“um”/“uh” removed") }
+            return ([summary] + notes).joined(separator: " · ")
         }
         var protectedTerms: [Snippet] = []
         if let dictionary, !dictionary.isEmpty {

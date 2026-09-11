@@ -47,10 +47,11 @@ enum EditMerge {
             return Result(text: original, applied: 0, skipped: 0)
         }
         let operations = align(source, target)
-        // An answer that keeps less than half the user's words, or adds more
-        // new words than a cleanup ever would, isn't an edit of them — the
-        // model answered or rewrote — so take nothing from it, not even
-        // punctuation.
+        // An answer that adds more new words than a cleanup ever would, or
+        // adds words while keeping under half of the user's, isn't an edit —
+        // the model answered or rewrote — so take nothing from it, not even
+        // punctuation. An answer that only removes words can't be an answer;
+        // the per-edit rules below decide which removals are safe.
         let sourceWords = source.filter(\.isWord).count
         let keptWords = operations.filter {
             if case .match(let o, _) = $0 { return source[o].isWord } else { return false }
@@ -58,8 +59,8 @@ enum EditMerge {
         let newWords = operations.filter {
             if case .insert(let c) = $0 { return target[c].isWord } else { return false }
         }.count
-        guard sourceWords == 0 || (Double(keptWords) / Double(sourceWords) >= minimumSharedWords
-                                   && newWords <= max(3, sourceWords / 2)) else {
+        guard sourceWords == 0 || (newWords <= max(3, sourceWords / 2)
+                                   && (newWords <= 1 || Double(keptWords) / Double(sourceWords) >= minimumSharedWords)) else {
             return Result(text: original, applied: 0, skipped: 1)
         }
 
@@ -94,9 +95,11 @@ enum EditMerge {
                 following = source[o...].filter(\.isWord)
                 next = source[o]
             }
+            let sentence = output.reversed().prefix { ![".", "!", "?"].contains($0.token.text) }.reversed().map(\.token)
             let hunk = Hunk(
                 removed: removed.map { source[$0] }, added: added.map { target[$0] },
                 preceding: output.map(\.token).filter(\.isWord),
+                precedingInSentence: sentence.filter(\.isWord),
                 following: following, sentenceStart: endsSentence(output),
                 previous: output.last?.token, next: next
             )
@@ -122,6 +125,8 @@ enum EditMerge {
         let removed: [Token]
         let added: [Token]
         let preceding: [Token]
+        /// Words already written in the current sentence.
+        let precedingInSentence: [Token]
         let following: [Token]
         let sentenceStart: Bool
         /// The token written just before the edit, and the one right after.
@@ -215,11 +220,35 @@ enum EditMerge {
            !pronouns.contains(first.key) {
             return true
         }
+        // "send it to John, no, Mary": the model resolved a correction the
+        // rules don't cover. High only, with an explicit cue, a short first
+        // value that matches the replacement in form, and never in a
+        // negative sentence ("I can't do John, no, …" isn't a correction).
+        if level == .high, isModelResolvedCorrection(keys: keys, words: words, hunk: hunk) {
+            return true
+        }
         // "…, scratch that, …": the speaker asked for it.
         if level == .high, keys.count <= 40, phrase.hasSuffix("scratch that") || phrase.hasSuffix("never mind") {
             return true
         }
         return false
+    }
+
+    private static func isModelResolvedCorrection(keys: [String], words: [Token], hunk: Hunk) -> Bool {
+        guard let cueLength = SpokenCorrectionResolver.cues
+            .map({ $0.split(separator: " ").map(String.init) })
+            .first(where: { cue in cue.count < keys.count && Array(keys.suffix(cue.count)) == cue })?.count
+        else { return false }
+        let first = Array(words.dropLast(cueLength))
+        guard (1...3).contains(first.count), let replacement = hunk.following.first,
+              !hunk.precedingInSentence.contains(where: {
+                  SpokenCorrectionResolver.negations.contains($0.key) || $0.key.hasSuffix("n't")
+              }) else { return false }
+        // "the red one" / "the blue one": same opening word.
+        if first.count >= 2, first[0].key == replacement.key { return true }
+        // "John" / "Mary": two names.
+        let isName = { (token: Token) in token.text.first?.isUppercase == true && token.text != "I" }
+        return first.count == 1 && isName(first[0]) && isName(replacement)
     }
 
     private static func isSpellingFix(_ before: String, _ after: String, isKnownWord: (String) -> Bool) -> Bool {

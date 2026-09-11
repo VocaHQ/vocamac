@@ -52,6 +52,17 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(result.applied, 0)
     }
 
+    func testHighLevelAcceptsTheModelsLooserCorrections() {
+        XCTAssertEqual(merge("send it to John, no, Mary today", "send it to Mary today").text, "send it to Mary today")
+        XCTAssertEqual(merge("pick the red one, no wait, the blue one", "pick the blue one").text, "pick the blue one")
+        // Medium leaves them to the speaker.
+        XCTAssertEqual(merge("send it to John, no, Mary", "send it to Mary", level: .medium).text, "send it to John, no, Mary")
+        // No cue, no correction: the model just dropped a name.
+        XCTAssertEqual(merge("send it to John and Mary", "send it to Mary").text, "send it to John and Mary")
+        // A negative sentence keeps its "no".
+        XCTAssertEqual(merge("I don't want John, no, Mary", "I don't want Mary").text, "I don't want John, no, Mary")
+    }
+
     func testLightLevelTakesPunctuationButKeepsEveryWord() {
         XCTAssertEqual(merge("so tell me if if it works", "So tell me if it works.", level: .light).text,
                        "So tell me if if it works.")

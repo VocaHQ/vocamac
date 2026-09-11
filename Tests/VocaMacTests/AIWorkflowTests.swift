@@ -277,6 +277,45 @@ final class SpokenCorrectionResolverTests: XCTestCase {
         )
     }
 
+    func testDayCorrectionsKeepOnlyTheCorrectedDay() {
+        let cases: [(String, String)] = [
+            ("let's do it tomorrow, oh, no, Wednesday", "let's do it Wednesday"),
+            ("let's do it tomorrow or no Wednesday", "let's do it Wednesday"),
+            ("see you on Monday, sorry, Tuesday.", "see you on Tuesday."),
+            ("meet next Monday, no wait, Friday", "meet next Friday"),
+            ("the launch is in March, I mean April", "the launch is in April"),
+            ("call me at 5, no, 6 pm", "call me at 6 pm"),
+            ("give it 15 minutes, make that 20 minutes", "give it 20 minutes"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(SpokenCorrectionResolver.resolve(input), expected, input)
+        }
+    }
+
+    func testCorrectionsInOtherLanguages() {
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("lo hacemos mañana, no, el miércoles"), "lo hacemos el miércoles")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("on se voit demain, non, mercredi"), "on se voit mercredi")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("wir treffen uns morgen, nein, Mittwoch"), "wir treffen uns Mittwoch")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("vamos amanhã, não, quarta"), "vamos quarta")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("ci vediamo domani, anzi, giovedì"), "ci vediamo giovedì")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("meeting kal hai, nahi nahi, parso"), "meeting kal hai, nahi nahi, parso",
+                       "Words between the value and the cue mean it isn't a correction")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("meeting kal, nahi, parso rakhte hain"), "meeting parso rakhte hain")
+    }
+
+    func testThingsThatOnlyLookLikeCorrectionsStay() {
+        for text in [
+            "Are you coming tomorrow? No, Wednesday.",       // an answer to a question
+            "I can't do Monday, no, Tuesday works",          // "no" agrees with "can't"
+            "Monday no problem",                              // nothing to correct to
+            "tomorrow, no, not Wednesday",                    // replacement isn't a value
+            "No, Wednesday works for me",                     // no first value
+            "I'll do it, no, really",
+        ] {
+            XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text, text)
+        }
+    }
+
     func testOrdinaryActuallyPhraseIsNotRewritten() {
         let text = "I was actually thrilled with the result"
         XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text)

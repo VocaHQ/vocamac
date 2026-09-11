@@ -94,6 +94,22 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertFalse(WritingStyleEngine.removeHesitations("nothing to remove").removed)
     }
 
+    func testHesitationRemovalLeavesOtherWhitespaceAlone() {
+        // Indentation, double spaces, and line breaks are content in code.
+        XCTAssertEqual(
+            WritingStyleEngine.removeHesitations("    let x = 1  // um").text,
+            "    let x = 1  //"
+        )
+        XCTAssertEqual(
+            WritingStyleEngine.removeHesitations("first  line\num second line\n\tindented").text,
+            "first  line\nsecond line\n\tindented"
+        )
+        XCTAssertEqual(
+            WritingStyleEngine.removeHesitations("a  b uh c").text,
+            "a  b c"
+        )
+    }
+
     func testNamesStayReadableForTheModelAndMustSurvive() {
         let protected = RewriteProtectedText("Hi Sergey, how are you?")
         XCTAssertTrue(protected.text.contains("Sergey"), "Names are not hidden behind tokens")

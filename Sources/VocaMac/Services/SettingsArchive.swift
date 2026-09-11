@@ -55,7 +55,7 @@ enum SettingsArchiveService {
         "vocamac.soundEffectsEnabled", "vocamac.translationEnabled", "vocamac.snippets",
         PreferenceKey.appendTrailingSpace, PreferenceKey.autoCapitalize, PreferenceKey.autoPauseEnabled,
         PreferenceKey.autoPauseApps, PreferenceKey.autoPausePollInterval,
-        PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine, PreferenceKey.dictationTone, PreferenceKey.duckOtherAudioEnabled,
+        PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine, PreferenceKey.commandModeClipboardFallback, PreferenceKey.dictationTone, PreferenceKey.duckOtherAudioEnabled,
         PreferenceKey.escapeCancelsDictation, PreferenceKey.externalMicWhenLidClosed,
         PreferenceKey.handsFreeShortcut, PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio,
         PreferenceKey.historyRetention, PreferenceKey.learnCorrectionsMode, PreferenceKey.modelKeepAliveEnabled,

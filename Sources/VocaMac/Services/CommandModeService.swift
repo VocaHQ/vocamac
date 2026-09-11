@@ -55,6 +55,8 @@ enum SelectionCaptureFailure: Error, Equatable {
     case secureField
     case notEditable
     case unreadable
+    /// The app doesn't share its selection, and copying it is turned off.
+    case needsClipboardFallback
 
     var message: String {
         switch self {
@@ -70,6 +72,8 @@ enum SelectionCaptureFailure: Error, Equatable {
             return "The selected text can't be edited here. Select text in an editable field."
         case .unreadable:
             return "VocaMac couldn't read the selection in this app. Select the text again, or copy it and try once more."
+        case .needsClipboardFallback:
+            return "This app doesn't share its selection with VocaMac. To edit text here, turn on “Copy the selection when an app doesn't share it” in Settings → Cleanup → Command Mode."
         }
     }
 }
@@ -84,6 +88,12 @@ protocol SelectedTextAccessing: AnyObject {
 final class AccessibilitySelectedTextService: SelectedTextAccessing {
     private let textInjector: TextInjecting
     private let pasteboard: NSPasteboard
+    /// The ⌘C fallback puts the selection on the shared clipboard for a
+    /// moment, where clipboard managers can see it, so it runs only after
+    /// the user turns it on.
+    var allowsClipboardFallback: () -> Bool = {
+        UserDefaults.standard.bool(forKey: PreferenceKey.commandModeClipboardFallback)
+    }
 
     init(textInjector: TextInjecting = TextInjector(), pasteboard: NSPasteboard = .general) {
         self.textInjector = textInjector
@@ -129,6 +139,7 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
             return .failure(.notEditable)
         case .unavailable:
             // Last resort for apps that don't expose their text: copy it.
+            guard allowsClipboardFallback() else { return .failure(.needsClipboardFallback) }
             guard let copied = await copySelectionViaClipboard(expectedProcessID: pid) else {
                 return .failure(.unreadable)
             }

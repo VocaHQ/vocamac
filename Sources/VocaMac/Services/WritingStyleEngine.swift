@@ -158,61 +158,79 @@ enum WritingStyleEngine {
     /// "um", "umm", "uh", "uhh", "uhm", "erm", "hm", "hmm" — sounds, not words.
     /// Deliberately narrow: "like", "so", and "you know" are real words often
     /// enough that only the model may judge them, and "mm" is millimetres.
-    private static let hesitationExpression = try? NSRegularExpression(
-        pattern: #"^(?:u+m+|u+h+m*|e+r+m+|h+m+)$"#, options: [.caseInsensitive]
+    ///
+    /// Matched as a whole word, with the punctuation right after it.
+    /// Letters, digits, or an apostrophe on either side mean it is part of a
+    /// longer word ("humming", "um's"), so it is left alone.
+    private static let hesitationWordExpression = try? NSRegularExpression(
+        pattern: #"(?<![\p{L}\p{N}'’])(u+m+|u+h+m*|e+r+m+|h+m+)(?![\p{L}\p{N}'’])([,.!?;:…]*)"#,
+        options: [.caseInsensitive]
     )
-
-    static func isHesitation(_ word: String) -> Bool {
-        guard let hesitationExpression else { return false }
-        let range = NSRange(word.startIndex..., in: word)
-        return hesitationExpression.firstMatch(in: word, range: range) != nil
-    }
 
     /// Remove hesitation sounds anywhere in English text, without a model, and
     /// repair what they leave behind: "Hello, um, how are you?" → "Hello, how
     /// are you?", "you? Um I hope" → "you? I hope", "hello world um." →
-    /// "hello world.". An utterance that was nothing but hesitation becomes
-    /// empty, so an accidental "uh" types nothing.
+    /// "hello world.". Only the hesitation, its punctuation, and one run of
+    /// spaces beside it are removed, so indentation, repeated spaces, and
+    /// line breaks elsewhere in code or multi-line text are untouched. An
+    /// utterance that was nothing but hesitation becomes empty, so an
+    /// accidental "uh" types nothing.
     static func removeHesitations(_ text: String) -> (text: String, removed: Bool) {
-        var tokens = text.components(separatedBy: " ")
-        var index = 0
+        guard let expression = hesitationWordExpression else { return (text, false) }
+        let result = NSMutableString(string: text)
         var removed = false
-        while index < tokens.count {
-            let token = tokens[index]
-            let (core, suffix) = SpokenSymbolTransformer.splitTrailingPunctuation(token)
-            guard !core.isEmpty, !core.contains("\n"), isHesitation(core) else {
-                index += 1
-                continue
-            }
+        // One at a time from the front, re-searching after each edit, so a
+        // repair near one hesitation never shifts the next match's range.
+        while let match = expression.firstMatch(in: result as String, range: NSRange(location: 0, length: result.length)) {
             removed = true
-            let previous = tokens[..<index].lastIndex { !$0.isEmpty }
-            let atSentenceStart = previous.map { endsSentence(tokens[$0]) } ?? true
-            tokens.remove(at: index)
+            let whole = match.range
+            let word = result.substring(with: match.range(at: 1))
+            let punctuation = result.substring(with: match.range(at: 2))
 
-            // A sentence end the hesitation carried moves to the word before
-            // it, replacing a comma there: "hello, um." → "hello.".
-            if let terminal = suffix.last(where: { ".!?".contains($0) }), let previous, !atSentenceStart {
-                var word = tokens[previous]
-                while let last = word.last, ",;:".contains(last) { word.removeLast() }
-                if let last = word.last, !".!?".contains(last) { word.append(terminal) }
-                tokens[previous] = word
-            }
-            // "Um I hope" / "Um, so we" at a sentence start: the next word now
-            // starts the sentence.
-            if atSentenceStart, core.first?.isUppercase == true,
-               let next = tokens[index...].firstIndex(where: { !$0.isEmpty }),
-               let first = tokens[next].first, first.isLowercase {
-                tokens[next] = first.uppercased() + tokens[next].dropFirst()
+            var previous = whole.location - 1
+            while previous >= 0, isHorizontalSpace(result.character(at: previous)) { previous -= 1 }
+            let previousCharacter = previous >= 0 ? Character(UnicodeScalar(result.character(at: previous)) ?? " ") : nil
+            let atSentenceStart = previousCharacter.map { ".!?…\n\r".contains($0) } ?? true
+
+            // Take the spaces after it; at the end of a line, the spaces before.
+            var end = NSMaxRange(whole)
+            while end < result.length, isHorizontalSpace(result.character(at: end)) { end += 1 }
+            var start = whole.location
+            if end == NSMaxRange(whole) { start = previous + 1 }
+            result.deleteCharacters(in: NSRange(location: start, length: end - start))
+
+            if atSentenceStart {
+                // "Um I hope" / "Um, so we": the next word now opens the sentence.
+                if word.first?.isUppercase == true {
+                    var next = start
+                    while next < result.length, isHorizontalSpace(result.character(at: next)) { next += 1 }
+                    if next < result.length {
+                        let range = NSRange(location: next, length: 1)
+                        let letter = result.substring(with: range)
+                        if letter != letter.uppercased() {
+                            result.replaceCharacters(in: range, with: letter.uppercased())
+                        }
+                    }
+                }
+            } else if let terminal = punctuation.last(where: { ".!?…".contains($0) }), previous >= 0 {
+                // The sentence end it carried moves to the word before it,
+                // replacing a comma there: "hello, um." → "hello.".
+                var last = previous
+                while last >= 0, ",;:".contains(Character(UnicodeScalar(result.character(at: last)) ?? " ")) {
+                    result.deleteCharacters(in: NSRange(location: last, length: 1))
+                    last -= 1
+                }
+                if last >= 0, !".!?…".contains(Character(UnicodeScalar(result.character(at: last)) ?? " ")) {
+                    result.insert(String(terminal), at: last + 1)
+                }
             }
         }
         guard removed else { return (text, false) }
-        let joined = tokens.filter { !$0.isEmpty }.joined(separator: " ")
-        return (joined, true)
+        return (result as String, true)
     }
 
-    private static func endsSentence(_ token: String) -> Bool {
-        guard let last = token.last else { return true }
-        return ".!?…".contains(last) || token.hasSuffix("\n")
+    private static func isHorizontalSpace(_ unit: unichar) -> Bool {
+        unit == 0x20 || unit == 0x09
     }
 
     // MARK: - Structural commands

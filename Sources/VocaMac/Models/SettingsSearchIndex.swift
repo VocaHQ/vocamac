@@ -187,6 +187,13 @@ enum SettingsSearchIndex {
             keywords: ["qwen", "model", "download", "0.5b", "0.6b", "gguf"]
         ),
         SettingsSearchEntry(
+            id: "command-mode-clipboard",
+            page: .cleanup,
+            title: "Command Mode Clipboard Copy",
+            subtitle: "Copy selections from apps that don't share them",
+            keywords: ["command", "clipboard", "copy", "terminal", "editor", "selection", "vs code"]
+        ),
+        SettingsSearchEntry(
             id: "command-mode-model",
             page: .cleanup,
             title: "Command Mode Model",

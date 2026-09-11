@@ -257,6 +257,9 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.commandModeShortcut) var commandModeShortcut: String = ""
     /// `CommandModeEngine.storageValue`, or empty to pick automatically.
     @AppStorage(PreferenceKey.commandModeEngine) var commandModeEngineStorage: String = ""
+    /// Opt-in: let Command Mode copy a selection an app won't share through
+    /// Accessibility. Off by default; see `AccessibilitySelectedTextService`.
+    @AppStorage(PreferenceKey.commandModeClipboardFallback) var commandModeClipboardFallback: Bool = false
     @AppStorage(PreferenceKey.mouseTriggerButton) var mouseTriggerButton: Int = MouseTriggerButton.off.rawValue
     @AppStorage(PreferenceKey.learnCorrectionsMode) var learnCorrectionsMode: LearnCorrectionsMode = .defaultMode
     @AppStorage(PreferenceKey.useScreenContext) var useScreenContext: Bool = true
@@ -552,6 +555,9 @@ final class AppState: ObservableObject {
     private var activeCommandEngine: CommandModeEngine?
     /// App whose selection is being edited, for the history entry.
     private var commandTargetApp: RunningAppSnapshot?
+    /// A held shortcut came up while the selection was still being read.
+    private var commandModeReleasedBeforeRecording = false
+    static let commandReleasedEarlyMessage = "Command Mode stopped: the shortcut was released before the microphone was ready. Hold it until you hear the double chime, or tap it once to start and again to finish."
     /// The transform in flight, so Escape can stop it.
     private var activeCommandTransformer: TextTransforming?
     /// A local Command Mode model loading while the user speaks.
@@ -1682,8 +1688,11 @@ final class AppState: ObservableObject {
             vocabulary: customVocabulary,
             onPartial: partialHandler
         )
-        // Only promise live words when an engine will actually send them.
-        cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil)
+        // Only promise live words when an engine will actually send them:
+        // Whisper and Parakeet decode partial snapshots; the Apple Speech
+        // session streams audio but reports text only when it finishes.
+        let engineSendsPartials = [.whisperKit, .parakeet].contains(ModelSize(rawValue: selectedModelSize)?.engine)
+        cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in
             { samples, offset in session.append(samples, at: offset) }
@@ -3009,6 +3018,7 @@ extension AppState {
                 await stopRecordingAndTranscribe()
             } else {
                 commandModePressStartedAt = Date()
+                commandModeReleasedBeforeRecording = false
                 await beginCommandMode()
                 if activeCommandSelection == nil {
                     commandModePressStartedAt = nil
@@ -3031,14 +3041,15 @@ extension AppState {
             return
         }
 
-        // Released before the microphone was on — reading the selection can
-        // take most of a second in an Electron app or through the clipboard.
-        // Nothing the user said while holding was recorded, so stopping now
-        // would throw away an empty instruction. Keep listening instead, as
-        // if it were a quick press; the overlay and cue say it's listening.
+        // A hold released before the microphone was on — reading the
+        // selection can take most of a second in an Electron app. Nothing the
+        // user said while holding was recorded, and turning the session into
+        // a press-again one would record speech they meant as done. Call it
+        // off instead and say how to time it.
         guard activeCommandSelection != nil,
               isRecording || appStatus == .recording else {
-            VocaLogger.debug(.appState, "Command Mode released before recording began — continuing until the next press")
+            commandModeReleasedBeforeRecording = true
+            VocaLogger.debug(.appState, "Command Mode released before recording began — cancelling")
             return
         }
         await stopRecordingAndTranscribe()
@@ -3107,6 +3118,11 @@ extension AppState {
             showTemporaryError(failure.message)
             return
         }
+        if commandModeReleasedBeforeRecording {
+            commandModeReleasedBeforeRecording = false
+            showTemporaryError(Self.commandReleasedEarlyMessage)
+            return
+        }
         activeCommandSelection = selection
         activeCommandEngine = engine
         commandTargetApp = frontmostAppResolver.currentFrontmostApp()
@@ -3128,6 +3144,14 @@ extension AppState {
             commandModelWarmup = Task { await cleanup.load(kind) }
         }
         await startRecording(injectResult: false)
+        // Released while the speech model was still loading for this session.
+        if commandModeReleasedBeforeRecording {
+            commandModeReleasedBeforeRecording = false
+            if isRecording || appStatus == .recording { await cancelRecording() }
+            resetCommandModeState()
+            showTemporaryError(Self.commandReleasedEarlyMessage)
+            return
+        }
         if !isRecording, activeCommandSelection != nil, !isTranscribing {
             // The microphone never started; nothing will finish this session.
             resetCommandModeState()
@@ -3208,6 +3232,9 @@ extension AppState {
             engineName: engine.displayName
         )
         if historyEnabled {
+            // Same retention as dictations, applied now rather than at the
+            // next dictation, so a run of edits can't outlive the setting.
+            defer { historyStore.applyRetention(historyRetention) }
             historyStore.recordCommandEdit(
                 instruction: instruction,
                 original: selection.text,

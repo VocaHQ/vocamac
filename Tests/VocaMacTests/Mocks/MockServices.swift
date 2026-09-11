@@ -798,7 +798,8 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
-            PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine, PreferenceKey.websiteStyleBindings,
+            PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine,
+            PreferenceKey.commandModeClipboardFallback, PreferenceKey.websiteStyleBindings,
             PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
         ] {
             UserDefaults.standard.removeObject(forKey: key)

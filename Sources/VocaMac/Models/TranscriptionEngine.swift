@@ -38,6 +38,7 @@ enum PreferenceKey {
     static let handsFreeShortcut = "vocamac.shortcuts.handsFree"
     static let commandModeShortcut = "vocamac.shortcuts.commandMode"
     static let commandModeEngine = "vocamac.commandMode.engine"
+    static let commandModeClipboardFallback = "vocamac.commandMode.clipboardFallback"
     static let mouseTriggerButton = "vocamac.shortcuts.mouseButton"
     static let wordReplacements = "vocamac.dictionary.replacements"
     static let dictionarySuggestions = "vocamac.dictionary.suggestions"

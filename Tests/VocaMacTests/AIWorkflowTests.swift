@@ -399,6 +399,15 @@ final class CommandModePromptTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Output only the resulting text"))
     }
 
+    @MainActor
+    func testClipboardFallbackNeedsConsent() {
+        XCTAssertTrue(SelectionCaptureFailure.needsClipboardFallback.message.contains("Copy the selection"))
+        let service = AccessibilitySelectedTextService(textInjector: MockTextInjector())
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
+        let allowed = service.allowsClipboardFallback()
+        XCTAssertFalse(allowed, "Off until the user turns it on")
+    }
+
     func testSelectionRevalidationToleratesFreshElementsButNotChangedText() {
         let snapshot = SelectedTextSnapshot(
             element: nil, processID: 7, deliveryProcessID: 7,
@@ -566,28 +575,20 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(app.appStatus, .idle)
     }
 
-    func testReleasingBeforeTheMicrophoneStartsKeepsListening() async {
+    func testReleasingBeforeTheMicrophoneStartsCancelsWithAHint() async {
         let selection = MockSelectedTextService()
         selection.selectedText = "Slow app selection."
-        let cleanup = MockTranscriptCleanup()
-        cleanup.cleanHandler = { _ in "Edited." }
-        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        let (app, _) = AppState.makeTestState(selectedTextService: selection)
         app.commandModeHoldThreshold = 0
         // The key comes up while the selection is still being read.
         selection.onCapture = { [weak app] in await app?.handleShortcutReleased(.commandMode) }
-        mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
-            text: "shorten", duration: 0, detectedLanguage: "en",
-            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
-        )
 
         await app.handleShortcut(.commandMode)
-        XCTAssertTrue(app.isRecording, "Nothing was recorded yet, so keep listening")
+
+        XCTAssertFalse(app.isRecording, "Nothing the user meant for Command Mode gets recorded")
+        XCTAssertEqual(app.errorMessage, AppState.commandReleasedEarlyMessage)
+        XCTAssertNil(app.commandModeSession)
         XCTAssertNil(selection.replacement)
-
-        selection.onCapture = nil
-        await app.handleShortcut(.commandMode)
-        XCTAssertEqual(selection.replacement, "Edited.")
     }
 
     func testCommandModeWorksWithSmartCleanupOff() async {
@@ -624,6 +625,29 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(app.lastCommandEdit?.original, "This sentence is unnecessarily long.")
         XCTAssertEqual(app.lastCommandEdit?.instruction, "make this shorter")
         XCTAssertEqual(mocks.statsManager.recordCallCount, 0)
+    }
+
+    func testEditsFollowHistoryRetentionImmediately() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Some text."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Other text." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.historyRetention = .day
+        app.historyStore.recordCommandEdit(
+            instruction: "old", original: "old", replacement: "old", summary: nil, target: nil,
+            modelID: "tiny", language: "en", audioSeconds: 1, now: Date().addingTimeInterval(-3 * 24 * 60 * 60)
+        )
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "rewrite", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(app.historyStore.entries.map(\.finalText), ["Other text."], "The expired edit is gone")
     }
 
     func testEditsStayOutOfHistoryWhenHistoryIsOff() async {

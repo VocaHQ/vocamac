@@ -587,6 +587,14 @@ struct CommandModeSettingsGroup: View {
 
             Divider()
 
+            SettingsToggleRow(
+                title: "Copy the selection when an app doesn't share it",
+                detail: "Some terminals and editors don't expose selected text to Accessibility. With this on, VocaMac copies the selection with ⌘C and puts your clipboard back right away — but clipboard managers may briefly see the selected text.",
+                isOn: $appState.commandModeClipboardFallback
+            )
+
+            Divider()
+
             Text("Model for edits")
                 .font(.subheadline.weight(.medium))
 

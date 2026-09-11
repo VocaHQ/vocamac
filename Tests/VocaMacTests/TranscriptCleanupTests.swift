@@ -208,8 +208,8 @@ final class CleanupModelTests: XCTestCase {
 
     func testAttemptSummariesExplainThemselves() {
         let rejected = CleanupAttempt(output: "x", outcome: .rejected("the model returned nothing"), duration: 1)
-        XCTAssertTrue(rejected.summary.contains("Discarded"))
-        XCTAssertTrue(rejected.summary.contains("paste the original"))
+        XCTAssertTrue(rejected.summary.contains("the model returned nothing"))
+        XCTAssertTrue(rejected.summary.contains("safe edits"), "Dictation still applies them one by one")
         XCTAssertFalse(rejected.didChangeText)
 
         let unchanged = CleanupAttempt(output: "x", outcome: .unchanged, duration: 1)

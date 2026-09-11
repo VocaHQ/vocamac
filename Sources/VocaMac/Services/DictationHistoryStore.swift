@@ -80,12 +80,15 @@ final class DictationHistoryStore: ObservableObject {
     var latestDeliveredText: String? {
         // A Command Mode edit replaced a selection in place; typing its result
         // again at the cursor is not what "paste last dictation" means.
+        // An empty final text means nothing was typed (a lone "uh"), so
+        // there is nothing to paste again.
         guard let entry = entries.first(where: {
-            $0.status == .completed && !$0.isCommandEdit && !$0.displayText.isEmpty
+            $0.status == .completed && !$0.isCommandEdit
+                && !$0.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }) else {
             return nil
         }
-        return entry.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.rawText : entry.finalText
+        return entry.finalText
     }
 
     /// The newest dictation when it failed, was interrupted, or was

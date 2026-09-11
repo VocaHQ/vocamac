@@ -203,6 +203,9 @@ struct HistoryEntryRow: View {
                             if !entry.isCommandEdit, let summary = entry.summary {
                                 Text(summary)
                                     .font(.caption2.weight(.medium))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .help(summary)
                                     .foregroundStyle(tint)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 2)

@@ -22,11 +22,17 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
 
     var detail: String {
         switch self {
-        case .none: return "Keep the engine transcript unchanged."
-        case .light: return "Tidy punctuation and capitalization only."
-        case .medium: return "Also remove fillers and repeated starts."
+        case .none: return "Keep the engine transcript unchanged, “um” and “uh” included."
+        case .light: return "Tidy punctuation and capitalization only. Keeps “um” and “uh”."
+        case .medium: return "Also remove fillers and repeated starts. “Um” and “uh” are removed in every app — even Code and Terminal, and with Smart Cleanup off."
         case .high: return "Also resolve explicit spoken corrections such as ‘actually 3’."
         }
+    }
+
+    /// Whether "um" and "uh" are removed without the model. None and Light
+    /// promise to keep every spoken sound.
+    var removesHesitations: Bool {
+        self == .medium || self == .high
     }
 
     func prompt(custom: String) -> String {

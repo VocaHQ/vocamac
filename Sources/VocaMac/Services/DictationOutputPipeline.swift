@@ -38,6 +38,24 @@ struct DictationOutputPipeline {
         // through the snippet mask, which formatting and cleanup never touch.
         let effectiveLevel = profile.cleanupLevel ?? cleanupLevel
         var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // "um" and "uh" go without a model, in every style that cleans up —
+        // including Code and Terminal, which never reach the model, and when a
+        // rewrite is later rejected. None and Light keep every sound, and a
+        // per-app "Formatting only" keeps wording as spoken. English only:
+        // "um" is a word in German ("um 5 Uhr").
+        var removedHesitations = false
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations,
+           Self.isEnglish(language ?? RewriteValidation.detectedLanguage(input)) {
+            (input, removedHesitations) = WritingStyleEngine.removeHesitations(input)
+        }
+        func noting(_ summary: String) -> String {
+            removedHesitations ? summary + " · “um”/“uh” removed" : summary
+        }
+        if removedHesitations, input.isEmpty {
+            return result("", "Only “um” or “uh” was heard — nothing typed")
+        }
+
         if profile.cleanup == .inherit, cleanupEnabled, effectiveLevel == .high {
             input = SpokenCorrectionResolver.resolve(input)
         }
@@ -58,8 +76,19 @@ struct DictationOutputPipeline {
             ))
         }
         let fallback = render(masked.text, rules: profile.rules)
-        guard profile.allowsRewrite, cleanupEnabled, effectiveLevel != .none else {
+        // Say why the model didn't run, so "why is 'um' still here?" has an
+        // answer in the menu and History.
+        if profile.cleanup == .off {
             return result(fallback, "Formatting only")
+        }
+        if !profile.format.supportsWording {
+            return result(fallback, noting("\(profile.format.displayName) style — no model, so commands stay exact"))
+        }
+        guard cleanupEnabled else {
+            return result(fallback, noting("Formatting only — Smart Cleanup is off"))
+        }
+        guard effectiveLevel != .none else {
+            return result(fallback, "Cleanup level None — formatting only")
         }
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
 
@@ -77,17 +106,17 @@ struct DictationOutputPipeline {
         )
         guard commanded == masked.text,
               !RewriteValidation.containsLiteralEscape(masked.text) else {
-            return result(fallback, "Spoken formatting kept exact")
+            return result(fallback, noting("Spoken formatting kept exact"))
         }
 
         let intent = rewritingEnabled ? profile.intent : .preserve
         if intent != .preserve,
            (language?.lowercased().split(separator: "-").first != "en"
             || RewriteValidation.containsNonLatinLetters(masked.text)) {
-            return result(fallback, "Writing intent skipped — English preview only")
+            return result(fallback, noting("Writing intent skipped — English preview only"))
         }
         if let problem = cleaner.availabilityProblem(for: model) {
-            return result(fallback, "Rewrite skipped — \(problem)")
+            return result(fallback, noting("Rewrite skipped — \(problem)"))
         }
         let selectedPrompt = profile.cleanupPrompt?
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -102,11 +131,11 @@ struct DictationOutputPipeline {
         }.value
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
         guard protected.text.count <= cleaner.inputBudget(forPrompt: prompt) else {
-            return result(fallback, "Rewrite skipped — transcript exceeds the model context")
+            return result(fallback, noting("Rewrite skipped — transcript exceeds the model context"))
         }
         await cleaner.load(model)
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
-        guard cleaner.isLoaded else { return result(fallback, "Rewrite skipped — model could not load") }
+        guard cleaner.isLoaded else { return result(fallback, noting("Rewrite skipped — model could not load")) }
         let attempt: CleanupAttempt
         if preview {
             attempt = await cleaner.preview(protected.text, prompt: prompt)
@@ -116,14 +145,14 @@ struct DictationOutputPipeline {
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
         switch attempt.outcome {
         case .rejected(let reason), .skipped(let reason):
-            return result(fallback, "Rewrite skipped — \(reason)")
+            return result(fallback, noting("Rewrite skipped — \(reason)"))
         case .cleaned, .unchanged:
             break
         }
         guard let candidate = protected.restoreValidated(attempt.output),
               let formatting = protected.formattingMask(attempt.output),
               RewriteValidation.accepts(candidate, original: masked.text) else {
-            return result(fallback, "Rewrite rejected — original wording retained")
+            return result(fallback, noting("Rewrite rejected — original wording retained"))
         }
         // Never interpret words the model invented as new formatting commands.
         var finalRules = profile.rules
@@ -139,9 +168,13 @@ struct DictationOutputPipeline {
             globalTrailingSpace: trailingSpace
         )
         let output = masked.restore(in: formatting.restore(in: formatted))
-        let summary = candidate == masked.text ? "Wording unchanged"
+        let summary = candidate == masked.text ? noting("Wording unchanged")
             : intent == .preserve ? "Cleaned up" : "\(intent.displayName) wording applied"
         return result(output, summary)
+    }
+
+    static func isEnglish(_ language: String?) -> Bool {
+        language?.lowercased().split(separator: "-").first == "en"
     }
 }
 
@@ -151,6 +184,12 @@ struct RewriteProtectedText: Sendable {
     let text: String
     private let replacements: [(token: String, value: String)]
     private let prefix: String
+    /// Names the model sees as themselves and must return unchanged. A name
+    /// hidden behind a placeholder reads to a small model like noise: "Hi
+    /// VOCAKEEP0END, how are you? Um…" came back as "How are you?…", the
+    /// rewrite was rejected, and every dictation that greeted someone kept
+    /// its fillers.
+    private let names: [String]
 
     init(_ source: String) {
         var prefix = "VOCAKEEP"
@@ -158,8 +197,10 @@ struct RewriteProtectedText: Sendable {
         self.prefix = prefix
         let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?"#
         var ranges = RewriteValidation.matches(pattern, in: source)
-        // Named entities are data too. Tagging is local, and any missed entity
-        // remains subject to the conservative rewrite gate and model evaluation.
+        // Named entities are data too, but they stay readable: the model keeps
+        // a real name far more reliably than a token, and restoreValidated
+        // rejects any rewrite that loses or changes one. Tagging is local.
+        var nameRanges: [NSRange] = []
         let tagger = NLTagger(tagSchemes: [.nameType])
         tagger.string = source
         tagger.enumerateTags(
@@ -167,7 +208,7 @@ struct RewriteProtectedText: Sendable {
             options: [.omitWhitespace, .omitPunctuation, .joinNames]
         ) { tag, range in
             if tag == .personalName || tag == .placeName || tag == .organizationName {
-                ranges.append(NSRange(range, in: source))
+                nameRanges.append(NSRange(range, in: source))
             }
             return true
         }
@@ -192,6 +233,11 @@ struct RewriteProtectedText: Sendable {
         }
         self.replacements = replacements
         self.text = output as String
+        // A name inside a protected technical span (an email address) is
+        // already covered by its token.
+        self.names = nameRanges
+            .filter { name in !ranges.contains { NSIntersectionRange($0, name).length > 0 } }
+            .map { ns.substring(with: $0) }
     }
 
     func restoreValidated(_ candidate: String) -> String? {
@@ -202,7 +248,17 @@ struct RewriteProtectedText: Sendable {
             restored = restored.replacingOccurrences(of: replacement.token, with: replacement.value)
         }
         guard !restored.contains(prefix) else { return nil }
+        // Every name, as often as it was said, spelled the same way.
+        let required = names.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
+        for (name, count) in required where Self.occurrences(of: name, in: restored) < count {
+            return nil
+        }
         return restored
+    }
+
+    private static func occurrences(of name: String, in text: String) -> Int {
+        let pattern = #"(?<![\p{L}\p{N}])"# + NSRegularExpression.escapedPattern(for: name) + #"(?![\p{L}\p{N}])"#
+        return RewriteValidation.matches(pattern, in: text).count
     }
 
     /// Keep technical text protected through the last capitalization pass too.

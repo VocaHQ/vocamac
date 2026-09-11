@@ -551,7 +551,8 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
 
         XCTAssertFalse(appState.transcriptCleanupEnabled)
         XCTAssertEqual(mocks.transcriptCleanup.cleanCallCount, 0)
-        XCTAssertEqual(mocks.textInjector.lastInjectedText, "So um hello")
+        // No model runs, but "um" is removed without one.
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "So hello")
     }
 
     func testEnabledCleanupRewritesBeforePolish() async {
@@ -574,7 +575,8 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         await appState.stopRecordingAndTranscribe()
 
         XCTAssertEqual(mocks.transcriptCleanup.cleanCallCount, 1)
-        XCTAssertEqual(mocks.transcriptCleanup.lastCleanedText, "so um hello world")
+        // "um" is already gone before the model sees the transcript.
+        XCTAssertEqual(mocks.transcriptCleanup.lastCleanedText, "so hello world")
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "Hello world ")
     }
 

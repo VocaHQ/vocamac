@@ -246,7 +246,7 @@ struct WritingStylesSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
         } else {
-            Text("Code and Terminal always stay exact. Raw transcription bypasses cleanup, snippets, and formatting.")
+            Text("Code and Terminal keep commands exact: Smart Cleanup may only remove filler there, never reword. Raw transcription bypasses cleanup, snippets, and formatting.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -498,7 +498,7 @@ struct WritingStyleAppPickerSheet: View {
 
             Text(style.supportsWording
                  ? intent.description
-                 : "Code and Terminal preserve wording so commands and technical text stay exact.")
+                 : "Code and Terminal keep your wording. With Smart Cleanup on, the model can only remove filler such as “um”, “like,”, and repeated words; commands and technical text stay exact.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
@@ -703,7 +703,7 @@ struct WritingStyleRuleEditor: View {
 
     private var profileExplanation: String {
         if !style.supportsWording {
-            return "Code and Terminal preserve wording and use exact formatting only."
+            return "Code and Terminal keep your wording and exact formatting. With Smart Cleanup on, the model only removes filler; it never rewrites a command."
         }
         switch cleanup {
         case .raw:

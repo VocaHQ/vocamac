@@ -35,7 +35,7 @@
 ## ✨ Features
 
 - **🔒 Local Speech** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline. Optional remote cleanup sends text only when you explicitly configure it.
-- **✍️ Per-App and Website Writing Styles** - Choose output format, cleanup level, and optional cleanup instructions per app or browser domain, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse the selected cleanup provider in one pass. Code and Terminal bypass the model; Raw bypasses cleanup, snippets, and formatting.
+- **✍️ Per-App and Website Writing Styles** - Choose output format, cleanup level, and optional cleanup instructions per app or browser domain, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse the selected cleanup provider in one pass. Code and Terminal never let the model reword: it can only point out filler, which VocaMac removes from your own words; Raw bypasses cleanup, snippets, and formatting.
 - **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.

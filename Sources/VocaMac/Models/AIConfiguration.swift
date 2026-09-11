@@ -24,7 +24,7 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .none: return "Keep the engine transcript unchanged, “um” and “uh” included."
         case .light: return "Tidy punctuation and capitalization only. Keeps “um” and “uh”."
-        case .medium: return "Also remove fillers and repeated starts. “Um” and “uh” are removed in every app — even Code and Terminal, and with Smart Cleanup off."
+        case .medium: return "Also remove fillers and repeated starts. “Um” and “uh” are removed in every app, even with Smart Cleanup off. In Code and Terminal the model only removes filler, never rewords."
         case .high: return "Also resolve explicit spoken corrections such as ‘actually 3’."
         }
     }

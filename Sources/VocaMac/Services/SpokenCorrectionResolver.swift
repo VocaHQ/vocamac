@@ -165,15 +165,20 @@ enum SpokenCorrectionResolver {
 
     // MARK: - Pattern
 
+    /// Spaces and tabs only. A line break is structure — "deploy Monday" on
+    /// one line and "no, Tuesday" on the next are two lines, not a
+    /// correction — so no part of the pattern may cross one.
+    private static let space = "[ \\t]"
+
     private static func value(_ group: String) -> String {
         let alternation = { (words: Set<String>) in
             words.sorted { $0.count > $1.count }.map(NSRegularExpression.escapedPattern(for:)).joined(separator: "|")
         }
-        let day = "(?:(?:" + alternation(dayModifiers) + ")\\s+)?(?:" + alternation(days) + ")(?:-feira)?"
+        let day = "(?:(?:" + alternation(dayModifiers) + ")" + space + "+)?(?:" + alternation(days) + ")(?:-feira)?"
         let month = alternation(months)
         let number = "(?:\\d+(?:[:.]\\d+)?|" + alternation(numberWords) + ")"
-            + "(?:\\s*(?:a\\.?m\\.?|p\\.?m\\.?|o'clock|minutes?|mins?|hours?|days?|weeks?|percent|%|uhr|heures?|horas?|ore|baje))?"
-        return "(?<\(group)>(?:(?:" + alternation(articles) + ")\\s+)?(?:" + day + "|" + month + "|" + number + "))"
+            + "(?:" + space + "*(?:a\\.?m\\.?|p\\.?m\\.?|o'clock|minutes?|mins?|hours?|days?|weeks?|percent|%|uhr|heures?|horas?|ore|baje))?"
+        return "(?<\(group)>(?:(?:" + alternation(articles) + ")" + space + "+)?(?:" + day + "|" + month + "|" + number + "))"
     }
 
     /// "<first value> [oh,] <cue> <replacement>", with the cue set off by
@@ -182,11 +187,11 @@ enum SpokenCorrectionResolver {
     private static let expression: NSRegularExpression? = {
         let cue = cues.map { phrase in
             phrase.split(separator: " ").map { NSRegularExpression.escapedPattern(for: String($0)) }
-                .joined(separator: "[,\\s]+")
+                .joined(separator: "[," + space + "]+")
         }.joined(separator: "|")
-        let separators = "[,.;…—–\\-\\s]"
+        let separators = "[,.;…—–\\-" + space + "]"
         let pattern = "(?i)(?<![\\p{L}\\p{N}])(?<correction>" + value("first")
-            + separators + "*(?:oh[,\\s]+)?(?:" + cue + ")(?![\\p{L}])" + separators + "+"
+            + separators + "*(?:oh[," + space + "]+)?(?:" + cue + ")(?![\\p{L}])" + separators + "+"
             + value("replacement") + ")(?![\\p{L}\\p{N}])"
         return try? NSRegularExpression(pattern: pattern)
     }()

@@ -60,9 +60,11 @@ struct DictationOutputPipeline {
 
         // "let's do it tomorrow, oh, no, Wednesday" → "let's do it Wednesday".
         // Rule-based, so like hesitation removal it runs without a model, at
-        // Medium and High, and in any language the resolver knows.
+        // Medium and High, and in any language the resolver knows. Prose
+        // only: a correction replaces words, and Code and Terminal text is
+        // only ever trimmed of filler.
         var resolvedCorrections = 0
-        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations, profile.format.supportsWording {
             (input, resolvedCorrections) = SpokenCorrectionResolver.resolveCounting(input)
         }
         func noting(_ summary: String) -> String {

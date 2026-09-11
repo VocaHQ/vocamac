@@ -45,6 +45,12 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("can you send the report?", "Can you send the report.").text, "Can you send the report?")
     }
 
+    func testARefusedRewriteNeverAddsAQuestion() {
+        XCTAssertEqual(merge("we might ship today", "Will we ship today?").text, "we might ship today")
+        // A sentence that opens like a question still gets its "?".
+        XCTAssertEqual(merge("hey can you send it today", "Hey, can you send it today?").text, "Hey, can you send it today?")
+    }
+
     func testAnAnswerInsteadOfAnEditContributesNothing() {
         let result = merge("hey can you send the report today",
                            "Sure, I can do that. Could you please provide the report for today?")
@@ -66,5 +72,14 @@ final class EditMergeTests: XCTestCase {
     func testLightLevelTakesPunctuationButKeepsEveryWord() {
         XCTAssertEqual(merge("so tell me if if it works", "So tell me if it works.", level: .light).text,
                        "So tell me if if it works.")
+        // No spelling fixes or contractions either: those change words.
+        XCTAssertEqual(merge("it looks like an expender", "It looks like an expander.", level: .light).text,
+                       "It looks like an expender.")
+        XCTAssertEqual(merge("I do not know", "I don't know.", level: .light).text, "I do not know.")
+    }
+
+    func testRemovingTheFirstWordOnALineKeepsTheLineBreak() {
+        XCTAssertEqual(merge("Heading\nlike, then more", "Heading\nthen more").text, "Heading\nthen more")
+        XCTAssertEqual(merge("First line\nif if second", "First line\nif second").text, "First line\nif second")
     }
 }

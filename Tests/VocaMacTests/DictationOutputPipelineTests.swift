@@ -88,6 +88,10 @@ final class DictationOutputPipelineTests: XCTestCase {
         let result = await process("let's do it tomorrow, oh, no, Wednesday", cleaner: cleaner, enabled: false)
         XCTAssertEqual(result.text, "Let's do it Wednesday")
         XCTAssertTrue(result.summary.contains("spoken correction applied"), result.summary)
+        // Code and Terminal text is only trimmed of filler, never corrected.
+        let terminal = await process("deploy Monday, no, Tuesday tonight", cleaner: MockTranscriptCleanup(),
+                                     format: .terminal, enabled: false)
+        XCTAssertEqual(terminal.text, "deploy Monday, no, Tuesday tonight")
         // Light keeps every word, corrections included.
         let light = await process("let's do it tomorrow, no, Wednesday", cleaner: MockTranscriptCleanup(), enabled: false, level: .light)
         XCTAssertTrue(light.text.contains("tomorrow"))

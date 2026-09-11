@@ -316,6 +316,13 @@ final class SpokenCorrectionResolverTests: XCTestCase {
         }
     }
 
+    func testCorrectionsNeverCrossALineBreak() {
+        let text = "deploy Monday\nno, Tuesday"
+        XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text)
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("deploy Monday, no,\nTuesday"), "deploy Monday, no,\nTuesday")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("deploy Monday, no, Tuesday"), "deploy Tuesday")
+    }
+
     func testOrdinaryActuallyPhraseIsNotRewritten() {
         let text = "I was actually thrilled with the result"
         XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text)

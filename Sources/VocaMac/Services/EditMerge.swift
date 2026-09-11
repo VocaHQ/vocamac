@@ -65,13 +65,23 @@ enum EditMerge {
         }
 
         var output: [Emitted] = []
+        // A line break that belonged to a removed word; the next word written
+        // takes it, so "Heading\num then" becomes "Heading\nthen".
+        var pendingLineBreak: String?
+        func write(_ token: Token, leading: String) {
+            if let lineBreak = pendingLineBreak, !leading.contains("\n") {
+                output.append(Emitted(token: token, leading: lineBreak))
+            } else {
+                output.append(Emitted(token: token, leading: leading))
+            }
+            pendingLineBreak = nil
+        }
         var applied = 0
         var skipped = 0
         var index = 0
         while index < operations.count {
             if case .match(let o, let c) = operations[index] {
-                output.append(Emitted(token: matchedCase(source[o], target[c], sentenceStart: endsSentence(output)),
-                                      leading: source[o].leading))
+                write(matchedCase(source[o], target[c], sentenceStart: endsSentence(output)), leading: source[o].leading)
                 if source[o].text != output[output.count - 1].token.text { applied += 1 }
                 index += 1
                 continue
@@ -104,12 +114,22 @@ enum EditMerge {
                 previous: output.last?.token, next: next
             )
             if isSafe(hunk, level: level, isKnownWord: isKnownWord) {
-                for token in hunk.added {
-                    output.append(Emitted(token: token, leading: token.leading))
+                if let lineBreak = hunk.removed.first(where: { $0.leading.contains("\n") })?.leading {
+                    pendingLineBreak = lineBreak
                 }
+                for token in hunk.added { write(token, leading: token.leading) }
                 applied += 1
             } else {
-                for token in hunk.removed { output.append(Emitted(token: token, leading: token.leading)) }
+                for token in hunk.removed { write(token, leading: token.leading) }
+                // A refused word change can still end the sentence: keep the
+                // punctuation the model put after it ("expender" →
+                // "expander." keeps "expender" and the period).
+                if hunk.removed.last?.isWord ?? true {
+                    // A period or comma only: a "?" or "!" from a refused
+                    // rewrite would change what kind of sentence it is.
+                    let trailing = hunk.added.reversed().prefix { [".", ","].contains($0.text) }
+                    for token in trailing.reversed() { write(token, leading: token.leading) }
+                }
                 skipped += 1
             }
         }
@@ -149,9 +169,18 @@ enum EditMerge {
         let removedWords = hunk.removedWords
         let addedWords = hunk.addedWords
 
-        // Punctuation only.
+        // Punctuation only. A new "?" needs a sentence that opens like a
+        // question: "can you send it" earns one, "we might ship today" —
+        // which the model reworded to "Will we ship today?" — does not.
         if removedWords.isEmpty, addedWords.isEmpty {
-            return hunk.added.allSatisfy { allowedPunctuation.contains($0.text) }
+            guard hunk.added.allSatisfy({ allowedPunctuation.contains($0.text) }) else { return false }
+            if hunk.added.contains(where: { $0.text == "?" }), questionsBefore == 0 {
+                let sentence = hunk.precedingInSentence.map(\.key)
+                // "can you…", or "hey, can you…" / "so what…" after an opener.
+                let start = sentence.first.map { questionLeadIns.contains($0) } == true ? 1 : 0
+                return sentence.count > start && questionOpeners.contains(sentence[start])
+            }
+            return true
         }
         // New words are new content.
         if removedWords.isEmpty { return false }
@@ -166,6 +195,8 @@ enum EditMerge {
             return level != .light && isSafeDeletion(hunk, level: level)
         }
 
+        // Light promises punctuation and capitals only: no word changes.
+        guard level != .light else { return false }
         // One word for one word: a spelling fix.
         if removedWords.count == 1, addedWords.count == 1 {
             let before = removedWords[0].key, after = addedWords[0].key
@@ -272,6 +303,14 @@ enum EditMerge {
     private static let negations: Set<String> = ["not", "no", "never", "nor", "neither", "without", "cannot"]
 
     private static let realOneLetterWords: Set<String> = ["a", "i", "o"]
+
+    private static let questionLeadIns: Set<String> = ["hey", "hi", "so", "okay", "ok", "well", "and", "but", "also", "oh"]
+
+    private static let questionOpeners: Set<String> = [
+        "can", "could", "would", "will", "should", "shall", "may", "might", "must", "is", "are", "am",
+        "was", "were", "do", "does", "did", "have", "has", "had", "what", "why", "how", "when", "where",
+        "who", "whom", "whose", "which", "isn't", "aren't", "don't", "doesn't", "didn't", "can't", "won't",
+    ]
 
     private static let pronouns: Set<String> = [
         "i", "you", "he", "she", "it", "we", "they", "me", "him", "her", "us", "them",

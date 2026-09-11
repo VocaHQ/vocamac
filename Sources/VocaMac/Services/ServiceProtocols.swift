@@ -209,6 +209,10 @@ extension SpeechTranscribing {
 protocol TextInjecting: AnyObject {
     var onFailure: ((String) -> Void)? { get set }
     func inject(text: String, preserveClipboard: Bool)
+    /// Deliver only if the same application is still in front. Command Mode
+    /// uses this after revalidating its captured selection so a delayed paste
+    /// cannot land in a different app.
+    func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t)
 }
 
 // MARK: - FrontmostAppResolving
@@ -248,6 +252,10 @@ extension TextInjecting {
     var onFailure: ((String) -> Void)? {
         get { nil }
         set { }
+    }
+
+    func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t) {
+        inject(text: text, preserveClipboard: preserveClipboard)
     }
 }
 

@@ -319,6 +319,63 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(app.appStatus, .idle)
     }
 
+    func testQuickPressKeepsCommandModeRecordingUntilSecondPress() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "This sentence is unnecessarily long."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "A short sentence." }
+        let (app, mocks) = AppState.makeTestState(
+            transcriptCleanup: cleanup,
+            selectedTextService: selection
+        )
+        app.transcriptCleanupEnabled = true
+        app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
+        app.commandModeHoldThreshold = 60
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "make this shorter", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.handleShortcut(.commandMode)
+        await app.handleShortcutReleased(.commandMode)
+
+        XCTAssertTrue(app.isRecording, "A quick release should switch to toggle mode")
+        XCTAssertNil(selection.replacement)
+
+        await app.handleShortcut(.commandMode)
+
+        XCTAssertEqual(selection.replacement, "A short sentence.")
+        XCTAssertFalse(app.isRecording)
+        XCTAssertEqual(app.appStatus, .idle)
+    }
+
+    func testHeldCommandModeStopsWhenShortcutIsReleased() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "This sentence is unnecessarily long."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "A short sentence." }
+        let (app, mocks) = AppState.makeTestState(
+            transcriptCleanup: cleanup,
+            selectedTextService: selection
+        )
+        app.transcriptCleanupEnabled = true
+        app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
+        app.commandModeHoldThreshold = 0
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "make this shorter", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.handleShortcut(.commandMode)
+        await app.handleShortcutReleased(.commandMode)
+
+        XCTAssertEqual(selection.replacement, "A short sentence.")
+        XCTAssertFalse(app.isRecording)
+        XCTAssertEqual(app.appStatus, .idle)
+    }
+
     func testCommandModeExplainsWhenSmartCleanupIsOff() async {
         let selection = MockSelectedTextService()
         selection.selectedText = "Selected"

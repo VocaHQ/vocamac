@@ -11,10 +11,11 @@ final class MeetingCaptureWindowManager: ObservableObject {
     func open(appState: AppState) {
         if let window, window.isVisible { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 480),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 350),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
+        window.contentMinSize = NSSize(width: 500, height: 310)
         window.title = "System Audio Transcription"
         window.contentView = NSHostingView(rootView: MeetingCaptureView().environmentObject(appState))
         window.center(); window.isReleasedWhenClosed = false; window.makeKeyAndOrderFront(nil)
@@ -37,14 +38,27 @@ struct MeetingCaptureView: View {
     @StateObject private var capture = SystemAudioCapture()
     @State private var result: VocaTranscription?
     @State private var error: String?
+    @State private var notice: String?
     @State private var isTranscribing = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VocaPageHeader(title: "System Audio", subtitle: "Capture what this Mac is playing, then transcribe it locally.", horizontalPadding: 0)
+        VStack(alignment: .leading, spacing: 14) {
+            TranscriptionWorkflowHeader(
+                title: "System Audio",
+                subtitle: "Capture what this Mac is playing, then transcribe it locally.",
+                systemImage: "speaker.wave.2"
+            )
             HStack(spacing: 12) {
-                Circle().fill(capture.isCapturing ? Color.red : Color.secondary).frame(width: 10, height: 10)
-                Text(capture.isCapturing ? "Capturing system audio" : "Ready")
+                Circle()
+                    .fill(statusColor)
+                    .frame(width: 9, height: 9)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(statusTitle)
+                        .font(.subheadline.weight(.medium))
+                    Text(statusDetail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 Button(capture.isCapturing ? "Stop and Transcribe" : "Start Capture") {
                     capture.isCapturing ? stop() : start()
@@ -54,17 +68,31 @@ struct MeetingCaptureView: View {
                 if isTranscribing { ProgressView().controlSize(.small) }
             }
             .vocaCard()
-            Text("Playback is not muted. VocaMac uses a private Core Audio process tap and does not install a virtual audio driver. Capture is limited to 20 minutes; stop before changing speech models.")
-                .font(.caption).foregroundStyle(.secondary)
+            Label("Private capture · no virtual driver · 20-minute limit", systemImage: "lock.shield")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             if let result {
-                HStack { Text("Transcript").font(.headline); Spacer(); Button("Copy") { copy(result.text) } }
-                ScrollView { Text(result.text).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
-                    .vocaCard()
+                WorkflowTranscriptCard(
+                    text: result.text,
+                    detail: "\(String(format: "%.1f", result.audioLengthSeconds))s audio · \(String(format: "%.1f", result.duration))s processing · \(result.detectedLanguage)",
+                    copy: { copy(result.text) }
+                )
             }
-            if let error { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange).font(.caption) }
-            Spacer()
+            if let error {
+                Label(error, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+            }
+            if let notice {
+                Label(notice, systemImage: "clock.arrow.circlepath")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
         }
-        .padding(24).background(VocaDesign.canvas).tint(VocaDesign.accent)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(VocaDesign.canvas)
+        .tint(VocaDesign.accent)
         .onChange(of: capture.didReachLimit) {
             if capture.didReachLimit, !isTranscribing { stop() }
         }
@@ -72,7 +100,9 @@ struct MeetingCaptureView: View {
     }
 
     private func start() {
-        error = nil; result = nil
+        error = nil
+        notice = nil
+        result = nil
         do { try capture.start() } catch { self.error = error.localizedDescription }
     }
 
@@ -80,7 +110,7 @@ struct MeetingCaptureView: View {
         let samples = capture.stop()
         guard !samples.isEmpty else { error = "No system audio was captured."; return }
         if capture.didReachLimit {
-            error = "The 20-minute capture limit was reached. The first 20 minutes will be transcribed."
+            notice = "The 20-minute limit was reached; the retained audio is being transcribed."
         }
         isTranscribing = true
         Task { @MainActor in
@@ -90,5 +120,26 @@ struct MeetingCaptureView: View {
         }
     }
 
-    private func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string) }
+    private var statusTitle: String {
+        if capture.isCapturing { return "Capturing system audio" }
+        if isTranscribing { return "Transcribing capture" }
+        return "Ready to capture"
+    }
+
+    private var statusDetail: String {
+        if capture.isCapturing { return "Playback continues normally" }
+        if isTranscribing { return "Processing locally with the selected speech model" }
+        return "Uses the currently selected speech model"
+    }
+
+    private var statusColor: Color {
+        if capture.isCapturing { return .red }
+        if isTranscribing { return VocaDesign.accent }
+        return VocaDesign.success
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
 }

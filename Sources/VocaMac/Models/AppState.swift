@@ -493,6 +493,11 @@ final class AppState: ObservableObject {
 
     /// Selection captured before Command Mode starts recording its instruction.
     private var activeCommandSelection: SelectedTextSnapshot?
+    private var commandModePressStartedAt: Date?
+    private var commandModeShouldStopAfterStart = false
+    /// A quick press toggles Command Mode; holding past this point stops on
+    /// release. Internal so flow tests can exercise both gestures instantly.
+    var commandModeHoldThreshold: TimeInterval = 0.35
     private var nonInjectedOutputDestination: ScratchpadOutputDestination = .settingsTest
 
     /// Suggestions the user dismissed, so the same fix isn't offered again.
@@ -650,7 +655,7 @@ final class AppState: ObservableObject {
         self.screenContextReader = screenContextReader ?? (skipSystemIntegration ? nil : ScreenContextReader())
         self.correctionObserver = correctionObserver ?? (skipSystemIntegration ? nil : CorrectionObserver())
         self.selectedTextService = selectedTextService
-            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService())
+            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService(textInjector: textInjector))
         self.isKnownWord = { word, language in
             MainActor.assumeIsolated { SpellingOracle.shared.isKnownWord(word, language: language) }
         }
@@ -1479,6 +1484,8 @@ final class AppState: ObservableObject {
         errorMessage = nil
         isTranscribing = false
         activeCommandSelection = nil
+        commandModePressStartedAt = nil
+        commandModeShouldStopAfterStart = false
         liveTranscript = ""
         screenContextTask?.cancel()
         screenContextTask = nil
@@ -1935,6 +1942,8 @@ final class AppState: ObservableObject {
         screenDocumentURLTask?.cancel()
         screenDocumentURLTask = nil
         activeCommandSelection = nil
+        commandModePressStartedAt = nil
+        commandModeShouldStopAfterStart = false
         liveTranscript = ""
         cursorOverlay.hide()
         hotKeyManager.resetKeyState()
@@ -1955,6 +1964,8 @@ final class AppState: ObservableObject {
         recordingGeneration = UUID()
         finishingTranscription?.cancel()
         activeCommandSelection = nil
+        commandModePressStartedAt = nil
+        commandModeShouldStopAfterStart = false
         liveTranscript = ""
         isTranscribing = false
         if let id = activeHistoryEntryID {
@@ -2870,13 +2881,43 @@ extension AppState {
         case .handsFreeToggle:
             await toggleHandsFreeDictation()
         case .commandMode:
-            await beginCommandMode()
+            if activeCommandSelection != nil,
+               isRecording || appStatus == .recording {
+                // A second press completes a Command Mode session that was
+                // started with a quick press instead of a hold.
+                commandModePressStartedAt = nil
+                commandModeShouldStopAfterStart = false
+                await stopRecordingAndTranscribe()
+            } else {
+                commandModePressStartedAt = Date()
+                commandModeShouldStopAfterStart = false
+                await beginCommandMode()
+                if activeCommandSelection == nil {
+                    commandModePressStartedAt = nil
+                    commandModeShouldStopAfterStart = false
+                }
+            }
         }
     }
 
     func handleShortcutReleased(_ action: HotKeyShortcutAction) async {
-        guard action == .commandMode, activeCommandSelection != nil,
+        guard action == .commandMode,
+              let startedAt = commandModePressStartedAt else { return }
+        commandModePressStartedAt = nil
+
+        // Quick taps are treated as toggle-on. This is especially important
+        // while a microphone route or cleanup model is still warming up: the
+        // old hold-only behavior interpreted the key-up as an immediate stop
+        // and ended the command before any audio could exist.
+        guard Date().timeIntervalSince(startedAt) >= commandModeHoldThreshold else {
+            VocaLogger.debug(.appState, "Command Mode quick press — waiting for a second press")
+            return
+        }
+
+        commandModeShouldStopAfterStart = true
+        guard activeCommandSelection != nil,
               isRecording || appStatus == .recording else { return }
+        commandModeShouldStopAfterStart = false
         await stopRecordingAndTranscribe()
     }
 
@@ -2903,12 +2944,24 @@ extension AppState {
         }
         guard let selectedTextService,
               let selection = await selectedTextService.captureSelection() else {
-            showTemporaryError("Select editable text in another app, then hold the Command Mode shortcut.")
+            commandModeShouldStopAfterStart = false
+            showTemporaryError("Select editable text in another app, then use the Command Mode shortcut.")
             return
         }
         activeCommandSelection = selection
+        VocaLogger.info(
+            .appState,
+            "Command Mode captured a " + String(selection.text.count) + "-character selection"
+        )
         await startRecording(injectResult: false)
-        if !isRecording { activeCommandSelection = nil }
+        if commandModeShouldStopAfterStart, isRecording || appStatus == .recording {
+            commandModeShouldStopAfterStart = false
+            await stopRecordingAndTranscribe()
+        }
+        if !isRecording {
+            activeCommandSelection = nil
+            commandModeShouldStopAfterStart = false
+        }
     }
 
     private func finishCommandMode(instruction: String, selection: SelectedTextSnapshot) async {
@@ -2949,6 +3002,10 @@ extension AppState {
             original: selection.text,
             text: attempt.output,
             summary: "Command Mode: \(instruction)"
+        )
+        VocaLogger.info(
+            .appState,
+            "Command Mode queued a " + String(attempt.output.count) + "-character replacement"
         )
         cursorOverlay.hide()
         appStatus = .idle

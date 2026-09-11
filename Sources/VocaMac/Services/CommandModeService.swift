@@ -22,6 +22,12 @@ protocol SelectedTextAccessing: AnyObject {
 
 @MainActor
 final class AccessibilitySelectedTextService: SelectedTextAccessing {
+    private let textInjector: TextInjecting
+
+    init(textInjector: TextInjecting = TextInjector()) {
+        self.textInjector = textInjector
+    }
+
     func captureSelection() async -> SelectedTextSnapshot? {
         guard let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
         return await withCheckedContinuation { continuation in
@@ -46,7 +52,7 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == snapshot.processID else {
             return false
         }
-        return await withCheckedContinuation { continuation in
+        let isCurrent = await withCheckedContinuation { continuation in
             AccessibilityTextReader.queue.async {
                 guard let focused = AccessibilityTextReader.focusedTextElement(processID: snapshot.processID),
                       CFEqual(focused, snapshot.element.element),
@@ -58,15 +64,22 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
                     continuation.resume(returning: false)
                     return
                 }
-                AXUIElementSetMessagingTimeout(focused, 0.2)
-                let status = AXUIElementSetAttributeValue(
-                    focused,
-                    kAXSelectedTextAttribute as CFString,
-                    text as CFTypeRef
-                )
-                continuation.resume(returning: status == .success)
+                continuation.resume(returning: true)
             }
         }
+        guard isCurrent else { return false }
+
+        // TextInjector deliberately uses direct AX writes only for controls
+        // that apply them reliably, then falls back to clipboard + Cmd+V for
+        // text areas used by browsers, Electron apps, editors, and terminals.
+        // Calling the AX setter here made those apps report success while
+        // silently leaving the selected text unchanged.
+        textInjector.inject(
+            text: text,
+            preserveClipboard: true,
+            expectedProcessID: snapshot.processID
+        )
+        return true
     }
 
     nonisolated static func rangesMatch(_ lhs: CFRange?, _ rhs: CFRange?) -> Bool {

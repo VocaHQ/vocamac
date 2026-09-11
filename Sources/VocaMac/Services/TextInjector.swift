@@ -139,18 +139,57 @@ final class TextInjector {
 
         let enqueue = { [self] in
             let targetPID = frontmostPIDProvider()
-            let interval = PerformanceTrace.begin("TextDeliveryQueueAndDispatch")
-            Self.clipboardInjectionCoordinator.enqueue { [self] finish in
-                let complete = {
-                    PerformanceTrace.end(interval)
-                    finish()
-                }
-                performInjection(text: text, preserveClipboard: preserveClipboard,
-                                 targetPID: targetPID, completion: complete)
-            }
+            enqueueInjection(
+                text: text,
+                preserveClipboard: preserveClipboard,
+                targetPID: targetPID
+            )
         }
         if Thread.isMainThread { enqueue() }
         else { DispatchQueue.main.async(execute: enqueue) }
+    }
+
+    /// Inject only into the application that owned a previously validated
+    /// selection. This keeps Command Mode on the same reliable AX/clipboard
+    /// delivery path as ordinary dictation without allowing a focus change to
+    /// redirect the edit.
+    func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t) {
+        guard !text.isEmpty else { return }
+
+        let enqueue = { [self] in
+            let currentPID = frontmostPIDProvider()
+            guard samePasteTarget(expectedProcessID, currentPID) else {
+                reportPasteTargetMismatch(queued: expectedProcessID, current: currentPID)
+                return
+            }
+            enqueueInjection(
+                text: text,
+                preserveClipboard: preserveClipboard,
+                targetPID: expectedProcessID
+            )
+        }
+        if Thread.isMainThread { enqueue() }
+        else { DispatchQueue.main.async(execute: enqueue) }
+    }
+
+    private func enqueueInjection(
+        text: String,
+        preserveClipboard: Bool,
+        targetPID: pid_t?
+    ) {
+        let interval = PerformanceTrace.begin("TextDeliveryQueueAndDispatch")
+        Self.clipboardInjectionCoordinator.enqueue { [self] finish in
+            let complete = {
+                PerformanceTrace.end(interval)
+                finish()
+            }
+            performInjection(
+                text: text,
+                preserveClipboard: preserveClipboard,
+                targetPID: targetPID,
+                completion: complete
+            )
+        }
     }
 
     /// Wait until every previously queued injection has finished.

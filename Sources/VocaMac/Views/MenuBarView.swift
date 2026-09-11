@@ -157,15 +157,11 @@ struct MenuBarView: View {
                 suggestionSection(suggestion)
             }
 
-            // Last Transcription
+            // Last Dictation
             if let transcription = appState.lastTranscription {
                 Divider()
-                transcriptionSection(transcription)
+                transcriptionSection(transcription, output: appState.lastOutput)
                     .vocaCard()
-            }
-            if let output = appState.lastOutput {
-                Text(output.summary).font(.caption).foregroundStyle(.secondary)
-                Text(output.text).font(.caption).lineLimit(4).textSelection(.enabled)
             }
             if let held = appState.heldOutput {
                 Text("Saved dictation — destination changed").font(.caption)
@@ -610,10 +606,18 @@ struct MenuBarView: View {
 
     // MARK: - Transcription
 
-    private func transcriptionSection(_ result: VocaTranscription) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func transcriptionSection(
+        _ result: VocaTranscription,
+        output: DictationOutputResult?
+    ) -> some View {
+        // Other workflows (for example Command Mode and history retry) can
+        // update lastOutput without producing a new lastTranscription. Only
+        // pair an output with the raw transcript it was actually derived from.
+        let matchingOutput = output?.original == result.text ? output : nil
+        let displayedText = matchingOutput?.text ?? result.text
+        return VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Last Transcription")
+                Text("Last Dictation")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -621,7 +625,7 @@ struct MenuBarView: View {
 
                 Button {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(result.text, forType: .string)
+                    NSPasteboard.general.setString(displayedText, forType: .string)
                 } label: {
                     Image(systemName: "doc.on.doc")
                         .font(.subheadline)
@@ -630,13 +634,19 @@ struct MenuBarView: View {
                 .help("Copy to clipboard")
             }
 
-            Text(result.text)
+            Text(displayedText)
                 .font(.body)
                 .lineLimit(4)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
                 .background(Color.secondary.opacity(0.1))
                 .cornerRadius(8)
+
+            if let matchingOutput {
+                Text(matchingOutput.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
 
             HStack {
                 Text("\(String(format: "%.1f", result.audioLengthSeconds))s audio")

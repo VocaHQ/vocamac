@@ -23,7 +23,7 @@ struct ShortcutSettingsGroup: View {
             Divider()
             ShortcutRecorderRow(
                 action: .commandMode,
-                detail: "Select text in another app, then hold this shortcut and say an edit such as ‘make this shorter’ or ‘translate to Spanish’."
+                detail: "Select text in another app, then press once, speak an edit, and press again. You can also hold the shortcut while speaking."
             )
             Divider()
             SettingsToggleRow(

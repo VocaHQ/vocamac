@@ -18,10 +18,11 @@ final class FileTranscriptionWindowManager: ObservableObject {
         }
         let root = FileTranscriptionView(initialURL: initialURL).environmentObject(appState)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 360),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false
         )
+        window.contentMinSize = NSSize(width: 500, height: 320)
         window.title = "Transcribe a File"
         window.contentView = NSHostingView(rootView: root)
         window.center()
@@ -59,63 +60,59 @@ struct FileTranscriptionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VocaPageHeader(
+        VStack(alignment: .leading, spacing: 14) {
+            TranscriptionWorkflowHeader(
                 title: "Transcribe a File",
                 subtitle: "Audio and video stay on this Mac and use your selected speech model.",
-                horizontalPadding: 0
+                systemImage: "waveform.badge.plus"
             )
             dropZone
             if let result {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("Transcript").font(.headline)
-                        Spacer()
-                        Button("Copy") {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(result.text, forType: .string)
-                        }
-                    }
-                    ScrollView {
-                        Text(result.text)
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    Text("\(String(format: "%.1f", result.audioLengthSeconds))s audio · \(String(format: "%.1f", result.duration))s processing · \(result.detectedLanguage)")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                .vocaCard()
+                WorkflowTranscriptCard(
+                    text: result.text,
+                    detail: "\(String(format: "%.1f", result.audioLengthSeconds))s audio · \(String(format: "%.1f", result.duration))s processing · \(result.detectedLanguage)",
+                    copy: { copy(result.text) }
+                )
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
-            Spacer(minLength: 0)
         }
-        .padding(24)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(VocaDesign.canvas)
         .tint(VocaDesign.accent)
     }
 
     private var dropZone: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "waveform.badge.plus").font(.system(size: 32)).foregroundStyle(VocaDesign.accent)
-            Text(fileURL?.lastPathComponent ?? "Drop audio or video here")
-                .font(.headline).lineLimit(1)
-            Text("Up to 500 MB and 30 minutes")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Button("Choose File…", action: chooseFile)
-                Button(isRunning ? "Transcribing…" : "Transcribe") { run() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(fileURL == nil || isRunning)
-                if isRunning { ProgressView().controlSize(.small) }
+        HStack(spacing: 12) {
+            Image(systemName: fileURL == nil ? "arrow.down.doc" : "waveform")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(fileURL == nil ? .secondary : VocaDesign.accent)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fileURL?.lastPathComponent ?? "Drop audio or video here")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text("Up to 500 MB · 30 minutes")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
+            Spacer(minLength: 8)
+            Button("Choose…", action: chooseFile)
+                .controlSize(.small)
+            Button(isRunning ? "Transcribing…" : "Transcribe") { run() }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(fileURL == nil || isRunning)
+            if isRunning { ProgressView().controlSize(.small) }
         }
         .frame(maxWidth: .infinity)
-        .padding(24)
-        .background((isTargeted ? VocaDesign.accent.opacity(0.14) : Color.secondary.opacity(0.08)), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(isTargeted ? VocaDesign.accent : VocaDesign.line))
+        .padding(14)
+        .background((isTargeted ? VocaDesign.accent.opacity(0.14) : Color.primary.opacity(0.04)), in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isTargeted ? VocaDesign.accent : VocaDesign.line))
         .onDrop(of: [UTType.fileURL.identifier, UTType.audio.identifier, UTType.movie.identifier], isTargeted: $isTargeted) { providers in
             guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) else { return false }
             provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
@@ -153,5 +150,10 @@ struct FileTranscriptionView: View {
             catch { self.error = error.localizedDescription }
             isRunning = false
         }
+    }
+
+    private func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }

@@ -93,27 +93,41 @@ private struct WebsiteRuleEditor: View {
             Text(rule.hostPattern.isEmpty ? "Add Website Rule" : "Edit Website Rule")
                 .font(.headline).padding()
             Form {
-                TextField("Name", text: $draft.displayName)
-                TextField("Domain", text: $draft.hostPattern, prompt: Text("example.com or *.example.com"))
-                Picker("Format", selection: $draft.style) {
-                    ForEach(WritingStyle.allCases) { Text($0.displayName).tag($0) }
+                Section {
+                    TextField("Name", text: $draft.displayName)
+                    TextField("Domain", text: $draft.hostPattern, prompt: Text("example.com or *.example.com"))
+                    Text("A domain also matches its subdomains: example.com covers mail.example.com.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Picker("Wording", selection: $draft.intent) {
-                    ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                Section {
+                    Picker("Format", selection: $draft.style) {
+                        ForEach(WritingStyle.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    Picker("Wording", selection: $draft.intent) {
+                        ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .disabled(!draft.style.supportsWording)
+                    Picker("Processing", selection: $draft.cleanup) {
+                        ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    Picker("Cleanup level", selection: $draft.cleanupLevel) {
+                        Text("Use global setting").tag(Optional<CleanupLevel>.none)
+                        ForEach(CleanupLevel.allCases) { Text($0.displayName).tag(Optional($0)) }
+                    }
+                    .disabled(draft.cleanup != .inherit)
                 }
-                .disabled(!draft.style.supportsWording)
-                Picker("Processing", selection: $draft.cleanup) {
-                    ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
+                Section("Custom Cleanup Prompt") {
+                    TextEditor(text: Binding(
+                        get: { draft.cleanupPrompt ?? "" },
+                        set: { draft.cleanupPrompt = $0.isEmpty ? nil : $0 }
+                    ))
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(minHeight: 80)
+                    Text("Leave blank to use the global prompt. Applies only on this website.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                Picker("Cleanup level", selection: $draft.cleanupLevel) {
-                    Text("Use global setting").tag(Optional<CleanupLevel>.none)
-                    ForEach(CleanupLevel.allCases) { Text($0.displayName).tag(Optional($0)) }
-                }
-                TextEditor(text: Binding(
-                    get: { draft.cleanupPrompt ?? "" },
-                    set: { draft.cleanupPrompt = $0.isEmpty ? nil : $0 }
-                ))
-                .frame(minHeight: 80)
             }
             .formStyle(.grouped)
             Divider()
@@ -126,7 +140,7 @@ private struct WebsiteRuleEditor: View {
             }
             .padding()
         }
-        .frame(width: 480, height: 500)
+        .frame(width: 480, height: 560)
     }
 
     private var normalizedHost: String {

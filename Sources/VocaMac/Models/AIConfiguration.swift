@@ -85,6 +85,69 @@ enum CleanupProvider: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+/// What runs Command Mode's selected-text edits. Chosen separately from
+/// dictation cleanup: edits need a larger model than the one that tidies every
+/// dictation, and Command Mode should work with cleanup turned off.
+enum CommandModeEngine: Hashable, Identifiable {
+    /// Apple's on-device model (macOS 26 with Apple Intelligence on).
+    case appleIntelligence
+    /// The Ollama / LM Studio / OpenAI-compatible endpoint set for cleanup.
+    case endpoint
+    /// A downloaded GGUF model run with llama.cpp.
+    case local(CleanupModelKind)
+
+    static let defaultLocalModel: CleanupModelKind = .qwen25_1_5b_q4_k_m
+
+    var id: String { storageValue }
+
+    var storageValue: String {
+        switch self {
+        case .appleIntelligence: return "appleIntelligence"
+        case .endpoint: return "endpoint"
+        case .local(let kind): return kind.rawValue
+        }
+    }
+
+    init?(storageValue: String) {
+        switch storageValue {
+        case "appleIntelligence": self = .appleIntelligence
+        case "endpoint": self = .endpoint
+        default:
+            guard let kind = CleanupModelKind(rawValue: storageValue),
+                  CleanupModelKind.commandModeChoices.contains(kind) else { return nil }
+            self = .local(kind)
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .appleIntelligence: return "Apple Intelligence"
+        case .endpoint: return "Cleanup endpoint"
+        case .local(let kind): return kind.descriptor.displayName
+        }
+    }
+
+    /// An explicit choice wins, except an endpoint that has since been
+    /// switched off. Apple Intelligence stays chosen while it is briefly
+    /// unavailable (its model can be mid-update), so the error names it
+    /// rather than silently switching models. With nothing stored, prefer what
+    /// needs no download: a configured endpoint, then Apple Intelligence, then
+    /// the smallest capable local model.
+    static func resolve(
+        stored: String,
+        endpointIsConfigured: Bool,
+        appleIntelligenceAvailable: Bool
+    ) -> CommandModeEngine {
+        if let explicit = CommandModeEngine(storageValue: stored),
+           explicit != .endpoint || endpointIsConfigured {
+            return explicit
+        }
+        if endpointIsConfigured { return .endpoint }
+        if appleIntelligenceAvailable { return .appleIntelligence }
+        return .local(defaultLocalModel)
+    }
+}
+
 /// Non-secret endpoint settings. API keys live in Keychain and are never exported.
 struct CleanupEndpointConfiguration: Codable, Equatable {
     var provider: CleanupProvider = .local
@@ -111,8 +174,30 @@ struct CleanupEndpointConfiguration: Codable, Equatable {
               url.host != nil else {
             return "Enter an HTTP or HTTPS endpoint."
         }
+        // Plain HTTP would put the transcript and API key on the wire in the
+        // clear, and App Transport Security blocks it for public hosts anyway.
+        guard scheme == "https" || Self.isLocalNetworkHost(url.host) else {
+            return "Use HTTPS for servers outside this Mac or your local network."
+        }
         guard !resolvedModel.isEmpty else { return "Enter a model name." }
         return nil
+    }
+
+    /// This Mac, a `.local` name, a bare host name, or a private IPv4 address —
+    /// the hosts `NSAllowsLocalNetworking` lets through without TLS.
+    static func isLocalNetworkHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
+              !host.isEmpty else { return false }
+        if host == "localhost" || host == "::1" || host.hasSuffix(".local") { return true }
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        if octets.count == 4 {
+            switch (octets[0], octets[1]) {
+            case (127, _), (10, _), (192, 168), (169, 254): return true
+            case (172, 16...31): return true
+            default: return false
+            }
+        }
+        return !host.contains(".") && !host.contains(":")
     }
 
     var chatCompletionsURL: URL? {

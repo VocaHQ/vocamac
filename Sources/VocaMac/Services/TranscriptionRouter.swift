@@ -148,6 +148,11 @@ extension TranscriptionRouter: SpeechTranscribing {
         onPartial: (@Sendable (String) -> Void)? = nil
     ) -> RecordingTranscription? {
         guard isModelLoaded, activeEngine != .sherpaOnnx else { return nil }
+        // Whisper and Parakeet are batch decoders: a live session only earns
+        // its extra decodes when something shows the partial words. Without a
+        // consumer the final decode is the same batch decode, so skip the
+        // session and its second copy of the recording.
+        guard activeEngine == .appleSpeech || onPartial != nil else { return nil }
         let expectedEngine = activeEngine
         return RecordingTranscription(language: language) { [self] chunks in
             try await operationSerializer.run { [self] in

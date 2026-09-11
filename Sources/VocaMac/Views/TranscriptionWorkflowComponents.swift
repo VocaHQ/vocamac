@@ -38,6 +38,7 @@ struct WorkflowTranscriptCard: View {
     let text: String
     let detail: String
     let copy: () -> Void
+    var save: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -45,6 +46,12 @@ struct WorkflowTranscriptCard: View {
                 Text("Transcript")
                     .font(.headline)
                 Spacer()
+                if let save {
+                    Button(action: save) {
+                        Label("Save…", systemImage: "square.and.arrow.down")
+                    }
+                    .controlSize(.small)
+                }
                 Button(action: copy) {
                     Label("Copy", systemImage: "doc.on.doc")
                 }

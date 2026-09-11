@@ -145,6 +145,38 @@ fi
 # Update binary
 cp -f "$BINARY" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
+# App Intents metadata. xcodebuild doesn't run Xcode's metadata extraction for
+# a Swift package executable, and without Contents/Resources/Metadata.appintents
+# the Shortcuts app and Spotlight never see VocaMac's actions. Run the same
+# extractor on the compiler's const-value output.
+OBJECTS_DIR="${DERIVED_DATA}/Build/Intermediates.noindex/${APP_NAME}.build/${XCODE_CONFIG}/${APP_NAME}.build/Objects-normal/arm64"
+mkdir -p "${APP_DIR}/Contents/Resources"
+rm -rf "${APP_DIR}/Contents/Resources/Metadata.appintents"
+if [ -f "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" ]; then
+    CONST_VALUES_LIST="$(mktemp -t vocamac-constvalues)"
+    find "$OBJECTS_DIR" -name '*.swiftconstvalues' > "$CONST_VALUES_LIST"
+    if xcrun appintentsmetadataprocessor \
+        --output "${APP_DIR}/Contents/Resources" \
+        --toolchain-dir "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain" \
+        --module-name "${APP_NAME}" \
+        --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+        --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+        --platform-family macOS \
+        --deployment-target 14.0 \
+        --target-triple arm64-apple-macos14.0 \
+        --source-file-list "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" \
+        --swift-const-vals-list "$CONST_VALUES_LIST" \
+        --force --quiet-warnings > /dev/null 2>&1 \
+        && [ -d "${APP_DIR}/Contents/Resources/Metadata.appintents" ]; then
+        echo "🔗 App Intents metadata generated"
+    else
+        echo "⚠️  App Intents metadata could not be generated; Shortcuts actions will be missing." >&2
+    fi
+    rm -f "$CONST_VALUES_LIST"
+else
+    echo "⚠️  ${OBJECTS_DIR}/${APP_NAME}.SwiftFileList not found; skipping App Intents metadata." >&2
+fi
+
 # Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib,
 # so the framework has to land there or the app dies at launch with a dyld
 # error. Missing it is a build failure, not something to ship quietly.
@@ -276,6 +308,12 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VocaMac needs microphone access to capture your voice for transcription.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- Ollama and LM Studio serve plain HTTP on this Mac or the LAN. -->
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
     <key>NSAudioCaptureUsageDescription</key>
     <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
     <key>NSPrincipalClass</key>

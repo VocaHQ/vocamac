@@ -103,7 +103,8 @@ actor AudioChunkCursor {
 
 /// Turns a batch engine into a bounded live preview without making partial
 /// text authoritative. One task drains microphone chunks immediately while a
-/// second periodically decodes a snapshot; EOF always gets one final decode.
+/// second periodically decodes the most recent audio; EOF always gets one
+/// final decode of the complete recording.
 enum IncrementalAudioTranscriber {
     private actor Buffer {
         private var samples: [Float] = []
@@ -111,12 +112,24 @@ enum IncrementalAudioTranscriber {
 
         func append(_ chunk: [Float]) { samples.append(contentsOf: chunk) }
         func finish() { ended = true }
-        func snapshot() -> (samples: [Float], ended: Bool) { (samples, ended) }
+        /// Cheap status poll. Returning the samples themselves every tick
+        /// would hand out a reference that turns the next `append` into a copy
+        /// of the whole recording — hundreds of MB per second in a long session.
+        func status() -> (count: Int, ended: Bool) { (samples.count, ended) }
+        func tail(_ count: Int) -> [Float] { Array(samples.suffix(count)) }
+        func all() -> [Float] { samples }
     }
+
+    /// Partial decodes see at most this much trailing audio (24 s at 16 kHz),
+    /// inside Whisper's 30 s window. Re-decoding the whole recording every two
+    /// seconds grows quadratically, and a partial still running when the user
+    /// stops delays the final text by however long it has left.
+    static let defaultPartialWindowSamples = 16_000 * 24
 
     static func run(
         chunks: AsyncThrowingStream<[Float], Error>,
         updateEverySamples: Int = 32_000,
+        partialWindowSamples: Int = defaultPartialWindowSamples,
         transcribe: @escaping @Sendable ([Float]) async throws -> VocaTranscription,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> VocaTranscription {
@@ -135,31 +148,32 @@ enum IncrementalAudioTranscriber {
                 var lastPartial = ""
                 while true {
                     try Task.checkCancellation()
-                    let snapshot = await buffer.snapshot()
-                    let shouldDecode = !snapshot.samples.isEmpty
-                        && (snapshot.ended || (
-                            onPartial != nil
-                                && snapshot.samples.count - lastDecodedCount >= updateEverySamples
-                        ))
-                    if shouldDecode {
-                        lastDecodedCount = snapshot.samples.count
+                    let status = await buffer.status()
+                    if status.ended {
+                        guard status.count > 0 else { throw RecordingTranscription.StreamError.incomplete }
+                        return try await transcribe(await buffer.all())
+                    }
+                    if let onPartial, status.count - lastDecodedCount >= updateEverySamples {
+                        lastDecodedCount = status.count
+                        let window = await buffer.tail(max(1, partialWindowSamples))
                         do {
-                            let result = try await transcribe(snapshot.samples)
+                            let result = try await transcribe(window)
                             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                            if !snapshot.ended, !text.isEmpty, text != lastPartial {
+                            if !text.isEmpty, text != lastPartial {
                                 lastPartial = text
-                                onPartial?(text)
+                                // Mark text that starts mid-recording, so a cut
+                                // first word doesn't read as a mistake.
+                                onPartial(status.count > window.count ? "… " + text : text)
                             }
-                            if snapshot.ended { return result }
+                        } catch is CancellationError {
+                            throw CancellationError()
                         } catch {
-                            if snapshot.ended { throw error }
                             VocaLogger.debug(
                                 .general,
                                 "Live preview decode was not ready; the complete recording remains authoritative"
                             )
                         }
-                    } else if snapshot.ended {
-                        throw RecordingTranscription.StreamError.incomplete
+                        continue
                     }
                     try await Task.sleep(nanoseconds: 250_000_000)
                 }

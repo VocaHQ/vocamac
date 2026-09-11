@@ -71,7 +71,8 @@ struct FileTranscriptionView: View {
                 WorkflowTranscriptCard(
                     text: result.text,
                     detail: "\(String(format: "%.1f", result.audioLengthSeconds))s audio · \(String(format: "%.1f", result.duration))s processing · \(result.detectedLanguage)",
-                    copy: { copy(result.text) }
+                    copy: { copy(result.text) },
+                    save: { save(result.text) }
                 )
             }
             if let error {
@@ -103,7 +104,7 @@ struct FileTranscriptionView: View {
             Spacer(minLength: 8)
             Button("Choose…", action: chooseFile)
                 .controlSize(.small)
-            Button(isRunning ? "Transcribing…" : "Transcribe") { run() }
+            Button(isRunning ? "Transcribing…" : (result == nil ? "Transcribe" : "Transcribe Again")) { run() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
                 .disabled(fileURL == nil || isRunning)
@@ -134,10 +135,23 @@ struct FileTranscriptionView: View {
         select(url)
     }
 
+    /// Choosing or dropping a file is the request to transcribe it.
     private func select(_ url: URL) {
         fileURL = url
         result = nil
         error = nil
+        if !isRunning { run() }
+    }
+
+    private func save(_ text: String) {
+        let panel = NSSavePanel()
+        panel.title = "Save Transcript"
+        panel.allowedContentTypes = [.plainText]
+        let base = fileURL?.deletingPathExtension().lastPathComponent ?? "Transcript"
+        panel.nameFieldStringValue = base + ".txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try text.write(to: url, atomically: true, encoding: .utf8) }
+        catch { self.error = "Could not save the transcript: \(error.localizedDescription)" }
     }
 
     private func run() {

@@ -142,13 +142,66 @@ enum TranscriptCleanup {
     /// Command Mode is explicitly allowed to change length and language. Keep
     /// the chatbot/refusal and runaway-output gates, but not semantic overlap.
     static func acceptedTransformOutput(_ raw: String, original: String) -> String? {
-        let cleaned = sanitize(raw)
+        let cleaned = stripTransformWrapping(sanitize(raw), original: original)
         guard !cleaned.isEmpty, cleaned != "..." else { return nil }
         let lowered = cleaned.lowercased()
         let refusals = ["i cannot", "i can't", "i am an ai", "i'm an ai", "as an ai"]
         guard !refusals.contains(where: { lowered.hasPrefix($0) }) else { return nil }
         guard cleaned.count <= max(original.count * 8, original.count + 2_000) else { return nil }
         return cleaned
+    }
+
+    /// Small instruction models wrap an edit the way a chat answer looks:
+    /// "Here's the shorter version:", a Markdown fence, or quotes around the
+    /// whole thing. None of that belongs in the user's document. Wrapping the
+    /// selection itself already had is kept.
+    static func stripTransformWrapping(_ text: String, original: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let originalTrimmed = original.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // A first line that only introduces the answer.
+        if let newline = value.firstIndex(of: "\n") {
+            let first = value[..<newline].trimmingCharacters(in: .whitespaces).lowercased()
+            let introductions = ["here's", "here is", "sure", "certainly", "okay", "ok,", "of course"]
+            if first.hasSuffix(":"), introductions.contains(where: { first.hasPrefix($0) }),
+               !originalTrimmed.lowercased().hasPrefix(first) {
+                value = String(value[value.index(after: newline)...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        // A Markdown fence around the entire answer.
+        if value.hasPrefix("```"), value.hasSuffix("```"), value.count > 6, !originalTrimmed.hasPrefix("```") {
+            var body = value.dropFirst(3).dropLast(3)
+            if let newline = body.firstIndex(of: "\n"),
+               !body[..<newline].contains(" ") {
+                body = body[body.index(after: newline)...] // drop a language tag such as ```swift
+            }
+            value = String(body).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        // Quotes around the entire answer.
+        for (open, close) in [("\"", "\""), ("“", "”"), ("'", "'")] where value.count > 2 {
+            if value.hasPrefix(open), value.hasSuffix(close),
+               !(originalTrimmed.hasPrefix(open) && originalTrimmed.hasSuffix(close)),
+               !value.dropFirst().dropLast().contains(close) {
+                value = String(value.dropFirst().dropLast())
+                break
+            }
+        }
+        return value
+    }
+
+    /// Put back the whitespace that surrounded the selection. The model sees a
+    /// trimmed selection, and replacing "line\n" with "Line." would join it
+    /// to the next line.
+    static func preservingOuterWhitespace(of original: String, in replacement: String) -> String {
+        let core = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !core.isEmpty else { return replacement }
+        let leading = original.prefix { $0.isWhitespace }
+        let trailing = String(original.reversed().prefix { $0.isWhitespace }.reversed())
+        guard leading.count < original.count else { return replacement }
+        return String(leading) + core + trailing
     }
 
     static func isUsable(_ cleaned: String, original: String) -> Bool {

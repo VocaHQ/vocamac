@@ -130,12 +130,14 @@ struct CleanupSettingsPage: View {
 
             if appState.cleanupEndpoint.isLocal {
                 VocaSettingsGroup("Cleanup Model") {
-                    ForEach(CleanupModelKind.allCases) { kind in
+                    ForEach(CleanupModelKind.cleanupChoices) { kind in
                         CleanupModelRow(kind: kind)
-                        if kind != CleanupModelKind.allCases.last { Divider() }
+                        if kind != CleanupModelKind.cleanupChoices.last { Divider() }
                     }
                 }
             }
+
+            CommandModeSettingsGroup()
 
             VocaSettingsGroup("Try It") {
                 Text("Try a sample transcript. The result stays in this window.")
@@ -333,7 +335,7 @@ struct CleanupSettingsPage: View {
 
     /// Whether any cleanup model is on disk, not just the selected one.
     private var hasDownloadedModel: Bool {
-        CleanupModelKind.allCases.contains { appState.transcriptCleanup.isDownloaded($0) }
+        CleanupModelKind.cleanupChoices.contains { appState.transcriptCleanup.isDownloaded($0) }
     }
 
     /// Characters of transcript that still fit alongside the drafted prompt.
@@ -403,6 +405,12 @@ struct CleanupModelRow: View {
     private var descriptor: CleanupModelDescriptor { kind.descriptor }
     private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
     private var isSelected: Bool { appState.selectedCleanupModelKind == kind }
+    /// Selected for cleanup and actually resident — Command Mode may have
+    /// borrowed the model slot for a larger model.
+    private var isActive: Bool {
+        isSelected && appState.transcriptCleanup.modelState == .ready
+            && (appState.transcriptCleanup.loadedKind ?? kind) == kind
+    }
 
     private var isBusy: Bool {
         switch appState.transcriptCleanup.modelState {
@@ -415,8 +423,8 @@ struct CleanupModelRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: isSelected && appState.transcriptCleanup.modelState == .ready ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isSelected && appState.transcriptCleanup.modelState == .ready ? VocaDesign.success : .secondary)
+            Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(isActive ? VocaDesign.success : .secondary)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -467,7 +475,7 @@ struct CleanupModelRow: View {
                 ProgressView()
                     .controlSize(.small)
             } else if isDownloaded {
-                if isSelected, appState.transcriptCleanup.modelState == .ready {
+                if isActive {
                     Label("Active", systemImage: "checkmark")
                         .font(.caption)
                         .foregroundStyle(VocaDesign.success)
@@ -518,5 +526,185 @@ struct CleanupModelRow: View {
         case .recommended: return VocaDesign.accent
         case .quality: return .primary
         }
+    }
+}
+
+// MARK: - Command Mode
+
+/// Command Mode's shortcut and the model that runs its edits, chosen
+/// separately from the dictation cleanup model above.
+struct CommandModeSettingsGroup: View {
+    @EnvironmentObject var appState: AppState
+
+    private var engine: CommandModeEngine { appState.commandModeEngine }
+
+    var body: some View {
+        VocaSettingsGroup("Command Mode") {
+            Text("Select text in any app, use the shortcut, and say what to change — “make this shorter”, “fix the grammar”, “translate to Spanish”. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ShortcutRecorderRow(
+                action: .commandMode,
+                detail: "Press once, speak, and press again — or hold it while speaking."
+            )
+
+            Divider()
+
+            Text("Model for edits")
+                .font(.subheadline.weight(.medium))
+
+            CommandEngineRow(
+                engine: .appleIntelligence,
+                title: "Apple Intelligence",
+                detail: "Built into macOS 26. No download, runs on this Mac.",
+                problem: appState.appleIntelligenceAvailable()
+                    ? nil : AppleIntelligenceTextService.availabilityProblem()
+            )
+
+            if !appState.cleanupEndpoint.isLocal {
+                Divider()
+                CommandEngineRow(
+                    engine: .endpoint,
+                    title: "\(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel)",
+                    detail: "The cleanup endpoint above. The selection and your instruction are sent to it.",
+                    problem: appState.cleanupEndpoint.validationProblem()
+                )
+            }
+
+            ForEach(CleanupModelKind.commandModeChoices) { kind in
+                Divider()
+                CommandLocalModelRow(kind: kind)
+            }
+
+            // Apple Intelligence and endpoint rows already explain their own
+            // problems; only a missing download needs saying here.
+            if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
+                Label(
+                    "Download \(kind.descriptor.displayName) above to use Command Mode, or choose another model.",
+                    systemImage: "arrow.down.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+        }
+    }
+}
+
+private struct CommandEngineRow: View {
+    @EnvironmentObject var appState: AppState
+    let engine: CommandModeEngine
+    let title: String
+    let detail: String
+    let problem: String?
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            CommandEngineSelectionMark(isSelected: appState.commandModeEngine == engine)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.callout)
+                Text(problem ?? detail)
+                    .font(.caption2)
+                    .foregroundStyle(problem == nil ? Color.secondary : Color.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if appState.commandModeEngine == engine {
+                Text("In use").font(.caption).foregroundStyle(VocaDesign.success)
+            } else {
+                Button("Use") { appState.commandModeEngine = engine }
+                    .controlSize(.small)
+                    .disabled(problem != nil)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct CommandLocalModelRow: View {
+    @EnvironmentObject var appState: AppState
+    @State private var showDeleteAlert = false
+    let kind: CleanupModelKind
+
+    private var descriptor: CleanupModelDescriptor { kind.descriptor }
+    private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
+    private var isSelected: Bool { appState.commandModeEngine == .local(kind) }
+    /// Deleting the cleanup model from here would surprise; that row owns it.
+    private var isCleanupModel: Bool { appState.selectedCleanupModelKind == kind }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            CommandEngineSelectionMark(isSelected: isSelected)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(descriptor.displayName).font(.callout)
+                Text("\(descriptor.sizeDescription) • ~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(descriptor.summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            trailing
+        }
+        .padding(.vertical, 4)
+        .alert("Delete \(descriptor.displayName)?", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { appState.deleteCleanupModel(kind) }
+        } message: {
+            Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
+        }
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState, active == kind {
+            HStack(spacing: 8) {
+                ProgressView(value: progress).frame(width: 70)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
+                Button("Cancel") { appState.cancelCleanupDownload() }
+                    .controlSize(.small)
+            }
+        } else if !isDownloaded {
+            Button("Download") {
+                Task { @MainActor in await appState.downloadCommandModeModel(kind) }
+            }
+            .controlSize(.small)
+            .disabled(isDownloadingAnotherModel)
+        } else {
+            HStack(spacing: 8) {
+                if isSelected {
+                    Text("In use").font(.caption).foregroundStyle(VocaDesign.success)
+                } else {
+                    Button("Use") { appState.commandModeEngine = .local(kind) }
+                        .controlSize(.small)
+                }
+                if !isCleanupModel {
+                    Button { showDeleteAlert = true } label: { Image(systemName: "trash") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                        .help("Delete downloaded model")
+                }
+            }
+        }
+    }
+
+    private var isDownloadingAnotherModel: Bool {
+        if case .downloading = appState.transcriptCleanup.modelState { return true }
+        return false
+    }
+}
+
+private struct CommandEngineSelectionMark: View {
+    let isSelected: Bool
+
+    var body: some View {
+        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+            .foregroundStyle(isSelected ? VocaDesign.accent : .secondary)
+            .frame(width: 20)
+            .accessibilityLabel(isSelected ? "Selected" : "Not selected")
     }
 }

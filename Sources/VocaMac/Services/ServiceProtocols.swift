@@ -140,6 +140,13 @@ protocol CursorOverlayManaging: AnyObject {
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
     func updateTranscript(_ text: String)
+    /// Label the overlay as a Command Mode session (an edit of selected text)
+    /// rather than a dictation. `show` resets it to dictation.
+    func setCommandMode(_ active: Bool)
+}
+
+extension CursorOverlayManaging {
+    func setCommandMode(_ active: Bool) {}
 }
 
 // MARK: - ModelManaging
@@ -294,21 +301,35 @@ extension SnippetExpanding {
     }
 }
 
+// MARK: - TextTransforming
+
+/// Runs Command Mode's edits of selected text. Unlike transcript cleanup, a
+/// transform may intentionally translate, expand, or substantially shorten.
+@MainActor
+protocol TextTransforming: AnyObject {
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Ask an in-flight transform to stop early. The caller discards its result.
+    func cancelTransform()
+}
+
+extension TextTransforming {
+    func cancelTransform() {}
+}
+
 // MARK: - TranscriptCleaning
 
 @MainActor
-protocol TranscriptCleaning: AnyObject {
+protocol TranscriptCleaning: TextTransforming {
     var modelState: CleanupModelState { get }
     var isLoaded: Bool { get }
+    /// The model currently resident, when one is.
+    var loadedKind: CleanupModelKind? { get }
     nonisolated func inputBudget(forPrompt prompt: String) -> Int
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
     func clean(_ text: String, prompt: String) async -> String
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt
     func preview(_ text: String, prompt: String) async -> CleanupAttempt
-    /// Transform selected text for Command Mode. Unlike transcript cleanup,
-    /// this may intentionally translate, expand, or substantially shorten it.
-    func transform(_ text: String, prompt: String) async -> CleanupAttempt
     func availabilityProblem(for kind: CleanupModelKind) -> String?
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func pruneUnknownModels()
@@ -320,6 +341,8 @@ protocol TranscriptCleaning: AnyObject {
 }
 
 extension TranscriptCleaning {
+    var loadedKind: CleanupModelKind? { nil }
+
     func availabilityProblem(for kind: CleanupModelKind) -> String? {
         isDownloaded(kind) ? nil : "download a local cleanup model in Settings"
     }

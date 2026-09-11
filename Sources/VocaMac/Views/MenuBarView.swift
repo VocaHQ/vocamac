@@ -157,8 +157,13 @@ struct MenuBarView: View {
                 suggestionSection(suggestion)
             }
 
-            // Last Dictation
-            if let transcription = appState.lastTranscription {
+            // Last Command Mode edit, which replaces the dictation card until
+            // the next dictation so its original stays one click away.
+            if let edit = appState.lastCommandEdit {
+                Divider()
+                commandEditSection(edit)
+                    .vocaCard()
+            } else if let transcription = appState.lastTranscription {
                 Divider()
                 transcriptionSection(transcription, output: appState.lastOutput)
                     .vocaCard()
@@ -802,47 +807,24 @@ struct MenuBarView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 2) {
-            Button {
-                scratchpadManager.open(appState: appState)
-            } label: {
-                HStack {
-                    Image(systemName: "note.text").frame(width: 16)
-                    Text("Scratchpad…")
-                    Spacer()
+            // One row for the three utility windows, so the tools don't push
+            // History, Settings, and Quit down the menu.
+            HStack(spacing: 6) {
+                toolButton("Scratchpad", systemImage: "note.text",
+                           help: "A floating note to dictate into") {
+                    scratchpadManager.open(appState: appState)
                 }
-                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(MenuRowButtonStyle())
-
-            Button {
-                meetingCaptureManager.open(appState: appState)
-            } label: {
-                HStack {
-                    Image(systemName: "macbook.and.iphone").frame(width: 16)
-                    Text("Transcribe System Audio…")
-                    Spacer()
+                toolButton("Transcribe File", systemImage: "waveform.badge.plus",
+                           help: "Transcribe an audio or video file") {
+                    fileTranscriptionManager.open(appState: appState)
                 }
-                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(MenuRowButtonStyle())
-
-            Button {
-                fileTranscriptionManager.open(appState: appState)
-            } label: {
-                HStack {
-                    Image(systemName: "waveform.badge.plus").frame(width: 16)
-                    Text("Transcribe a File…")
-                    Spacer()
+                toolButton("System Audio", systemImage: "speaker.wave.2",
+                           help: "Transcribe what this Mac is playing") {
+                    meetingCaptureManager.open(appState: appState)
                 }
-                .font(.body).padding(.vertical, 6).padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
             }
-            .buttonStyle(MenuRowButtonStyle())
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
 
             Button {
                 openHistory()
@@ -919,7 +901,70 @@ struct MenuBarView: View {
         .padding(.horizontal, -8)
     }
 
+    private func commandEditSection(_ edit: CommandModeEdit) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Label("Last Edit", systemImage: "wand.and.stars")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(edit.engineName)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Text("“\(edit.instruction)”")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Text(edit.replacement.trimmingCharacters(in: .whitespacesAndNewlines))
+                .font(.body)
+                .lineLimit(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+                .background(Color.secondary.opacity(0.1))
+                .cornerRadius(8)
+            HStack {
+                Button("Copy Original") { copyToPasteboard(edit.original) }
+                    .help("Copy the text as it was before the edit")
+                Button("Copy Result") { copyToPasteboard(edit.replacement) }
+                Spacer()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+    }
+
     // MARK: - Helpers
+
+    private func toolButton(
+        _ title: String,
+        systemImage: String,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(VocaDesign.accent)
+                Text(title)
+                    .font(.caption)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(title)
+    }
 
     private var statusText: String {
         if appState.isAutoPaused {

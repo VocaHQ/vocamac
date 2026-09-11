@@ -139,6 +139,7 @@ final class CursorOverlayManager {
         viewModel.audioLevel = 0
         viewModel.elapsedSeconds = 0
         viewModel.transcript = ""
+        viewModel.isCommandMode = false
         viewModel.isActive = true
 
         if let overlayPanel {
@@ -235,6 +236,10 @@ final class CursorOverlayManager {
     func updateTranscript(_ text: String) {
         guard overlayPanel != nil, viewModel.style == .live else { return }
         viewModel.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func setCommandMode(_ active: Bool) {
+        viewModel.isCommandMode = active
     }
 
     // MARK: - Layout
@@ -358,6 +363,8 @@ final class MicIndicatorViewModel: ObservableObject {
     @Published var waveformTick: Int = 0
     @Published var elapsedSeconds: Int = 0
     @Published var transcript: String = ""
+    /// The session edits selected text (Command Mode) instead of dictating.
+    @Published var isCommandMode = false
 }
 
 // MARK: - Waveform Metrics
@@ -449,17 +456,28 @@ struct HandyOverlayView: View {
     private var statusTitle: String {
         switch viewModel.phase {
         case .connecting: return "Connecting"
-        case .recording: return "Listening"
-        case .idle, .processing: return "Transcribing"
+        case .recording: return viewModel.isCommandMode ? "Command Mode" : "Listening"
+        case .idle, .processing: return viewModel.isCommandMode ? "Editing Selection" : "Transcribing"
         }
     }
 
     private var statusDetail: String {
         switch viewModel.phase {
         case .connecting: return "Waiting for microphone…"
-        case .recording: return "Speak now"
-        case .idle, .processing: return "Transcribing…"
+        case .recording: return viewModel.isCommandMode ? "Say how to change it" : "Speak now"
+        case .idle, .processing: return viewModel.isCommandMode ? "Rewriting…" : "Transcribing…"
         }
+    }
+
+    private var transcriptPlaceholder: String {
+        viewModel.isCommandMode
+            ? "e.g. “make this shorter” or “translate to Spanish”"
+            : "Words will appear here as you speak"
+    }
+
+    private var recordingSymbol: String {
+        if viewModel.phase == .connecting { return "mic.slash.fill" }
+        return viewModel.isCommandMode ? "wand.and.stars" : "mic.fill"
     }
 
     private var slideInOffset: CGFloat {
@@ -573,7 +591,7 @@ struct HandyOverlayView: View {
         VStack(spacing: 0) {
             liveHeader
             liveControlRow
-            Text(viewModel.transcript.isEmpty ? "Words will appear here as you speak" : viewModel.transcript)
+            Text(viewModel.transcript.isEmpty ? transcriptPlaceholder : viewModel.transcript)
                 .font(.system(size: 11))
                 .foregroundStyle(viewModel.transcript.isEmpty ? secondaryText : primaryText)
                 .lineLimit(2)
@@ -662,7 +680,7 @@ struct HandyOverlayView: View {
                     .opacity(isPulsing ? 0.55 : 0.9)
             }
 
-            Image(systemName: viewModel.phase == .connecting ? "mic.slash.fill" : "mic.fill")
+            Image(systemName: recordingSymbol)
                 .font(.system(size: 11, weight: .bold))
                 .foregroundStyle(accentColor)
                 .shadow(color: waveformColor.opacity(0.45), radius: 3)

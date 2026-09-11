@@ -7,7 +7,9 @@ import AppIntents
 struct StartVocaDictationIntent: AppIntent {
     static let title: LocalizedStringResource = "Start VocaMac Dictation"
     static let description = IntentDescription("Start recording with the currently selected speech model.")
-    static let openAppWhenRun = true
+    // Run in the background: bringing VocaMac forward would make it the
+    // destination for the dictation instead of the app the user was in.
+    static let openAppWhenRun = false
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -20,7 +22,7 @@ struct StartVocaDictationIntent: AppIntent {
 struct StopVocaDictationIntent: AppIntent {
     static let title: LocalizedStringResource = "Stop VocaMac Dictation"
     static let description = IntentDescription("Stop recording, transcribe, and type the result.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -33,7 +35,7 @@ struct StopVocaDictationIntent: AppIntent {
 struct PasteLastVocaDictationIntent: AppIntent {
     static let title: LocalizedStringResource = "Paste Last VocaMac Dictation"
     static let description = IntentDescription("Type the most recent saved dictation at the cursor.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @MainActor
     func perform() async throws -> some IntentResult {
@@ -46,7 +48,7 @@ struct PasteLastVocaDictationIntent: AppIntent {
 struct TranscribeVocaFileIntent: AppIntent {
     static let title: LocalizedStringResource = "Transcribe a File with VocaMac"
     static let description = IntentDescription("Transcribe an audio or video file with the currently selected local speech model.")
-    static let openAppWhenRun = true
+    static let openAppWhenRun = false
 
     @Parameter(title: "Audio or Video File")
     var file: IntentFile

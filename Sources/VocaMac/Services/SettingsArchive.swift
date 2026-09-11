@@ -55,7 +55,7 @@ enum SettingsArchiveService {
         "vocamac.soundEffectsEnabled", "vocamac.translationEnabled", "vocamac.snippets",
         PreferenceKey.appendTrailingSpace, PreferenceKey.autoCapitalize, PreferenceKey.autoPauseEnabled,
         PreferenceKey.autoPauseApps, PreferenceKey.autoPausePollInterval,
-        PreferenceKey.commandModeShortcut, PreferenceKey.dictationTone, PreferenceKey.duckOtherAudioEnabled,
+        PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine, PreferenceKey.dictationTone, PreferenceKey.duckOtherAudioEnabled,
         PreferenceKey.escapeCancelsDictation, PreferenceKey.externalMicWhenLidClosed,
         PreferenceKey.handsFreeShortcut, PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio,
         PreferenceKey.historyRetention, PreferenceKey.learnCorrectionsMode, PreferenceKey.modelKeepAliveEnabled,
@@ -71,9 +71,13 @@ enum SettingsArchiveService {
         var values: [String: SettingsArchive.Value] = [:]
         for key in keys {
             guard let raw = defaults.object(forKey: key) else { continue }
-            if let value = raw as? Bool { values[key] = .bool(value) }
-            else if let value = raw as? Int { values[key] = .integer(value) }
-            else if let value = raw as? Double { values[key] = .double(value) }
+            // Check the CF type first: an NSNumber holding 0 or 1 bridges to
+            // Bool too, which would export a stored Int or Double as a Bool.
+            if let number = raw as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
+                values[key] = .bool(number.boolValue)
+            } else if let number = raw as? NSNumber, !CFNumberIsFloatType(number) {
+                values[key] = .integer(number.intValue)
+            } else if let value = raw as? Double { values[key] = .double(value) }
             else if let value = raw as? String { values[key] = .string(value) }
             else if let value = raw as? Data { values[key] = .data(value) }
             else if let value = raw as? [String] { values[key] = .strings(value) }

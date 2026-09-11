@@ -3,6 +3,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class MeetingCaptureWindowManager: ObservableObject {
@@ -40,6 +41,7 @@ struct MeetingCaptureView: View {
     @State private var error: String?
     @State private var notice: String?
     @State private var isTranscribing = false
+    @State private var startedAt: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -55,9 +57,18 @@ struct MeetingCaptureView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(statusTitle)
                         .font(.subheadline.weight(.medium))
-                    Text(statusDetail)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if capture.isCapturing, let startedAt {
+                        TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                            Text(elapsedDescription(since: startedAt, now: context.date))
+                                .font(.caption2)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Text(statusDetail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 Button(capture.isCapturing ? "Stop and Transcribe" : "Start Capture") {
@@ -75,7 +86,8 @@ struct MeetingCaptureView: View {
                 WorkflowTranscriptCard(
                     text: result.text,
                     detail: "\(String(format: "%.1f", result.audioLengthSeconds))s audio · \(String(format: "%.1f", result.duration))s processing · \(result.detectedLanguage)",
-                    copy: { copy(result.text) }
+                    copy: { copy(result.text) },
+                    save: { save(result.text) }
                 )
             }
             if let error {
@@ -103,12 +115,28 @@ struct MeetingCaptureView: View {
         error = nil
         notice = nil
         result = nil
-        do { try capture.start() } catch { self.error = error.localizedDescription }
+        do {
+            try capture.start()
+            startedAt = Date()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func elapsedDescription(since start: Date, now: Date) -> String {
+        let elapsed = max(0, Int(now.timeIntervalSince(start)))
+        let limit = SystemAudioAccumulator.maximumDurationSeconds
+        return String(format: "%d:%02d of %d:00 · playback continues normally", elapsed / 60, elapsed % 60, limit / 60)
     }
 
     private func stop() {
+        startedAt = nil
         let samples = capture.stop()
         guard !samples.isEmpty else { error = "No system audio was captured."; return }
+        guard !SystemAudioAccumulator.isSilent(samples) else {
+            error = "Only silence was captured. Play audio while capturing, and allow VocaMac under System Settings → Privacy & Security → Screen & System Audio Recording."
+            return
+        }
         if capture.didReachLimit {
             notice = "The 20-minute limit was reached; the retained audio is being transcribed."
         }
@@ -136,6 +164,16 @@ struct MeetingCaptureView: View {
         if capture.isCapturing { return .red }
         if isTranscribing { return VocaDesign.accent }
         return VocaDesign.success
+    }
+
+    private func save(_ text: String) {
+        let panel = NSSavePanel()
+        panel.title = "Save Transcript"
+        panel.allowedContentTypes = [.plainText]
+        panel.nameFieldStringValue = "System Audio Transcript.txt"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try text.write(to: url, atomically: true, encoding: .utf8) }
+        catch { self.error = "Could not save the transcript: \(error.localizedDescription)" }
     }
 
     private func copy(_ text: String) {

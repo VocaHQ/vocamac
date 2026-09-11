@@ -80,6 +80,21 @@ final class RemoteCleanupService: TranscriptCleaning {
     private let credentials: CleanupCredentialStoring
     private let session: URLSession
     private let changes = PassthroughSubject<Void, Never>()
+    private var transformTask: Task<CleanupAttempt, Never>?
+
+    /// Dictation cleanup holds up the paste, so a slow or unreachable server
+    /// must fall back to the raw transcript quickly. Command Mode is an edit
+    /// the user is explicitly waiting on and may be long.
+    static let cleanupTimeout: TimeInterval = 15
+    static let transformTimeout: TimeInterval = 60
+
+    /// Endpoints that just failed to answer. Without this, a server that is
+    /// switched off makes every dictation wait out the timeout before pasting.
+    /// Command Mode, which the user starts deliberately, always tries.
+    private static var unreachableUntil: [URL: Date] = [:]
+    static let unreachableBackoff: TimeInterval = 60
+
+    static func resetReachabilityForTesting() { unreachableUntil = [:] }
 
     init(
         configuration: CleanupEndpointConfiguration,
@@ -109,7 +124,14 @@ final class RemoteCleanupService: TranscriptCleaning {
     }
 
     func transform(_ text: String, prompt: String) async -> CleanupAttempt {
-        await request(text, prompt: prompt, allowsTransform: true)
+        let task = Task { await request(text, prompt: prompt, allowsTransform: true) }
+        transformTask = task
+        defer { if transformTask == task { transformTask = nil } }
+        return await task.value
+    }
+
+    func cancelTransform() {
+        transformTask?.cancel()
     }
 
     func availabilityProblem(for kind: CleanupModelKind) -> String? {
@@ -126,6 +148,9 @@ final class RemoteCleanupService: TranscriptCleaning {
         }
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return result(text, .skipped("there is nothing to clean")) }
+        if !allowsTransform, let until = Self.unreachableUntil[url], until > Date() {
+            return result(text, .skipped("the endpoint didn't answer a moment ago; retrying shortly"))
+        }
 
         struct Message: Encodable { let role: String; let content: String }
         struct Body: Encodable {
@@ -143,7 +168,10 @@ final class RemoteCleanupService: TranscriptCleaning {
             temperature: 0,
             stream: false
         )
-        var request = URLRequest(url: url, timeoutInterval: 45)
+        var request = URLRequest(
+            url: url,
+            timeoutInterval: allowsTransform ? Self.transformTimeout : Self.cleanupTimeout
+        )
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let key = credentials.readAPIKey(), !key.isEmpty {
@@ -163,6 +191,7 @@ final class RemoteCleanupService: TranscriptCleaning {
                 }
                 let choices: [Choice]
             }
+            Self.unreachableUntil[url] = nil
             let decoded = try JSONDecoder().decode(Response.self, from: data)
             let raw = decoded.choices.first?.message.content ?? ""
             let accepted = allowsTransform
@@ -172,13 +201,21 @@ final class RemoteCleanupService: TranscriptCleaning {
                 return result(text, .rejected("the rewrite failed the safety check"))
             }
             return result(accepted, accepted == trimmed ? .unchanged : .cleaned)
-        } catch is CancellationError {
+        } catch let error where Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
             return result(text, .skipped("request cancelled"))
         } catch {
+            if let code = (error as? URLError)?.code, Self.unreachableCodes.contains(code) {
+                Self.unreachableUntil[url] = Date().addingTimeInterval(Self.unreachableBackoff)
+            }
             VocaLogger.warning(.transcriptCleanup, "Remote cleanup failed: \(error.localizedDescription)")
             return result(text, .rejected(error.localizedDescription))
         }
     }
+
+    private static let unreachableCodes: Set<URLError.Code> = [
+        .timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed,
+        .networkConnectionLost, .notConnectedToInternet,
+    ]
 
     func isDownloaded(_ kind: CleanupModelKind) -> Bool { isLoaded }
     func pruneUnknownModels() {}

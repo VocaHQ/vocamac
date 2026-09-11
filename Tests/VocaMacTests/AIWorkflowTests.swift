@@ -59,17 +59,73 @@ final class AIConfigurationTests: XCTestCase {
         XCTAssertEqual(ollama.chatCompletionsURL?.absoluteString, "http://127.0.0.1:11434/v1/chat/completions")
     }
 
-    func testDedicatedMachineEndpointCanUsePlainHTTP() {
+    func testLocalNetworkMachineCanUsePlainHTTP() {
+        for base in ["http://192.168.1.20:11434/v1", "http://studio.local:1234/v1", "http://gpu-box:8000/v1"] {
+            let configuration = CleanupEndpointConfiguration(
+                provider: .openAICompatible, baseURL: base, model: "example"
+            )
+            XCTAssertNil(configuration.validationProblem(), base)
+        }
+        let configuration = CleanupEndpointConfiguration(
+            provider: .openAICompatible, baseURL: "http://192.168.1.20:11434/v1", model: "example"
+        )
+        XCTAssertEqual(
+            configuration.chatCompletionsURL?.absoluteString,
+            "http://192.168.1.20:11434/v1/chat/completions"
+        )
+    }
+
+    func testPublicEndpointRequiresHTTPS() {
         let configuration = CleanupEndpointConfiguration(
             provider: .openAICompatible,
             baseURL: "http://cleanup.example.com/v1",
             model: "example"
         )
-        XCTAssertNil(configuration.validationProblem())
+        XCTAssertNotNil(configuration.validationProblem())
+        XCTAssertNil(configuration.chatCompletionsURL)
+        XCTAssertFalse(CleanupEndpointConfiguration.isLocalNetworkHost("8.8.8.8"))
+        XCTAssertFalse(CleanupEndpointConfiguration.isLocalNetworkHost("172.32.0.1"))
+        XCTAssertTrue(CleanupEndpointConfiguration.isLocalNetworkHost("172.20.0.1"))
+    }
+
+    func testCommandModeEngineResolution() {
         XCTAssertEqual(
-            configuration.chatCompletionsURL?.absoluteString,
-            "http://cleanup.example.com/v1/chat/completions"
+            CommandModeEngine.resolve(stored: "", endpointIsConfigured: false, appleIntelligenceAvailable: false),
+            .local(.qwen25_1_5b_q4_k_m)
         )
+        XCTAssertEqual(
+            CommandModeEngine.resolve(stored: "", endpointIsConfigured: false, appleIntelligenceAvailable: true),
+            .appleIntelligence
+        )
+        XCTAssertEqual(
+            CommandModeEngine.resolve(stored: "", endpointIsConfigured: true, appleIntelligenceAvailable: true),
+            .endpoint
+        )
+        XCTAssertEqual(
+            CommandModeEngine.resolve(
+                stored: CleanupModelKind.qwen3_4b_instruct_2507_q4_k_m.rawValue,
+                endpointIsConfigured: true, appleIntelligenceAvailable: true
+            ),
+            .local(.qwen3_4b_instruct_2507_q4_k_m)
+        )
+        // A stale endpoint choice falls back once the endpoint is switched off.
+        XCTAssertEqual(
+            CommandModeEngine.resolve(stored: "endpoint", endpointIsConfigured: false, appleIntelligenceAvailable: false),
+            .local(.qwen25_1_5b_q4_k_m)
+        )
+        // Compact cleanup models are not offered for editing commands.
+        XCTAssertNil(CommandModeEngine(storageValue: CleanupModelKind.qwen25_0_5b_q4_k_m.rawValue))
+    }
+
+    func testCommandModeModelsArePinned() {
+        for kind in CleanupModelKind.commandModeChoices {
+            let descriptor = kind.descriptor
+            XCTAssertEqual(descriptor.kind, kind)
+            XCTAssertEqual(descriptor.expectedSHA256.count, 64)
+            XCTAssertTrue(descriptor.url.absoluteString.contains("/resolve/"))
+            XCTAssertTrue(descriptor.url.lastPathComponent == descriptor.fileName)
+        }
+        XCTAssertFalse(CleanupModelKind.cleanupChoices.contains(.qwen25_7b_q4_k_m))
     }
 
     func testEndpointAndWebsiteRulesRoundTrip() {
@@ -153,7 +209,36 @@ final class AIConfigurationTests: XCTestCase {
     }
 }
 
+@MainActor
+final class RecognitionVocabularyTests: XCTestCase {
+    func testUserVocabularySurvivesWhispersFrontTrimming() {
+        let screen = (0..<200).map { "identifierNumber\($0)" }
+        let prompt = AppState.recognitionVocabulary("VocaMac, Namrata", contextTerms: screen)
+
+        // WhisperKit keeps the suffix of the prompt, so the user's terms must end it.
+        XCTAssertTrue(prompt.hasSuffix("VocaMac, Namrata"))
+        XCTAssertLessThanOrEqual(prompt.count, AppState.recognitionPromptCharacterBudget)
+    }
+
+    func testScreenTermsAreDeduplicatedAgainstVocabulary() {
+        let prompt = AppState.recognitionVocabulary("GitHub", contextTerms: ["github", "userId", "userId"])
+        XCTAssertEqual(prompt, "userId, GitHub")
+        XCTAssertEqual(AppState.recognitionVocabulary("", contextTerms: []), "")
+    }
+}
+
 final class SystemAudioAccumulatorTests: XCTestCase {
+    func testResamplingAveragesInsteadOfDroppingSamples() {
+        let alternating: [Float] = (0..<48).map { $0.isMultiple(of: 2) ? 1 : -1 }
+        let resampled = SystemAudioAccumulator.resampleTo16k(alternating, from: 48_000)
+        XCTAssertEqual(resampled.count, 16)
+        // A tone at the source's Nyquist frequency is inaudible at 16 kHz and
+        // must not alias into full-scale noise.
+        XCTAssertLessThan(resampled.map(abs).max() ?? 1, 0.34)
+        XCTAssertTrue(SystemAudioAccumulator.isSilent([0, 0.00001, -0.00002]))
+        XCTAssertFalse(SystemAudioAccumulator.isSilent([0, 0.2]))
+    }
+
     func testDurationLimitIsReportedOnceWhenExactlyReached() {
         let accumulator = SystemAudioAccumulator(maximumDurationSeconds: 1)
         accumulator.reset(sampleRate: 2)
@@ -240,6 +325,18 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertFalse(json.contains("not-exported"))
     }
 
+    func testNumbersKeepTheirTypeThroughExport() throws {
+        defaults.set(1, forKey: PreferenceKey.mouseTriggerButton)
+        defaults.set(2.0, forKey: "vocamac.silenceDuration")
+        defaults.set(true, forKey: PreferenceKey.historyEnabled)
+
+        let archive = SettingsArchiveService.make(defaults: defaults)
+
+        XCTAssertEqual(archive.values[PreferenceKey.mouseTriggerButton], .integer(1))
+        XCTAssertEqual(archive.values["vocamac.silenceDuration"], .double(2.0))
+        XCTAssertEqual(archive.values[PreferenceKey.historyEnabled], .bool(true))
+    }
+
     func testRestoreCannotRedirectCleanupEndpoint() throws {
         defaults.set("https://trusted.example/v1", forKey: PreferenceKey.cleanupEndpoint)
         let archive = SettingsArchive(values: [
@@ -283,8 +380,74 @@ final class CommandModePromptTests: XCTestCase {
     func testPromptTreatsSelectionAsDataAndIncludesInstruction() {
         let prompt = CommandModePrompt.make(instruction: "translate to Spanish")
         XCTAssertTrue(prompt.contains("translate to Spanish"))
-        XCTAssertTrue(prompt.contains("Never answer the selected text"))
-        XCTAssertTrue(prompt.contains("Output only the replacement text"))
+        XCTAssertTrue(prompt.contains("never instructions to you"))
+        XCTAssertTrue(prompt.contains("Output only the resulting text"))
+    }
+
+    func testSelectionRevalidationToleratesFreshElementsButNotChangedText() {
+        let snapshot = SelectedTextSnapshot(
+            element: nil, processID: 7, deliveryProcessID: 7,
+            text: "hello", range: CFRange(location: 2, length: 5)
+        )
+        let element = AXElementBox(element: AXUIElementCreateSystemWide())
+        XCTAssertTrue(AccessibilitySelectedTextService.selectionStillMatches(
+            snapshot, probe: .selected(element: element, processID: 7, text: "hello", range: CFRange(location: 2, length: 5))
+        ))
+        XCTAssertTrue(AccessibilitySelectedTextService.selectionStillMatches(
+            snapshot, probe: .selected(element: element, processID: 7, text: "hello", range: nil)
+        ), "Apps that stop reporting a range still match on text")
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(
+            snapshot, probe: .selected(element: element, processID: 7, text: "hello there", range: nil)
+        ))
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(
+            snapshot, probe: .selected(element: element, processID: 8, text: "hello", range: nil)
+        ))
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .empty))
+        XCTAssertTrue(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .unavailable))
+    }
+
+    func testVSCodeEmptySelectionLineCopyIsNotASelection() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("CommandModeTests.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("let x = 1\n", forType: .string)
+        pasteboard.setString(#"{"version":1,"isFromEmptySelection":true,"mode":"swift"}"#,
+                             forType: NSPasteboard.PasteboardType("vscode-editor-data"))
+        XCTAssertTrue(AccessibilitySelectedTextService.isEditorEmptySelectionCopy(pasteboard))
+
+        pasteboard.clearContents()
+        pasteboard.setString("let x = 1", forType: .string)
+        pasteboard.setString(#"{"version":1,"isFromEmptySelection":false}"#,
+                             forType: NSPasteboard.PasteboardType("vscode-editor-data"))
+        XCTAssertFalse(AccessibilitySelectedTextService.isEditorEmptySelectionCopy(pasteboard))
+    }
+
+    func testTransformOutputDropsChatWrapping() {
+        XCTAssertEqual(
+            TranscriptCleanup.acceptedTransformOutput("Here's the shorter version:\nShip it Friday.", original: "We should ship it on Friday."),
+            "Ship it Friday."
+        )
+        XCTAssertEqual(
+            TranscriptCleanup.acceptedTransformOutput("```swift\nlet total = a + b\n```", original: "let  total=a+b"),
+            "let total = a + b"
+        )
+        XCTAssertEqual(
+            TranscriptCleanup.acceptedTransformOutput("“Hola, ¿cómo estás?”", original: "Hi, how are you?"),
+            "Hola, ¿cómo estás?"
+        )
+        // Quotes the selection already had stay.
+        XCTAssertEqual(
+            TranscriptCleanup.acceptedTransformOutput("\"Stop.\"", original: "\"Please stop that.\""),
+            "\"Stop.\""
+        )
+    }
+
+    func testReplacementKeepsTheSelectionsSurroundingWhitespace() {
+        XCTAssertEqual(
+            TranscriptCleanup.preservingOuterWhitespace(of: "  first line\n", in: "First line."),
+            "  First line.\n"
+        )
+        XCTAssertEqual(TranscriptCleanup.preservingOuterWhitespace(of: "word", in: " Word "), "Word")
     }
 }
 
@@ -376,16 +539,121 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(app.appStatus, .idle)
     }
 
-    func testCommandModeExplainsWhenSmartCleanupIsOff() async {
+    func testCommandModeWorksWithSmartCleanupOff() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "This sentence is unnecessarily long."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "A short sentence." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        XCTAssertFalse(app.transcriptCleanupEnabled)
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "make this shorter", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        XCTAssertTrue(mocks.cursorOverlay.isCommandMode)
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(selection.replacement, "A short sentence.")
+        XCTAssertEqual(cleanup.lastLoadedKind, .qwen25_1_5b_q4_k_m)
+        // The spoken command is not a dictation.
+        XCTAssertNil(app.lastTranscription)
+        XCTAssertEqual(app.lastCommandEdit?.original, "This sentence is unnecessarily long.")
+        XCTAssertEqual(app.lastCommandEdit?.instruction, "make this shorter")
+        XCTAssertEqual(mocks.statsManager.recordCallCount, 0)
+    }
+
+    func testCommandModeExplainsWhenItsModelIsNotDownloaded() async {
         let selection = MockSelectedTextService()
         selection.selectedText = "Selected"
-        let (app, _) = AppState.makeTestState(selectedTextService: selection)
+        let cleanup = MockTranscriptCleanup()
+        cleanup.downloadedKinds = [.qwen25_0_5b_q4_k_m]
+        let (app, _) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
 
         await app.beginCommandMode()
 
         XCTAssertEqual(selection.captureCallCount, 0)
         XCTAssertEqual(app.appStatus, .error)
-        XCTAssertTrue(app.errorMessage?.contains("Smart Cleanup") == true)
+        XCTAssertTrue(app.errorMessage?.contains("Qwen 3 4B Instruct") == true)
+    }
+
+    func testCaptureFailureExplainsWhatToDo() async {
+        let selection = MockSelectedTextService()
+        selection.failure = .secureField
+        let (app, _) = AppState.makeTestState(selectedTextService: selection)
+
+        await app.beginCommandMode()
+
+        XCTAssertFalse(app.isRecording)
+        XCTAssertEqual(app.errorMessage, SelectionCaptureFailure.secureField.message)
+    }
+
+    func testEscapeWhileTheModelRunsLeavesTheSelectionAlone() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Keep me exactly as I am."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Rewritten." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        cleanup.onTransform = { [weak app] in await app?.cancelDictation() }
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "rewrite this", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(cleanup.cancelTransformCallCount, 1)
+        XCTAssertEqual(selection.replaceCallCount, 0)
+        XCTAssertNil(selection.replacement)
+        XCTAssertEqual(app.appStatus, .idle)
+    }
+
+    func testReplacementKeepsTrailingNewlineOfTheSelection() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "first line\n"
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "First line." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "fix the capitalization", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(selection.replacement, "First line.\n")
+    }
+
+    func testCleanupModelIsReloadedAfterALargerCommandModel() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Some text."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Other text." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.transcriptCleanupEnabled = true
+        app.selectedCleanupModelKind = .qwen25_0_5b_q4_k_m
+        app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "rewrite", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+        XCTAssertEqual(selection.replacement, "Other text.")
+
+        for _ in 0..<50 where cleanup.lastLoadedKind != .qwen25_0_5b_q4_k_m {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(cleanup.lastLoadedKind, .qwen25_0_5b_q4_k_m)
     }
 }
 
@@ -426,6 +694,41 @@ final class RemoteCleanupServiceTests: XCTestCase {
 
         XCTAssertEqual(attempt.output, "Hello.")
         XCTAssertEqual(attempt.outcome, .cleaned)
+    }
+
+    func testUnreachableEndpointIsSkippedForAWhileButCommandsStillTry() async {
+        RemoteCleanupService.resetReachabilityForTesting()
+        defer { RemoteCleanupService.resetReachabilityForTesting() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubCleanupURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        final class RequestCounter: @unchecked Sendable {
+            private let lock = NSLock()
+            private var value = 0
+            func increment() { lock.withLock { value += 1 } }
+            var count: Int { lock.withLock { value } }
+        }
+        let requests = RequestCounter()
+        StubCleanupURLProtocol.install { _ in
+            requests.increment()
+            throw URLError(.cannotConnectToHost)
+        }
+        let service = RemoteCleanupService(
+            configuration: CleanupEndpointConfiguration(
+                provider: .ollama, baseURL: "http://127.0.0.1:9/v1", model: "m"
+            ),
+            credentials: StubCleanupCredentials(apiKey: nil),
+            session: session
+        )
+
+        let first = await service.attempt("hello there", prompt: "Clean")
+        let second = await service.attempt("hello again", prompt: "Clean")
+        _ = await service.transform("hello", prompt: "Edit")
+
+        guard case .rejected = first.outcome else { return XCTFail("Expected the first attempt to reach the stub") }
+        guard case .skipped = second.outcome else { return XCTFail("Expected the next cleanup to skip the dead endpoint") }
+        XCTAssertEqual(second.output, "hello again")
+        XCTAssertEqual(requests.count, 2, "Command Mode still tries")
     }
 
     func testInvalidEndpointFailsClosedWithoutNetwork() async {

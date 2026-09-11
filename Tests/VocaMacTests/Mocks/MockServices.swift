@@ -317,9 +317,15 @@ final class MockCursorOverlay: CursorOverlayManaging {
     var lastStyle: OverlayStyle?
     var lastPosition: OverlayPosition?
     var lastTranscript: String?
+    var isCommandMode = false
+
+    func setCommandMode(_ active: Bool) {
+        isCommandMode = active
+    }
 
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
+        isCommandMode = false
         lastStyle = style
         lastPosition = position
     }
@@ -640,6 +646,7 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     var lastLoadedKind: CleanupModelKind?
 
     var isLoaded = false
+    var loadedKind: CleanupModelKind? { isLoaded ? lastLoadedKind : nil }
     var pruneCallCount = 0
 
     var objectWillChangePublisher: AnyPublisher<Void, Never> {
@@ -665,6 +672,18 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     }
 
     var previewCallCount = 0
+    var cancelTransformCallCount = 0
+    /// Runs inside `transform` before it answers, e.g. to press Escape mid-edit.
+    var onTransform: (() async -> Void)?
+
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt {
+        await onTransform?()
+        return await preview(text, prompt: prompt)
+    }
+
+    func cancelTransform() {
+        cancelTransformCallCount += 1
+    }
 
     func preview(_ text: String, prompt: String) async -> CleanupAttempt {
         previewCallCount += 1
@@ -763,7 +782,7 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
-            PreferenceKey.commandModeShortcut, PreferenceKey.websiteStyleBindings,
+            PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine, PreferenceKey.websiteStyleBindings,
             PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
         ] {
             UserDefaults.standard.removeObject(forKey: key)
@@ -819,6 +838,9 @@ extension AppState {
         appState.isKnownWord = { word, _ in TestWords.common.contains(word.lowercased()) }
         // Bypass host free-RAM probe so mock loads are not refused on CI.
         appState.modelFitsInMemory = { _ in true }
+        // Command Mode's automatic engine choice must not depend on whether
+        // the machine running the tests has Apple Intelligence turned on.
+        appState.appleIntelligenceAvailable = { false }
         return (appState, mocks)
     }
 }
@@ -877,23 +899,29 @@ final class MockScreenContextReader: ScreenContextReading {
 @MainActor
 final class MockSelectedTextService: SelectedTextAccessing {
     var selectedText = ""
+    var failure: SelectionCaptureFailure = .nothingSelected
     var replacement: String?
+    var replaceSucceeds = true
     var captureCallCount = 0
     var replaceCallCount = 0
+    /// Runs inside `replaceSelection`, before it reports success.
+    var onReplace: (() -> Void)?
 
-    func captureSelection() async -> SelectedTextSnapshot? {
+    func captureSelection() async -> Result<SelectedTextSnapshot, SelectionCaptureFailure> {
         captureCallCount += 1
-        guard !selectedText.isEmpty else { return nil }
-        return SelectedTextSnapshot(
+        guard !selectedText.isEmpty else { return .failure(failure) }
+        return .success(SelectedTextSnapshot(
             element: AXElementBox(element: AXUIElementCreateSystemWide()),
             processID: 42,
             text: selectedText,
             range: CFRange(location: 0, length: selectedText.utf16.count)
-        )
+        ))
     }
 
     func replaceSelection(_ snapshot: SelectedTextSnapshot, with text: String) async -> Bool {
         replaceCallCount += 1
+        onReplace?()
+        guard replaceSucceeds else { return false }
         replacement = text
         return true
     }

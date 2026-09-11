@@ -74,15 +74,39 @@ final class SystemAudioAccumulator: @unchecked Sendable {
 
     func normalizedSamples() -> [Float] {
         let snapshot = state.withLock { $0 }
-        guard !snapshot.samples.isEmpty else { return [] }
-        guard abs(snapshot.sampleRate - 16_000) > 0.5 else { return snapshot.samples }
-        let ratio = snapshot.sampleRate / 16_000
-        let count = Int(Double(snapshot.samples.count) / ratio)
+        return Self.resampleTo16k(snapshot.samples, from: snapshot.sampleRate)
+    }
+
+    /// Downsample by averaging every source sample that falls in each output
+    /// sample's span. Picking one sample in three (48 kHz → 16 kHz) folds
+    /// everything above 8 kHz back into the speech band as noise; averaging
+    /// is a cheap low-pass that keeps it out.
+    static func resampleTo16k(_ samples: [Float], from sampleRate: Double) -> [Float] {
+        guard !samples.isEmpty, sampleRate > 0 else { return [] }
+        guard abs(sampleRate - 16_000) > 0.5 else { return samples }
+        let ratio = sampleRate / 16_000
+        let count = Int(Double(samples.count) / ratio)
         guard count > 0 else { return [] }
-        return (0..<count).map { index in
-            let source = min(snapshot.samples.count - 1, Int(Double(index) * ratio))
-            return snapshot.samples[source]
+        if ratio < 1 {
+            return (0..<count).map { samples[min(samples.count - 1, Int(Double($0) * ratio))] }
         }
+        var output = [Float](repeating: 0, count: count)
+        samples.withUnsafeBufferPointer { source in
+            for index in 0..<count {
+                let start = Int(Double(index) * ratio)
+                let end = min(source.count, max(start + 1, Int(Double(index + 1) * ratio)))
+                var sum: Float = 0
+                for position in start..<end { sum += source[position] }
+                output[index] = sum / Float(end - start)
+            }
+        }
+        return output
+    }
+
+    /// A tap without System Audio Recording permission delivers zeros rather
+    /// than an error, so silence is the only sign of a missing permission.
+    static func isSilent(_ samples: [Float]) -> Bool {
+        !samples.contains { abs($0) >= 0.0001 }
     }
 }
 

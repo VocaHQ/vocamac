@@ -187,6 +187,13 @@ enum SettingsSearchIndex {
             keywords: ["qwen", "model", "download", "0.5b", "0.6b", "gguf"]
         ),
         SettingsSearchEntry(
+            id: "command-mode-model",
+            page: .cleanup,
+            title: "Command Mode Model",
+            subtitle: "Apple Intelligence, Qwen 1.5B, 4B, or 7B for editing selected text",
+            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "4b", "7b", "selection"]
+        ),
+        SettingsSearchEntry(
             id: "cleanup-level",
             page: .cleanup,
             title: "Cleanup Level",

@@ -262,11 +262,16 @@ private struct PasteboardContents {
         }
     }
 
+    /// Marks the restore for clipboard managers (nspasteboard.org), so
+    /// putting the user's own clipboard back doesn't show up as a new copy.
+    private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
     func restore(to pasteboard: NSPasteboard) {
         pasteboard.clearContents()
         let restored = items.filter { !$0.isEmpty }.map { types -> NSPasteboardItem in
             let item = NSPasteboardItem()
             for (type, data) in types { item.setData(data, forType: type) }
+            item.setData(Data(), forType: Self.transientType)
             return item
         }
         if !restored.isEmpty { pasteboard.writeObjects(restored) }

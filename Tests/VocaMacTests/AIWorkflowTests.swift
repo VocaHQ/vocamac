@@ -182,6 +182,19 @@ final class AIConfigurationTests: XCTestCase {
         XCTAssertEqual(resolved.cleanupPrompt, "Use short paragraphs")
     }
 
+    func testMostSpecificWebsiteRuleWins() {
+        let base = ResolvedWritingStyle(style: .chat, rules: WritingStyle.chat.defaultRules, matchedAppName: "Browser")
+        let specificRule = WebsiteStyleBinding(hostPattern: "mail.example.com", displayName: "Mail", style: .email)
+        let generalRule = WebsiteStyleBinding(hostPattern: "example.com", displayName: "Example", style: .notes)
+        let url = URL(string: "https://mail.example.com/inbox")
+        XCTAssertEqual(WritingStyleResolver.applyingWebsiteRule(base, url: url, bindings: [specificRule, generalRule]).matchedAppName, "Mail")
+        XCTAssertEqual(WritingStyleResolver.applyingWebsiteRule(base, url: url, bindings: [generalRule, specificRule]).matchedAppName, "Mail")
+        XCTAssertEqual(
+            WritingStyleResolver.applyingWebsiteRule(base, url: URL(string: "https://example.com"), bindings: [specificRule, generalRule]).matchedAppName,
+            "Example"
+        )
+    }
+
     func testPerAppCleanupOverridesSurvivePersistence() throws {
         let binding = AppStyleBinding(
             id: "com.example.editor", displayName: "Editor",
@@ -551,6 +564,30 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(app.appStatus, .idle)
     }
 
+    func testReleasingBeforeTheMicrophoneStartsKeepsListening() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Slow app selection."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Edited." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.commandModeHoldThreshold = 0
+        // The key comes up while the selection is still being read.
+        selection.onCapture = { [weak app] in await app?.handleShortcutReleased(.commandMode) }
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "shorten", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.handleShortcut(.commandMode)
+        XCTAssertTrue(app.isRecording, "Nothing was recorded yet, so keep listening")
+        XCTAssertNil(selection.replacement)
+
+        selection.onCapture = nil
+        await app.handleShortcut(.commandMode)
+        XCTAssertEqual(selection.replacement, "Edited.")
+    }
+
     func testCommandModeWorksWithSmartCleanupOff() async {
         let selection = MockSelectedTextService()
         selection.selectedText = "This sentence is unnecessarily long."
@@ -576,9 +613,51 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(cleanup.lastLoadedKind, .qwen25_1_5b_q4_k_m)
         // The spoken command is not a dictation.
         XCTAssertNil(app.lastTranscription)
+        XCTAssertEqual(mocks.soundManager.commandStartSoundCallCount, 1)
+        XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0, "Edits get their own cue")
+        let entry = try? XCTUnwrap(app.historyStore.entries.first)
+        XCTAssertEqual(entry?.commandOriginal, "This sentence is unnecessarily long.")
+        XCTAssertEqual(entry?.finalText, "A short sentence.")
+        XCTAssertEqual(entry?.rawText, "make this shorter")
         XCTAssertEqual(app.lastCommandEdit?.original, "This sentence is unnecessarily long.")
         XCTAssertEqual(app.lastCommandEdit?.instruction, "make this shorter")
         XCTAssertEqual(mocks.statsManager.recordCallCount, 0)
+    }
+
+    func testEditsStayOutOfHistoryWhenHistoryIsOff() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Some text."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Other text." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.historyEnabled = false
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "rewrite", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(selection.replacement, "Other text.")
+        XCTAssertTrue(app.historyStore.entries.isEmpty)
+    }
+
+    func testSuggestedShortcutAvoidsVocaMacsOwnShortcuts() {
+        let (app, _) = AppState.makeTestState()
+        let first = ShortcutValidation.commandModeSuggestions[0]
+        XCTAssertEqual(ShortcutValidation.suggestion(for: .commandMode, appState: app), first)
+        XCTAssertNil(ShortcutValidation.suggestion(for: .pasteLastDictation, appState: app))
+
+        app.setShortcut(first, for: .handsFreeToggle)
+        XCTAssertEqual(
+            ShortcutValidation.suggestion(for: .commandMode, appState: app),
+            ShortcutValidation.commandModeSuggestions[1]
+        )
+        for combo in ShortcutValidation.commandModeSuggestions {
+            XCTAssertEqual(combo.modifiers, [.control, .option, .command])
+        }
     }
 
     func testCommandModeExplainsWhenItsModelIsNotDownloaded() async {

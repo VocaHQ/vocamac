@@ -51,9 +51,16 @@ protocol SoundPlaying: AnyObject {
     func playStopSound()
     func playStopSoundAsync() async
     func previewStartThenStop() async
+    /// Command Mode's start cue: the selected tone, twice, so an edit sounds
+    /// different from a dictation without looking at the screen.
+    func playCommandStartSound()
+    func playCommandStartSoundAsync() async
 }
 
 extension SoundPlaying {
+    func playCommandStartSound() { playStartSound() }
+    func playCommandStartSoundAsync() async { await playStartSoundAsync() }
+
     func previewStartThenStop() async {
         await playStartSoundAsync()
         await playStopSoundAsync()

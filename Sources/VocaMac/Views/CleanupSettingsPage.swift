@@ -495,6 +495,9 @@ struct CleanupModelRow: View {
                     }
                 }
                 .controlSize(.small)
+                // One download at a time: starting another cancels the first,
+                // which with a multi-gigabyte Command Mode model loses a lot.
+                .disabled(isDownloadingOtherModel)
             }
 
             if isDownloaded && !isBusy {
@@ -518,6 +521,11 @@ struct CleanupModelRow: View {
         } message: {
             Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
         }
+    }
+
+    private var isDownloadingOtherModel: Bool {
+        if case .downloading(let active, _) = appState.transcriptCleanup.modelState { return active != kind }
+        return false
     }
 
     private var badgeColor: Color {
@@ -741,7 +749,7 @@ private struct CommandModeReadinessBanner: View {
     private var state: (String, String, Color) {
         let engine = appState.commandModeEngine
         guard let combo = appState.shortcut(for: .commandMode) else {
-            return ("keyboard", "Command Mode is off. Record a shortcut below to turn it on.", .orange)
+            return ("keyboard", "Command Mode is off. Record a shortcut below, or use the suggested one, to turn it on.", .orange)
         }
         if let problem = appState.commandModeProblem(for: engine) {
             return ("exclamationmark.triangle.fill", problem, .orange)

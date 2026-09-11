@@ -42,6 +42,41 @@ final class DictationHistoryStoreTests: XCTestCase {
         XCTAssertEqual(samples.count, audio.count)
     }
 
+    func testCommandEditKeepsTheOriginalAndSurvivesRelaunch() async throws {
+        let store = DictationHistoryStore(directory: directory)
+        let dictation = await store.begin(audio: nil, target: target, modelID: "tiny", language: "en", audioSeconds: 1)
+        store.complete(dictation, rawText: "ship it friday", finalText: "Ship it Friday.", summary: nil,
+                       language: "en", transcriptionSeconds: 0.2, keepAudio: false)
+        store.recordCommandEdit(
+            instruction: "make this formal", original: "  hey can u send it\n",
+            replacement: "  Could you please send it?\n", summary: "Command Mode · Qwen 2.5 1.5B",
+            target: target, modelID: "tiny", language: "en", audioSeconds: 1.5
+        )
+
+        let edit = try XCTUnwrap(store.entries.first)
+        XCTAssertTrue(edit.isCommandEdit)
+        XCTAssertFalse(edit.hasEditedOutput, "The instruction is not an earlier version of the result")
+        XCTAssertEqual(edit.originalText, "  hey can u send it\n")
+        XCTAssertNil(edit.audioFileName)
+        XCTAssertEqual(store.latestDeliveredText, "Ship it Friday.", "Paste-last skips edits")
+        XCTAssertEqual(store.search("hey").map(\.id), [edit.id], "The original text is searchable")
+
+        await store.waitForPendingWrites()
+        let reloaded = DictationHistoryStore(directory: directory)
+        XCTAssertEqual(reloaded.entry(id: edit.id)?.commandOriginal, "  hey can u send it\n")
+        XCTAssertEqual(reloaded.entries.count, 2)
+    }
+
+    func testEntriesFromOlderBuildsAreNotCommandEdits() throws {
+        let entry = DictationHistoryEntry(modelID: "tiny", audioSeconds: 1)
+        var json = try XCTUnwrap(try JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
+        json.removeValue(forKey: "commandOriginal")
+        let decoded = try JSONDecoder().decode(
+            DictationHistoryEntry.self, from: JSONSerialization.data(withJSONObject: json)
+        )
+        XCTAssertFalse(decoded.isCommandEdit)
+    }
+
     func testAudioIsDroppedOnSuccessWhenNotKept() async {
         let store = DictationHistoryStore(directory: directory)
         let id = await store.begin(audio: audio, target: nil, modelID: "tiny", language: nil, audioSeconds: 1)

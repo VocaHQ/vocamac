@@ -78,7 +78,11 @@ final class DictationHistoryStore: ObservableObject {
     /// Text of the most recent dictation that produced something, exactly as
     /// it was typed (trailing space included), for "paste last dictation".
     var latestDeliveredText: String? {
-        guard let entry = entries.first(where: { $0.status == .completed && !$0.displayText.isEmpty }) else {
+        // A Command Mode edit replaced a selection in place; typing its result
+        // again at the cursor is not what "paste last dictation" means.
+        guard let entry = entries.first(where: {
+            $0.status == .completed && !$0.isCommandEdit && !$0.displayText.isEmpty
+        }) else {
             return nil
         }
         return entry.finalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? entry.rawText : entry.finalText
@@ -99,7 +103,7 @@ final class DictationHistoryStore: ObservableObject {
             .filter { !$0.isEmpty }
         guard !words.isEmpty else { return entries }
         return entries.filter { entry in
-            let haystack = [entry.rawText, entry.finalText, entry.appName ?? ""]
+            let haystack = [entry.rawText, entry.finalText, entry.commandOriginal ?? "", entry.appName ?? ""]
                 .joined(separator: " ")
                 .lowercased()
             return words.allSatisfy { haystack.contains($0) }
@@ -182,6 +186,43 @@ final class DictationHistoryStore: ObservableObject {
         }
         enforceCaps()
         return id
+    }
+
+    /// Record a finished Command Mode edit. It has no audio to keep: what
+    /// matters later is the text before the edit, so the edit can be undone
+    /// by copying it back.
+    func recordCommandEdit(
+        instruction: String,
+        original: String,
+        replacement: String,
+        summary: String?,
+        target: RunningAppSnapshot?,
+        modelID: String,
+        language: String?,
+        audioSeconds: Double,
+        now: Date = Date()
+    ) {
+        let entry = DictationHistoryEntry(
+            createdAt: now,
+            status: .completed,
+            rawText: instruction,
+            finalText: replacement,
+            summary: summary,
+            appName: target?.displayName,
+            bundleIdentifier: target?.bundleIdentifier,
+            processName: target?.processName,
+            modelID: modelID,
+            language: language,
+            audioSeconds: audioSeconds,
+            commandOriginal: original
+        )
+        entries.insert(entry, at: 0)
+        guard appendToJournal(JournalRecord(upsert: entry)) else {
+            entries.removeAll { $0.id == entry.id }
+            VocaLogger.error(.history, "Couldn't save a Command Mode edit to history")
+            return
+        }
+        enforceCaps()
     }
 
     /// Finish a dictation that produced a result (possibly empty).

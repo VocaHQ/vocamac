@@ -31,7 +31,7 @@ struct HistorySettingsPage: View {
             VocaSettingsGroup("Keep History") {
                 SettingsToggleRow(
                     title: "Save dictation history",
-                    detail: "Keep what you dictated on this Mac so you can copy it, paste it again, or retry it. Nothing leaves your Mac.",
+                    detail: "Keep what you dictated on this Mac so you can copy it, paste it again, or retry it. Command Mode edits keep the text from before the edit, so you can copy it back. Nothing leaves your Mac.",
                     isOn: $appState.historyEnabled
                 )
                 Divider()
@@ -133,6 +133,15 @@ struct HistoryEntryRow: View {
                     Text("·").font(.caption).foregroundStyle(.tertiary)
                     Text(app).font(.caption).foregroundStyle(.secondary)
                 }
+                if entry.isCommandEdit {
+                    Label("Edit", systemImage: "wand.and.stars")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(VocaDesign.command.opacity(0.14), in: Capsule())
+                        .foregroundStyle(VocaDesign.command)
+                        .help("A Command Mode edit of selected text")
+                }
                 Text("·").font(.caption).foregroundStyle(.tertiary)
                 Text(String(format: "%.1fs", entry.audioSeconds)).font(.caption).foregroundStyle(.secondary)
                 if entry.status != .completed {
@@ -161,7 +170,15 @@ struct HistoryEntryRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            if entry.hasEditedOutput {
+            if entry.isCommandEdit {
+                Label("“\(entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines))”", systemImage: "quote.bubble")
+                    .font(.caption)
+                    .foregroundStyle(VocaDesign.command)
+                    .lineLimit(2)
+                    .accessibilityLabel("Instruction: \(entry.rawText)")
+            }
+
+            if let original = entry.originalText {
                 VStack(alignment: .leading, spacing: 0) {
                     Button {
                         withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
@@ -171,25 +188,25 @@ struct HistoryEntryRow: View {
                         HStack(spacing: 8) {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 5)
-                                    .fill(VocaDesign.accent.opacity(0.12))
+                                    .fill(tint.opacity(0.12))
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(VocaDesign.accent)
+                                    .foregroundStyle(tint)
                                     .rotationEffect(.degrees(showsOriginal ? 90 : 0))
                             }
                             .frame(width: 20, height: 20)
 
-                            Text("Original transcript")
+                            Text(originalTitle)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.primary)
 
-                            if let summary = entry.summary {
+                            if !entry.isCommandEdit, let summary = entry.summary {
                                 Text(summary)
                                     .font(.caption2.weight(.medium))
-                                    .foregroundStyle(VocaDesign.accent)
+                                    .foregroundStyle(tint)
                                     .padding(.horizontal, 7)
                                     .padding(.vertical, 2)
-                                    .background(VocaDesign.accent.opacity(0.10), in: Capsule())
+                                    .background(tint.opacity(0.10), in: Capsule())
                             }
 
                             Spacer(minLength: 8)
@@ -204,15 +221,17 @@ struct HistoryEntryRow: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Original transcript")
+                    .accessibilityLabel(originalTitle)
                     .accessibilityValue(showsOriginal ? "Expanded" : "Collapsed")
-                    .accessibilityHint("Shows the text before cleanup and writing style changes")
+                    .accessibilityHint(entry.isCommandEdit
+                        ? "Shows the selected text before Command Mode changed it"
+                        : "Shows the text before cleanup and writing style changes")
 
                     if showsOriginal {
                         Divider()
                             .padding(.horizontal, 10)
 
-                        Text(entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines))
+                        Text(original.trimmingCharacters(in: .whitespacesAndNewlines))
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -240,12 +259,20 @@ struct HistoryEntryRow: View {
                 .help("Copy")
                 .accessibilityLabel("Copy dictation")
             }
-            if entry.hasEditedOutput {
-                Button { appState.copyToClipboard(entry.rawText.trimmingCharacters(in: .whitespacesAndNewlines)) } label: {
-                    Image(systemName: "text.badge.minus")
+            if let original = entry.originalText {
+                Button {
+                    // An edit's original is copied exactly, whitespace and
+                    // all, so pasting it back restores the selection.
+                    appState.copyToClipboard(entry.isCommandEdit
+                        ? original
+                        : original.trimmingCharacters(in: .whitespacesAndNewlines))
+                } label: {
+                    Image(systemName: entry.isCommandEdit ? "arrow.uturn.backward" : "text.badge.minus")
                 }
-                .help("Copy the original transcript, before cleanup and styling")
-                .accessibilityLabel("Copy original transcript")
+                .help(entry.isCommandEdit
+                      ? "Copy the text from before the edit, to paste it back"
+                      : "Copy the original transcript, before cleanup and styling")
+                .accessibilityLabel(entry.isCommandEdit ? "Copy text before the edit" : "Copy original transcript")
             }
             if entry.hasAudio, let url = appState.historyStore.audioURL(for: entry) {
                 Button { player.toggle(url) } label: {
@@ -274,9 +301,17 @@ struct HistoryEntryRow: View {
                 Image(systemName: "trash")
             }
             .help("Delete")
-            .accessibilityLabel("Delete dictation")
+            .accessibilityLabel(entry.isCommandEdit ? "Delete edit" : "Delete dictation")
         }
         .buttonStyle(.borderless)
+    }
+
+    private var originalTitle: String {
+        entry.isCommandEdit ? "Text before the edit" : "Original transcript"
+    }
+
+    private var tint: Color {
+        entry.isCommandEdit ? VocaDesign.command : VocaDesign.accent
     }
 
     private var statusColor: Color {

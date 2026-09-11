@@ -103,6 +103,10 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
     var audioBytes: Int64?
     var errorMessage: String?
     var retryCount: Int
+    /// For a Command Mode edit: the selected text before the edit. The spoken
+    /// instruction is in `rawText` and the replacement in `finalText`. Nil for
+    /// dictations, and absent from entries saved by older builds.
+    var commandOriginal: String?
 
     init(
         id: UUID = UUID(),
@@ -121,7 +125,8 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         audioFileName: String? = nil,
         audioBytes: Int64? = nil,
         errorMessage: String? = nil,
-        retryCount: Int = 0
+        retryCount: Int = 0,
+        commandOriginal: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -140,6 +145,17 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         self.audioBytes = audioBytes
         self.errorMessage = errorMessage
         self.retryCount = retryCount
+        self.commandOriginal = commandOriginal
+    }
+
+    /// A Command Mode edit rather than a dictation.
+    var isCommandEdit: Bool { commandOriginal != nil }
+
+    /// The text to offer back as "original": the selection before a Command
+    /// Mode edit, or the engine transcript before cleanup and styling.
+    var originalText: String? {
+        if let commandOriginal { return commandOriginal }
+        return hasEditedOutput ? rawText : nil
     }
 
     /// The text a user means when they say "that dictation".
@@ -151,6 +167,9 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
     /// Whether the dictionary, a writing style, or cleanup changed the words,
     /// beyond spacing and case — the case where "show original" is useful.
     var hasEditedOutput: Bool {
+        // An edit's rawText is the spoken instruction, not an earlier
+        // version of the result.
+        guard !isCommandEdit else { return false }
         let raw = Self.comparable(rawText)
         let final = Self.comparable(finalText)
         return !raw.isEmpty && !final.isEmpty && raw != final

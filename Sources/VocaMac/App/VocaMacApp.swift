@@ -246,6 +246,8 @@ final class OnboardingWindowManager: ObservableObject {
 }
 
 struct VocaMacApp: App {
+    /// Set by the first `init`; see the URL observer there.
+    @MainActor private static var didInstallURLObserver = false
     @NSApplicationDelegateAdaptor(VocaApplicationDelegate.self) private var applicationDelegate
     @StateObject private var appState = AppState.production()
     @StateObject private var settingsManager = SettingsWindowManager()
@@ -301,45 +303,51 @@ struct VocaMacApp: App {
             }
         }
 
-        NotificationCenter.default.addObserver(
-            forName: .vocaOpenURL,
-            object: nil,
-            queue: .main
-        ) { [self] notification in
-            guard let url = notification.object as? URL,
-                  let link = VocaDeepLink(url: url) else { return }
-            let returnTarget: NSRunningApplication?
-            if link.requiresExternalConfirmation {
-                returnTarget = NSWorkspace.shared.frontmostApplication
-                let alert = NSAlert()
-                alert.alertStyle = .warning
-                alert.messageText = "Allow VocaMac action?"
-                alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
-                alert.addButton(withTitle: "Allow")
-                alert.addButton(withTitle: "Cancel")
-                guard alert.runModal() == .alertFirstButtonReturn else { return }
-            } else {
-                returnTarget = nil
-            }
-            Task { @MainActor [self] in
-                // The confirmation window activates VocaMac. Put the user's
-                // original destination back in front before recording or text
-                // insertion resolves its target.
-                if let returnTarget,
-                   returnTarget.bundleIdentifier != Bundle.main.bundleIdentifier {
-                    returnTarget.activate()
-                    try? await Task.sleep(for: .milliseconds(150))
+        // SwiftUI can build the App struct more than once. A second observer
+        // would handle every link twice — two confirmations, and a toggle
+        // link that starts and immediately stops recording.
+        if !Self.didInstallURLObserver {
+            Self.didInstallURLObserver = true
+            NotificationCenter.default.addObserver(
+                forName: .vocaOpenURL,
+                object: nil,
+                queue: .main
+            ) { [self] notification in
+                guard let url = notification.object as? URL,
+                      let link = VocaDeepLink(url: url) else { return }
+                let returnTarget: NSRunningApplication?
+                if link.requiresExternalConfirmation {
+                    returnTarget = NSWorkspace.shared.frontmostApplication
+                    let alert = NSAlert()
+                    alert.alertStyle = .warning
+                    alert.messageText = "Allow VocaMac action?"
+                    alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
+                    alert.addButton(withTitle: "Allow")
+                    alert.addButton(withTitle: "Cancel")
+                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                } else {
+                    returnTarget = nil
                 }
-                await appState.handleDeepLink(link)
-                switch link {
-                case .history, .settings:
-                    settingsManager.open(appState: appState)
-                case .transcribeFile:
-                    fileTranscriptionManager.open(appState: appState)
-                case .scratchpad:
-                    scratchpadManager.open(appState: appState)
-                case .startDictation, .stopDictation, .toggleDictation, .pasteLast:
-                    break
+                Task { @MainActor [self] in
+                    // The confirmation window activates VocaMac. Put the user's
+                    // original destination back in front before recording or text
+                    // insertion resolves its target.
+                    if let returnTarget,
+                       returnTarget.bundleIdentifier != Bundle.main.bundleIdentifier {
+                        returnTarget.activate()
+                        try? await Task.sleep(for: .milliseconds(150))
+                    }
+                    await appState.handleDeepLink(link)
+                    switch link {
+                    case .history, .settings:
+                        settingsManager.open(appState: appState)
+                    case .transcribeFile:
+                        fileTranscriptionManager.open(appState: appState)
+                    case .scratchpad:
+                        scratchpadManager.open(appState: appState)
+                    case .startDictation, .stopDictation, .toggleDictation, .pasteLast:
+                        break
+                    }
                 }
             }
         }

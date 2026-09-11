@@ -110,6 +110,21 @@ struct ShortcutRecorderRow: View {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
+            } else if combo == nil,
+                      let suggested = ShortcutValidation.suggestion(for: action, appState: appState) {
+                // No default is bound — a global shortcut swallows its keys in
+                // every app — but one click takes a combination few apps use.
+                HStack(spacing: 8) {
+                    Label("Suggested: \(KeyCodeReference.displayName(for: suggested)) — three modifiers, rarely used by other apps",
+                          systemImage: "lightbulb")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Button("Use \(KeyCodeReference.displayName(for: suggested))") {
+                        appState.setShortcut(suggested, for: action)
+                    }
+                    .controlSize(.small)
+                }
             }
         }
         .onDisappear {
@@ -170,6 +185,21 @@ enum ShortcutValidation {
             return "That's already the \(other.displayName.lowercased()) shortcut."
         }
         return nil
+    }
+
+    /// Command Mode ships unbound. These use ⌃⌥⌘, which apps and macOS
+    /// itself almost never claim, so taking one is unlikely to break anything.
+    /// E for "edit" first; the rest in case another VocaMac shortcut has it.
+    static let commandModeSuggestions: [HotKeyCombo] = [
+        HotKeyCombo(keyCode: 14, modifiers: [.control, .option, .command]),  // E
+        HotKeyCombo(keyCode: 40, modifiers: [.control, .option, .command]),  // K
+        HotKeyCombo(keyCode: 44, modifiers: [.control, .option, .command]),  // /
+    ]
+
+    /// A shortcut to offer for `action` while it has none, or nil.
+    static func suggestion(for action: HotKeyShortcutAction, appState: AppState) -> HotKeyCombo? {
+        guard action == .commandMode else { return nil }
+        return commandModeSuggestions.first { problem(with: $0, action: action, appState: appState) == nil }
     }
 
     static func isFunctionKey(_ keyCode: Int) -> Bool {

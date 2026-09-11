@@ -91,7 +91,16 @@ enum WritingStyleResolver {
         url: URL?,
         bindings: [WebsiteStyleBinding]
     ) -> ResolvedWritingStyle {
-        guard let url, let match = bindings.last(where: { $0.matches(url) }) else { return resolved }
+        // The most specific domain wins, so a mail.example.com rule beats an
+        // example.com rule whichever was added first. Among equals, the later.
+        let specificity = { (binding: WebsiteStyleBinding) -> Int in
+            binding.hostPattern.trimmingCharacters(in: CharacterSet(charactersIn: "*.")).count
+        }
+        guard let url,
+              let match = bindings.filter({ $0.matches(url) })
+                .enumerated()
+                .max(by: { (specificity($0.element), $0.offset) < (specificity($1.element), $1.offset) })?
+                .element else { return resolved }
         return ResolvedWritingStyle(
             style: match.style,
             rules: match.style.defaultRules,

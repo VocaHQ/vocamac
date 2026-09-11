@@ -125,6 +125,16 @@ final class MockSoundManager: SoundPlaying {
         playLog.append(.start)
     }
 
+    var commandStartSoundCallCount = 0
+
+    func playCommandStartSound() {
+        commandStartSoundCallCount += 1
+    }
+
+    func playCommandStartSoundAsync() async {
+        commandStartSoundCallCount += 1
+    }
+
     func playStartSoundAsync() async {
         startSoundAsyncCallCount += 1
         playLog.append(.startAsync)
@@ -912,9 +922,12 @@ final class MockSelectedTextService: SelectedTextAccessing {
     var replaceCallCount = 0
     /// Runs inside `replaceSelection`, before it reports success.
     var onReplace: (() -> Void)?
+    /// Runs while the selection is being read, e.g. to release a held key.
+    var onCapture: (() async -> Void)?
 
     func captureSelection() async -> Result<SelectedTextSnapshot, SelectionCaptureFailure> {
         captureCallCount += 1
+        await onCapture?()
         guard !selectedText.isEmpty else { return .failure(failure) }
         return .success(SelectedTextSnapshot(
             element: AXElementBox(element: AXUIElementCreateSystemWide()),

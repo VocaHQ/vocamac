@@ -548,9 +548,10 @@ final class AppState: ObservableObject {
     /// Selection captured before Command Mode starts recording its instruction.
     private var activeCommandSelection: SelectedTextSnapshot?
     private var commandModePressStartedAt: Date?
-    private var commandModeShouldStopAfterStart = false
     /// Engine chosen when the current Command Mode session began.
     private var activeCommandEngine: CommandModeEngine?
+    /// App whose selection is being edited, for the history entry.
+    private var commandTargetApp: RunningAppSnapshot?
     /// The transform in flight, so Escape can stop it.
     private var activeCommandTransformer: TextTransforming?
     /// A local Command Mode model loading while the user speaks.
@@ -1734,10 +1735,13 @@ final class AppState: ObservableObject {
         // Muting other audio would silence the cue too, so when that is on,
         // let the cue finish first.
         if soundEffectsEnabled && isRecording && appStatus == .recording {
+            let isCommand = activeCommandSelection != nil
             if duckOtherAudioEnabled {
-                await soundManager.playStartSoundAsync()
+                if isCommand { await soundManager.playCommandStartSoundAsync() }
+                else { await soundManager.playStartSoundAsync() }
             } else {
-                soundManager.playStartSound()
+                if isCommand { soundManager.playCommandStartSound() }
+                else { soundManager.playStartSound() }
             }
         }
 
@@ -1897,6 +1901,7 @@ final class AppState: ObservableObject {
                 commandModeSession?.instruction = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                 await finishCommandMode(
                     instruction: result.text,
+                    transcription: result,
                     selection: selection,
                     engine: activeCommandEngine ?? commandModeEngine,
                     generation: generation
@@ -1914,7 +1919,16 @@ final class AppState: ObservableObject {
                     ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
                 let documentURL = await revalidatedDocumentURL(capturedDocumentURL)
                 let resolved = resolveWritingStyle(for: target, documentURL: documentURL)
-                let profile = injectResult ? (nextWritingProfile ?? resolved.profile) : settingsPreviewProfile
+                // The scratchpad is plain notes: format it with the default
+                // style, not whichever app the Settings preview was left on.
+                let profile: WritingProfile
+                if injectResult {
+                    profile = nextWritingProfile ?? resolved.profile
+                } else if nonInjectedOutputDestination == .scratchpad {
+                    profile = resolveWritingStyle(for: nil).profile
+                } else {
+                    profile = settingsPreviewProfile
+                }
                 if injectResult {
                     nextWritingProfile = nil
                     activeWritingStyle = resolved
@@ -2617,7 +2631,12 @@ final class AppState: ObservableObject {
     }
 
     var selectedCleanupModelKind: CleanupModelKind {
-        get { CleanupModelKind.resolved(stored: transcriptCleanupModel) }
+        get {
+            // The larger Command Mode models are too slow to run after every
+            // dictation; an imported or stale preference naming one falls back.
+            let kind = CleanupModelKind.resolved(stored: transcriptCleanupModel)
+            return CleanupModelKind.cleanupChoices.contains(kind) ? kind : .defaultKind
+        }
         set { transcriptCleanupModel = newValue.rawValue }
     }
 
@@ -2987,15 +3006,12 @@ extension AppState {
                 // A second press completes a Command Mode session that was
                 // started with a quick press instead of a hold.
                 commandModePressStartedAt = nil
-                commandModeShouldStopAfterStart = false
                 await stopRecordingAndTranscribe()
             } else {
                 commandModePressStartedAt = Date()
-                commandModeShouldStopAfterStart = false
                 await beginCommandMode()
                 if activeCommandSelection == nil {
                     commandModePressStartedAt = nil
-                    commandModeShouldStopAfterStart = false
                 }
             }
         }
@@ -3015,10 +3031,16 @@ extension AppState {
             return
         }
 
-        commandModeShouldStopAfterStart = true
+        // Released before the microphone was on — reading the selection can
+        // take most of a second in an Electron app or through the clipboard.
+        // Nothing the user said while holding was recorded, so stopping now
+        // would throw away an empty instruction. Keep listening instead, as
+        // if it were a quick press; the overlay and cue say it's listening.
         guard activeCommandSelection != nil,
-              isRecording || appStatus == .recording else { return }
-        commandModeShouldStopAfterStart = false
+              isRecording || appStatus == .recording else {
+            VocaLogger.debug(.appState, "Command Mode released before recording began — continuing until the next press")
+            return
+        }
         await stopRecordingAndTranscribe()
     }
 
@@ -3070,12 +3092,10 @@ extension AppState {
         guard appStatus == .idle, !isRecording else { return }
         let engine = commandModeEngine
         if let problem = commandModeProblem(for: engine) {
-            commandModeShouldStopAfterStart = false
             showTemporaryError(problem)
             return
         }
         guard let selectedTextService else {
-            commandModeShouldStopAfterStart = false
             showTemporaryError(SelectionCaptureFailure.noFocusedApp.message)
             return
         }
@@ -3084,15 +3104,15 @@ extension AppState {
         case .success(let captured):
             selection = captured
         case .failure(let failure):
-            commandModeShouldStopAfterStart = false
             showTemporaryError(failure.message)
             return
         }
         activeCommandSelection = selection
         activeCommandEngine = engine
+        commandTargetApp = frontmostAppResolver.currentFrontmostApp()
         commandModeSession = CommandModeSession(
             selection: selection.text,
-            appName: frontmostAppResolver.currentFrontmostApp()?.displayName,
+            appName: commandTargetApp?.displayName,
             engineName: engine.displayName
         )
         VocaLogger.info(
@@ -3108,10 +3128,6 @@ extension AppState {
             commandModelWarmup = Task { await cleanup.load(kind) }
         }
         await startRecording(injectResult: false)
-        if commandModeShouldStopAfterStart, isRecording || appStatus == .recording {
-            commandModeShouldStopAfterStart = false
-            await stopRecordingAndTranscribe()
-        }
         if !isRecording, activeCommandSelection != nil, !isTranscribing {
             // The microphone never started; nothing will finish this session.
             resetCommandModeState()
@@ -3120,6 +3136,7 @@ extension AppState {
 
     private func finishCommandMode(
         instruction: String,
+        transcription: VocaTranscription,
         selection: SelectedTextSnapshot,
         engine: CommandModeEngine,
         generation: UUID
@@ -3190,6 +3207,18 @@ extension AppState {
             replacement: replacement,
             engineName: engine.displayName
         )
+        if historyEnabled {
+            historyStore.recordCommandEdit(
+                instruction: instruction,
+                original: selection.text,
+                replacement: replacement,
+                summary: "Command Mode · \(engine.displayName)",
+                target: commandTargetApp,
+                modelID: selectedModelSize,
+                language: transcription.detectedLanguage,
+                audioSeconds: transcription.audioLengthSeconds
+            )
+        }
         VocaLogger.info(
             .appState,
             "Command Mode queued a " + String(replacement.count) + "-character replacement"
@@ -3205,7 +3234,6 @@ extension AppState {
         activeCommandSelection = nil
         commandModeSession = nil
         commandModePressStartedAt = nil
-        commandModeShouldStopAfterStart = false
         activeCommandTransformer?.cancelTransform()
         activeCommandTransformer = nil
         if let engine = activeCommandEngine { finishCommandModelUse(engine) }

@@ -91,5 +91,9 @@ final class EditMergeTests: XCTestCase {
         )
         // The next word's own break doesn't erase a deeper removed one.
         XCTAssertEqual(merge("One\n\num\nTwo", "One\nTwo").text, "One\n\nTwo")
+        // …and its indentation survives the carried break.
+        XCTAssertEqual(merge("One\n\num\n    Two", "One\n    Two").text, "One\n\n    Two")
+        // A removed line opener hands its indentation to the next word.
+        XCTAssertEqual(merge("Line\n  like, foo bar", "Line\n  foo bar").text, "Line\n  foo bar")
     }
 }

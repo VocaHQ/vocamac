@@ -71,8 +71,7 @@ enum EditMerge {
         // break still leaves the paragraph break.
         var pendingLineBreak: String?
         func write(_ token: Token, leading: String) {
-            let chosen = deepestBreak([pendingLineBreak, leading].compactMap { $0 }) ?? leading
-            output.append(Emitted(token: token, leading: chosen))
+            output.append(Emitted(token: token, leading: pendingLineBreak.map { mergedLeading(carried: $0, own: leading) } ?? leading))
             pendingLineBreak = nil
         }
         var applied = 0
@@ -131,6 +130,17 @@ enum EditMerge {
             }
         }
         return Result(text: render(output), applied: applied, skipped: skipped)
+    }
+
+    /// The deeper line break of the two, followed by the indentation of the
+    /// line the word actually starts: its own when it began a line ("\n    "
+    /// keeps its four spaces), otherwise the removed word's.
+    private static func mergedLeading(carried: String, own: String) -> String {
+        guard let breaks = deepestBreak([carried, own]), let lastBreak = breaks.lastIndex(of: "\n") else { return own }
+        let indentationSource = own.contains("\n") ? own : carried
+        let indentation = indentationSource.lastIndex(of: "\n")
+            .map { indentationSource[indentationSource.index(after: $0)...] } ?? ""
+        return String(breaks[...lastBreak]) + indentation
     }
 
     /// The whitespace with the most line breaks, or nil when none has one.

@@ -185,6 +185,21 @@ enum AppleSpeechEngine {
         }
     }
 
+    /// The format dictation is converted to before it reaches the analyzer:
+    /// the analyzer's sample rate and channels, always as Int16 samples.
+    ///
+    /// On macOS 27, `AnalyzerInput(buffer:)` traps on every Float32 buffer,
+    /// whatever its rate or layout, while Int16 buffers work. The analyzer
+    /// asks for Int16 today, so this changes nothing unless it asks for
+    /// another sample type, which would otherwise crash the app.
+    static func analyzerInputFormat(for format: AVAudioFormat) -> AVAudioFormat? {
+        guard format.commonFormat != .pcmFormatInt16 else { return format }
+        return AVAudioFormat(
+            commonFormat: .pcmFormatInt16, sampleRate: format.sampleRate,
+            channels: format.channelCount, interleaved: format.isInterleaved
+        )
+    }
+
     /// Resolve assets and preheat before the first recording rather than after stop.
     fileprivate static func prepareSession(
         for locale: Locale, onPhaseChange: ((String) -> Void)? = nil
@@ -201,7 +216,8 @@ enum AppleSpeechEngine {
             onPhaseChange?("Downloading speech assets…")
             try await request.downloadAndInstall()
         }
-        guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
+        guard let bestFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]),
+              let format = analyzerInputFormat(for: bestFormat) else {
             throw AppleSpeechError.audioFormatUnavailable
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
@@ -265,30 +281,39 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
 }
 
 /// Lazily convert only the next chunk requested by SpeechAnalyzer. The converter
-/// spans chunks and drains once at EOF so resampling does not drop boundary frames.
+/// spans chunks and drains at EOF until it reports the end of the stream, so
+/// resampling drops neither boundary frames nor the tail it still holds.
 @available(macOS 26.0, *)
 actor SpeechInputCursor {
     private var iterator: AsyncThrowingStream<[Float], Error>.Iterator
     private let format: AVAudioFormat
     private let converter: AVAudioConverter?
     private(set) var sampleCount = 0
+    /// The chunk stream has finished; the converter may still hold frames.
     private var ended = false
+    /// The converter has returned its last frame.
+    private var drained = false
 
     init(chunks: AsyncThrowingStream<[Float], Error>, format: AVAudioFormat) {
         iterator = chunks.makeAsyncIterator()
         self.format = format
-        converter = format == AudioEngine.whisperFormat ? nil : AVAudioConverter(from: AudioEngine.whisperFormat, to: format)
+        // The analyzer format is always Int16 (`analyzerInputFormat`), so the
+        // Float32 dictation samples always convert, even at the same rate.
+        converter = AVAudioConverter(from: AudioEngine.whisperFormat, to: format)
     }
 
     func next() async throws -> AnalyzerInput? {
-        guard !ended else { return nil }
-        // A single analyzer owns this iterator; move it out across the suspension.
-        var currentIterator = iterator
-        let samples = try await currentIterator.next()
-        iterator = currentIterator
-        try Task.checkCancellation()
-        if samples == nil { ended = true }
-        if let samples, samples.isEmpty { return try await next() }
+        guard !drained else { return nil }
+        var samples: [Float]?
+        if !ended {
+            // A single analyzer owns this iterator; move it out across the suspension.
+            var currentIterator = iterator
+            samples = try await currentIterator.next()
+            iterator = currentIterator
+            try Task.checkCancellation()
+            if samples == nil { ended = true }
+            if let samples, samples.isEmpty { return try await next() }
+        }
         let count = samples?.count ?? 0
         sampleCount += count
         var input: AVAudioPCMBuffer?
@@ -301,10 +326,7 @@ actor SpeechInputCursor {
             }
             input = buffer
         }
-        guard let converter else {
-            guard format == AudioEngine.whisperFormat else { throw AppleSpeechError.audioFormatUnavailable }
-            return input.map { AnalyzerInput(buffer: $0) }
-        }
+        guard let converter else { throw AppleSpeechError.audioFormatUnavailable }
         let capacity = AVAudioFrameCount(ceil(Double(max(1, count)) * format.sampleRate / 16_000) + 1024)
         guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
             throw AppleSpeechError.audioFormatUnavailable
@@ -318,7 +340,9 @@ actor SpeechInputCursor {
         PerformanceTrace.end(interval)
         if let error { throw error }
         guard status != .error else { throw AppleSpeechError.audioFormatUnavailable }
-        if output.frameLength == 0 { return ended ? nil : try await next() }
+        // At EOF one call can return only part of what the converter holds.
+        if status == .endOfStream || (ended && output.frameLength == 0) { drained = true }
+        if output.frameLength == 0 { return drained ? nil : try await next() }
         return AnalyzerInput(buffer: output)
     }
 }

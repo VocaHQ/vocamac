@@ -26,7 +26,7 @@ The marketing site is Hugo in `web/`, deployed to GitHub Pages at [vocamac.com](
 | License | AGPL-3.0 |
 | Minimum OS | macOS 14 Sonoma; **Apple Silicon only** (`arm64`) |
 | Build | Swift Package Manager; `.app` bundles via `scripts/build.sh` (`xcodebuild`) |
-| CI | GitHub Actions (`.github/workflows/ci.yml`): app on `macos-15` + Xcode 26; site on Ubuntu |
+| CI | GitHub Actions (`.github/workflows/ci.yml`): app on `macos-15` + Xcode 26, plus a non-blocking macOS 27 + Xcode 27 test job; site on Ubuntu |
 | Website | Hugo 0.165.0 extended; deploy via `.github/workflows/deploy-website.yml` |
 
 ---

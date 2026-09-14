@@ -2,7 +2,8 @@
 // VocaMac
 //
 // Rewrites dictated English number words as digits. Ported from the VocaPhone
-// clients, which are expected to produce the same text for the same transcript.
+// clients, which are expected to produce the same text for the same transcript;
+// the one deliberate difference is `isOrdinalSecond`.
 
 import Foundation
 
@@ -61,8 +62,8 @@ enum SpokenNumbers {
     /// not write: "the twenty first" must not become "the 20 first".
     ///
     /// "second" is deliberately absent. It is an ordinal far less often than it
-    /// is a unit of time, and blocking on it would cost "a five second delay"
-    /// to save "the twenty second of June".
+    /// is a unit of time, so `isOrdinalSecond` decides it from context:
+    /// "a five second delay" converts, "the twenty second of June" does not.
     static let ordinalWords: Set<String> = [
         "first", "third", "fourth", "fifth", "sixth", "seventh", "eighth",
         "ninth", "tenth", "eleventh", "twelfth", "thirteenth", "fourteenth",
@@ -120,7 +121,7 @@ enum SpokenNumbers {
 
             guard !tokens.isEmpty,
                   let phrase = parse(tokens),
-                  isWorthConverting(tokens: tokens, endingAt: last, in: words, text: string)
+                  isWorthConverting(tokens: tokens, startingAt: index, endingAt: last, in: words, text: string)
             else {
                 // Left exactly as dictated — including a run that did not parse,
                 // which stays whole rather than being picked apart into the
@@ -146,6 +147,7 @@ enum SpokenNumbers {
     /// ordinal after the number, and a lone "one".
     private static func isWorthConverting(
         tokens: [Token],
+        startingAt first: Int,
         endingAt last: Int,
         in words: [NSTextCheckingResult],
         text: NSString
@@ -168,6 +170,9 @@ enum SpokenNumbers {
         {
             return false
         }
+        if isOrdinalSecond(tokens: tokens, startingAt: first, endingAt: last, in: words, text: text) {
+            return false
+        }
 
         // A lone "one" needs a unit after it to read as a quantity. Everything
         // else that parsed is a number the user said out loud.
@@ -177,6 +182,71 @@ enum SpokenNumbers {
         return quantifyingUnits.contains(following.word)
     }
 
+    /// Whether the "second" after this number makes it an ordinal ("the twenty
+    /// second of June") rather than a duration ("a twenty second delay").
+    ///
+    /// Only a number ending in "twenty"–"ninety", "hundred", or a scale can
+    /// form an ordinal with "second", so "a five second delay" never gets
+    /// here. For those, a duration is an adjective and needs a noun after it;
+    /// an ordinal follows a month or a possessive, ends the clause, or runs
+    /// into a preposition, conjunction, or pronoun. "the forty second floor"
+    /// stays ambiguous and converts, as a duration would.
+    ///
+    /// VocaPhone treats every "second" as a unit, so this is the one place the
+    /// Mac keeps more words than the phone does.
+    private static func isOrdinalSecond(
+        tokens: [Token],
+        startingAt first: Int,
+        endingAt last: Int,
+        in words: [NSTextCheckingResult],
+        text: NSString
+    ) -> Bool {
+        switch tokens.last {
+        case .tens, .hundred, .scale: break
+        default: return false
+        }
+        let second = last + 1
+        guard second < words.count,
+              text.substring(with: words[second].range).lowercased() == "second",
+              isJoiner(gapAfter: last, in: words, text: text)
+        else { return false }
+
+        if first > 0, gap(after: first - 1, in: words, text: text) == " ",
+           ordinalLeaders.contains(text.substring(with: words[first - 1].range).lowercased()) {
+            return true
+        }
+        guard second + 1 < words.count, gap(after: second, in: words, text: text) == " " else {
+            // Nothing after it, or punctuation: "on June twenty second."
+            return true
+        }
+        return ordinalFollowers.contains(text.substring(with: words[second + 1].range).lowercased())
+    }
+
+    /// Words before a number that make a following "second" an ordinal:
+    /// "June twenty second", "his thirty second birthday".
+    private static let ordinalLeaders: Set<String> = [
+        "january", "february", "march", "april", "may", "june", "july",
+        "august", "september", "october", "november", "december",
+        "my", "your", "his", "her", "its", "our", "their",
+    ]
+
+    /// Words a duration adjective can't describe, so "second" before one is
+    /// an ordinal: "the twenty second of June", "on the thirty second we
+    /// launch".
+    private static let ordinalFollowers: Set<String> = [
+        "of", "at", "in", "on", "by", "for", "from", "to", "through", "until",
+        "and", "or", "but", "so", "then",
+        "i", "we", "you", "he", "she", "they", "it", "is", "was", "will",
+    ]
+
+    /// The text between word `index` and the next one.
+    private static func gap(after index: Int, in words: [NSTextCheckingResult], text: NSString) -> String {
+        text.substring(with: NSRange(
+            location: words[index].range.upperBound,
+            length: words[index + 1].range.location - words[index].range.upperBound
+        ))
+    }
+
     /// What may sit between two words of one number: a single space, or the
     /// hyphen of "twenty-three".
     private static func isJoiner(
@@ -184,11 +254,8 @@ enum SpokenNumbers {
         in words: [NSTextCheckingResult],
         text: NSString
     ) -> Bool {
-        let gap = text.substring(with: NSRange(
-            location: words[index].range.upperBound,
-            length: words[index + 1].range.location - words[index].range.upperBound
-        ))
-        return gap == " " || gap == "-" || gap == "‑"
+        let separator = gap(after: index, in: words, text: text)
+        return separator == " " || separator == "-" || separator == "‑"
     }
 
     // MARK: - Grammar

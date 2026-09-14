@@ -509,6 +509,13 @@ Emoji names must stand on their own: "great news, party emoji" converts, but
 "emoji" has to be one name. Numbers said one after another ("one two three")
 and a lone "one" without a unit stay as words.
 
+One deliberate difference from VocaPhone: "second" after "twenty"–"ninety",
+"hundred", or a scale word stays an ordinal when no duration can be meant —
+after a month or possessive, at the end of a clause, or before a preposition,
+conjunction, or pronoun ("the twenty second of June"). "a twenty second
+delay" still becomes "a 20 second delay". VocaPhone treats every "second" as a
+unit.
+
 Both run inside `DictationOutputPipeline` after snippets are masked (so a
 snippet trigger wins) and before styles and cleanup, emoji first. Each glyph is
 added to the snippet mask, and digits are already protected tokens, so the

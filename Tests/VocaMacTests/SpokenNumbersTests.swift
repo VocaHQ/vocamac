@@ -116,6 +116,32 @@ final class SpokenNumbersTests: XCTestCase {
     func testSecondIsTreatedAsAUnitRatherThanAnOrdinal() {
         XCTAssertEqual(converted("a five second delay"), "a 5 second delay")
         XCTAssertEqual(converted("one second please"), "1 second please")
+        XCTAssertEqual(converted("a twenty second delay"), "a 20 second delay")
+        XCTAssertEqual(converted("a ninety second clip, then a break"), "a 90 second clip, then a break")
+        XCTAssertEqual(converted("wait twenty seconds"), "wait 20 seconds")
+        XCTAssertEqual(converted("twelve second timer"), "12 second timer")
+    }
+
+    /// ...but after a number that can form one, "second" is an ordinal where
+    /// no duration could be meant: a date, a rank, the end of a clause.
+    func testSecondIsAnOrdinalWhereADurationCannotBe() {
+        for sentence in [
+            "the twenty second of June",
+            "on June twenty second",
+            "June twenty-second at noon",
+            "on the thirty second, we launch",
+            "on the thirty second we launch",
+            "his forty second birthday",
+            "from the twenty second to the twenty fifth",
+            "our one hundred second meeting",
+        ] {
+            XCTAssertEqual(converted(sentence), sentence)
+        }
+        XCTAssertEqual(
+            converted("a thirty second video of the twenty second"),
+            "a 30 second video of the twenty second"
+        )
+        XCTAssertEqual(converted("five days after the twenty second."), "5 days after the twenty second.")
     }
 
     func testConnectingWordsAreNotNumbersOnTheirOwn() {

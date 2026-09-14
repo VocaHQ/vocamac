@@ -27,6 +27,8 @@ release:
 
 ## Run tests
 test:
+	@swift package resolve
+	@./scripts/fix-onnxruntime-framework-links.sh
 	@swift test
 
 ## Remove build artifacts

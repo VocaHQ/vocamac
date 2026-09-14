@@ -28,9 +28,14 @@ let package = Package(
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
         // Pin the release and its matching binary xcframework for reproducible builds.
+        // Do not go below 1.13.8: earlier Canary decoders return an empty
+        // transcript whenever end-of-transcript wins the first token. On long
+        // recordings that silently drops whole ~20s segments, and the
+        // reframing retries in SherpaService do not recover them
+        // (k2-fsa/sherpa-onnx#3919).
         .package(
             url: "https://github.com/k2-fsa/sherpa-onnx",
-            exact: "1.13.7"
+            exact: "1.13.8"
         ),
         // LLM.swift — llama.cpp GGUF runtime for optional on-device transcript cleanup.
         // Pin the exact release: the package is pre-1.0 in spirit (it re-vendors

@@ -120,6 +120,10 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("a ninety second clip, then a break"), "a 90 second clip, then a break")
         XCTAssertEqual(converted("wait twenty seconds"), "wait 20 seconds")
         XCTAssertEqual(converted("twelve second timer"), "12 second timer")
+        // Punctuation between two adjectives doesn't make it an ordinal.
+        XCTAssertEqual(converted("a twenty second, high-quality clip"), "a 20 second, high-quality clip")
+        XCTAssertEqual(converted("the twenty second, silent intro"), "the 20 second, silent intro")
+        XCTAssertEqual(converted("a twenty second to thirty second window"), "a 20 second to 30 second window")
     }
 
     /// ...but after a number that can form one, "second" is an ordinal where
@@ -134,6 +138,8 @@ final class SpokenNumbersTests: XCTestCase {
             "his forty second birthday",
             "from the twenty second to the twenty fifth",
             "our one hundred second meeting",
+            "we left on the twenty second. Then it rained",
+            "the twenty second;\nthe twenty third",
         ] {
             XCTAssertEqual(converted(sentence), sentence)
         }

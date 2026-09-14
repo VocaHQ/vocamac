@@ -187,10 +187,11 @@ enum SpokenNumbers {
     ///
     /// Only a number ending in "twenty"–"ninety", "hundred", or a scale can
     /// form an ordinal with "second", so "a five second delay" never gets
-    /// here. For those, a duration is an adjective and needs a noun after it;
-    /// an ordinal follows a month or a possessive, ends the clause, or runs
-    /// into a preposition, conjunction, or pronoun. "the forty second floor"
-    /// stays ambiguous and converts, as a duration would.
+    /// here. For those, a duration is an adjective: it follows "a" and needs a
+    /// noun after it, perhaps past a comma ("a twenty second, high-quality
+    /// clip"). An ordinal follows a month or a possessive, ends the sentence,
+    /// or runs into a preposition, conjunction, or pronoun. "the forty second
+    /// floor" stays ambiguous and converts, as a duration would.
     ///
     /// VocaPhone treats every "second" as a unit, so this is the one place the
     /// Mac keeps more words than the phone does.
@@ -211,14 +212,16 @@ enum SpokenNumbers {
               isJoiner(gapAfter: last, in: words, text: text)
         else { return false }
 
-        if first > 0, gap(after: first - 1, in: words, text: text) == " ",
-           ordinalLeaders.contains(text.substring(with: words[first - 1].range).lowercased()) {
-            return true
+        if first > 0, gap(after: first - 1, in: words, text: text) == " " {
+            let before = text.substring(with: words[first - 1].range).lowercased()
+            if before == "a" || before == "an" { return false }
+            if ordinalLeaders.contains(before) { return true }
         }
-        guard second + 1 < words.count, gap(after: second, in: words, text: text) == " " else {
-            // Nothing after it, or punctuation: "on June twenty second."
-            return true
-        }
+        // A duration adjective can't end the text or a sentence: "on the
+        // twenty second." Past a comma, the next word still decides.
+        guard second + 1 < words.count else { return true }
+        let separator = gap(after: second, in: words, text: text)
+        if separator.contains(where: { ".!?;:".contains($0) || $0.isNewline }) { return true }
         return ordinalFollowers.contains(text.substring(with: words[second + 1].range).lowercased())
     }
 

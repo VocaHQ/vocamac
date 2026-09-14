@@ -511,9 +511,10 @@ and a lone "one" without a unit stay as words.
 
 One deliberate difference from VocaPhone: "second" after "twenty"–"ninety",
 "hundred", or a scale word stays an ordinal when no duration can be meant —
-after a month or possessive, at the end of a clause, or before a preposition,
-conjunction, or pronoun ("the twenty second of June"). "a twenty second
-delay" still becomes "a 20 second delay". VocaPhone treats every "second" as a
+after a month or possessive, at the end of a sentence, or before a
+preposition, conjunction, or pronoun ("the twenty second of June"). After "a",
+or before a noun even past a comma, it is a duration: "a twenty second,
+high-quality clip" becomes "a 20 second, high-quality clip". VocaPhone treats every "second" as a
 unit.
 
 Both run inside `DictationOutputPipeline` after snippets are masked (so a

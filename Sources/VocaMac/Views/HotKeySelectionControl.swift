@@ -54,14 +54,8 @@ struct HotKeySelectionControl: View {
                 Menu {
                     ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
                         let combo = HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers)
-                        Button {
+                        VocaMenuChoice(title: hotKey.name, isSelected: combo == currentCombo) {
                             comboBinding.wrappedValue = combo
-                        } label: {
-                            if combo == currentCombo {
-                                Label(hotKey.name, systemImage: "checkmark")
-                            } else {
-                                Text(hotKey.name)
-                            }
                         }
                     }
                 } label: {

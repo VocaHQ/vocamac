@@ -338,3 +338,20 @@ struct VocaDisclosureCard<Content: View>: View {
         .vocaCard()
     }
 }
+
+/// One choice in a pull-down `Menu`, checked when it is the current value.
+///
+/// A `Toggle` becomes a menu item with its state set, so the menu draws the
+/// checkmark itself. A `checkmark` symbol image does not survive: macOS 27
+/// hides symbol images in menus for apps built on the macOS 26 SDK and later,
+/// which left no sign of the current choice.
+struct VocaMenuChoice: View {
+    let title: String
+    let isSelected: Bool
+    let select: () -> Void
+
+    var body: some View {
+        // Choosing the checked item selects it again, as the plain buttons did.
+        Toggle(title, isOn: Binding(get: { isSelected }, set: { _ in select() }))
+    }
+}

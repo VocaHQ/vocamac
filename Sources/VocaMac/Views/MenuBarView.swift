@@ -240,15 +240,12 @@ struct MenuBarView: View {
 
             Menu {
                 ForEach(WritingStyle.allCases) { style in
-                    Button {
+                    VocaMenuChoice(
+                        title: style.displayName,
+                        isSelected: style == appState.activeWritingStyle.style
+                    ) {
                         bindNotice = appState.bindFrontmostApp(to: style)
                             .map { "\(style.displayName) for \($0)" }
-                    } label: {
-                        if style == appState.activeWritingStyle.style {
-                            Label(style.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(style.displayName)
-                        }
                     }
                 }
 
@@ -533,10 +530,8 @@ struct MenuBarView: View {
             }
 
             Menu {
-                Button {
+                VocaMenuChoice(title: "System Default", isSelected: appState.selectedAudioDeviceID.isEmpty) {
                     appState.selectAudioDevice(nil)
-                } label: {
-                    microphoneMenuItem("System Default", isSelected: appState.selectedAudioDeviceID.isEmpty)
                 }
 
                 if selectedAudioDeviceIsUnavailable {
@@ -549,10 +544,8 @@ struct MenuBarView: View {
                 }
 
                 ForEach(audioDevices) { device in
-                    Button {
+                    VocaMenuChoice(title: device.name, isSelected: appState.selectedAudioDeviceID == device.id) {
                         appState.selectAudioDevice(device)
-                    } label: {
-                        microphoneMenuItem(device.name, isSelected: appState.selectedAudioDeviceID == device.id)
                     }
                 }
 
@@ -599,18 +592,6 @@ struct MenuBarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .vocaAudioDevicesChanged)) { _ in
             refreshAudioDevices()
-        }
-    }
-
-    /// Renders a checkmarked microphone option inside the tray menu.
-    @ViewBuilder
-    private func microphoneMenuItem(_ name: String, isSelected: Bool) -> some View {
-        HStack {
-            Text(name)
-            Spacer()
-            if isSelected {
-                Image(systemName: "checkmark")
-            }
         }
     }
 

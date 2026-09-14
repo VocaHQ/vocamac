@@ -26,7 +26,9 @@ final class SettingsWindowManager: ObservableObject {
 
     func open(appState: AppState) {
         // If window already exists, just bring it to front
-        if let window = settingsWindow, window.isVisible {
+        if let window = settingsWindow {
+            restoreUsableFrame(window)
+            if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -52,8 +54,13 @@ final class SettingsWindowManager: ObservableObject {
         hostingController.sizingOptions = []
         window.contentViewController = hostingController
         window.contentMinSize = NSSize(width: 760, height: 580)
+        // With automatic hosting sizing disabled, attaching the controller
+        // can collapse the initial window to its 1-point intrinsic width.
+        // Establish the default again before applying a saved frame.
+        window.setContentSize(NSSize(width: 860, height: 620))
         window.autorecalculatesKeyViewLoop = true
         if !window.setFrameUsingName("VocaMac.Settings") { window.center() }
+        restoreUsableFrame(window)
         window.setFrameAutosaveName("VocaMac.Settings")
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
@@ -81,6 +88,16 @@ final class SettingsWindowManager: ObservableObject {
                 }
                 DockVisibilityCoordinator.shared.windowDidClose()
             }
+        }
+    }
+
+    /// Reject collapsed or off-screen frames left by hosting layout or an
+    /// earlier display configuration before making the window visible.
+    private func restoreUsableFrame(_ window: NSWindow) {
+        let screens = NSScreen.screens.map(\.visibleFrame)
+        if SettingsWindowGeometry.needsReset(window.frame, screens: screens) {
+            window.setContentSize(NSSize(width: 860, height: 620))
+            window.center()
         }
     }
 }

@@ -2847,7 +2847,7 @@ final class AppState: ObservableObject {
         // actually resident. A load refused for memory would otherwise point
         // the preference at a model that never loads, while the previously
         // working one stays in RAM unselected.
-        guard transcriptCleanup.isLoaded else { return }
+        guard transcriptCleanup.loadedKind == kind else { return }
         transcriptCleanupModel = kind.rawValue
     }
 

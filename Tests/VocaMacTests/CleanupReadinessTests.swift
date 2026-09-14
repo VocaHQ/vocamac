@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class CleanupReadinessTests: XCTestCase {
+    func testRefusedRecoveryKeepsSelectionOfResidentModel() async {
+        let cleanup = MockTranscriptCleanup()
+        let (state, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        let original = CleanupModelKind.qwen3_4b_instruct_2507_q4_k_m
+        await state.loadCleanupModel(original)
+        cleanup.modelState = .error("Repeated cleanup failures")
+        cleanup.loadSucceeds = false
+        await state.loadCleanupModel(.qwen25_0_5b_q4_k_m)
+        XCTAssertEqual(cleanup.loadedKind, original)
+        XCTAssertEqual(state.selectedCleanupModelKind, original)
+    }
+
     func testOptionalCleanupFailureDoesNotChangeDictationStatus() {
         let cleanup = MockTranscriptCleanup()
         let (state, _) = AppState.makeTestState(transcriptCleanup: cleanup)

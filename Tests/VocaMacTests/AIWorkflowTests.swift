@@ -132,6 +132,10 @@ final class AIConfigurationTests: XCTestCase {
         // serve both; the compact cleanup models cannot run edits.
         XCTAssertEqual(CleanupModelKind.cleanupChoices, CleanupModelKind.allCases)
         XCTAssertEqual(CleanupModelKind.allCases.filter(\.isShared), CleanupModelKind.commandModeChoices)
+        XCTAssertEqual(
+            CleanupModelKind.allCases.filter(\.isSlowForCleanup),
+            [.ministral3_3b_q4_k_m, .qwen3_4b_instruct_2507_q4_k_m, .qwen25_7b_q4_k_m]
+        )
     }
 
     func testEndpointAndWebsiteRulesRoundTrip() {

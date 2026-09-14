@@ -183,8 +183,8 @@ enum SettingsSearchIndex {
             id: "cleanup-model",
             page: .cleanup,
             title: "Cleanup Model",
-            subtitle: "Download Qwen for on-device cleanup",
-            keywords: ["qwen", "model", "download", "0.5b", "0.6b", "gguf"]
+            subtitle: "Download a model for on-device cleanup",
+            keywords: ["qwen", "ministral", "model", "download", "0.5b", "0.6b", "3b", "gguf"]
         ),
         SettingsSearchEntry(
             id: "command-mode-clipboard",
@@ -197,8 +197,8 @@ enum SettingsSearchIndex {
             id: "command-mode-model",
             page: .cleanup,
             title: "Command Mode Model",
-            subtitle: "Apple Intelligence, Qwen 1.5B, 4B, or 7B for editing selected text",
-            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "4b", "7b", "selection"]
+            subtitle: "Apple Intelligence, Qwen, or Ministral for editing selected text",
+            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "ministral", "3b", "4b", "7b", "selection"]
         ),
         SettingsSearchEntry(
             id: "cleanup-level",

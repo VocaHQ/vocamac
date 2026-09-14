@@ -142,6 +142,22 @@ jobs:
       - name: Test
         run: swift test
 
+      # A trap in the test process logs only "unexpected signal code 5"; the
+      # crash report names the frame that trapped and why.
+      - name: Show test crash reports
+        if: failure()
+        run: |
+          for _ in $(seq 1 20); do
+            ls ~/Library/Logs/DiagnosticReports/xctest*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          for report in ~/Library/Logs/DiagnosticReports/xctest*.ips; do
+            [ -f "$report" ] || continue
+            echo "::group::$report"
+            cat "$report"
+            echo "::endgroup::"
+          done
+
   app-bundle:
     name: Verify App Bundle
     needs: changes

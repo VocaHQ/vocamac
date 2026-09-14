@@ -184,7 +184,7 @@ enum SettingsSearchIndex {
             page: .cleanup,
             title: "Cleanup Model",
             subtitle: "Download a model for on-device cleanup",
-            keywords: ["qwen", "ministral", "model", "download", "0.5b", "0.6b", "3b", "gguf"]
+            keywords: ["qwen", "ministral", "model", "download", "recommended", "0.5b", "0.6b", "3b", "gguf"]
         ),
         SettingsSearchEntry(
             id: "command-mode-clipboard",

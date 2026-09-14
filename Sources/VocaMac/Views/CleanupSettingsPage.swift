@@ -130,6 +130,7 @@ struct CleanupSettingsPage: View {
 
             if appState.cleanupEndpoint.isLocal {
                 VocaSettingsGroup("Cleanup Model") {
+                    CleanupSuggestionBanner(suggestion: appState.cleanupModelSuggestion)
                     if let shared = appState.commandModelAvailableForCleanup {
                         ShareCommandModelBanner(kind: shared)
                     }
@@ -409,6 +410,7 @@ struct CleanupModelRow: View {
     private var descriptor: CleanupModelDescriptor { kind.descriptor }
     private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
     private var isSelected: Bool { appState.selectedCleanupModelKind == kind }
+    private var isSuggested: Bool { appState.cleanupModelSuggestion.cleanup == kind }
     /// Selected for cleanup and actually resident — Command Mode may have
     /// borrowed the model slot for a larger model.
     private var isActive: Bool {
@@ -437,13 +439,19 @@ struct CleanupModelRow: View {
                         .font(.callout)
                         .fontWeight(isSelected ? .semibold : .regular)
 
-                    Text(descriptor.recommendation.badge)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 1)
-                        .background(badgeColor.opacity(0.2))
-                        .foregroundStyle(badgeColor)
-                        .cornerRadius(4)
+                    // Recommended for this Mac replaces the model's general
+                    // positioning, as the speech model list does.
+                    if isSuggested {
+                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
+                    } else {
+                        Text(descriptor.recommendation.badge)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 1)
+                            .background(badgeColor.opacity(0.2))
+                            .foregroundStyle(badgeColor)
+                            .cornerRadius(4)
+                    }
 
                     if kind.isShared {
                         SharedModelBadge(title: "Cleanup + Command Mode")
@@ -555,11 +563,11 @@ struct CleanupModelRow: View {
         return appState.commandModeEngine == .local(kind) ? base + " Command Mode uses this model too." : base
     }
 
+    /// Neutral, so the accent stays with Recommended for this Mac.
     private var badgeColor: Color {
         switch descriptor.recommendation {
         case .compact: return .secondary
-        case .recommended: return VocaDesign.accent
-        case .quality: return .primary
+        case .allRound, .quality: return .primary
         }
     }
 }
@@ -687,6 +695,9 @@ private struct CommandLocalModelRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(descriptor.displayName).font(.callout)
+                    if appState.cleanupModelSuggestion.commandMode == kind {
+                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
+                    }
                     if kind.isShared {
                         SharedModelBadge(title: "Cleanup + Command Mode")
                     }
@@ -835,6 +846,43 @@ private struct CommandModeExamples: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Example instructions: " + Self.phrases.joined(separator: ", "))
+    }
+}
+
+/// Which cleanup model suits this Mac, mirroring the speech model page.
+private struct CleanupSuggestionBanner: View {
+    let suggestion: CleanupModelSuggestion
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(VocaDesign.accent)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Recommended for your Mac: **\(suggestion.cleanup.descriptor.displayName)**")
+                    .font(.callout)
+                Text(suggestion.reason)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct RecommendedBadge: View {
+    let reason: String
+
+    var body: some View {
+        Text("Recommended")
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(VocaDesign.accent.opacity(0.12))
+            .foregroundStyle(VocaDesign.accent)
+            .cornerRadius(4)
+            .help("Recommended for your Mac. \(reason)")
     }
 }
 

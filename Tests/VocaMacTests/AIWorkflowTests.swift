@@ -988,6 +988,20 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertNil(app.commandModelAvailableForCleanup)
     }
 
+    func testCleanupSuggestionUsesTheDetectedMemory() {
+        let (app, _) = AppState.makeTestState()
+        app.systemCapabilities = SystemCapabilities(
+            isAppleSilicon: true, physicalMemoryGB: 8, processorName: "Apple M2",
+            coreCount: 8, supportsMetalAcceleration: true, recommendedModel: .base
+        )
+        XCTAssertEqual(app.cleanupModelSuggestion, CleanupModelCatalog.suggestion(memoryGB: 8))
+        app.systemCapabilities = SystemCapabilities(
+            isAppleSilicon: true, physicalMemoryGB: 32, processorName: "Apple M3 Max",
+            coreCount: 14, supportsMetalAcceleration: true, recommendedModel: .largeV3Latest
+        )
+        XCTAssertEqual(app.cleanupModelSuggestion.cleanup, .ministral3_3b_q4_k_m)
+    }
+
     func testSharedModelStaysLoadedAfterCommandMode() async {
         let selection = MockSelectedTextService()
         selection.selectedText = "Some text."

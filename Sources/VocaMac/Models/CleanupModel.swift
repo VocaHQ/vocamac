@@ -51,19 +51,28 @@ struct CleanupAttempt: Equatable {
     }
 }
 
-/// How a cleanup model is positioned in the picker.
+/// How a cleanup model is positioned in the picker. Which model is
+/// recommended depends on the Mac — see `CleanupModelCatalog.suggestion`.
 enum CleanupModelRecommendation: Equatable {
     case compact
-    case recommended
+    case allRound
     case quality
 
     var badge: String {
         switch self {
         case .compact: return "Compact"
-        case .recommended: return "Recommended"
+        case .allRound: return "All-round"
         case .quality: return "Higher quality"
         }
     }
+}
+
+/// The on-device models suggested for one Mac.
+struct CleanupModelSuggestion: Equatable {
+    let cleanup: CleanupModelKind
+    let commandMode: CleanupModelKind
+    /// One sentence for Settings on why these suit this Mac, true of both.
+    let reason: String
 }
 
 /// Identifiers persisted in `PreferenceKey.transcriptCleanupModel`.
@@ -163,7 +172,7 @@ enum CleanupModelCatalog {
         maxTokenCount: 4096,
         ramRequiredGB: 0.9,
         generationTokensPerSecond: 100,
-        recommendation: .recommended
+        recommendation: .allRound
     )
 
     static let compact = CleanupModelDescriptor(
@@ -264,6 +273,35 @@ enum CleanupModelCatalog {
     static let all: [CleanupModelDescriptor] = [
         recommended, compact, quality, commandCompact, commandBalanced, commandLarge,
     ]
+
+    /// Macs with at least this much memory are suggested one model for both
+    /// cleanup and Command Mode.
+    static let sharedModelMemoryGB = 16
+
+    /// Models suggested for a Mac with `memoryGB` of installed memory — the
+    /// same input the speech-model fallback uses.
+    ///
+    /// Below 16 GB a cleanup model shares memory with the speech model and
+    /// every open app, so cleanup gets the 0.5B model and Command Mode the
+    /// smallest model that follows edits. From 16 GB Ministral 3 3B serves
+    /// both: it cleaned up best of the models measured and was within a probe
+    /// of Qwen 3 4B on edits, and a single shared model never swaps in and out
+    /// around an edit. The larger Command Mode models are not suggested:
+    /// running a different model for edits brings that swapping back.
+    static func suggestion(memoryGB: Int) -> CleanupModelSuggestion {
+        guard memoryGB >= sharedModelMemoryGB else {
+            return CleanupModelSuggestion(
+                cleanup: .qwen25_0_5b_q4_k_m,
+                commandMode: .qwen25_1_5b_q4_k_m,
+                reason: "With \(memoryGB) GB of memory, small models leave room for speech recognition and your apps."
+            )
+        }
+        return CleanupModelSuggestion(
+            cleanup: .ministral3_3b_q4_k_m,
+            commandMode: .ministral3_3b_q4_k_m,
+            reason: "With \(memoryGB) GB of memory, one model can stay loaded for both cleanup and Command Mode."
+        )
+    }
 
     static func descriptor(for kind: CleanupModelKind) -> CleanupModelDescriptor {
         all.first { $0.kind == kind } ?? recommended

@@ -2702,6 +2702,13 @@ final class AppState: ObservableObject {
         await loadCleanupModel(kind)
     }
 
+    /// Cleanup and Command Mode models suggested for this Mac's memory.
+    var cleanupModelSuggestion: CleanupModelSuggestion {
+        CleanupModelCatalog.suggestion(
+            memoryGB: systemCapabilities?.physicalMemoryGB ?? SystemInfo.physicalMemoryGB
+        )
+    }
+
     var effectiveCleanupPrompt: String {
         let stored = transcriptCleanupPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         return stored.isEmpty ? TranscriptCleanup.defaultPrompt : stored

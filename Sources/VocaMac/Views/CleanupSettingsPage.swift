@@ -130,6 +130,9 @@ struct CleanupSettingsPage: View {
 
             if appState.cleanupEndpoint.isLocal {
                 VocaSettingsGroup("Cleanup Model") {
+                    if let shared = appState.commandModelAvailableForCleanup {
+                        ShareCommandModelBanner(kind: shared)
+                    }
                     ForEach(CleanupModelKind.cleanupChoices) { kind in
                         CleanupModelRow(kind: kind)
                         if kind != CleanupModelKind.cleanupChoices.last { Divider() }
@@ -541,9 +544,10 @@ struct CleanupModelRow: View {
     /// using this very download.
     private var sharedUseNote: String? {
         guard kind.isShared else { return nil }
+        let slower = kind.isSlowForCleanup ? " Slower after each dictation than the smaller models." : ""
         return appState.commandModeEngine == .local(kind)
-            ? "Also your Command Mode model — one download serves both."
-            : "Can also run Command Mode — one download serves both."
+            ? "Also your Command Mode model — one download and one model in memory serve both." + slower
+            : "Can also run Command Mode — one download serves both." + slower
     }
 
     private var deleteMessage: String {
@@ -831,6 +835,38 @@ private struct CommandModeExamples: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Example instructions: " + Self.phrases.joined(separator: ", "))
+    }
+}
+
+/// Offers to run cleanup with the Command Mode model, so the two features
+/// stop swapping different models in and out of memory around every edit.
+private struct ShareCommandModelBanner: View {
+    @EnvironmentObject var appState: AppState
+    let kind: CleanupModelKind
+    @State private var isSwitching = false
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "square.on.square")
+                .foregroundStyle(VocaDesign.command)
+            Text("Command Mode uses \(kind.descriptor.displayName). Use it for cleanup too, so one model stays loaded instead of two swapping.")
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            if isSwitching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Use for Cleanup") {
+                    isSwitching = true
+                    Task { @MainActor in
+                        await appState.useCommandModelForCleanup()
+                        isSwitching = false
+                    }
+                }
+                .controlSize(.small)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

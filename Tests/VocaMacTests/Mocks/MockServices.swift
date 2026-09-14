@@ -685,7 +685,11 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
         )
     }
 
+    /// Runs inside `clean` before it answers, e.g. to press Escape mid-cleanup.
+    var onClean: (() async -> Void)?
+
     func clean(_ text: String, prompt: String) async -> String {
+        await onClean?()
         cleanCallCount += 1
         lastCleanedText = text
         lastPrompt = prompt
@@ -704,6 +708,11 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
 
     func cancelTransform() {
         cancelTransformCallCount += 1
+    }
+
+    var cancelCleanupCallCount = 0
+    func cancelCleanup() {
+        cancelCleanupCallCount += 1
     }
 
     func preview(_ text: String, prompt: String) async -> CleanupAttempt {

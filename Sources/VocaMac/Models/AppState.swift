@@ -2111,6 +2111,7 @@ final class AppState: ObservableObject {
         guard isTranscribing else { return }
         recordingGeneration = UUID()
         finishingTranscription?.cancel()
+        transcriptCleanup.cancelCleanup()
         resetCommandModeState()
         liveTranscript = ""
         isTranscribing = false
@@ -2678,13 +2679,27 @@ final class AppState: ObservableObject {
     }
 
     var selectedCleanupModelKind: CleanupModelKind {
-        get {
-            // The larger Command Mode models are too slow to run after every
-            // dictation; an imported or stale preference naming one falls back.
-            let kind = CleanupModelKind.resolved(stored: transcriptCleanupModel)
-            return CleanupModelKind.cleanupChoices.contains(kind) ? kind : .defaultKind
-        }
+        get { CleanupModelKind.resolved(stored: transcriptCleanupModel) }
         set { transcriptCleanupModel = newValue.rawValue }
+    }
+
+    /// The downloaded on-device Command Mode model, when cleanup is on and
+    /// runs a different local model. Both share one model slot, so two
+    /// different models swap in and out around every edit; pointing cleanup
+    /// at the Command Mode model keeps a single model resident.
+    var commandModelAvailableForCleanup: CleanupModelKind? {
+        guard transcriptCleanupEnabled, cleanupEndpoint.isLocal,
+              case .local(let kind) = commandModeEngine,
+              kind != selectedCleanupModelKind,
+              kind.supportsCleanup,
+              transcriptCleanup.isDownloaded(kind) else { return nil }
+        return kind
+    }
+
+    /// Run dictation cleanup with the Command Mode model.
+    func useCommandModelForCleanup() async {
+        guard let kind = commandModelAvailableForCleanup else { return }
+        await loadCleanupModel(kind)
     }
 
     var effectiveCleanupPrompt: String {

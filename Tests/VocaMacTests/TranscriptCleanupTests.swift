@@ -250,6 +250,25 @@ final class CleanupModelTests: XCTestCase {
         XCTAssertGreaterThan(shipped, 3000)
     }
 
+    func testCleanupDeadlineScalesWithModelSpeedAndLength() {
+        let prompt = TranscriptCleanup.defaultPrompt.count
+        func deadline(_ kind: CleanupModelKind, _ characters: Int) -> TimeInterval {
+            TranscriptCleanup.cleanupDeadline(
+                promptCharacters: prompt, inputCharacters: characters,
+                generationTokensPerSecond: kind.descriptor.generationTokensPerSecond
+            )
+        }
+        // The small cleanup models keep the original ceiling for a normal dictation.
+        XCTAssertEqual(deadline(.qwen25_0_5b_q4_k_m, 900), TranscriptCleanup.minimumCleanupDeadline)
+        // A Command Mode model doing cleanup gets room for a minute of speech.
+        XCTAssertGreaterThan(deadline(.qwen3_4b_instruct_2507_q4_k_m, 900), deadline(.qwen25_1_5b_q4_k_m, 900))
+        XCTAssertGreaterThan(deadline(.qwen25_7b_q4_k_m, 900), deadline(.qwen3_4b_instruct_2507_q4_k_m, 900))
+        XCTAssertGreaterThan(deadline(.qwen25_7b_q4_k_m, 900), 40)
+        XCTAssertGreaterThan(deadline(.qwen25_1_5b_q4_k_m, 3000), deadline(.qwen25_1_5b_q4_k_m, 300))
+        // Never longer than Command Mode's own wait.
+        XCTAssertEqual(deadline(.qwen25_7b_q4_k_m, 20_000), TranscriptCleanup.maximumCleanupDeadline)
+    }
+
     @MainActor
     func testCancelledDownloadStopsReportingProgress() async {
         let directory = FileManager.default.temporaryDirectory

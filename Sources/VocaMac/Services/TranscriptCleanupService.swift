@@ -78,11 +78,6 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         SystemInfo.canFitInMemory(requiredGB: $0.ramRequiredGB)
     }
 
-    /// Hard ceiling on one cleanup pass. The transcript is waiting to be
-    /// pasted, so the deadline hands back the raw text rather than waiting
-    /// for llama.cpp to wind down.
-    private static let timeoutSeconds: TimeInterval = 12
-
     /// Command Mode edits can be as long as the selection and the user is
     /// explicitly waiting for them, so they get a longer ceiling. Escape still
     /// stops one early through `cancelTransform`.
@@ -91,6 +86,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// Set while a Command Mode transform owns the model, so a cancel only
     /// stops that generation and never a dictation's cleanup.
     private var transformInProgress = false
+
+    /// Set by `cancelCleanup` so a stopped pass is not counted as a failure.
+    private var cleanupCancelled = false
 
     /// How long a straggler from a previous deadline gets to finish before
     /// this utterance gives up on cleanup entirely.
@@ -134,6 +132,15 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         activeLLM?.stop()
     }
 
+    /// Escape on a dictation still being cleaned up. The paste is already
+    /// abandoned, so stop llama.cpp now rather than let a large model run to
+    /// its deadline and make the next dictation skip cleanup waiting for it.
+    func cancelCleanup() {
+        guard attemptInProgress, !transformInProgress else { return }
+        cleanupCancelled = true
+        activeLLM?.stop()
+    }
+
     private func attemptClean(
         _ text: String,
         prompt: String,
@@ -148,6 +155,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             return result(text, .skipped("another rewrite is already running"))
         }
         attemptInProgress = true
+        cleanupCancelled = false
         defer { attemptInProgress = false }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -185,12 +193,25 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
 
         let formatted = TranscriptCleanup.formatInput(trimmed)
+        // The transcript is waiting to be pasted, so the deadline hands back
+        // the raw text rather than waiting for llama.cpp to wind down. It
+        // scales with the model, so a Command Mode model doing cleanup is not
+        // cut off on every long dictation.
+        let timeout = allowsTransform
+            ? Self.transformTimeoutSeconds
+            : TranscriptCleanup.cleanupDeadline(
+                promptCharacters: activePrompt.count, inputCharacters: formatted.count,
+                generationTokensPerSecond: (activeKind ?? .defaultKind).descriptor.generationTokensPerSecond
+            )
 
         do {
             let raw = try await runInference(
-                llm: llm, prompt: activePrompt, input: formatted,
-                timeout: allowsTransform ? Self.transformTimeoutSeconds : Self.timeoutSeconds
+                llm: llm, prompt: activePrompt, input: formatted, timeout: timeout
             )
+            // Stopped mid-sentence: neither usable nor the model's fault.
+            if cleanupCancelled {
+                return result(text, .skipped("cleanup was cancelled"))
+            }
             let accepted = allowsTransform
                 ? TranscriptCleanup.acceptedTransformOutput(raw, original: trimmed)
                 : TranscriptCleanup.acceptedOutput(raw, original: trimmed)
@@ -209,7 +230,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
                 rejectedCandidate: sanitized.isEmpty || sanitized == "..." ? nil : sanitized
             )
         } catch CleanupInferenceError.deadlineExceeded {
-            let limit = Int(allowsTransform ? Self.transformTimeoutSeconds : Self.timeoutSeconds)
+            let limit = Int(timeout)
             if recordingFailures {
                 recordFailure(reason: "did not answer within \(limit)s")
             }

@@ -87,11 +87,11 @@ enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
 
     var id: String { rawValue }
 
-    /// Models listed as dictation cleanup choices. The larger ones are too
-    /// slow to run after every dictation and are offered for Command Mode only.
-    static let cleanupChoices: [CleanupModelKind] = [
-        .qwen25_0_5b_q4_k_m, .qwen3_0_6b_q4_k_m, .qwen25_1_5b_q4_k_m,
-    ]
+    /// Models listed as dictation cleanup choices: every model. Anything that
+    /// can follow editing instructions can also tidy a transcript, so the
+    /// Command Mode model can serve cleanup too and only one model has to be
+    /// downloaded and kept in memory. The larger ones are slower per dictation.
+    static let cleanupChoices: [CleanupModelKind] = allCases
 
     /// Models strong enough to follow spoken editing instructions.
     static let commandModeChoices: [CleanupModelKind] = [
@@ -113,6 +113,8 @@ enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
     var supportsCommandMode: Bool { Self.commandModeChoices.contains(self) }
     /// Listed for both features; one download serves both.
     var isShared: Bool { supportsCleanup && supportsCommandMode }
+    /// Sized for editing rather than for running after every dictation.
+    var isSlowForCleanup: Bool { self == .qwen3_4b_instruct_2507_q4_k_m || self == .qwen25_7b_q4_k_m }
 }
 
 /// One downloadable GGUF used for post-transcription cleanup.
@@ -127,6 +129,10 @@ struct CleanupModelDescriptor: Equatable {
     let expectedByteCount: Int64
     let maxTokenCount: Int32
     let ramRequiredGB: Double
+    /// Conservative generation speed on the slowest supported Mac (a base M1),
+    /// from public llama.cpp Q4_K_M benchmarks. Only used to size the cleanup
+    /// deadline, so erring low costs a longer ceiling, never a result.
+    let generationTokensPerSecond: Double
     let recommendation: CleanupModelRecommendation
 }
 
@@ -152,6 +158,7 @@ enum CleanupModelCatalog {
         expectedByteCount: 491_400_032,
         maxTokenCount: 4096,
         ramRequiredGB: 0.9,
+        generationTokensPerSecond: 100,
         recommendation: .recommended
     )
 
@@ -166,6 +173,7 @@ enum CleanupModelCatalog {
         expectedByteCount: 396_705_472,
         maxTokenCount: 4096,
         ramRequiredGB: 0.8,
+        generationTokensPerSecond: 90,
         recommendation: .compact
     )
 
@@ -182,6 +190,7 @@ enum CleanupModelCatalog {
         expectedByteCount: 1_117_320_736,
         maxTokenCount: 8192,
         ramRequiredGB: 2.2,
+        generationTokensPerSecond: 45,
         recommendation: .quality
     )
 
@@ -199,6 +208,7 @@ enum CleanupModelCatalog {
         expectedByteCount: 2_497_281_120,
         maxTokenCount: 8192,
         ramRequiredGB: 4.0,
+        generationTokensPerSecond: 18,
         recommendation: .quality
     )
 
@@ -215,6 +225,7 @@ enum CleanupModelCatalog {
         expectedByteCount: 4_683_074_240,
         maxTokenCount: 8192,
         ramRequiredGB: 5.6,
+        generationTokensPerSecond: 11,
         recommendation: .quality
     )
 

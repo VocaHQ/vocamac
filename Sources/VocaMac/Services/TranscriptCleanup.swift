@@ -114,6 +114,32 @@ enum TranscriptCleanup {
         return false
     }
 
+    /// Shortest ceiling on one cleanup pass — enough for the small models on
+    /// any dictation that fits their context.
+    static let minimumCleanupDeadline: TimeInterval = 12
+    /// Longest wait before pasting the raw transcript, matching Command Mode.
+    static let maximumCleanupDeadline: TimeInterval = 60
+
+    /// How long a cleanup pass may run before the raw transcript is pasted.
+    ///
+    /// A flat ceiling sized for the 0.5B model threw away nearly every long
+    /// dictation cleaned by a Command Mode model, so the estimate scales with
+    /// the model's speed and the work: reading the prompt and transcript (with
+    /// nothing cached, as after a load) plus writing a rewrite about as long
+    /// as the transcript, with 50% headroom. Prompt reading runs roughly eight
+    /// times faster than generation on Apple Silicon.
+    static func cleanupDeadline(
+        promptCharacters: Int, inputCharacters: Int, generationTokensPerSecond: Double
+    ) -> TimeInterval {
+        let charactersPerToken = 3.0
+        let promptReadingSpeedup = 8.0
+        let readTokens = Double(promptCharacters + inputCharacters) / charactersPerToken
+        let writeTokens = Double(inputCharacters) / charactersPerToken
+        let rate = max(1, generationTokensPerSecond)
+        let estimate = 1.5 * (readTokens / (rate * promptReadingSpeedup) + writeTokens / rate)
+        return min(maximumCleanupDeadline, max(minimumCleanupDeadline, estimate))
+    }
+
     /// How many characters of transcript fit alongside `prompt` in a context
     /// of `maxTokenCount`, leaving room for an answer about as long as the
     /// input. Past this the generation is cut off mid-sentence and the result

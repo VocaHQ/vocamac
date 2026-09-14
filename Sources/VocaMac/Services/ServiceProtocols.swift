@@ -343,6 +343,8 @@ protocol TranscriptCleaning: TextTransforming {
     func clean(_ text: String, prompt: String) async -> String
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt
     func preview(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Stop a dictation cleanup pass in flight; it returns the raw text.
+    func cancelCleanup()
     func availabilityProblem(for kind: CleanupModelKind) -> String?
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
     func pruneUnknownModels()
@@ -356,6 +358,7 @@ protocol TranscriptCleaning: TextTransforming {
 extension TranscriptCleaning {
     var loadedKind: CleanupModelKind? { nil }
     var isOnDevice: Bool { true }
+    func cancelCleanup() {}
 
     func availabilityProblem(for kind: CleanupModelKind) -> String? {
         isDownloaded(kind) ? nil : "download a local cleanup model in Settings"

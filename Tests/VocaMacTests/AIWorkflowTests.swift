@@ -128,9 +128,10 @@ final class AIConfigurationTests: XCTestCase {
             XCTAssertTrue(descriptor.url.absoluteString.contains("/resolve/"))
             XCTAssertTrue(descriptor.url.lastPathComponent == descriptor.fileName)
         }
-        XCTAssertFalse(CleanupModelKind.cleanupChoices.contains(.qwen25_7b_q4_k_m))
-        // Only the model in both lists is labelled as shared.
-        XCTAssertEqual(CleanupModelKind.allCases.filter(\.isShared), [.qwen25_1_5b_q4_k_m])
+        // Every Command Mode model can also run cleanup, so one model can
+        // serve both; the compact cleanup models cannot run edits.
+        XCTAssertEqual(CleanupModelKind.cleanupChoices, CleanupModelKind.allCases)
+        XCTAssertEqual(CleanupModelKind.allCases.filter(\.isShared), CleanupModelKind.commandModeChoices)
     }
 
     func testEndpointAndWebsiteRulesRoundTrip() {
@@ -956,6 +957,76 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertEqual(selection.replacement, "First line.\n")
         XCTAssertEqual(sessionWhileRewriting?.phase, .rewriting)
         XCTAssertEqual(sessionWhileRewriting?.instruction, "fix the capitalization")
+    }
+
+    func testCleanupCanUseTheCommandModeModel() async {
+        let cleanup = MockTranscriptCleanup()
+        let (app, _) = AppState.makeTestState(transcriptCleanup: cleanup)
+        app.transcriptCleanupEnabled = true
+        app.selectedCleanupModelKind = .qwen25_0_5b_q4_k_m
+        app.commandModeEngine = .local(.qwen25_7b_q4_k_m)
+        XCTAssertEqual(app.commandModelAvailableForCleanup, .qwen25_7b_q4_k_m)
+
+        await app.useCommandModelForCleanup()
+
+        // A Command Mode model chosen for cleanup is kept, not reset to the default.
+        XCTAssertEqual(app.selectedCleanupModelKind, .qwen25_7b_q4_k_m)
+        XCTAssertEqual(cleanup.loadedKind, .qwen25_7b_q4_k_m)
+        XCTAssertNil(app.commandModelAvailableForCleanup)
+
+        // Not offered when nothing would swap: cleanup off, or Command Mode
+        // not running on a local model.
+        app.selectedCleanupModelKind = .qwen25_0_5b_q4_k_m
+        app.transcriptCleanupEnabled = false
+        XCTAssertNil(app.commandModelAvailableForCleanup)
+        app.transcriptCleanupEnabled = true
+        app.commandModeEngine = .appleIntelligence
+        XCTAssertNil(app.commandModelAvailableForCleanup)
+    }
+
+    func testSharedModelStaysLoadedAfterCommandMode() async {
+        let selection = MockSelectedTextService()
+        selection.selectedText = "Some text."
+        let cleanup = MockTranscriptCleanup()
+        cleanup.cleanHandler = { _ in "Other text." }
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
+        app.transcriptCleanupEnabled = true
+        app.selectedCleanupModelKind = .qwen3_4b_instruct_2507_q4_k_m
+        app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "rewrite", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.beginCommandMode()
+        await app.stopRecordingAndTranscribe()
+        XCTAssertEqual(selection.replacement, "Other text.")
+
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertEqual(cleanup.loadedKind, .qwen3_4b_instruct_2507_q4_k_m)
+        XCTAssertEqual(cleanup.unloadCallCount, 0)
+    }
+
+    func testEscapeDuringCleanupStopsTheModel() async {
+        let cleanup = MockTranscriptCleanup()
+        let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup)
+        app.transcriptCleanupEnabled = true
+        app.transcriptCleanupLevel = .medium
+        cleanup.cleanHandler = { _ in "Cleaned text." }
+        cleanup.onClean = { [weak app] in await app?.cancelDictation() }
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "um so this is a dictation", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await app.startRecording()
+        await app.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(cleanup.cleanCallCount, 1)
+        XCTAssertEqual(cleanup.cancelCleanupCallCount, 1)
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
     }
 
     func testCleanupModelIsReloadedAfterALargerCommandModel() async {

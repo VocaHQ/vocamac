@@ -12,6 +12,17 @@ enum CleanupModelState: Equatable {
     case loading(kind: CleanupModelKind)
     case ready
     case error(String)
+
+    /// Compact status for optional cleanup, separate from speech readiness.
+    var readinessLabel: String? {
+        switch self {
+        case .ready: return nil
+        case .idle: return "Cleanup not loaded"
+        case .loading: return "Cleanup loading"
+        case .downloading: return "Cleanup downloading"
+        case .error: return "Cleanup unavailable"
+        }
+    }
 }
 
 /// What one cleanup pass actually did, for the Settings "try it" panel.

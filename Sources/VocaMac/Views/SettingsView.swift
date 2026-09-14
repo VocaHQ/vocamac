@@ -17,8 +17,10 @@ struct SettingsView: View {
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
     @State private var pageBeforeSearch: SettingsPage = .dictation
-    @State private var isSidebarVisible = true
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("settings.lastPage") private var lastPage = SettingsPage.dictation.rawValue
+    @AppStorage("settings.sidebarVisible") private var sidebarVisible = true
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var didRestore = false
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -36,44 +38,24 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            if isSidebarVisible {
-                settingsSidebar
-                    .frame(width: 216)
-                Divider()
-            }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            settingsSidebar
+                .frame(minHeight: 0, maxHeight: .infinity)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
+        } detail: {
             VStack(spacing: 0) {
-                // The toggle leads the header the way a split-view control does
-                // in the toolbar. Borderless keeps a utility control from
-                // outranking the page it sits above.
-                HStack(alignment: .top, spacing: 8) {
-                    Button {
-                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
-                            isSidebarVisible.toggle()
-                        }
-                    } label: {
-                        Image(systemName: "sidebar.left")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 20)
-                    .accessibilityLabel(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
-                    .help(isSidebarVisible ? "Hide sidebar" : "Show sidebar")
-
-                    VocaPageHeader(title: (selectedPage ?? .dictation).title,
-                                   subtitle: (selectedPage ?? .dictation).subtitle,
-                                   horizontalPadding: 0)
-                }
-                .padding(.leading, 18)
-                .padding(.trailing, 20)
+                VocaPageHeader(title: (selectedPage ?? .dictation).title,
+                               subtitle: (selectedPage ?? .dictation).subtitle)
                 Divider().padding(.horizontal, 20)
                 settingsDetail
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             }
+            .frame(minHeight: 0, maxHeight: .infinity)
             .background(VocaDesign.canvas)
+        }
+        .navigationSplitViewStyle(.balanced)
+        .onChange(of: columnVisibility) { _, value in
+            sidebarVisible = value != .detailOnly
         }
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -90,9 +72,18 @@ struct SettingsView: View {
         .onChange(of: selectedPage) { _, newValue in
             if !hasSearchQuery, let newValue {
                 pageBeforeSearch = newValue
+                lastPage = newValue.rawValue
             }
         }
-        .onAppear(perform: showRequestedPage)
+        .onAppear {
+            if !didRestore {
+                selectedPage = SettingsPage(rawValue: lastPage) ?? .dictation
+                pageBeforeSearch = selectedPage ?? .dictation
+                columnVisibility = sidebarVisible ? .all : .detailOnly
+                didRestore = true
+            }
+            showRequestedPage()
+        }
         .onChange(of: appState.requestedSettingsPage) { showRequestedPage() }
         .frame(minWidth: 760, minHeight: 580)
         .tint(VocaDesign.accent)
@@ -146,8 +137,6 @@ struct SettingsView: View {
             SettingsSidebarFooter()
                 .padding(12)
         }
-        .background(VocaSidebarMaterial())
-        .clipped()
     }
 
     @ViewBuilder
@@ -317,7 +306,9 @@ struct SettingsSidebarFooter: View {
     private var statusLabel: String {
         if appState.isAutoPaused { return "Auto-paused" }
         switch appState.appStatus {
-        case .idle: return "Ready"
+        case .idle:
+            guard appState.whisperService.isModelLoaded else { return "Speech model not loaded" }
+            return appState.cleanupReadinessLabel.map { "Dictation ready · \($0)" } ?? "Dictation ready"
         case .recording: return "Recording…"
         case .processing: return "Transcribing…"
         case .error: return appState.errorMessage ?? "Error"
@@ -327,7 +318,9 @@ struct SettingsSidebarFooter: View {
     private var statusColor: Color {
         if appState.isAutoPaused { return .orange }
         switch appState.appStatus {
-        case .idle: return VocaDesign.success
+        case .idle:
+            return appState.whisperService.isModelLoaded && appState.cleanupReadinessLabel == nil
+                ? VocaDesign.success : .orange
         case .recording: return Color(nsColor: BrandAssets.brandGreen)
         // Matches MenuBarView.statusColor; the same state must not change hue
         // between the menu bar and the settings footer.

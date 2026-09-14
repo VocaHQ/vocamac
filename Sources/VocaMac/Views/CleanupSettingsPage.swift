@@ -71,7 +71,23 @@ struct CleanupSettingsPage: View {
                     .foregroundStyle(.secondary)
             }
 
-            VocaSettingsGroup("Inference") {
+            if appState.cleanupEndpoint.isLocal {
+                VocaSettingsGroup("Selected Cleanup Model") {
+                    CleanupModelRow(kind: appState.selectedCleanupModelKind)
+                    DisclosureGroup("Change model") {
+                        CleanupSuggestionBanner(suggestion: appState.cleanupModelSuggestion)
+                        if let shared = appState.commandModelAvailableForCleanup {
+                            ShareCommandModelBanner(kind: shared)
+                        }
+                        ForEach(CleanupModelKind.cleanupChoices.filter { $0 != appState.selectedCleanupModelKind }) { kind in
+                            Divider()
+                            CleanupModelRow(kind: kind)
+                        }
+                    }
+                }
+            }
+
+            DisclosureGroup("Inference settings · \(appState.cleanupEndpoint.provider.displayName)") {
                 Picker("Run cleanup with", selection: endpointProvider) {
                     ForEach(CleanupProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
@@ -127,21 +143,12 @@ struct CleanupSettingsPage: View {
                     Text(endpointNotice).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .vocaCard()
 
-            if appState.cleanupEndpoint.isLocal {
-                VocaSettingsGroup("Cleanup Model") {
-                    CleanupSuggestionBanner(suggestion: appState.cleanupModelSuggestion)
-                    if let shared = appState.commandModelAvailableForCleanup {
-                        ShareCommandModelBanner(kind: shared)
-                    }
-                    ForEach(CleanupModelKind.cleanupChoices) { kind in
-                        CleanupModelRow(kind: kind)
-                        if kind != CleanupModelKind.cleanupChoices.last { Divider() }
-                    }
-                }
+            DisclosureGroup("Command Mode") {
+                CommandModeSettingsGroup()
             }
-
-            CommandModeSettingsGroup()
+            .vocaCard()
 
             VocaSettingsGroup("Try It") {
                 Text("Runs a sample through the same cleanup as a dictation — “um” removal, the model, and its safety checks — and shows what would be typed. The result stays in this window.")
@@ -398,6 +405,15 @@ struct CleanupSettingsPage: View {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.orange)
+            if let smaller = appState.smallerDownloadedCleanupModel {
+                Button("Use \(smaller.descriptor.displayName)") {
+                    Task { @MainActor in await appState.loadCleanupModel(smaller) }
+                }
+                .controlSize(.small)
+                Text("Already downloaded · uses less memory. Dictation keeps the original transcript while cleanup is unavailable.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }
@@ -858,12 +874,15 @@ private struct CleanupSuggestionBanner: View {
             Image(systemName: "sparkles")
                 .foregroundStyle(VocaDesign.accent)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Recommended for your Mac: **\(suggestion.cleanup.descriptor.displayName)**")
+                Text("Suggested for your hardware: **\(suggestion.cleanup.descriptor.displayName)**")
                     .font(.callout)
                 Text(suggestion.reason)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                Text("Available memory varies with your speech model and other apps.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }

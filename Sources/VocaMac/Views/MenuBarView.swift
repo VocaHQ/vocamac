@@ -116,24 +116,41 @@ struct MenuBarView: View {
     @ObservedObject var meetingCaptureManager: MeetingCaptureWindowManager
     @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var audioDevices: [AudioDevice] = []
+    @State private var availableHeight: CGFloat = 640
 
     var body: some View {
+        VStack(spacing: 0) {
+            headerSection.padding([.horizontal, .top], 20).fixedSize(horizontal: false, vertical: true)
+            statusSection.vocaCard().padding(20).fixedSize(horizontal: false, vertical: true)
+            Divider()
+            ScrollView {
+                supplementaryContent
+                    .padding(20)
+            }
+            .frame(maxHeight: 320)
+            Divider()
+            actionsSection.padding(20).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: 420)
+        .frame(maxHeight: availableHeight)
+        .background(VocaDesign.canvas)
+        .tint(VocaDesign.accent)
+        .onAppear {
+            let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+            availableHeight = min(680, (screen?.visibleFrame.height ?? 720) - 40)
+            processMonitor.start()
+            bindNotice = nil
+            appState.refreshActiveWritingStyle()
+        }
+        .onDisappear { processMonitor.stop() }
+    }
+
+    private var supplementaryContent: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let info = appState.updateChecker.activeUpdateInfo {
                 UpdateBannerView(info: info, updateWindowManager: updateWindowManager)
                 Divider()
             }
-
-            // Header
-            headerSection
-
-            Divider()
-
-            // Status & Recording
-            statusSection
-                .vocaCard()
-
-            Divider()
 
             // Microphone selection
             microphoneSection
@@ -180,22 +197,7 @@ struct MenuBarView: View {
                 permissionsSection
             }
 
-            Divider()
-
-            // Quick Actions
-            actionsSection
         }
-        .padding(20)
-        .frame(width: 420)
-        .background(VocaDesign.canvas)
-        .tint(VocaDesign.accent)
-        .onAppear {
-            processMonitor.start()
-            // Recompute once when the popover opens rather than on a timer.
-            bindNotice = nil
-            appState.refreshActiveWritingStyle()
-        }
-        .onDisappear { processMonitor.stop() }
     }
 
     // MARK: - Writing Style

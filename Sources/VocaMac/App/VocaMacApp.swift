@@ -44,17 +44,17 @@ final class SettingsWindowManager: ObservableObject {
             defer: false
         )
         window.title = "VocaMac Settings"
-        // The page header inside the shell is the title, so the title bar does
-        // not repeat it. Full-size content also lets the sidebar's vibrancy run
-        // to the top of the window instead of stopping at a seam under the
-        // chrome. The shell owns its own sidebar control, so no SwiftUI
-        // split-view toolbar can push Form pages under that chrome.
-        window.styleMask.insert(.fullSizeContentView)
-        window.titlebarAppearsTransparent = true
+        // A hosting controller lets the native split view own its toolbar and
+        // safe area, including the system sidebar toggle.
         window.titleVisibility = .hidden
         window.backgroundColor = .windowBackgroundColor
-        window.contentView = NSHostingView(rootView: settingsView)
-        window.center()
+        let hostingController = NSHostingController(rootView: settingsView)
+        hostingController.sizingOptions = []
+        window.contentViewController = hostingController
+        window.contentMinSize = NSSize(width: 760, height: 580)
+        window.autorecalculatesKeyViewLoop = true
+        if !window.setFrameUsingName("VocaMac.Settings") { window.center() }
+        window.setFrameAutosaveName("VocaMac.Settings")
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
 

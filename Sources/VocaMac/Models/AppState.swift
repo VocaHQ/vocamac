@@ -2821,6 +2821,26 @@ final class AppState: ObservableObject {
         commandModeEngine = .local(kind)
     }
 
+    /// Optional cleanup must not make the speech engine appear unavailable.
+    var cleanupReadinessLabel: String? {
+        guard transcriptCleanupEnabled else { return nil }
+        guard cleanupEndpoint.isLocal else {
+            return cleanupEndpoint.validationProblem() == nil ? nil : "Cleanup needs setup"
+        }
+        return transcriptCleanup.modelState.readinessLabel
+    }
+
+    /// Offer the smallest downloaded alternative; the service rechecks free
+    /// memory when the user chooses it, so this never promises a successful load.
+    var smallerDownloadedCleanupModel: CleanupModelKind? {
+        CleanupModelKind.cleanupChoices
+            .filter {
+                $0.descriptor.ramRequiredGB < selectedCleanupModelKind.descriptor.ramRequiredGB
+                    && transcriptCleanup.isDownloaded($0)
+            }
+            .min { $0.descriptor.ramRequiredGB < $1.descriptor.ramRequiredGB }
+    }
+
     func loadCleanupModel(_ kind: CleanupModelKind) async {
         await transcriptCleanup.load(kind)
         // Same rule as downloading: adopt the selection only once the model is

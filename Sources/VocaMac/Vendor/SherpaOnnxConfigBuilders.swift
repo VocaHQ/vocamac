@@ -3,7 +3,7 @@
 //
 // Trimmed copy of swift-api-examples/SherpaOnnx.swift from the sherpa-onnx
 // project (https://github.com/k2-fsa/sherpa-onnx), release
-// v1.13.7, Copyright (c) 2023 Xiaomi
+// v1.13.8, Copyright (c) 2023 Xiaomi
 // Corporation, Apache License 2.0.
 //
 // The upstream file lives in the package's example target and declares

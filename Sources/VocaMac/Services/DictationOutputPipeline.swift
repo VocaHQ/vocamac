@@ -26,10 +26,17 @@ struct DictationOutputPipeline {
         autoCapitalize: Bool,
         trailingSpace: Bool,
         preview: Bool = false,
-        dictionary: DictionaryContext? = nil
+        dictionary: DictionaryContext? = nil,
+        numbersAsDigits: Bool = false,
+        spokenEmoji: Bool = false
     ) async -> DictationOutputResult {
+        // The glyph a spoken emoji left at the very end of the utterance, if
+        // any. An emoji ends a sentence on its own, so a full stop that
+        // cleanup puts after it is dropped on the way out.
+        var closingGlyph: String?
         func result(_ text: String, _ summary: String) -> DictationOutputResult {
-            DictationOutputResult(original: original, text: text, summary: summary)
+            let text = closingGlyph.map { Self.droppingFullStop(after: $0, in: text) } ?? text
+            return DictationOutputResult(original: original, text: text, summary: summary)
         }
         guard profile.cleanup != .raw else { return result(original, "Raw transcription") }
 
@@ -84,7 +91,17 @@ struct DictationOutputPipeline {
             input = correction.text
             protectedTerms = correction.protectedTerms.map { Snippet(trigger: $0, expansion: $0) }
         }
-        let masked = snippets.expandMasked(in: input, using: snippetList + protectedTerms)
+        // Spoken emoji and number words convert on the user's own words, after
+        // snippets have claimed their triggers and before styles or cleanup
+        // see the text. Each glyph joins the snippet mask, and digits already
+        // cross the model boundary as protected tokens, so a rewrite can
+        // neither drop nor re-spell what was converted.
+        let converted = Self.convertSpokenForms(
+            snippets.expandMasked(in: input, using: snippetList + protectedTerms),
+            emoji: spokenEmoji, digits: numbersAsDigits, language: language
+        )
+        let masked = converted.masked
+        closingGlyph = converted.closingGlyph
         func render(_ text: String, rules: WritingStyleRules) -> String {
             masked.restore(in: WritingStyleEngine.format(
                 text, rules: rules, globalAutoCapitalize: autoCapitalize,
@@ -269,6 +286,51 @@ struct DictationOutputPipeline {
 
     /// Code and Terminal utterances shorter than this are treated as commands.
     static let minimumTechnicalWords = 4
+
+    /// Applies spoken emoji, then digits, to snippet-masked text.
+    ///
+    /// Emoji first, because the table's keys are words: digit conversion would
+    /// otherwise rewrite a descriptor ("two hearts") before it is looked up.
+    /// Snippets are already masked, so a trigger that happens to be a number
+    /// phrase still expands as written. Each glyph is masked in the
+    /// snippet lane, which formatting leaves alone and `RewriteProtectedText`
+    /// carries through the model as a token that must come back exactly once.
+    ///
+    /// - Returns: The converted mask, and the glyph when one ends the text.
+    static func convertSpokenForms(
+        _ masked: MaskedText, emoji: Bool, digits: Bool, language: String?
+    ) -> (masked: MaskedText, closingGlyph: String?) {
+        var text = masked.text
+        var replacements = masked.replacements
+        if emoji {
+            text = SpokenEmoji.glyphs(in: text, language: language ?? "auto") { glyph in
+                guard let placeholder = TextPlaceholder.character(at: replacements.count, base: masked.base) else {
+                    return glyph
+                }
+                replacements.append(glyph)
+                return String(placeholder)
+            }
+        }
+        if digits {
+            text = SpokenNumbers.digits(in: text)
+        }
+        var closingGlyph: String?
+        if let last = text.last(where: { !$0.isWhitespace }),
+           let index = TextPlaceholder.index(of: last, base: masked.base),
+           index >= masked.replacements.count, index < replacements.count {
+            closingGlyph = replacements[index]
+        }
+        return (MaskedText(text: text, replacements: replacements, base: masked.base), closingGlyph)
+    }
+
+    /// `text` without a single full stop directly after a trailing `glyph`.
+    /// "!" and "?" stay: they carry meaning the speaker put there.
+    static func droppingFullStop(after glyph: String, in text: String) -> String {
+        let end = text.lastIndex { !$0.isWhitespace }.map { text.index(after: $0) } ?? text.startIndex
+        let body = text[..<end]
+        guard body.hasSuffix(glyph + ".") else { return text }
+        return String(body.dropLast()) + text[end...]
+    }
 
     static func isEnglish(_ language: String?) -> Bool {
         language?.lowercased().split(separator: "-").first == "en"

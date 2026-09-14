@@ -387,6 +387,24 @@ struct DictationSettingsPage: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            VocaSettingsGroup("Numbers and Emoji") {
+                SettingsToggleRow(
+                    title: "Write numbers as digits",
+                    detail: "Types “six pm” as “6 pm” and “twenty three” as “23”. A lone “one”, numbers said one after another, ordinals, and spoken times stay as words. English only.",
+                    isOn: $appState.numbersAsDigits
+                )
+                Divider()
+                SettingsToggleRow(
+                    title: "Spoken emoji",
+                    detail: "Say an emoji's English name, then “emoji”: “great news, party emoji” types “great news, 🎉”. Pause before the name when it follows other words, and “emoji” on its own stays a word.",
+                    isOn: $appState.spokenEmoji
+                )
+                Divider()
+                Text("Both apply in every app except those set to Raw transcription, and Smart Cleanup never undoes them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

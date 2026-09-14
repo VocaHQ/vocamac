@@ -22,7 +22,9 @@ final class AppStateWritingStyleTests: XCTestCase {
             PreferenceKey.writingStyleDefault,
             PreferenceKey.writingStyleBindings,
             PreferenceKey.appendTrailingSpace,
-            PreferenceKey.autoCapitalize
+            PreferenceKey.autoCapitalize,
+            PreferenceKey.numbersAsDigits,
+            PreferenceKey.spokenEmoji
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -117,6 +119,25 @@ final class AppStateWritingStyleTests: XCTestCase {
             )
         )
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "Readme.md was updated")
+    }
+
+    /// Spoken emoji and digits are opt-in, and once on they reach what a real
+    /// dictation types.
+    func testSpokenEmojiAndDigitsAreOptInAndReachTheInjectedText() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        XCTAssertFalse(appState.numbersAsDigits)
+        XCTAssertFalse(appState.spokenEmoji)
+
+        let transcript = "we need twenty three chairs, party emoji"
+        await dictate(transcript, on: appState, mocks: mocks)
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "We need twenty three chairs, party emoji")
+
+        appState.numbersAsDigits = true
+        appState.spokenEmoji = true
+        await dictate(transcript, on: appState, mocks: mocks)
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "We need 23 chairs, 🎉")
     }
 
     /// Plain makes the same promise as the master toggle and must keep it.

@@ -245,6 +245,12 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.logLevel") var logLevel: String = "info"
     @AppStorage(PreferenceKey.appendTrailingSpace) var appendTrailingSpace: Bool = true
     @AppStorage(PreferenceKey.autoCapitalize) var autoCapitalize: Bool = true
+    /// "twenty three" → "23". Off by default: talking about numbers in prose
+    /// often wants the words.
+    @AppStorage(PreferenceKey.numbersAsDigits) var numbersAsDigits: Bool = false
+    /// "crying emoji" → 😭. Off by default, so talking *about* an emoji never
+    /// rewrites the sentence until the user opts in.
+    @AppStorage(PreferenceKey.spokenEmoji) var spokenEmoji: Bool = false
     @AppStorage(PreferenceKey.autoPauseEnabled) var autoPauseEnabled: Bool = false
     @AppStorage(PreferenceKey.autoPausePollInterval) var autoPausePollIntervalSeconds: Double = 5
     @AppStorage(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = false
@@ -466,7 +472,8 @@ final class AppState: ObservableObject {
             model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
             cleanupLevel: transcriptCleanupLevel,
             language: RewriteValidation.detectedLanguage(text), autoCapitalize: autoCapitalize,
-            trailingSpace: appendTrailingSpace, preview: true
+            trailingSpace: appendTrailingSpace, preview: true,
+            numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
         )
     }
 
@@ -1976,7 +1983,8 @@ final class AppState: ObservableObject {
                     cleanupLevel: transcriptCleanupLevel,
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
-                    dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage)
+                    dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage),
+                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
                 )
                 guard generation == recordingGeneration, !Task.isCancelled else {
                     if let historyID { historyStore.markCancelled(historyID) }
@@ -2753,7 +2761,8 @@ final class AppState: ObservableObject {
             cleanupLevel: transcriptCleanupLevel,
             // Like an engine that reports no language: the pipeline judges it.
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
-            trailingSpace: false, preview: true
+            trailingSpace: false, preview: true,
+            numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
         )
         return CleanupTryResult(
             input: text, text: output.text, summary: output.summary,
@@ -2987,7 +2996,8 @@ extension AppState {
                     cleanupLevel: transcriptCleanupLevel,
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace,
-                    dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage)
+                    dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage),
+                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
                 )
             }
             historyStore.recordRetry(

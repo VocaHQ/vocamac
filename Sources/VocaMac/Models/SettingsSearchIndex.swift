@@ -97,6 +97,20 @@ enum SettingsSearchIndex {
             subtitle: "Capitalize after punctuation",
             keywords: ["capitalize", "output", "sentence", "punctuation"]
         ),
+        SettingsSearchEntry(
+            id: "numbers-as-digits",
+            page: .dictation,
+            title: "Write Numbers as Digits",
+            subtitle: "“twenty three” becomes “23”",
+            keywords: ["numbers", "digits", "numerals", "output"]
+        ),
+        SettingsSearchEntry(
+            id: "spoken-emoji",
+            page: .dictation,
+            title: "Spoken Emoji",
+            subtitle: "“crying emoji” becomes 😭",
+            keywords: ["emoji", "emojis", "smiley", "output"]
+        ),
 
         // Writing Styles
         SettingsSearchEntry(

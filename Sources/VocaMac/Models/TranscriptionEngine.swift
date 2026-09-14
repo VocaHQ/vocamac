@@ -13,6 +13,8 @@ enum PreferenceKey {
     static let selectedLanguage = "vocamac.selectedLanguage"
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"
     static let autoCapitalize = "vocamac.autoCapitalize"
+    static let numbersAsDigits = "vocamac.numbersAsDigits"
+    static let spokenEmoji = "vocamac.spokenEmoji"
     static let autoPauseEnabled = "vocamac.autoPause.enabled"
     static let autoPauseApps = "vocamac.autoPause.apps"
     static let autoPausePollInterval = "vocamac.autoPause.pollIntervalSeconds"

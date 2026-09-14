@@ -59,6 +59,7 @@ enum SettingsArchiveService {
         PreferenceKey.duckOtherAudioEnabled: .bool, PreferenceKey.escapeCancelsDictation: .bool,
         PreferenceKey.externalMicWhenLidClosed: .bool, PreferenceKey.historyEnabled: .bool,
         PreferenceKey.historyKeepsAudio: .bool, PreferenceKey.modelKeepAliveEnabled: .bool,
+        PreferenceKey.numbersAsDigits: .bool, PreferenceKey.spokenEmoji: .bool,
         PreferenceKey.transcriptCleanupEnabled: .bool, PreferenceKey.useScreenContext: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,
         // Whole numbers

@@ -493,6 +493,29 @@ order:
 A term whose casing formatting could change (`iPhone`, `kubectl`, `GitHub`)
 travels through the snippet mask, so neither sentence case nor cleanup alters it.
 
+### Spoken emoji and numbers
+
+Two Dictation switches, both off by default and never applied to the Raw style:
+`vocamac.spokenEmoji` ("crying emoji" → 😭) and `vocamac.numbersAsDigits`
+("twenty three" → 23). `SpokenEmoji` and `SpokenNumbers` are ports of the
+VocaPhone implementations and follow the same rules; the phrase table
+`Resources/Emoji/suggestions.tsv` is copied verbatim from VocaPhone's
+`assets/keyboard/emoji/suggestions.tsv`, which VocaPhone generates from Unicode
+emoji names and CLDR annotations (Unicode License v3). Update it by copying the
+file again rather than editing it, so both apps map a phrase to the same glyph.
+
+Emoji names must stand on their own: "great news, party emoji" converts, but
+"great news party emoji" does not, because the whole run of words before
+"emoji" has to be one name. Numbers said one after another ("one two three")
+and a lone "one" without a unit stay as words.
+
+Both run inside `DictationOutputPipeline` after snippets are masked (so a
+snippet trigger wins) and before styles and cleanup, emoji first. Each glyph is
+added to the snippet mask, and digits are already protected tokens, so the
+cleanup model sees neither the glyph nor the number words and cannot drop or
+re-spell them. A full stop the model adds after an emoji that ends the
+utterance is removed.
+
 `CorrectionObserver` reads the focused field about 0.8 s after injection. It
 reads it again when the next dictation starts, or after 20 s. The text itself
 is never stored. `CorrectionLearner` reduces the two readings to spelling-level

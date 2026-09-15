@@ -609,7 +609,7 @@ final class AudioEngine {
 
         // Check max duration (fire callback only once)
         let elapsed = now.timeIntervalSince(recordingStartTime)
-        if elapsed >= maxDuration && !maxDurationCallbackFired {
+        if maxDuration > 0 && elapsed >= maxDuration && !maxDurationCallbackFired {
             maxDurationCallbackFired = true
             DispatchQueue.main.async { [weak self] in
                 self?.onMaxDurationReached?()

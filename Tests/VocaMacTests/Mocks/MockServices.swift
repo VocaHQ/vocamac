@@ -436,6 +436,8 @@ extension AppState {
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
+        UserDefaults.standard.removeObject(forKey: "vocamac.correctionRules")
+        UserDefaults.standard.removeObject(forKey: "vocamac.silenceAutoStopEnabled")
 
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()

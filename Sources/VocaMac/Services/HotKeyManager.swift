@@ -356,6 +356,17 @@ final class HotKeyManager {
                 }
             }
 
+        case .singlePressToggle:
+            isToggled.toggle()
+            let shouldStart = isToggled
+            DispatchQueue.main.async { [weak self] in
+                if shouldStart {
+                    self?.onRecordingStart?()
+                } else {
+                    self?.onRecordingStop?()
+                }
+            }
+
         case .doubleTapToggle:
             // Double-tap: check if this is the second tap within threshold
             let timeSinceLastTap = currentTime - lastKeyDownTime
@@ -395,8 +406,8 @@ final class HotKeyManager {
                 }
             }
 
-        case .doubleTapToggle:
-            // No action on key up for toggle mode
+        case .singlePressToggle, .doubleTapToggle:
+            // No action on key up for toggle modes
             break
         }
     }

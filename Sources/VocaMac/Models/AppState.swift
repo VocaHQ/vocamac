@@ -22,14 +22,16 @@ enum AppStatus: String {
 /// How recording is activated by the user
 enum ActivationMode: String, CaseIterable, Codable, Identifiable {
     case pushToTalk       // Hold key to record, release to stop
+    case singlePressToggle
     case doubleTapToggle  // Double-tap key to start/stop
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .pushToTalk:      return "Push to Talk (Hold)"
-        case .doubleTapToggle: return "Double-Tap Toggle"
+        case .pushToTalk:        return "Push to Talk (Hold)"
+        case .singlePressToggle: return "Single-Press Toggle"
+        case .doubleTapToggle:   return "Double-Tap Toggle"
         }
     }
 
@@ -37,6 +39,8 @@ enum ActivationMode: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .pushToTalk:
             return "Hold the hotkey to record. Release to stop and transcribe."
+        case .singlePressToggle:
+            return "Press the hotkey once to start recording. Press it again to stop and transcribe."
         case .doubleTapToggle:
             return "Double-tap the hotkey to start recording. Double-tap again to stop."
         }
@@ -99,6 +103,7 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.silenceThreshold") var silenceThreshold: Double = 0.01
     @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = 2.0
     @AppStorage("vocamac.maxRecordingDuration") var maxRecordingDuration: Int = 60
+    @AppStorage("vocamac.silenceAutoStopEnabled") var silenceAutoStopEnabled: Bool = true
     @AppStorage("vocamac.selectedAudioDeviceID") var selectedAudioDeviceID: String = ""
     @AppStorage("vocamac.selectedAudioDeviceName") var selectedAudioDeviceName: String = ""
     @AppStorage("vocamac.selectedModelSize") var selectedModelSize: String = ModelSize.tiny.rawValue
@@ -109,10 +114,11 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.showCursorIndicator") var showCursorIndicator: Bool = true
     @AppStorage("vocamac.translationEnabled") var translationEnabled: Bool = false
     @AppStorage("vocamac.customVocabulary") var customVocabulary: String = ""
+    @AppStorage("vocamac.correctionRules") var correctionRules: String = ""
     @AppStorage("vocamac.logLevel") var logLevel: String = "info"
 
     private var hotKeySafetyTimeout: Double {
-        Double(maxRecordingDuration) + 5.0
+        maxRecordingDuration == 0 ? 86_400 : Double(maxRecordingDuration) + 5.0
     }
 
     // MARK: - Services
@@ -347,8 +353,9 @@ final class AppState: ObservableObject {
         audioEngine.onSilenceDetected = { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
-                if self.activationMode == .doubleTapToggle && self.isRecording {
-                    VocaLogger.info(.appState, "Silence detected — auto-stopping recording (double-tap mode)")
+                if self.activationMode != .pushToTalk && self.silenceAutoStopEnabled && self.isRecording {
+                    VocaLogger.info(.appState, "Silence detected — auto-stopping recording (toggle mode)")
+                    self.hotKeyManager.resetKeyState()
                     await self.stopRecordingAndTranscribe()
                 }
             }
@@ -363,6 +370,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 guard let self = self, self.isRecording else { return }
                 VocaLogger.info(.appState, "Max recording duration (\(self.maxRecordingDuration)s) reached — auto-stopping")
+                self.hotKeyManager.resetKeyState()
                 await self.stopRecordingAndTranscribe()
             }
         }
@@ -645,12 +653,17 @@ final class AppState: ObservableObject {
 
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
-            let result = try await whisperService.transcribe(
+            let rawResult = try await whisperService.transcribe(
                 audioData: audioData,
                 language: language,
                 translate: translationEnabled,
                 vocabulary: customVocabulary
             )
+            let correctedText = TranscriptionPostProcessor.process(
+                rawResult.text,
+                rules: CorrectionRule.parseList(correctionRules)
+            )
+            let result = rawResult.replacingText(with: correctedText)
 
             lastTranscription = result
 

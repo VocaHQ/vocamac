@@ -142,6 +142,31 @@ final class HotKeyManagerConfigurationTests: XCTestCase {
         manager.resetKeyState()
     }
 
+    func testSinglePressToggleStartsAndStopsOnSuccessivePresses() throws {
+        let manager = HotKeyManager()
+        manager.updateConfiguration(keyCode: 0, mode: .singlePressToggle)
+
+        let startExpectation = expectation(description: "First press starts recording")
+        let stopExpectation = expectation(description: "Second press stops recording")
+        manager.onRecordingStart = { startExpectation.fulfill() }
+        manager.onRecordingStop = { stopExpectation.fulfill() }
+
+        guard let firstDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true),
+              let firstUp = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: false),
+              let secondDown = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: true)
+        else {
+            throw XCTSkip("Could not create keyboard events")
+        }
+        [firstDown, firstUp, secondDown].forEach(markAsExternal)
+
+        XCTAssertTrue(manager._handleTestEvent(type: .keyDown, event: firstDown))
+        wait(for: [startExpectation], timeout: 1.0)
+        XCTAssertTrue(manager._handleTestEvent(type: .keyUp, event: firstUp))
+        XCTAssertTrue(manager._handleTestEvent(type: .keyDown, event: secondDown))
+        wait(for: [stopExpectation], timeout: 1.0)
+        manager.resetKeyState()
+    }
+
     func testTargetRegularKeyEventsAreConsumed() throws {
         let manager = HotKeyManager()
         manager.updateConfiguration(keyCode: 0, mode: .pushToTalk, safetyTimeout: 5.0)

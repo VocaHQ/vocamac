@@ -44,4 +44,43 @@ struct VocaTranscription: Identifiable {
         self.audioLengthSeconds = audioLengthSeconds
         self.modelUsed = modelUsed
     }
+
+    func replacingText(with text: String) -> VocaTranscription {
+        VocaTranscription(
+            text: text,
+            duration: duration,
+            detectedLanguage: detectedLanguage,
+            audioLengthSeconds: audioLengthSeconds,
+            modelUsed: modelUsed,
+            timestamp: timestamp
+        )
+    }
+}
+
+struct CorrectionRule: Equatable {
+    let source: String
+    let replacement: String
+
+    static func parseList(_ value: String) -> [CorrectionRule] {
+        value.components(separatedBy: .newlines).compactMap { line in
+            let parts = line.components(separatedBy: "=>")
+            guard parts.count == 2 else { return nil }
+            let source = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let replacement = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !source.isEmpty, !replacement.isEmpty else { return nil }
+            return CorrectionRule(source: source, replacement: replacement)
+        }
+    }
+}
+
+enum TranscriptionPostProcessor {
+    static func process(_ text: String, rules: [CorrectionRule]) -> String {
+        rules.reduce(text) { result, rule in
+            result.replacingOccurrences(
+                of: "(?<![\\p{L}\\p{N}_])\(NSRegularExpression.escapedPattern(for: rule.source))(?![\\p{L}\\p{N}_])",
+                with: NSRegularExpression.escapedTemplate(for: rule.replacement),
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+    }
 }

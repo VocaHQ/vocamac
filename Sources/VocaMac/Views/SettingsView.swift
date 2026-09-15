@@ -167,6 +167,28 @@ struct GeneralSettingsTab: View {
                 }
             }
 
+            Section("Personal Corrections") {
+                TextEditor(text: $appState.correctionRules)
+                    .font(.body.monospaced())
+                    .frame(minHeight: 90)
+                    .overlay(alignment: .topLeading) {
+                        if appState.correctionRules.isEmpty {
+                            Text("cube cuddle => kubectl\nvoca mac => VocaMac")
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                                .allowsHitTesting(false)
+                        }
+                    }
+
+                let rules = CorrectionRule.parseList(appState.correctionRules)
+                Text(rules.isEmpty
+                    ? "Add one replacement per line using “heard phrase => correct phrase”. Corrections apply locally after transcription with every speech engine."
+                    : "\(rules.count) correction\(rules.count == 1 ? "" : "s") applied to every transcription engine.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // Custom Vocabulary
             Section("Custom Vocabulary") {
                 TextEditor(text: $appState.customVocabulary)
@@ -644,17 +666,22 @@ struct AudioSettingsTab: View {
                     Text("60 seconds").tag(60)
                     Text("120 seconds").tag(120)
                     Text("300 seconds (5 min)").tag(300)
+                    Text("Until stopped").tag(0)
                 }
                 .onChange(of: appState.maxRecordingDuration) {
                     appState.syncHotKeyConfiguration()
                 }
 
-                Text("Recording will automatically stop after this duration.")
+                Text(appState.maxRecordingDuration == 0
+                    ? "Recording continues until you stop it."
+                    : "Recording will automatically stop after this duration.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Silence Detection") {
+                Toggle("Auto-stop toggle recordings after silence", isOn: $appState.silenceAutoStopEnabled)
+
                 HStack {
                     Text("Sensitivity")
                     Slider(
@@ -679,8 +706,9 @@ struct AudioSettingsTab: View {
                         .monospacedDigit()
                         .frame(width: 35)
                 }
+                .disabled(!appState.silenceAutoStopEnabled)
 
-                Text("In double-tap mode, recording auto-stops after this duration of silence. In push-to-talk mode, you control when to stop by releasing the key.")
+                Text("Toggle modes can stop after this duration of silence when enabled. Push-to-talk always stops when you release the key.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -123,6 +123,36 @@ final class AppStateRecordingTests: XCTestCase {
                        "Cancelling before the first buffer should not be reported as a broken route")
     }
 
+    func testStopRecordingAppliesPersonalCorrectionsBeforeInjection() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = [0.1, 0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "Use cube cuddle with post grass.",
+            duration: 0.2,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1,
+            modelUsed: .tiny
+        )
+        appState.correctionRules = "cube cuddle => kubectl\npost grass => PostgreSQL"
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Use kubectl with PostgreSQL.")
+        XCTAssertEqual(appState.lastTranscription?.text, "Use kubectl with PostgreSQL.")
+        XCTAssertEqual(mocks.statsManager.recordCallCount, 1)
+    }
+
+    func testUnlimitedRecordingPassesZeroMaxDuration() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.maxRecordingDuration = 0
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.audioEngine.lastMaxDuration, 0)
+    }
+
     func testStopRecordingWithSilentAudioShowsInputError() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: 0, count: 16_000)

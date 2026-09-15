@@ -454,6 +454,8 @@ struct MenuBarView: View {
         switch appState.activationMode {
         case .pushToTalk:
             return "Hold \(keyName)"
+        case .singlePressToggle:
+            return "Press \(keyName)"
         case .doubleTapToggle:
             return "Double-tap \(keyName)"
         }

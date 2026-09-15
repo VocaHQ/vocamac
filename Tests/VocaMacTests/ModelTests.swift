@@ -430,6 +430,35 @@ final class VocaTranscriptionTests: XCTestCase {
     }
 }
 
+final class TranscriptionPostProcessorTests: XCTestCase {
+    func testParsesValidRulesAndSkipsInvalidLines() {
+        let rules = CorrectionRule.parseList("cube cuddle => kubectl\ninvalid\nvoca mac => VocaMac")
+
+        XCTAssertEqual(rules, [
+            CorrectionRule(source: "cube cuddle", replacement: "kubectl"),
+            CorrectionRule(source: "voca mac", replacement: "VocaMac"),
+        ])
+    }
+
+    func testAppliesRulesCaseInsensitivelyAtWordBoundaries() {
+        let rules = [CorrectionRule(source: "voca mac", replacement: "VocaMac")]
+
+        XCTAssertEqual(
+            TranscriptionPostProcessor.process("Use VOCA MAC, not voca macro.", rules: rules),
+            "Use VocaMac, not voca macro."
+        )
+    }
+
+    func testAppliesMultipleRulesInOrder() {
+        let rules = CorrectionRule.parseList("cube cuddle => kubectl\npost grass => PostgreSQL")
+
+        XCTAssertEqual(
+            TranscriptionPostProcessor.process("Run cube cuddle with post grass.", rules: rules),
+            "Run kubectl with PostgreSQL."
+        )
+    }
+}
+
 // MARK: - AppStatus Tests
 
 final class AppStatusTests: XCTestCase {
@@ -459,11 +488,12 @@ final class ActivationModeTests: XCTestCase {
     }
 
     func testActivationModeCaseCount() {
-        XCTAssertEqual(ActivationMode.allCases.count, 2)
+        XCTAssertEqual(ActivationMode.allCases.count, 3)
     }
 
     func testRawValues() {
         XCTAssertEqual(ActivationMode.pushToTalk.rawValue, "pushToTalk")
+        XCTAssertEqual(ActivationMode.singlePressToggle.rawValue, "singlePressToggle")
         XCTAssertEqual(ActivationMode.doubleTapToggle.rawValue, "doubleTapToggle")
     }
 }

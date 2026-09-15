@@ -81,6 +81,16 @@ jobs:
           test -f VocaMac.app/Contents/Resources/Assets.car || echo "⚠️ Assets.car missing"
           echo "App bundle verified"
 
+      - name: Package test build
+        run: ditto -c -k --sequesterRsrc --keepParent VocaMac.app VocaMac-test-build.zip
+
+      - name: Upload test build
+        uses: actions/upload-artifact@v7
+        with:
+          name: VocaMac-test-build-${{ github.event.pull_request.head.sha || github.sha }}
+          path: VocaMac-test-build.zip
+          retention-days: 14
+
   # Build website (only when web files change)
   build-website:
     name: Build Website

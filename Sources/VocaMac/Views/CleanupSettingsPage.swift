@@ -14,6 +14,8 @@ struct CleanupSettingsPage: View {
     @State private var tryItResult: CleanupTryResult?
     @State private var tryItRunning = false
     @State private var isPromptExpanded = false
+    @State private var isInferenceExpanded = false
+    @State private var isCommandModeExpanded = false
     @State private var apiKeyDraft = ""
     @State private var endpointNotice: String?
 
@@ -84,10 +86,17 @@ struct CleanupSettingsPage: View {
                             CleanupModelRow(kind: kind)
                         }
                     }
+                    .disclosureGroupStyle(VocaDisclosureGroupStyle())
                 }
             }
 
-            DisclosureGroup("Inference settings · \(appState.cleanupEndpoint.provider.displayName)") {
+            VocaDisclosureCard(
+                title: "Inference",
+                subtitle: "Where cleanup runs: on this Mac or an endpoint you choose.",
+                systemImage: "cpu",
+                badge: appState.cleanupEndpoint.provider.displayName,
+                isExpanded: $isInferenceExpanded
+            ) {
                 Picker("Run cleanup with", selection: endpointProvider) {
                     ForEach(CleanupProvider.allCases) { provider in
                         Text(provider.displayName).tag(provider)
@@ -143,12 +152,15 @@ struct CleanupSettingsPage: View {
                     Text(endpointNotice).font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .vocaCard()
 
-            DisclosureGroup("Command Mode") {
-                CommandModeSettingsGroup()
+            VocaDisclosureCard(
+                title: "Command Mode",
+                subtitle: "Select text anywhere and say how to change it.",
+                systemImage: "wand.and.stars",
+                isExpanded: $isCommandModeExpanded
+            ) {
+                CommandModeSettingsGroup(embedded: true)
             }
-            .vocaCard()
 
             VocaSettingsGroup("Try It") {
                 Text("Runs a sample through the same cleanup as a dictation — “um” removal, the model, and its safety checks — and shows what would be typed. The result stays in this window.")
@@ -185,7 +197,10 @@ struct CleanupSettingsPage: View {
                 }
             }
 
-            VocaSettingsGroup("Advanced") {
+            // The disclosure card is its own surface; wrapping it in a group
+            // card would draw a card inside a card.
+            VStack(alignment: .leading, spacing: 8) {
+                VocaSectionHeader(title: "Advanced")
                 VocaDisclosureCard(
                     title: "Cleanup prompt",
                     subtitle: "The only thing the model sees besides your transcript.",
@@ -595,71 +610,82 @@ struct CleanupModelRow: View {
 struct CommandModeSettingsGroup: View {
     @EnvironmentObject var appState: AppState
 
+    /// Inside a disclosure card that already names the group, draw only the
+    /// rows — a second titled card would repeat the heading one level down.
+    var embedded = false
+
     private var engine: CommandModeEngine { appState.commandModeEngine }
 
     var body: some View {
-        VocaSettingsGroup("Command Mode") {
-            CommandModeReadinessBanner()
+        if embedded {
+            VStack(alignment: .leading, spacing: 12) { rows }
+        } else {
+            VocaSettingsGroup("Command Mode") { rows }
+        }
+    }
 
-            Text("Select text in any app, use the shortcut, and say what to change. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+    @ViewBuilder
+    private var rows: some View {
+        CommandModeReadinessBanner()
 
-            CommandModeExamples()
+        Text("Select text in any app, use the shortcut, and say what to change. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
 
-            ShortcutRecorderRow(
-                action: .commandMode,
-                detail: "Press once, speak, and press again — or hold it while speaking.",
-                title: "Shortcut"
-            )
+        CommandModeExamples()
 
+        ShortcutRecorderRow(
+            action: .commandMode,
+            detail: "Press once, speak, and press again — or hold it while speaking.",
+            title: "Shortcut"
+        )
+
+        Divider()
+
+        SettingsToggleRow(
+            title: "Copy the selection when an app doesn't share it",
+            detail: "Some terminals and editors don't expose selected text to Accessibility. With this on, VocaMac copies the selection with ⌘C and puts your clipboard back right away — but clipboard managers may briefly see the selected text.",
+            isOn: $appState.commandModeClipboardFallback
+        )
+
+        Divider()
+
+        Text("Model for edits")
+            .font(.subheadline.weight(.medium))
+
+        CommandEngineRow(
+            engine: .appleIntelligence,
+            title: "Apple Intelligence",
+            detail: "Built into macOS 26. No download, runs on this Mac.",
+            problem: appState.appleIntelligenceAvailable()
+                ? nil : AppleIntelligenceTextService.availabilityProblem()
+        )
+
+        if !appState.cleanupEndpoint.isLocal {
             Divider()
-
-            SettingsToggleRow(
-                title: "Copy the selection when an app doesn't share it",
-                detail: "Some terminals and editors don't expose selected text to Accessibility. With this on, VocaMac copies the selection with ⌘C and puts your clipboard back right away — but clipboard managers may briefly see the selected text.",
-                isOn: $appState.commandModeClipboardFallback
-            )
-
-            Divider()
-
-            Text("Model for edits")
-                .font(.subheadline.weight(.medium))
-
             CommandEngineRow(
-                engine: .appleIntelligence,
-                title: "Apple Intelligence",
-                detail: "Built into macOS 26. No download, runs on this Mac.",
-                problem: appState.appleIntelligenceAvailable()
-                    ? nil : AppleIntelligenceTextService.availabilityProblem()
+                engine: .endpoint,
+                title: "\(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel)",
+                detail: "The cleanup endpoint above. The selection and your instruction are sent to it.",
+                problem: appState.cleanupEndpoint.validationProblem()
             )
+        }
 
-            if !appState.cleanupEndpoint.isLocal {
-                Divider()
-                CommandEngineRow(
-                    engine: .endpoint,
-                    title: "\(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel)",
-                    detail: "The cleanup endpoint above. The selection and your instruction are sent to it.",
-                    problem: appState.cleanupEndpoint.validationProblem()
-                )
-            }
+        ForEach(CleanupModelKind.commandModeChoices) { kind in
+            Divider()
+            CommandLocalModelRow(kind: kind)
+        }
 
-            ForEach(CleanupModelKind.commandModeChoices) { kind in
-                Divider()
-                CommandLocalModelRow(kind: kind)
-            }
-
-            // Apple Intelligence and endpoint rows already explain their own
-            // problems; only a missing download needs saying here.
-            if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
-                Label(
-                    "Download \(kind.descriptor.displayName) above to use Command Mode, or choose another model.",
-                    systemImage: "arrow.down.circle"
-                )
-                .font(.caption)
-                .foregroundStyle(.orange)
-            }
+        // Apple Intelligence and endpoint rows already explain their own
+        // problems; only a missing download needs saying here.
+        if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
+            Label(
+                "Download \(kind.descriptor.displayName) above to use Command Mode, or choose another model.",
+                systemImage: "arrow.down.circle"
+            )
+            .font(.caption)
+            .foregroundStyle(.orange)
         }
     }
 }

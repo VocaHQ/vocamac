@@ -117,27 +117,62 @@ struct MenuBarView: View {
     @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var audioDevices: [AudioDevice] = []
     @State private var availableHeight: CGFloat = 640
+    /// Measured heights of the scrolling middle and the pinned top and bottom.
+    @State private var contentHeight: CGFloat = 0
+    @State private var chromeHeight: CGFloat = 0
+
+    /// MenuBarExtra sizes its window to the view's ideal size, and a
+    /// ScrollView has no ideal height of its own — left flexible it collapses
+    /// to nothing, and pinned to the screen it leaves dead space under short
+    /// content. Give it exactly its content's height, capped so the whole
+    /// panel still fits on the display.
+    private var scrollHeight: CGFloat {
+        max(0, min(contentHeight, availableHeight - chromeHeight))
+    }
+
+    private var contentOverflows: Bool {
+        contentHeight > availableHeight - chromeHeight + 0.5
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            headerSection.padding([.horizontal, .top], 20).fixedSize(horizontal: false, vertical: true)
-            statusSection.vocaCard().padding(20).fixedSize(horizontal: false, vertical: true)
-            Divider()
+            VStack(spacing: 10) {
+                headerSection
+                statusSection.menuPanelCard()
+            }
+            .padding([.horizontal, .top], MenuPanelMetrics.inset)
+            .padding(.bottom, 10)
+            .fixedSize(horizontal: false, vertical: true)
+            .measureHeight(MenuChromeHeightKey.self)
+
             ScrollView {
                 supplementaryContent
-                    .padding(20)
+                    .padding(.horizontal, MenuPanelMetrics.inset)
+                    .padding(.bottom, 10)
+                    .measureHeight(MenuContentHeightKey.self)
             }
-            .frame(maxHeight: 320)
-            Divider()
-            actionsSection.padding(20).fixedSize(horizontal: false, vertical: true)
+            .scrollIndicators(contentOverflows ? .automatic : .never)
+            .frame(height: scrollHeight)
+
+            VStack(spacing: 0) {
+                Divider()
+                    .padding(.horizontal, MenuPanelMetrics.inset)
+                actionsSection
+                    .padding(.horizontal, MenuPanelMetrics.inset - 6)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .measureHeight(MenuChromeHeightKey.self)
         }
-        .frame(width: 420)
-        .frame(maxHeight: availableHeight)
-        .background(VocaDesign.canvas)
+        .frame(width: MenuPanelMetrics.width)
+        .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight))
+        .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
+        .onPreferenceChange(MenuChromeHeightKey.self) { chromeHeight = $0 }
         .tint(VocaDesign.accent)
         .onAppear {
             let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
-            availableHeight = min(680, (screen?.visibleFrame.height ?? 720) - 40)
+            availableHeight = min(720, (screen?.visibleFrame.height ?? 760) - 40)
             processMonitor.start()
             bindNotice = nil
             appState.refreshActiveWritingStyle()
@@ -146,69 +181,125 @@ struct MenuBarView: View {
     }
 
     private var supplementaryContent: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             if let info = appState.updateChecker.activeUpdateInfo {
                 UpdateBannerView(info: info, updateWindowManager: updateWindowManager)
-                Divider()
+                    .menuPanelCard()
             }
 
-            // Microphone selection
-            microphoneSection
-
-            // Writing style for the app currently in front
-            if appState.writingStyleEnabled {
-                Divider()
-                writingStyleSection
+            // Setup problems come first: nothing else works until they are fixed.
+            if appState.micPermission != .granted || appState.accessibilityPermission != .granted || appState.inputMonitoringPermission != .granted {
+                permissionsSection
+                    .menuPanelCard(padding: 0)
             }
 
             // A dictation that failed or was interrupted, with its audio saved
             if let entry = appState.recoverableHistoryEntry {
-                Divider()
                 recoverySection(entry)
-                    .vocaCard()
+                    .menuPanelCard()
             }
+
+            // Microphone and writing style for the next dictation
+            recordingOptionsSection
+                .menuPanelCard(padding: 0)
 
             // A spelling the user fixed, offered for the dictionary
             if let suggestion = appState.dictionarySuggestions.first {
-                Divider()
                 suggestionSection(suggestion)
+                    .menuPanelCard(padding: 10)
             }
 
             // Last Command Mode edit, which replaces the dictation card until
             // the next dictation so its original stays one click away.
             if let edit = appState.lastCommandEdit {
-                Divider()
                 commandEditSection(edit)
-                    .vocaCard()
+                    .menuPanelCard()
             } else if let transcription = appState.lastTranscription {
-                Divider()
                 transcriptionSection(transcription, output: appState.lastOutput)
-                    .vocaCard()
+                    .menuPanelCard()
             }
+
             if let held = appState.heldOutput {
-                Text("Saved dictation — destination changed").font(.caption)
-                Text(held).font(.caption).lineLimit(4).textSelection(.enabled)
-                Button("Copy saved dictation") { appState.copyHeldOutput() }
+                heldOutputSection(held)
+                    .menuPanelCard()
             }
-
-            // Permissions Warning
-            if appState.micPermission != .granted || appState.accessibilityPermission != .granted || appState.inputMonitoringPermission != .granted {
-                Divider()
-                permissionsSection
-            }
-
         }
+    }
+
+    private func heldOutputSection(_ held: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Label("Saved dictation", systemImage: "tray.and.arrow.down")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                MenuPanelIconButton(systemImage: "doc.on.doc", help: "Copy saved dictation") {
+                    appState.copyHeldOutput()
+                }
+            }
+            Text("The destination changed before it could be typed.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(held)
+                .font(.callout)
+                .lineLimit(4)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: - Recording Options
+
+    /// Microphone and writing style as one grouped list, the way System
+    /// Settings lays out related choices.
+    private var recordingOptionsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            microphoneRow
+
+            if appState.writingStyleEnabled {
+                MenuPanelRowDivider()
+                writingStyleRow
+                MenuPanelRowDivider()
+                nextDictationRow
+            }
+
+            if let notice = recordingOptionsNotice {
+                MenuPanelRowDivider()
+                notice
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.opacity)
+            }
+        }
+    }
+
+    /// The one line of follow-up the rows above need, if any.
+    private var recordingOptionsNotice: AnyView? {
+        if let fallbackNotice = appState.inputDeviceFallbackNotice {
+            return AnyView(Label(fallbackNotice, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange))
+        }
+        if appState.isRecording {
+            return AnyView(Text("Stop recording before changing the microphone.").foregroundStyle(.secondary))
+        }
+        if let bindNotice {
+            return AnyView(Label(bindNotice, systemImage: "checkmark.circle.fill").foregroundStyle(.secondary))
+        }
+        return nil
     }
 
     // MARK: - Writing Style
 
-    /// Shows which style the next dictation will use, and lets the user
-    /// re-bind the frontmost app in one step when it looks wrong.
-    private var writingStyleSection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            writingStyleRow
-            writingStyleNotice
-            Menu("Next dictation only") {
+    /// One-off override for the next dictation.
+    private var nextDictationRow: some View {
+        MenuPanelRow(
+            title: "Next Dictation",
+            systemImage: "forward.frame",
+            tint: .indigo
+        ) {
+            Menu {
                 Button("Raw transcription") { appState.useRawForNextDictation() }
                 Menu("Format") {
                     ForEach(WritingStyle.allCases) { style in
@@ -222,24 +313,26 @@ struct MenuBarView: View {
                         }
                     }
                 }
-                Button("Use app profile") { appState.nextWritingProfile = nil }
+                if appState.nextWritingProfile != nil {
+                    Divider()
+                    Button("Use App Profile") { appState.nextWritingProfile = nil }
+                }
+            } label: {
+                Text(appState.nextWritingProfile.map(nextProfileLabel) ?? "Same as app")
             }
-            .font(.caption)
-            if let profile = appState.nextWritingProfile {
-                Text("Next: \(nextProfileLabel(profile))")
-                    .font(.caption)
-            }
+            .menuPanelValueMenu()
+            .help("Override the style for the next dictation only")
         }
     }
 
+    /// Shows which style the next dictation will use, and lets the user
+    /// re-bind the frontmost app in one step when it looks wrong.
     private var writingStyleRow: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Label("Style", systemImage: appState.activeWritingStyle.style.systemImage)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
+        MenuPanelRow(
+            title: "Style",
+            systemImage: appState.activeWritingStyle.style.systemImage,
+            tint: .orange
+        ) {
             Menu {
                 ForEach(WritingStyle.allCases) { style in
                     VocaMenuChoice(
@@ -259,23 +352,9 @@ struct MenuBarView: View {
                 }
             } label: {
                 Text(writingStyleLabel)
-                    .font(.caption)
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .menuPanelValueMenu()
             .help("Choose the writing style for the app in front")
-        }
-    }
-
-    /// Confirmation for the last style change, cleared when the popover closes.
-    private var writingStyleNotice: some View {
-        Group {
-            if let bindNotice {
-                Text(bindNotice)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
         }
     }
 
@@ -307,13 +386,12 @@ struct MenuBarView: View {
     // MARK: - Header
 
     private var headerSection: some View {
-        HStack {
-            BrandLogoView(size: 36)
+        HStack(spacing: 10) {
+            BrandLogoView(size: 32)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 1) {
                 Text("VocaMac")
-                    .font(.title3)
-                    .fontWeight(.semibold)
+                    .font(.system(size: 14, weight: .semibold))
 
                 if let model = appState.currentModel {
                     Text(model.size.displayName)
@@ -353,10 +431,10 @@ struct MenuBarView: View {
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
             // CPU & RAM usage display (whole VocaMac process, not model-only)
-            HStack(spacing: 10) {
+            HStack(spacing: 2) {
                 ResourceBadge(
                     icon: "cpu",
                     value: String(format: "%.0f%%", processMonitor.cpuUsage),
@@ -384,28 +462,28 @@ struct MenuBarView: View {
 
     private var statusSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 10, height: 10)
+            HStack(spacing: 10) {
+                MenuPanelStatusDot(
+                    color: statusColor,
+                    isActive: appState.appStatus == .recording || appState.appStatus == .processing
+                )
 
                 Text(statusText)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundStyle(statusColor)
+                    .font(.system(size: 13, weight: .semibold))
+                    .lineLimit(2)
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(activationModeHint)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 4) {
+                    MenuPanelShortcutHint(verb: activationModeHint.verb, keys: activationModeHint.keys)
                     if appState.appStatus == .idle,
                        let combo = appState.shortcut(for: .commandMode) {
-                        Label("Edit selection: \(KeyCodeReference.displayName(for: combo))", systemImage: "wand.and.stars")
-                            .font(.caption2)
-                            .foregroundStyle(VocaDesign.command)
-                            .help("Select text in any app, press this, and say how to change it")
+                        MenuPanelShortcutHint(
+                            verb: "Edit",
+                            keys: KeyCodeReference.displayName(for: combo),
+                            tint: VocaDesign.command
+                        )
+                        .help("Select text in any app, press this, and say how to change it")
                     }
                 }
             }
@@ -511,26 +589,8 @@ struct MenuBarView: View {
     /// Provides a quick microphone switcher without requiring the Settings window.
     /// The selected device is persisted by AppState and takes effect on the next
     /// recording; it does not change macOS's global input-device selection.
-    private var microphoneSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Label("Microphone", systemImage: "mic.fill")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Button {
-                    refreshAudioDevices()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.caption)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Refresh microphones")
-            }
-
+    private var microphoneRow: some View {
+        MenuPanelRow(title: "Microphone", systemImage: "mic.fill", tint: VocaDesign.accentSolid) {
             Menu {
                 VocaMenuChoice(title: "System Default", isSelected: appState.selectedAudioDeviceID.isEmpty) {
                     appState.selectAudioDevice(nil)
@@ -554,40 +614,15 @@ struct MenuBarView: View {
                 if audioDevices.isEmpty {
                     Text("No audio input devices found")
                 }
+
+                Divider()
+                Button("Refresh List") { refreshAudioDevices() }
             } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "mic.circle.fill")
-                        .foregroundStyle(Color(nsColor: BrandAssets.brandGreen))
-
-                    Text(selectedAudioDeviceDisplayName)
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .font(.body)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                Text(selectedAudioDeviceDisplayName)
             }
-            .menuStyle(.borderlessButton)
+            .menuPanelValueMenu()
             .disabled(appState.isRecording)
-
-            Text(appState.isRecording
-                 ? "Stop recording before changing the input."
-                 : "Applies to the next recording. Does not change macOS's system default.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            if let fallbackNotice = appState.inputDeviceFallbackNotice {
-                Label(fallbackNotice, systemImage: "exclamationmark.triangle")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            }
+            .help("Applies to the next recording. Does not change macOS's system default.")
         }
         .onAppear {
             refreshAudioDevices()
@@ -638,114 +673,120 @@ struct MenuBarView: View {
         let matchingOutput = output?.original == result.text ? output : nil
         let displayedText = matchingOutput?.text ?? result.text
         return VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(spacing: 6) {
                 Text("Last Dictation")
-                    .font(.subheadline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
 
                 Spacer()
 
-                Button {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(displayedText, forType: .string)
-                } label: {
-                    Image(systemName: "doc.on.doc")
-                        .font(.subheadline)
+                MenuPanelIconButton(systemImage: "doc.on.doc", help: "Copy to clipboard") {
+                    copyToPasteboard(displayedText)
                 }
-                .buttonStyle(.plain)
-                .help("Copy to clipboard")
             }
 
             Text(displayedText)
-                .font(.body)
+                .font(.callout)
                 .lineLimit(4)
+                .lineSpacing(1.5)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(8)
 
             if let matchingOutput {
                 Text(matchingOutput.summary)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            HStack {
-                Text("\(String(format: "%.1f", result.audioLengthSeconds))s audio")
-                Text("•")
-                Text("\(String(format: "%.1f", result.duration))s to transcribe")
-                Text("•")
-                Text(result.detectedLanguage)
-            }
+            Text([
+                "\(String(format: "%.1f", result.audioLengthSeconds))s audio",
+                "\(String(format: "%.1f", result.duration))s to transcribe",
+                result.detectedLanguage.uppercased(),
+            ].joined(separator: "  ·  "))
             .font(.caption)
-            .foregroundStyle(.secondary)
+            .monospacedDigit()
+            .foregroundStyle(.tertiary)
         }
     }
 
     // MARK: - Permissions
 
     private var permissionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Permissions Required")
-                .font(.subheadline)
-                .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("Finish Setting Up")
+                    .font(.system(size: 13, weight: .semibold))
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 10)
+            .padding(.bottom, 6)
 
             if appState.micPermission != .granted {
-                permissionButton(
-                    label: appState.micPermission == .denied ? "Open Microphone Settings" : "Grant Microphone Access",
-                    icon: "mic.badge.xmark",
+                MenuPanelRowDivider()
+                permissionRow(
+                    title: "Microphone",
+                    detail: appState.micPermission == .denied
+                        ? "Denied. Turn it on in Privacy & Security."
+                        : "Captures your voice for transcription.",
+                    systemImage: "mic.fill",
                     isDenied: appState.micPermission == .denied,
                     action: { appState.requestMicrophonePermission() }
                 )
-
-                Text(appState.micPermission == .denied
-                     ? "Denied. Enable in System Settings → Privacy & Security → Microphone."
-                     : "Required to capture your voice for transcription.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if appState.accessibilityPermission != .granted {
-                permissionButton(
-                    label: "Grant Accessibility Access",
-                    icon: "lock.shield",
+                MenuPanelRowDivider()
+                permissionRow(
+                    title: "Accessibility",
+                    detail: "Needed for global hotkeys and typing text.",
+                    systemImage: "accessibility",
                     isDenied: appState.accessibilityPermission == .denied,
                     action: { appState.requestAccessibilityPermission() }
                 )
-
-                Text("Required for global hotkeys and text injection. Opens System Settings.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if appState.inputMonitoringPermission != .granted {
-                permissionButton(
-                    label: "Grant Input Monitoring",
-                    icon: "keyboard",
+                MenuPanelRowDivider()
+                permissionRow(
+                    title: "Input Monitoring",
+                    detail: "Needed to detect the hotkey in every app.",
+                    systemImage: "keyboard",
                     isDenied: appState.inputMonitoringPermission == .denied,
                     action: { appState.requestInputMonitoringPermission() }
                 )
+            }
+        }
+        .padding(.bottom, 4)
+    }
 
-                Text("Required to detect hotkey presses system-wide. Enable VocaMac in the list.")
+    /// A missing permission with its reason and one button to fix it.
+    private func permissionRow(
+        title: String,
+        detail: String,
+        systemImage: String,
+        isDenied: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 10) {
+            MenuPanelSymbolTile(systemImage: systemImage, tint: isDenied ? .red : .orange)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.body)
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 8)
+            Button(isDenied ? "Open…" : "Allow…", action: action)
+                .controlSize(.small)
+                .vocaGlassButton()
+                .help(isDenied ? "Open System Settings" : "Ask macOS for access")
         }
-    }
-
-    /// Reusable permission button that shows different styling for denied vs not determined
-    private func permissionButton(label: String, icon: String, isDenied: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            action()
-        } label: {
-            Label(label, systemImage: icon)
-                .font(.callout)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isDenied ? .red : .orange)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
     }
 
     // MARK: - Recovery and Suggestions
@@ -795,22 +836,18 @@ struct MenuBarView: View {
     }
 
     private func suggestionSection(_ suggestion: CorrectionSuggestion) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "character.book.closed")
-                .foregroundStyle(VocaDesign.accent)
+        HStack(spacing: 10) {
+            MenuPanelSymbolTile(systemImage: "character.book.closed", tint: VocaDesign.accentSolid)
             (Text("Spell it ") + Text(suggestion.corrected).fontWeight(.semibold) + Text(" next time?"))
-                .font(.caption)
+                .font(.callout)
                 .lineLimit(2)
-            Spacer()
+            Spacer(minLength: 6)
             Button("Add") { appState.acceptDictionarySuggestion(suggestion) }
                 .controlSize(.small)
-            Button {
+                .vocaGlassButton()
+            MenuPanelIconButton(systemImage: "xmark", help: "Dismiss") {
                 appState.dismissDictionarySuggestion(suggestion)
-            } label: {
-                Image(systemName: "xmark")
             }
-            .buttonStyle(.borderless)
-            .help("Dismiss")
             .accessibilityLabel("Dismiss suggestion")
         }
     }
@@ -823,99 +860,68 @@ struct MenuBarView: View {
     // MARK: - Actions
 
     private var actionsSection: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 1) {
             // One row for the three utility windows, so the tools don't push
             // History, Settings, and Quit down the menu.
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 toolButton("Scratchpad", systemImage: "note.text",
                            help: "A floating note to dictate into") {
                     scratchpadManager.open(appState: appState)
                 }
-                toolButton("Transcribe File", systemImage: "waveform.badge.plus",
+                toolButton("Transcribe File", systemImage: "waveform",
                            help: "Transcribe an audio or video file") {
                     fileTranscriptionManager.open(appState: appState)
                 }
-                toolButton("System Audio", systemImage: "speaker.wave.2",
+                toolButton("System Audio", systemImage: "speaker.wave.2.fill",
                            help: "Transcribe what this Mac is playing") {
                     meetingCaptureManager.open(appState: appState)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
+            .padding(.horizontal, 6)
+            .padding(.bottom, 8)
 
-            Button {
+            menuRow("History", systemImage: "clock.arrow.circlepath",
+                    shortcut: appState.shortcut(for: .pasteLastDictation)
+                        .map { "Paste Last  \(KeyCodeReference.displayName(for: $0))" }) {
                 openHistory()
-            } label: {
-                HStack {
-                    Image(systemName: "clock.arrow.circlepath")
-                        .frame(width: 16)
-                    Text("History")
-                    Spacer()
-                    if let combo = appState.shortcut(for: .pasteLastDictation) {
-                        Text("Paste last: \(KeyCodeReference.displayName(for: combo))")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                }
-                .font(.body)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.0001))
-                )
             }
-            .buttonStyle(MenuRowButtonStyle())
-
-            Button {
+            menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,") {
                 settingsManager.open(appState: appState)
-            } label: {
-                HStack {
-                    Image(systemName: "gear")
-                        .frame(width: 16)
-                    Text("Settings")
-                    Spacer()
-                    Text("⌘,")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.body)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.0001))
-                )
             }
-            .buttonStyle(MenuRowButtonStyle())
-
-            Button {
+            menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q") {
                 NSApplication.shared.terminate(nil)
-            } label: {
-                HStack {
-                    Image(systemName: "power")
-                        .frame(width: 16)
-                    Text("Quit VocaMac")
-                    Spacer()
-                    Text("⌘Q")
-                        .foregroundStyle(.secondary)
-                }
-                .font(.body)
-                .padding(.vertical, 6)
-                .padding(.horizontal, 8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(Color.primary.opacity(0.0001))
-                )
             }
-            .buttonStyle(MenuRowButtonStyle())
         }
-        .padding(.horizontal, -8)
+    }
+
+    /// A full-width row that highlights like a native menu item.
+    private func menuRow(
+        _ title: String,
+        systemImage: String,
+        shortcut: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text(title)
+                    .font(.body)
+                Spacer(minLength: 8)
+                if let shortcut {
+                    Text(shortcut)
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuRowButtonStyle())
     }
 
     /// Shown while Command Mode listens or rewrites: what is being edited,
@@ -977,12 +983,10 @@ struct MenuBarView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
             Text(edit.replacement.trimmingCharacters(in: .whitespacesAndNewlines))
-                .font(.body)
+                .font(.callout)
                 .lineLimit(4)
+                .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(8)
             HStack {
                 Button("Copy Original") { copyToPasteboard(edit.original) }
                     .help("Copy the text as it was before the edit")
@@ -1007,21 +1011,23 @@ struct MenuBarView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: 5) {
                 Image(systemName: systemImage)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(VocaDesign.accent)
+                    // Symbols differ in height; a fixed box keeps the three
+                    // titles on one baseline.
+                    .frame(height: 18)
                 Text(title)
-                    .font(.caption)
+                    .font(.caption.weight(.medium))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.85)
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8))
-            .contentShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.vertical, 9)
+            .contentShape(RoundedRectangle(cornerRadius: MenuPanelMetrics.tileRadius, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(MenuPanelTileButtonStyle())
         .help(help)
         .accessibilityLabel(title)
     }
@@ -1056,13 +1062,13 @@ struct MenuBarView: View {
         }
     }
 
-    private var activationModeHint: String {
+    private var activationModeHint: (verb: String, keys: String) {
         let keyName = KeyCodeReference.displayName(for: HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers))
         switch appState.activationMode {
         case .pushToTalk:
-            return "Hold \(keyName)"
+            return ("Hold", keyName)
         case .doubleTapToggle:
-            return "Double-tap \(keyName)"
+            return ("Double-tap", keyName)
         }
     }
 
@@ -1084,12 +1090,264 @@ struct MenuRowButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isHovered ? Color.primary.opacity(0.1) : Color.clear)
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.primary.opacity(configuration.isPressed ? 0.14 : isHovered ? 0.08 : 0))
             )
-            .onHover { hovering in
-                isHovered = hovering
-            }
+            .onHover { isHovered = $0 }
+    }
+}
+
+// MARK: - Menu Panel Components
+
+enum MenuPanelMetrics {
+    static let width: CGFloat = 380
+    static let inset: CGFloat = 12
+    static let cardRadius: CGFloat = 14
+    static let tileRadius: CGFloat = 11
+}
+
+/// Keeps the MenuBarExtra window exactly as tall as the panel.
+///
+/// `.menuBarExtraStyle(.window)` sizes its window when it opens but does not
+/// follow later changes — shrinking in particular. The panel then sat at the
+/// bottom of a taller window, leaving a strip of the window's glass and
+/// shadow showing above it. Resize the window ourselves, pinned to its top
+/// edge under the menu bar, and rebuild the shadow for the new shape.
+private struct MenuPanelWindowSizer: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> SizerView { SizerView() }
+
+    func updateNSView(_ view: SizerView, context: Context) {
+        view.targetHeight = height
+    }
+
+    final class SizerView: NSView {
+        var targetHeight: CGFloat = 0 {
+            didSet { if abs(targetHeight - oldValue) > 0.5 { scheduleResize() } }
+        }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            scheduleResize()
+        }
+
+        private func scheduleResize() {
+            // Resizing inside SwiftUI's layout pass re-enters it; wait a turn.
+            DispatchQueue.main.async { [weak self] in self?.resizeWindow() }
+        }
+
+        private func resizeWindow() {
+            guard let window, targetHeight > 1 else { return }
+            let current = window.frame
+            let contentRect = window.contentRect(forFrameRect: current)
+            let desired = window.frameRect(forContentRect: NSRect(
+                x: contentRect.minX,
+                y: contentRect.maxY - targetHeight,
+                width: contentRect.width,
+                height: targetHeight
+            ))
+            guard abs(desired.height - current.height) > 0.5 else { return }
+            window.setFrame(desired, display: true)
+            window.invalidateShadow()
+        }
+    }
+}
+
+private struct MenuContentHeightKey: SwiftUI.PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// Summed across the pinned top and bottom of the panel.
+private struct MenuChromeHeightKey: SwiftUI.PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value += nextValue() }
+}
+
+private extension View {
+    func measureHeight<Key: SwiftUI.PreferenceKey>(_ key: Key.Type) -> some View where Key.Value == CGFloat {
+        background(GeometryReader { proxy in
+            Color.clear.preference(key: key, value: proxy.size.height)
+        })
+    }
+}
+
+/// The grouped surface every section of the panel sits on. The panel's own
+/// material shows through, so cards read as layers rather than grey boxes.
+private struct MenuPanelCard: ViewModifier {
+    var padding: CGFloat
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: MenuPanelMetrics.cardRadius, style: .continuous)
+        content
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.primary.opacity(0.055), in: shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
+    }
+}
+
+extension View {
+    fileprivate func menuPanelCard(padding: CGFloat = 12) -> some View {
+        modifier(MenuPanelCard(padding: padding))
+    }
+
+    /// A pull-down that shows its current value at the trailing edge of a row.
+    fileprivate func menuPanelValueMenu() -> some View {
+        self
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .foregroundStyle(.secondary)
+            .tint(.secondary)
+            .font(.body)
+    }
+}
+
+/// A System Settings–style list row: tinted symbol, title, trailing control.
+private struct MenuPanelRow<Accessory: View>: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    @ViewBuilder let accessory: Accessory
+
+    var body: some View {
+        HStack(spacing: 10) {
+            MenuPanelSymbolTile(systemImage: systemImage, tint: tint)
+            Text(title)
+                .font(.body)
+                .lineLimit(1)
+                .layoutPriority(1)
+            Spacer(minLength: 12)
+            accessory
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .frame(minHeight: 40)
+    }
+}
+
+/// A small filled rounded square holding a white symbol.
+private struct MenuPanelSymbolTile: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 11, weight: .semibold))
+            .symbolRenderingMode(.monochrome)
+            .foregroundStyle(.white)
+            .frame(width: 22, height: 22)
+            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .accessibilityHidden(true)
+    }
+}
+
+/// Hairline between rows, inset past the symbol tile like a grouped list.
+private struct MenuPanelRowDivider: View {
+    var body: some View {
+        Divider().padding(.leading, 44)
+    }
+}
+
+private struct MenuPanelStatusDot: View {
+    let color: Color
+    let isActive: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.22))
+                .frame(width: 18, height: 18)
+                .scaleEffect(isActive && pulse ? 1.25 : 1)
+                .opacity(isActive && pulse ? 0.35 : 1)
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+        }
+        .frame(width: 20, height: 20)
+        .onAppear { startPulse() }
+        .onChange(of: isActive) { startPulse() }
+        .accessibilityHidden(true)
+    }
+
+    private func startPulse() {
+        guard isActive, !reduceMotion else {
+            pulse = false
+            return
+        }
+        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            pulse = true
+        }
+    }
+}
+
+/// "Hold ⌥ Space" with the keys drawn as a keycap.
+private struct MenuPanelShortcutHint: View {
+    let verb: String
+    let keys: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(verb)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(keys)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(tint == .secondary ? Color.primary : tint)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(Color.primary.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.10))
+                )
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// A borderless symbol button with a hover highlight.
+private struct MenuPanelIconButton: View {
+    let systemImage: String
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuRowButtonStyle())
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+/// Utility tile: a card that brightens on hover and dims when pressed.
+private struct MenuPanelTileButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: MenuPanelMetrics.tileRadius, style: .continuous)
+        configuration.label
+            .background(
+                Color.primary.opacity(configuration.isPressed ? 0.13 : isHovered ? 0.09 : 0.055),
+                in: shape
+            )
+            .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 

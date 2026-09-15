@@ -287,17 +287,19 @@ struct VocaDisclosureCard<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
                     isExpanded.toggle()
                 }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 12) {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(VocaDesign.accent)
-                        .frame(width: 20)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(VocaDesign.accentSolid.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.headline)
                         Text(subtitle)
@@ -308,34 +310,105 @@ struct VocaDisclosureCard<Content: View>: View {
                     Spacer(minLength: 8)
                     if let badge {
                         Text(badge)
-                            .font(.caption2.weight(.medium))
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 3)
-                            .background(Color.primary.opacity(0.08), in: Capsule())
+                            .background(Color.primary.opacity(0.07), in: Capsule())
                             .foregroundStyle(.secondary)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    VocaDisclosureChevron(isExpanded: isExpanded)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(VocaDisclosureHeaderButtonStyle())
             .accessibilityLabel(title)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(subtitle)
 
             if isExpanded {
-                Divider().padding(.vertical, 12)
+                Divider()
                 VStack(alignment: .leading, spacing: 12) {
                     content
                 }
+                .padding(16)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .vocaCard()
+        .background(Color.primary.opacity(0.045), in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(VocaDesign.line))
+    }
+}
+
+/// The trailing affordance for every expandable row: a chevron in a small
+/// round well, so the row reads as something that opens even while shut.
+struct VocaDisclosureChevron: View {
+    let isExpanded: Bool
+
+    var body: some View {
+        Image(systemName: "chevron.down")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.secondary)
+            .rotationEffect(.degrees(isExpanded ? 180 : 0))
+            .frame(width: 22, height: 22)
+            .background(Color.primary.opacity(0.07), in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
+/// Highlights a whole disclosure header on hover and press.
+struct VocaDisclosureHeaderButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(Color.primary.opacity(configuration.isPressed ? 0.07 : isHovered ? 0.035 : 0))
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.12), value: isHovered)
+    }
+}
+
+/// `DisclosureGroup` inside a card. The system style only responds to its
+/// tiny leading triangle; this makes the whole labelled row the control.
+struct VocaDisclosureGroupStyle: DisclosureGroupStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
+                    configuration.isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    configuration.label
+                        .font(.callout.weight(.medium))
+                    Spacer(minLength: 8)
+                    VocaDisclosureChevron(isExpanded: configuration.isExpanded)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(VocaDisclosureHeaderButtonStyle())
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .padding(.horizontal, -10)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+
+            if configuration.isExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    configuration.content
+                }
+                .padding(.top, 10)
+                .transition(.opacity)
+            }
+        }
     }
 }
 

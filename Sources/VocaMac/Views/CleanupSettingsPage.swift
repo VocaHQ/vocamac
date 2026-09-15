@@ -823,19 +823,15 @@ private struct AIModelLibraryRow: View {
                     Text(descriptor.sizeDescription)
                     Text("•")
                     Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
-                    Text("•")
-                    Text(kind.supportsCommandMode ? "Cleanup and Command Mode" : "Cleanup only")
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                if isInUse {
-                    HStack(spacing: 4) {
-                        if usedForCleanup {
-                            ModelRolePill(title: "Smart Cleanup", color: VocaDesign.success)
-                        }
-                        if usedForCommands {
-                            ModelRolePill(title: "Command Mode", color: VocaDesign.command)
-                        }
+                // What it can do, in the features' own colours; a check marks
+                // the feature using it right now.
+                HStack(spacing: 4) {
+                    ModelRolePill(title: "Smart Cleanup", color: VocaDesign.success, isInUse: usedForCleanup)
+                    if kind.supportsCommandMode {
+                        ModelRolePill(title: "Command Mode", color: VocaDesign.command, isInUse: usedForCommands)
                     }
                 }
             }
@@ -923,17 +919,26 @@ private struct AIModelLibraryRow: View {
     }
 }
 
-/// Which feature a model is working for.
+/// A feature a model can run, checked and stronger when it is running it.
 private struct ModelRolePill: View {
     let title: String
     let color: Color
+    var isInUse = false
 
     var body: some View {
-        Text(title)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
+        HStack(spacing: 3) {
+            if isInUse {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            Text(title)
+        }
+        .font(.caption2.weight(isInUse ? .semibold : .medium))
+        .padding(.horizontal, 6)
+        .padding(.vertical, 1)
+        .background(color.opacity(isInUse ? 0.24 : 0.10), in: Capsule())
+        .foregroundStyle(color.opacity(isInUse ? 1 : 0.8))
+        .help(isInUse ? "Running \(title)" : "Can run \(title)")
+        .accessibilityLabel(isInUse ? "\(title), in use" : "Can run \(title)")
     }
 }

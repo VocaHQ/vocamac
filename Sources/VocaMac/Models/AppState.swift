@@ -2826,6 +2826,10 @@ final class AppState: ObservableObject {
 
     // MARK: Models for Cleanup and Command Mode
 
+    /// Bumped by every model choice. A choice that resumes after a download or
+    /// load checks it, so an older request can't overwrite a newer one.
+    private var aiModelChoiceGeneration = 0
+
     /// Whether one on-device model is running both Smart Cleanup and Command
     /// Mode. Choosing a different model for either one ends it; so does
     /// switching it off, which is remembered.
@@ -2846,16 +2850,21 @@ final class AppState: ObservableObject {
             guard role != .commandMode else { return }
             role = .cleanup
         }
+        aiModelChoiceGeneration += 1
+        let generation = aiModelChoiceGeneration
         if !transcriptCleanup.isDownloaded(kind) {
             await transcriptCleanup.download(kind)
-            guard transcriptCleanup.isDownloaded(kind) else { return }
+            guard generation == aiModelChoiceGeneration,
+                  transcriptCleanup.isDownloaded(kind) else { return }
         }
         if role != .commandMode {
             if transcriptCleanupEnabled && cleanupEndpoint.isLocal {
-                await loadCleanupModel(kind)
-                // A refused load keeps the previous cleanup model. Stop here so
-                // Command Mode and sharing don't move without it.
-                guard transcriptCleanup.loadedKind == kind else { return }
+                await transcriptCleanup.load(kind)
+                // A newer choice wins. A refused load keeps the previous
+                // cleanup model, so Command Mode and sharing don't move either.
+                guard generation == aiModelChoiceGeneration,
+                      transcriptCleanup.loadedKind == kind else { return }
+                transcriptCleanupModel = kind.rawValue
             } else {
                 // Nothing to load while cleanup is off; remember the choice.
                 transcriptCleanupModel = kind.rawValue
@@ -2873,6 +2882,8 @@ final class AppState: ObservableObject {
     /// this Mac.
     func setSharesAIModel(_ shared: Bool) async {
         guard shared else {
+            // Supersedes a sharing request still downloading or loading.
+            aiModelChoiceGeneration += 1
             aiModelsKeptSeparate = true
             return
         }
@@ -2891,6 +2902,7 @@ final class AppState: ObservableObject {
     /// Run Command Mode with Apple Intelligence or the cleanup endpoint.
     /// Local models go through `useAIModel`, which can download them.
     func selectCommandModeEngine(_ engine: CommandModeEngine) {
+        aiModelChoiceGeneration += 1
         commandModeEngine = engine
     }
 

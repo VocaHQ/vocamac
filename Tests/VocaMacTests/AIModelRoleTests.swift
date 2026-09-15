@@ -109,6 +109,42 @@ final class AIModelRoleTests: XCTestCase {
         XCTAssertTrue(state.aiModelsKeptSeparate)
     }
 
+    func testTurningSharingOffDuringItsLoadWins() async {
+        let (state, cleanup) = makeState()
+        state.transcriptCleanupEnabled = true
+        state.selectCommandModeEngine(.appleIntelligence)
+        var release: CheckedContinuation<Void, Never>?
+        cleanup.onLoad = { await withCheckedContinuation { release = $0 } }
+
+        let older = Task { await state.setSharesAIModel(true) }
+        while release == nil { await Task.yield() }
+        cleanup.onLoad = nil
+        await state.setSharesAIModel(false)
+        release?.resume()
+        await older.value
+
+        XCTAssertTrue(state.aiModelsKeptSeparate)
+        XCTAssertEqual(state.commandModeEngine, .appleIntelligence)
+        XCTAssertEqual(state.selectedCleanupModelKind, .defaultKind)
+    }
+
+    func testNewerModelChoiceWinsOverAnOlderLoad() async {
+        let (state, cleanup) = makeState()
+        state.transcriptCleanupEnabled = true
+        var release: CheckedContinuation<Void, Never>?
+        cleanup.onLoad = { await withCheckedContinuation { release = $0 } }
+
+        let older = Task { await state.useAIModel(.qwen25_7b_q4_k_m, for: .both) }
+        while release == nil { await Task.yield() }
+        cleanup.onLoad = nil
+        await state.useAIModel(.qwen3_4b_instruct_2507_q4_k_m, for: .both)
+        release?.resume()
+        await older.value
+
+        XCTAssertEqual(state.selectedCleanupModelKind, .qwen3_4b_instruct_2507_q4_k_m)
+        XCTAssertEqual(state.commandModeEngine, .local(.qwen3_4b_instruct_2507_q4_k_m))
+    }
+
     func testFailedDownloadChangesNothing() async {
         let (state, cleanup) = makeState()
         cleanup.downloadedKinds = []

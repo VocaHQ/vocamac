@@ -745,8 +745,12 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
         modelState = .idle
     }
 
+    /// Suspends a load until the test lets it finish.
+    var onLoad: (() async -> Void)?
+
     func load(_ kind: CleanupModelKind) async {
         loadCallCount += 1
+        await onLoad?()
         guard loadSucceeds else {
             modelState = .error("load failed")
             return

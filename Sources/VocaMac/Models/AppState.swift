@@ -2837,8 +2837,8 @@ final class AppState: ObservableObject {
     /// Put `kind` to work for `role`, downloading it first if needed. While
     /// the two features share a model, a model that can do both is used for
     /// both, so picking one in either place never leaves them out of step.
-    /// Nothing changes if the download fails, and cleanup only adopts a model
-    /// once it is resident (see `loadCleanupModel`).
+    /// Nothing changes if the download fails or cleanup can't load the model:
+    /// a request is applied whole or not at all.
     func useAIModel(_ kind: CleanupModelKind, for role: AIModelRole) async {
         var role = role
         if sharesAIModel, kind.supportsCommandMode { role = .both }
@@ -2850,16 +2850,19 @@ final class AppState: ObservableObject {
             await transcriptCleanup.download(kind)
             guard transcriptCleanup.isDownloaded(kind) else { return }
         }
-        // Asking for one model to do both is asking to share again.
-        if role == .both { aiModelsKeptSeparate = false }
         if role != .commandMode {
             if transcriptCleanupEnabled && cleanupEndpoint.isLocal {
                 await loadCleanupModel(kind)
+                // A refused load keeps the previous cleanup model. Stop here so
+                // Command Mode and sharing don't move without it.
+                guard transcriptCleanup.loadedKind == kind else { return }
             } else {
                 // Nothing to load while cleanup is off; remember the choice.
                 transcriptCleanupModel = kind.rawValue
             }
         }
+        // Asking for one model to do both is asking to share again.
+        if role == .both { aiModelsKeptSeparate = false }
         if role != .cleanup {
             commandModeEngine = .local(kind)
         }
@@ -2869,8 +2872,11 @@ final class AppState: ObservableObject {
     /// text, then the local Command Mode model, then the one suggested for
     /// this Mac.
     func setSharesAIModel(_ shared: Bool) async {
-        aiModelsKeptSeparate = !shared
-        guard shared else { return }
+        guard shared else {
+            aiModelsKeptSeparate = true
+            return
+        }
+        // useAIModel clears the separate flag only once the model is in place.
         let kind: CleanupModelKind
         if selectedCleanupModelKind.supportsCommandMode {
             kind = selectedCleanupModelKind

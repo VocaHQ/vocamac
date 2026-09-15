@@ -98,6 +98,17 @@ final class AIModelRoleTests: XCTestCase {
         XCTAssertTrue(state.sharesAIModel)
     }
 
+    func testRefusedCleanupLoadForBothChangesNothing() async {
+        let (state, cleanup) = makeState()
+        state.transcriptCleanupEnabled = true
+        await state.setSharesAIModel(false)
+        cleanup.loadSucceeds = false
+        await state.useAIModel(.qwen25_7b_q4_k_m, for: .both)
+        XCTAssertEqual(state.selectedCleanupModelKind, .defaultKind)
+        XCTAssertEqual(state.commandModeEngine, .local(.qwen25_1_5b_q4_k_m))
+        XCTAssertTrue(state.aiModelsKeptSeparate)
+    }
+
     func testFailedDownloadChangesNothing() async {
         let (state, cleanup) = makeState()
         cleanup.downloadedKinds = []

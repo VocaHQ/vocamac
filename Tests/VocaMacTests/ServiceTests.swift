@@ -105,6 +105,7 @@ final class TextInjectorTests: XCTestCase {
     /// A delayed clipboard change must not become the value consumed by the
     /// paste event. This models a clipboard manager or an older restore task
     /// racing with the current transcription.
+    @MainActor
     func testClipboardFallbackReassertsTranscriptionBeforePaste() async {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
         defer { pasteboard.releaseGlobally() }
@@ -152,7 +153,8 @@ final class TextInjectorTests: XCTestCase {
     /// Consecutive transcriptions must not share an asynchronous clipboard
     /// window. Each paste event should consume its own transcription, and the
     /// original clipboard should be restored only after both are complete.
-    func testRapidClipboardInjectionsAreSerialized() {
+    @MainActor
+    func testRapidClipboardInjectionsAreSerialized() async {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
         defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
@@ -161,7 +163,6 @@ final class TextInjectorTests: XCTestCase {
         var pastedTexts: [String] = []
         let pasteExpectation = expectation(description: "two transcription paste events")
         pasteExpectation.expectedFulfillmentCount = 2
-        let finishedExpectation = expectation(description: "queued clipboard restoration")
 
         let injector = TextInjector(
             pasteboard: pasteboard,
@@ -170,11 +171,6 @@ final class TextInjectorTests: XCTestCase {
             pasteActionOverride: {
                 pastedTexts.append(pasteboard.string(forType: .string) ?? "")
                 pasteExpectation.fulfill()
-                if pastedTexts.count == 2 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        finishedExpectation.fulfill()
-                    }
-                }
             },
             frontmostPIDProvider: { 123 }
         )
@@ -182,7 +178,8 @@ final class TextInjectorTests: XCTestCase {
         injector.inject(text: "first transcription", preserveClipboard: true)
         injector.inject(text: "second transcription", preserveClipboard: true)
 
-        wait(for: [pasteExpectation, finishedExpectation], timeout: 1.5)
+        await fulfillment(of: [pasteExpectation], timeout: 5.0)
+        await TextInjector.waitForInjectionQueueIdleForTesting()
 
         XCTAssertEqual(pastedTexts, ["first transcription", "second transcription"])
         XCTAssertEqual(pasteboard.string(forType: .string), "original clipboard")

@@ -86,6 +86,13 @@ struct CleanupModelSuggestion: Equatable {
     let reason: String
 }
 
+/// The job an on-device model is chosen for.
+enum AIModelRole: Equatable {
+    case cleanup
+    case commandMode
+    case both
+}
+
 /// Identifiers persisted in `PreferenceKey.transcriptCleanupModel`.
 ///
 /// Hybrid attention/recurrent architectures do not belong here — check

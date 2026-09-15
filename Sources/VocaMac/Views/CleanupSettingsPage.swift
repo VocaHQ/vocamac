@@ -16,6 +16,7 @@ struct CleanupSettingsPage: View {
     @State private var isPromptExpanded = false
     @State private var isInferenceExpanded = false
     @State private var isCommandModeExpanded = false
+    @State private var isMoreModelsExpanded = false
     @State private var apiKeyDraft = ""
     @State private var endpointNotice: String?
 
@@ -27,42 +28,55 @@ struct CleanupSettingsPage: View {
 
     var body: some View {
         VocaSettingsPageContent {
-            VocaSettingsGroup("Smart Cleanup") {
-                SettingsToggleRow(
-                    title: "Clean up after transcription",
-                    detail: "Removes fillers and false starts on this Mac. Keeps the original if it can't.",
-                    isOn: $appState.transcriptCleanupEnabled
-                )
-                .onChange(of: appState.transcriptCleanupEnabled) {
-                    Task { @MainActor in
-                        await appState.syncTranscriptCleanup()
-                    }
+            // The two features, what each one runs, and whether it's ready.
+            // People used to piece this together from two separate model
+            // lists, and assumed a model picked for one also ran the other.
+            VocaSettingsGroup("Cleanup and Command Mode") {
+                AIFeatureRow(
+                    title: "Smart Cleanup",
+                    detail: "Tidies every dictation after it's transcribed.",
+                    systemImage: "sparkles",
+                    tint: VocaDesign.accentSolid
+                ) {
+                    AIModelMenu(role: .cleanup)
+                    Toggle("Smart Cleanup", isOn: $appState.transcriptCleanupEnabled)
+                        .labelsHidden()
+                } status: {
+                    cleanupStatus
                 }
 
-                // Setup state belongs here rather than in the paragraph above,
-                // which kept telling people to download a model while the row
-                // below reported one ready.
+                Divider()
+
+                AIFeatureRow(
+                    title: "Command Mode",
+                    detail: "Edits text you select, when you ask.",
+                    systemImage: "wand.and.stars",
+                    tint: VocaDesign.command
+                ) {
+                    AIModelMenu(role: .commandMode)
+                } status: {
+                    commandStatus
+                }
+
                 if appState.cleanupEndpoint.isLocal {
-                    if appState.transcriptCleanupEnabled,
-                       !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
-                        Text("Cleanup is on, but the selected model is not downloaded yet. Dictation will inject the raw transcript until you download one.")
-                            .font(.caption)
-                            .foregroundStyle(.orange)
-                    } else if !hasDownloadedModel {
-                        Text("Off until a model is downloaded — pick one below.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Divider()
+                    SettingsToggleRow(
+                        title: "Use one model for both",
+                        detail: sharingDetail,
+                        isOn: Binding(
+                            get: { appState.sharesAIModel },
+                            set: { shared in
+                                Task { @MainActor in await appState.setSharesAIModel(shared) }
+                            }
+                        )
+                    )
+                    .disabled(isDownloading)
                 }
 
-                if appState.cleanupEndpoint.isLocal {
-                    statusRow
-                } else if appState.cleanupEndpoint.validationProblem() == nil {
-                    Label("Endpoint configured", systemImage: "checkmark.circle.fill")
-                        .font(.caption)
-                        .foregroundStyle(VocaDesign.success)
-                }
+                downloadProgressLine
+            }
 
+            VocaSettingsGroup("Cleanup Level") {
                 Picker("Cleanup level", selection: $appState.transcriptCleanupLevel) {
                     ForEach(CleanupLevel.allCases) { level in
                         Text(level.displayName).tag(level)
@@ -71,24 +85,10 @@ struct CleanupSettingsPage: View {
                 Text(appState.transcriptCleanupLevel.detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
-            if appState.cleanupEndpoint.isLocal {
-                VocaSettingsGroup("Selected Cleanup Model") {
-                    CleanupModelRow(kind: appState.selectedCleanupModelKind)
-                    DisclosureGroup("Change model") {
-                        CleanupSuggestionBanner(suggestion: appState.cleanupModelSuggestion)
-                        if let shared = appState.commandModelAvailableForCleanup {
-                            ShareCommandModelBanner(kind: shared)
-                        }
-                        ForEach(CleanupModelKind.cleanupChoices.filter { $0 != appState.selectedCleanupModelKind }) { kind in
-                            Divider()
-                            CleanupModelRow(kind: kind)
-                        }
-                    }
-                    .disclosureGroupStyle(VocaDisclosureGroupStyle())
-                }
-            }
+            modelLibrary
 
             VocaDisclosureCard(
                 title: "Inference",
@@ -144,7 +144,7 @@ struct CleanupSettingsPage: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text("The bundled GGUF model runs entirely on this Mac. This remains the default.")
+                    Text("Cleanup runs on this Mac with the model chosen above.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -154,8 +154,8 @@ struct CleanupSettingsPage: View {
             }
 
             VocaDisclosureCard(
-                title: "Command Mode",
-                subtitle: "Select text anywhere and say how to change it.",
+                title: "Command Mode Options",
+                subtitle: "Shortcut, examples, and apps that hide selections.",
                 systemImage: "wand.and.stars",
                 isExpanded: $isCommandModeExpanded
             ) {
@@ -269,6 +269,11 @@ struct CleanupSettingsPage: View {
             }
         }
         .toggleStyle(.switch)
+        .onChange(of: appState.transcriptCleanupEnabled) {
+            Task { @MainActor in
+                await appState.syncTranscriptCleanup()
+            }
+        }
         .onAppear {
             if !didLoadPrompt {
                 promptDraft = appState.effectiveCleanupPrompt
@@ -387,235 +392,181 @@ struct CleanupSettingsPage: View {
         appState.transcriptCleanupPrompt = isDefault ? "" : draft
     }
 
+    private var isDownloading: Bool {
+        if case .downloading = appState.transcriptCleanup.modelState { return true }
+        return false
+    }
+
+    /// Rows that stay visible: anything downloaded, in use, downloading, or
+    /// suggested for this Mac. The rest wait behind one disclosure row.
+    private func isProminentModel(_ kind: CleanupModelKind) -> Bool {
+        if case .downloading(let active, _) = appState.transcriptCleanup.modelState, active == kind {
+            return true
+        }
+        let suggestion = appState.cleanupModelSuggestion
+        return appState.transcriptCleanup.isDownloaded(kind)
+            || appState.selectedCleanupModelKind == kind
+            || appState.commandModeEngine == .local(kind)
+            || suggestion.cleanup == kind
+            || suggestion.commandMode == kind
+    }
+
+    private var modelLibrary: some View {
+        let prominent = CleanupModelKind.allCases.filter(isProminentModel)
+        let more = CleanupModelKind.allCases.filter { !isProminentModel($0) }
+        return VocaSettingsGroup("On-Device Models", subtitle: "Download a model once and use it for either feature.") {
+            ForEach(prominent) { kind in
+                AIModelLibraryRow(kind: kind)
+                if kind != prominent.last || !more.isEmpty {
+                    Divider()
+                }
+            }
+            if !more.isEmpty {
+                DisclosureGroup(isExpanded: $isMoreModelsExpanded) {
+                    ForEach(more) { kind in
+                        AIModelLibraryRow(kind: kind)
+                        if kind != more.last {
+                            Divider()
+                        }
+                    }
+                } label: {
+                    Text("\(more.count) more \(more.count == 1 ? "model" : "models")")
+                }
+                .disclosureGroupStyle(VocaDisclosureGroupStyle())
+            }
+        }
+    }
+
+    /// Says in one sentence what running one or two models means right now.
+    private var sharingDetail: String {
+        let cleanup = appState.selectedCleanupModelKind.descriptor.displayName
+        if appState.sharesAIModel {
+            return "\(cleanup) does both: one download, one model in memory."
+        }
+        switch appState.commandModeEngine {
+        case .local(let kind) where kind == appState.selectedCleanupModelKind:
+            return "Both use \(cleanup) for now, but choosing a model for one won't change the other."
+        case .local(let kind):
+            return "\(cleanup) cleans up and \(kind.descriptor.displayName) edits. They take turns in memory, so an edit starts slower."
+        case .appleIntelligence, .endpoint:
+            return "Command Mode runs with \(appState.commandModeEngine.displayName), so it needs no model here."
+        }
+    }
+
     @ViewBuilder
-    private var statusRow: some View {
-        switch appState.transcriptCleanup.modelState {
-        case .idle:
-            EmptyView()
-        case .downloading(let kind, let progress):
-            HStack {
+    private var cleanupStatus: some View {
+        let kind = appState.selectedCleanupModelKind
+        if !appState.cleanupEndpoint.isLocal {
+            if let problem = appState.cleanupEndpoint.validationProblem() {
+                AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+            } else {
+                AIStatusLine(
+                    text: "Runs with \(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel), set in Inference below.",
+                    systemImage: "network",
+                    color: .secondary
+                )
+            }
+        } else if appState.transcriptCleanupEnabled {
+            switch appState.transcriptCleanup.modelState {
+            case .downloading, .ready:
+                EmptyView()
+            case .loading(let loading):
+                AIStatusLine(text: "Loading \(loading.descriptor.displayName)…", systemImage: "hourglass", color: .secondary)
+            case .error(let message):
+                HStack(spacing: 8) {
+                    AIStatusLine(text: message, systemImage: "exclamationmark.triangle.fill", color: .orange)
+                    if let smaller = appState.smallerDownloadedCleanupModel {
+                        Button("Use \(smaller.descriptor.displayName)") {
+                            Task { @MainActor in await appState.useAIModel(smaller, for: .cleanup) }
+                        }
+                        .controlSize(.small)
+                        .help("Already downloaded and uses less memory")
+                    }
+                }
+            case .idle:
+                if !appState.transcriptCleanup.isDownloaded(kind) {
+                    HStack(spacing: 8) {
+                        AIStatusLine(
+                            text: "Not downloaded yet, so dictations are typed as spoken.",
+                            systemImage: "arrow.down.circle",
+                            color: .orange
+                        )
+                        Button("Download \(kind.descriptor.sizeDescription)") {
+                            Task { @MainActor in await appState.useAIModel(kind, for: .cleanup) }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var commandStatus: some View {
+        let engine = appState.commandModeEngine
+        if appState.shortcut(for: .commandMode) == nil {
+            HStack(spacing: 8) {
+                AIStatusLine(text: "Off until it has a shortcut.", systemImage: "keyboard", color: .orange)
+                if let suggested = ShortcutValidation.suggestion(for: .commandMode, appState: appState) {
+                    Button("Use \(KeyCodeReference.displayName(for: suggested))") {
+                        appState.setShortcut(suggested, for: .commandMode)
+                    }
+                    .controlSize(.small)
+                    .help("Three modifiers, rarely used by other apps")
+                }
+            }
+        } else if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
+            HStack(spacing: 8) {
+                AIStatusLine(text: "\(kind.descriptor.displayName) isn't downloaded yet.", systemImage: "arrow.down.circle", color: .orange)
+                Button("Download \(kind.descriptor.sizeDescription)") {
+                    Task { @MainActor in await appState.useAIModel(kind, for: .commandMode) }
+                }
+                .controlSize(.small)
+                .disabled(isDownloading)
+            }
+        } else if let problem = appState.commandModeProblem(for: engine) {
+            AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+        } else if let combo = appState.shortcut(for: .commandMode) {
+            AIStatusLine(
+                text: "Ready. Select text, press \(KeyCodeReference.displayName(for: combo)), and say the edit.",
+                systemImage: "checkmark.circle.fill",
+                color: VocaDesign.command
+            )
+        }
+    }
+
+    /// One download runs at a time, whichever feature asked for it.
+    @ViewBuilder
+    private var downloadProgressLine: some View {
+        if case .downloading(let kind, let progress) = appState.transcriptCleanup.modelState {
+            Divider()
+            HStack(spacing: 10) {
                 ProgressView(value: progress)
+                    .frame(width: 110)
                 Text("Downloading \(kind.descriptor.displayName) — \(Int(progress * 100))%")
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
+                Spacer()
                 Button("Cancel") {
                     appState.cancelCleanupDownload()
                 }
                 .controlSize(.small)
             }
-        case .loading:
-            HStack {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Loading cleanup model…")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        case .ready:
-            Label("Cleanup model ready", systemImage: "checkmark.circle.fill")
-                .font(.caption)
-                .foregroundStyle(VocaDesign.success)
-        case .error(let message):
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.orange)
-            if let smaller = appState.smallerDownloadedCleanupModel {
-                Button("Use \(smaller.descriptor.displayName)") {
-                    Task { @MainActor in await appState.loadCleanupModel(smaller) }
-                }
-                .controlSize(.small)
-                Text("Already downloaded · uses less memory. Dictation keeps the original transcript while cleanup is unavailable.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-}
-
-struct CleanupModelRow: View {
-    let kind: CleanupModelKind
-    @EnvironmentObject var appState: AppState
-    @State private var showDeleteAlert = false
-
-    private var descriptor: CleanupModelDescriptor { kind.descriptor }
-    private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
-    private var isSelected: Bool { appState.selectedCleanupModelKind == kind }
-    private var isSuggested: Bool { appState.cleanupModelSuggestion.cleanup == kind }
-    /// Selected for cleanup and actually resident — Command Mode may have
-    /// borrowed the model slot for a larger model.
-    private var isActive: Bool {
-        isSelected && appState.transcriptCleanup.modelState == .ready
-            && (appState.transcriptCleanup.loadedKind ?? kind) == kind
-    }
-
-    private var isBusy: Bool {
-        switch appState.transcriptCleanup.modelState {
-        case .downloading(let active, _), .loading(let active):
-            return active == kind
-        case .idle, .ready, .error:
-            return false
-        }
-    }
-
-    var body: some View {
-        HStack {
-            ModelCreatorMark(creator: kind.creator, isActive: isActive)
-                .padding(.trailing, 4)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(descriptor.displayName)
-                        .font(.callout)
-                        .fontWeight(isSelected ? .semibold : .regular)
-
-                    // Recommended for this Mac replaces the model's general
-                    // positioning, as the speech model list does.
-                    if isSuggested {
-                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
-                    } else {
-                        Text(descriptor.recommendation.badge)
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(badgeColor.opacity(0.2))
-                            .foregroundStyle(badgeColor)
-                            .cornerRadius(4)
-                    }
-
-                    if kind.isShared {
-                        SharedModelBadge(title: "Cleanup + Command Mode")
-                    }
-                }
-
-                HStack(spacing: 4) {
-                    Text(kind.creator.displayName)
-                    Text("•")
-                    Text(descriptor.sizeDescription)
-                    Text("•")
-                    Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-                Text(descriptor.summary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-
-                if let shared = sharedUseNote {
-                    SharedModelNote(text: shared)
-                }
-            }
-
-            Spacer()
-
-            if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState,
-               active == kind {
-                HStack(spacing: 8) {
-                    ProgressView(value: progress)
-                        .frame(width: 70)
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                    Button("Cancel") {
-                        appState.cancelCleanupDownload()
-                    }
-                    .controlSize(.small)
-                }
-            } else if isBusy {
-                ProgressView()
-                    .controlSize(.small)
-            } else if isDownloaded {
-                if isActive {
-                    Label("Active", systemImage: "checkmark")
-                        .font(.caption)
-                        .foregroundStyle(VocaDesign.success)
-                } else {
-                    Button("Load") {
-                        Task { @MainActor in
-                            await appState.loadCleanupModel(kind)
-                        }
-                    }
-                    .controlSize(.small)
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                Button("Download") {
-                    Task { @MainActor in
-                        await appState.downloadCleanupModel(kind)
-                    }
-                }
-                .controlSize(.small)
-                // One download at a time: starting another cancels the first,
-                // which with a multi-gigabyte Command Mode model loses a lot.
-                .disabled(isDownloadingOtherModel)
-            }
-
-            if isDownloaded && !isBusy {
-                Button {
-                    showDeleteAlert = true
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .controlSize(.small)
-                .buttonStyle(.borderless)
-                .foregroundStyle(.secondary)
-                .help("Delete downloaded model")
-            }
-        }
-        .padding(.vertical, 6)
-        .alert("Delete \(descriptor.displayName)?", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
-                appState.deleteCleanupModel(kind)
-            }
-        } message: {
-            Text(deleteMessage)
-        }
-    }
-
-    private var isDownloadingOtherModel: Bool {
-        if case .downloading(let active, _) = appState.transcriptCleanup.modelState { return active != kind }
-        return false
-    }
-
-    /// Shared models say what else they do, and whether Command Mode is
-    /// using this very download.
-    private var sharedUseNote: String? {
-        guard kind.isShared else { return nil }
-        let slower = kind.isSlowForCleanup ? " Slower after each dictation than the smaller models." : ""
-        return appState.commandModeEngine == .local(kind)
-            ? "Also your Command Mode model — one download and one model in memory serve both." + slower
-            : "Can also run Command Mode — one download serves both." + slower
-    }
-
-    private var deleteMessage: String {
-        let base = "Removes \(descriptor.sizeDescription) from disk. You can download it again later."
-        return appState.commandModeEngine == .local(kind) ? base + " Command Mode uses this model too." : base
-    }
-
-    /// Neutral, so the accent stays with Recommended for this Mac.
-    private var badgeColor: Color {
-        switch descriptor.recommendation {
-        case .compact: return .secondary
-        case .allRound, .quality: return .primary
         }
     }
 }
 
 // MARK: - Command Mode
 
-/// Command Mode's shortcut and the model that runs its edits, chosen
-/// separately from the dictation cleanup model above.
+/// Command Mode's shortcut and options. Its model is chosen at the top of
+/// the page, next to the cleanup model.
 struct CommandModeSettingsGroup: View {
     @EnvironmentObject var appState: AppState
 
     /// Inside a disclosure card that already names the group, draw only the
     /// rows — a second titled card would repeat the heading one level down.
     var embedded = false
-
-    private var engine: CommandModeEngine { appState.commandModeEngine }
 
     var body: some View {
         if embedded {
@@ -627,9 +578,7 @@ struct CommandModeSettingsGroup: View {
 
     @ViewBuilder
     private var rows: some View {
-        CommandModeReadinessBanner()
-
-        Text("Select text in any app, use the shortcut, and say what to change. Works with Smart Cleanup on or off, and the original stays in the menu bar to copy back.")
+        Text("Select text in any app, press the shortcut, and say what to change. The original stays in the menu bar so you can copy it back.")
             .font(.caption)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -645,233 +594,11 @@ struct CommandModeSettingsGroup: View {
         Divider()
 
         SettingsToggleRow(
-            title: "Copy the selection when an app doesn't share it",
-            detail: "Some terminals and editors don't expose selected text to Accessibility. With this on, VocaMac copies the selection with ⌘C and puts your clipboard back right away — but clipboard managers may briefly see the selected text.",
+            title: "Copy the selection when an app hides it",
+            detail: "For terminals and editors that don't share selected text.",
             isOn: $appState.commandModeClipboardFallback
         )
-
-        Divider()
-
-        Text("Model for edits")
-            .font(.subheadline.weight(.medium))
-
-        CommandEngineRow(
-            engine: .appleIntelligence,
-            title: "Apple Intelligence",
-            detail: "Built into macOS 26. No download, runs on this Mac.",
-            problem: appState.appleIntelligenceAvailable()
-                ? nil : AppleIntelligenceTextService.availabilityProblem(),
-            creator: .apple
-        )
-
-        if !appState.cleanupEndpoint.isLocal {
-            Divider()
-            CommandEngineRow(
-                engine: .endpoint,
-                title: "\(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel)",
-                detail: "The cleanup endpoint above. The selection and your instruction are sent to it.",
-                problem: appState.cleanupEndpoint.validationProblem()
-            )
-        }
-
-        ForEach(CleanupModelKind.commandModeChoices) { kind in
-            Divider()
-            CommandLocalModelRow(kind: kind)
-        }
-
-        // Apple Intelligence and endpoint rows already explain their own
-        // problems; only a missing download needs saying here.
-        if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
-            Label(
-                "Download \(kind.descriptor.displayName) above to use Command Mode, or choose another model.",
-                systemImage: "arrow.down.circle"
-            )
-            .font(.caption)
-            .foregroundStyle(.orange)
-        }
-    }
-}
-
-private struct CommandEngineRow: View {
-    @EnvironmentObject var appState: AppState
-    let engine: CommandModeEngine
-    let title: String
-    let detail: String
-    let problem: String?
-    var creator: ModelCreator?
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            CommandEngineSelectionMark(isSelected: appState.commandModeEngine == engine)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    if let creator {
-                        ModelCreatorMark(creator: creator, size: 18)
-                    }
-                    Text(title).font(.callout)
-                }
-                Text(problem ?? detail)
-                    .font(.caption2)
-                    .foregroundStyle(problem == nil ? Color.secondary : Color.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-            if appState.commandModeEngine == engine {
-                Text("In use").font(.caption).foregroundStyle(VocaDesign.command)
-            } else {
-                Button("Use") { appState.commandModeEngine = engine }
-                    .controlSize(.small)
-                    .disabled(problem != nil)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
-
-private struct CommandLocalModelRow: View {
-    @EnvironmentObject var appState: AppState
-    @State private var showDeleteAlert = false
-    let kind: CleanupModelKind
-
-    private var descriptor: CleanupModelDescriptor { kind.descriptor }
-    private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
-    private var isSelected: Bool { appState.commandModeEngine == .local(kind) }
-    /// Deleting the cleanup model from here would surprise; that row owns it.
-    private var isCleanupModel: Bool { appState.selectedCleanupModelKind == kind }
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline) {
-            CommandEngineSelectionMark(isSelected: isSelected)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    ModelCreatorMark(creator: kind.creator, size: 18)
-                    Text(descriptor.displayName).font(.callout)
-                    if appState.cleanupModelSuggestion.commandMode == kind {
-                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
-                    }
-                    if kind.isShared {
-                        SharedModelBadge(title: "Cleanup + Command Mode")
-                    }
-                }
-                Text("\(descriptor.sizeDescription) • ~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Text(descriptor.summary)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let shared = sharedUseNote {
-                    SharedModelNote(text: shared)
-                }
-            }
-            Spacer()
-            trailing
-        }
-        .padding(.vertical, 4)
-        .alert("Delete \(descriptor.displayName)?", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { appState.deleteCleanupModel(kind) }
-        } message: {
-            Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
-        }
-    }
-
-    @ViewBuilder
-    private var trailing: some View {
-        if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState, active == kind {
-            HStack(spacing: 8) {
-                ProgressView(value: progress).frame(width: 70)
-                Text("\(Int(progress * 100))%")
-                    .font(.caption2).monospacedDigit().foregroundStyle(.secondary)
-                Button("Cancel") { appState.cancelCleanupDownload() }
-                    .controlSize(.small)
-            }
-        } else if !isDownloaded {
-            Button("Download") {
-                Task { @MainActor in await appState.downloadCommandModeModel(kind) }
-            }
-            .controlSize(.small)
-            .disabled(isDownloadingAnotherModel)
-        } else {
-            HStack(spacing: 8) {
-                if isSelected {
-                    Text("In use").font(.caption).foregroundStyle(VocaDesign.command)
-                } else {
-                    Button("Use") { appState.commandModeEngine = .local(kind) }
-                        .controlSize(.small)
-                }
-                if !isCleanupModel {
-                    Button { showDeleteAlert = true } label: { Image(systemName: "trash") }
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Delete downloaded model")
-                }
-            }
-        }
-    }
-
-    private var sharedUseNote: String? {
-        guard kind.isShared else { return nil }
-        return isCleanupModel
-            ? "Also your Smart Cleanup model — one download serves both. Delete it from Cleanup Model above."
-            : "Can also run Smart Cleanup — one download serves both."
-    }
-
-    private var isDownloadingAnotherModel: Bool {
-        if case .downloading = appState.transcriptCleanup.modelState { return true }
-        return false
-    }
-}
-
-private struct CommandEngineSelectionMark: View {
-    let isSelected: Bool
-
-    var body: some View {
-        Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-            .foregroundStyle(isSelected ? VocaDesign.command : .secondary)
-            .frame(width: 20)
-            .accessibilityLabel(isSelected ? "Selected" : "Not selected")
-    }
-}
-
-/// One line that says whether Command Mode will work right now, and if not,
-/// the single thing to do about it. Without a shortcut the feature is
-/// invisible, so that case leads.
-private struct CommandModeReadinessBanner: View {
-    @EnvironmentObject var appState: AppState
-
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        let (symbol, message, color) = state
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol)
-                .foregroundStyle(color)
-            Text(message)
-                .font(.callout)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(color.opacity(colorScheme == .dark ? 0.2 : 0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .accessibilityElement(children: .combine)
-    }
-
-    private var state: (String, String, Color) {
-        let engine = appState.commandModeEngine
-        guard let combo = appState.shortcut(for: .commandMode) else {
-            return ("keyboard", "Command Mode is off. Record a shortcut below, or use the suggested one, to turn it on.", .orange)
-        }
-        if let problem = appState.commandModeProblem(for: engine) {
-            return ("exclamationmark.triangle.fill", problem, .orange)
-        }
-        let keys = KeyCodeReference.displayName(for: combo)
-        return (
-            "wand.and.stars",
-            "Ready — select text, press \(keys), and speak. Edits run with \(engine.displayName).",
-            VocaDesign.command
-        )
+        .help("VocaMac copies the selection with ⌘C and puts your clipboard back right away. Clipboard managers may briefly see the selected text.")
     }
 }
 
@@ -900,31 +627,6 @@ private struct CommandModeExamples: View {
     }
 }
 
-/// Which cleanup model suits this Mac, mirroring the speech model page.
-private struct CleanupSuggestionBanner: View {
-    let suggestion: CleanupModelSuggestion
-
-    var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "sparkles")
-                .foregroundStyle(VocaDesign.accent)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Suggested for your hardware: **\(suggestion.cleanup.descriptor.displayName)**")
-                    .font(.callout)
-                Text(suggestion.reason)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("Available memory varies with your speech model and other apps.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.vertical, 4)
-    }
-}
-
 private struct RecommendedBadge: View {
     let reason: String
 
@@ -940,62 +642,298 @@ private struct RecommendedBadge: View {
     }
 }
 
-/// Offers to run cleanup with the Command Mode model, so the two features
-/// stop swapping different models in and out of memory around every edit.
-private struct ShareCommandModelBanner: View {
-    @EnvironmentObject var appState: AppState
-    let kind: CleanupModelKind
-    @State private var isSwitching = false
+// MARK: - Model Choice Components
+
+/// One of the two AI features: what it does, the model it runs, and a status
+/// line only when there is something to know.
+private struct AIFeatureRow<Trailing: View, Status: View>: View {
+    let title: String
+    let detail: String
+    let systemImage: String
+    let tint: Color
+    @ViewBuilder let trailing: Trailing
+    @ViewBuilder let status: Status
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: "square.on.square")
-                .foregroundStyle(VocaDesign.command)
-            Text("Command Mode uses \(kind.descriptor.displayName). Use it for cleanup too, so one model stays loaded instead of two swapping.")
-                .font(.caption)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
-            if isSwitching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Use for Cleanup") {
-                    isSwitching = true
-                    Task { @MainActor in
-                        await appState.useCommandModelForCleanup()
-                        isSwitching = false
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 12)
+                trailing
+            }
+            status
+                .padding(.leading, 40)
+        }
+    }
+}
+
+private struct AIStatusLine: View {
+    let text: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        Label(text, systemImage: systemImage)
+            .font(.caption)
+            .foregroundStyle(color)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// Pick the model for one feature. Undownloaded models say so and download
+/// when chosen.
+private struct AIModelMenu: View {
+    @EnvironmentObject var appState: AppState
+    let role: AIModelRole
+
+    var body: some View {
+        Menu {
+            ForEach(localChoices) { kind in
+                VocaMenuChoice(title: menuTitle(kind), isSelected: isSelected(kind)) {
+                    Task { @MainActor in await appState.useAIModel(kind, for: role) }
+                }
+            }
+            if !otherEngines.isEmpty {
+                Divider()
+                ForEach(otherEngines) { engine in
+                    VocaMenuChoice(title: engine.displayName, isSelected: appState.commandModeEngine == engine) {
+                        appState.selectCommandModeEngine(engine)
                     }
                 }
-                .controlSize(.small)
             }
+        } label: {
+            Text(currentName)
+        }
+        .fixedSize()
+        .disabled(isUnavailable)
+        .help(role == .cleanup ? "The model that cleans up dictations" : "What runs Command Mode edits")
+    }
+
+    private var localChoices: [CleanupModelKind] {
+        role == .cleanup ? CleanupModelKind.cleanupChoices : CleanupModelKind.commandModeChoices
+    }
+
+    private var otherEngines: [CommandModeEngine] {
+        guard role == .commandMode else { return [] }
+        var engines: [CommandModeEngine] = []
+        if appState.appleIntelligenceAvailable() || appState.commandModeEngine == .appleIntelligence {
+            engines.append(.appleIntelligence)
+        }
+        if !appState.cleanupEndpoint.isLocal, appState.cleanupEndpoint.validationProblem() == nil {
+            engines.append(.endpoint)
+        }
+        return engines
+    }
+
+    private func isSelected(_ kind: CleanupModelKind) -> Bool {
+        role == .cleanup
+            ? appState.selectedCleanupModelKind == kind
+            : appState.commandModeEngine == .local(kind)
+    }
+
+    private func menuTitle(_ kind: CleanupModelKind) -> String {
+        var title = kind.descriptor.displayName
+        if role == .cleanup, appState.sharesAIModel, !kind.supportsCommandMode {
+            title += " (cleanup only)"
+        }
+        if !appState.transcriptCleanup.isDownloaded(kind) {
+            title += " — download \(kind.descriptor.sizeDescription)"
+        }
+        return title
+    }
+
+    private var currentName: String {
+        switch role {
+        case .cleanup:
+            return appState.cleanupEndpoint.isLocal
+                ? appState.selectedCleanupModelKind.descriptor.displayName
+                : appState.cleanupEndpoint.provider.displayName
+        case .commandMode, .both:
+            return appState.commandModeEngine.displayName
+        }
+    }
+
+    private var isUnavailable: Bool {
+        if case .downloading = appState.transcriptCleanup.modelState { return true }
+        return role == .cleanup && !appState.cleanupEndpoint.isLocal
+    }
+}
+
+/// One downloadable model: who made it, what it can do, which feature uses
+/// it, and one control to download or use it.
+private struct AIModelLibraryRow: View {
+    @EnvironmentObject var appState: AppState
+    let kind: CleanupModelKind
+    @State private var showDeleteAlert = false
+
+    private var descriptor: CleanupModelDescriptor { kind.descriptor }
+    private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
+    private var usedForCleanup: Bool {
+        appState.cleanupEndpoint.isLocal && appState.selectedCleanupModelKind == kind
+    }
+    private var usedForCommands: Bool { appState.commandModeEngine == .local(kind) }
+    private var isInUse: Bool { usedForCleanup || usedForCommands }
+    /// Already doing every job it can, so there is nothing left to choose.
+    private var hasNothingToChoose: Bool {
+        isDownloaded && usedForCleanup && (usedForCommands || !kind.supportsCommandMode)
+    }
+    private var isSuggested: Bool {
+        let suggestion = appState.cleanupModelSuggestion
+        return suggestion.cleanup == kind || suggestion.commandMode == kind
+    }
+    private var downloadProgress: Double? {
+        if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState, active == kind {
+            return progress
+        }
+        return nil
+    }
+    private var isDownloadingAnother: Bool {
+        if case .downloading(let active, _) = appState.transcriptCleanup.modelState { return active != kind }
+        return false
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ModelCreatorMark(creator: kind.creator, isActive: isInUse && isDownloaded)
+                .padding(.trailing, 2)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(descriptor.displayName)
+                        .font(.callout)
+                        .fontWeight(isInUse ? .semibold : .regular)
+                    if isSuggested {
+                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
+                    }
+                }
+                HStack(spacing: 4) {
+                    Text(kind.creator.displayName)
+                    Text("•")
+                    Text(descriptor.sizeDescription)
+                    Text("•")
+                    Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
+                    Text("•")
+                    Text(kind.supportsCommandMode ? "Cleanup and Command Mode" : "Cleanup only")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                if isInUse {
+                    HStack(spacing: 4) {
+                        if usedForCleanup {
+                            ModelRolePill(title: "Smart Cleanup", color: VocaDesign.success)
+                        }
+                        if usedForCommands {
+                            ModelRolePill(title: "Command Mode", color: VocaDesign.command)
+                        }
+                    }
+                }
+            }
+            .help(descriptor.summary)
+
+            Spacer(minLength: 8)
+
+            trailing
         }
         .padding(.vertical, 4)
+        .alert("Delete \(descriptor.displayName)?", isPresented: $showDeleteAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { appState.deleteCleanupModel(kind) }
+        } message: {
+            Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
+        }
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if let progress = downloadProgress {
+            HStack(spacing: 6) {
+                ProgressView(value: progress)
+                    .frame(width: 60)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            HStack(spacing: 8) {
+                if !hasNothingToChoose {
+                    useControl
+                        .disabled(isDownloadingAnother)
+                }
+                if isDownloaded && !isInUse {
+                    Button {
+                        showDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Delete download")
+                }
+            }
+        }
+    }
+
+    /// A model that can only clean up, or one used while both features share
+    /// a model, has a single thing to do. A model that could serve either
+    /// feature asks which.
+    @ViewBuilder
+    private var useControl: some View {
+        let title = isDownloaded ? "Use" : "Download"
+        if !kind.supportsCommandMode {
+            Button(title) { use(.cleanup) }
+                .controlSize(.small)
+                .help("Use for Smart Cleanup")
+        } else if appState.sharesAIModel {
+            Button(title) { use(.both) }
+                .controlSize(.small)
+                .help("Use for Smart Cleanup and Command Mode")
+        } else {
+            Menu(title) {
+                Button("For Both") { use(.both) }
+                Button("For Smart Cleanup") { use(.cleanup) }
+                    .disabled(usedForCleanup && isDownloaded)
+                Button("For Command Mode") { use(.commandMode) }
+                    .disabled(usedForCommands && isDownloaded)
+                if !isDownloaded {
+                    Divider()
+                    Button("Download Only") {
+                        Task { @MainActor in await appState.downloadAIModel(kind) }
+                    }
+                }
+            }
+            .controlSize(.small)
+            .fixedSize()
+        }
+    }
+
+    private func use(_ role: AIModelRole) {
+        Task { @MainActor in await appState.useAIModel(kind, for: role) }
     }
 }
 
-/// Marks a model listed under both Smart Cleanup and Command Mode, so the
-/// same name in two lists reads as one download with two uses.
-private struct SharedModelBadge: View {
+/// Which feature a model is working for.
+private struct ModelRolePill: View {
     let title: String
+    let color: Color
 
     var body: some View {
-        Label(title, systemImage: "square.on.square")
-            .font(.caption2)
-            .labelStyle(.titleAndIcon)
+        Text(title)
+            .font(.caption2.weight(.medium))
             .padding(.horizontal, 6)
             .padding(.vertical, 1)
-            .background(VocaDesign.command.opacity(0.14), in: RoundedRectangle(cornerRadius: 4))
-            .foregroundStyle(VocaDesign.command)
-            .help("This model works for both Smart Cleanup and Command Mode. It is downloaded once and shared.")
-    }
-}
-
-private struct SharedModelNote: View {
-    let text: String
-
-    var body: some View {
-        Label(text, systemImage: "arrow.triangle.2.circlepath")
-            .font(.caption2)
-            .foregroundStyle(VocaDesign.command)
-            .fixedSize(horizontal: false, vertical: true)
+            .background(color.opacity(0.15), in: Capsule())
+            .foregroundStyle(color)
     }
 }

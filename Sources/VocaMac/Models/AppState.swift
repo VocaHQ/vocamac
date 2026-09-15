@@ -275,6 +275,9 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.commandModeShortcut) var commandModeShortcut: String = ""
     /// `CommandModeEngine.storageValue`, or empty to pick automatically.
     @AppStorage(PreferenceKey.commandModeEngine) var commandModeEngineStorage: String = ""
+    /// Set when the user chose separate models for Smart Cleanup and Command
+    /// Mode even though one model could serve both.
+    @AppStorage(PreferenceKey.aiModelsKeptSeparate) var aiModelsKeptSeparate: Bool = false
     /// Opt-in: let Command Mode copy a selection an app won't share through
     /// Accessibility. Off by default; see `AccessibilitySelectedTextService`.
     @AppStorage(PreferenceKey.commandModeClipboardFallback) var commandModeClipboardFallback: Bool = false
@@ -2819,6 +2822,74 @@ final class AppState: ObservableObject {
         await transcriptCleanup.download(kind)
         guard transcriptCleanup.isDownloaded(kind) else { return }
         commandModeEngine = .local(kind)
+    }
+
+    // MARK: Models for Cleanup and Command Mode
+
+    /// Whether one on-device model is running both Smart Cleanup and Command
+    /// Mode. Choosing a different model for either one ends it; so does
+    /// switching it off, which is remembered.
+    var sharesAIModel: Bool {
+        !aiModelsKeptSeparate && cleanupEndpoint.isLocal
+            && commandModeEngine == .local(selectedCleanupModelKind)
+    }
+
+    /// Put `kind` to work for `role`, downloading it first if needed. While
+    /// the two features share a model, a model that can do both is used for
+    /// both, so picking one in either place never leaves them out of step.
+    /// Nothing changes if the download fails, and cleanup only adopts a model
+    /// once it is resident (see `loadCleanupModel`).
+    func useAIModel(_ kind: CleanupModelKind, for role: AIModelRole) async {
+        var role = role
+        if sharesAIModel, kind.supportsCommandMode { role = .both }
+        if !kind.supportsCommandMode {
+            guard role != .commandMode else { return }
+            role = .cleanup
+        }
+        if !transcriptCleanup.isDownloaded(kind) {
+            await transcriptCleanup.download(kind)
+            guard transcriptCleanup.isDownloaded(kind) else { return }
+        }
+        // Asking for one model to do both is asking to share again.
+        if role == .both { aiModelsKeptSeparate = false }
+        if role != .commandMode {
+            if transcriptCleanupEnabled && cleanupEndpoint.isLocal {
+                await loadCleanupModel(kind)
+            } else {
+                // Nothing to load while cleanup is off; remember the choice.
+                transcriptCleanupModel = kind.rawValue
+            }
+        }
+        if role != .cleanup {
+            commandModeEngine = .local(kind)
+        }
+    }
+
+    /// Turn sharing on or off. On adopts the cleanup model when it can edit
+    /// text, then the local Command Mode model, then the one suggested for
+    /// this Mac.
+    func setSharesAIModel(_ shared: Bool) async {
+        aiModelsKeptSeparate = !shared
+        guard shared else { return }
+        let kind: CleanupModelKind
+        if selectedCleanupModelKind.supportsCommandMode {
+            kind = selectedCleanupModelKind
+        } else if case .local(let commandKind) = commandModeEngine {
+            kind = commandKind
+        } else {
+            kind = cleanupModelSuggestion.commandMode
+        }
+        await useAIModel(kind, for: .both)
+    }
+
+    /// Run Command Mode with Apple Intelligence or the cleanup endpoint.
+    /// Local models go through `useAIModel`, which can download them.
+    func selectCommandModeEngine(_ engine: CommandModeEngine) {
+        commandModeEngine = engine
+    }
+
+    func downloadAIModel(_ kind: CleanupModelKind) async {
+        await transcriptCleanup.download(kind)
     }
 
     /// Optional cleanup must not make the speech engine appear unavailable.

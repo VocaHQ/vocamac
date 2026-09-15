@@ -61,6 +61,7 @@ enum SettingsArchiveService {
         PreferenceKey.historyKeepsAudio: .bool, PreferenceKey.modelKeepAliveEnabled: .bool,
         PreferenceKey.numbersAsDigits: .bool, PreferenceKey.spokenEmoji: .bool,
         PreferenceKey.transcriptCleanupEnabled: .bool, PreferenceKey.useScreenContext: .bool,
+        PreferenceKey.aiModelsKeptSeparate: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,
         // Whole numbers
         "vocamac.hotKeyCode": .integer, "vocamac.hotKeyModifiers": .integer,

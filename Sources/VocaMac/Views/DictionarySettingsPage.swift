@@ -15,7 +15,7 @@ struct DictionarySettingsPage: View {
     var body: some View {
         VocaSettingsPageContent {
             if !appState.dictionarySuggestions.isEmpty {
-                VocaSettingsGroup("Suggested Words", subtitle: "Spellings you fixed after dictating. Add one and VocaMac will spell it your way next time.") {
+                VocaSettingsGroup("Suggested Words", subtitle: "Spellings you fixed after dictating.") {
                     ForEach(appState.dictionarySuggestions) { suggestion in
                         DictionarySuggestionRow(suggestion: suggestion)
                         if suggestion.id != appState.dictionarySuggestions.last?.id { Divider() }
@@ -23,11 +23,8 @@ struct DictionarySettingsPage: View {
                 }
             }
 
-            VocaSettingsGroup("Vocabulary", subtitle: "Names, brands, and jargon you want spelled exactly this way, with every speech model.") {
-                if appState.vocabularyTerms.isEmpty {
-                    Text("No words yet. Try names of people, products, or tools you say often.")
-                        .foregroundStyle(.secondary)
-                } else {
+            VocaSettingsGroup("Vocabulary", subtitle: "Names and jargon, spelled exactly your way.") {
+                if !appState.vocabularyTerms.isEmpty {
                     FlowTermList(terms: appState.vocabularyTerms) { term in
                         appState.removeVocabularyTerm(term)
                     }
@@ -39,17 +36,11 @@ struct DictionarySettingsPage: View {
                     Button("Add", action: addTerm)
                         .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                Text("VocaMac matches what it hears to these words ignoring case and spaces (“voca mac” → VocaMac) and fixes close misspellings of longer words. Whisper models also use the first words as a recognition hint.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .help("Matches ignore case and spaces (“voca mac” → VocaMac) and fix close misspellings. Whisper models also use these as a recognition hint.")
             }
 
-            VocaSettingsGroup("Replacements", subtitle: "Words a model keeps getting wrong, and what to type instead.") {
-                if appState.wordReplacements.isEmpty {
-                    Text("No replacements yet.")
-                        .foregroundStyle(.secondary)
-                } else {
+            VocaSettingsGroup("Replacements", subtitle: "Words a model gets wrong, and what to type instead.") {
+                if !appState.wordReplacements.isEmpty {
                     ForEach($appState.wordReplacements) { $replacement in
                         WordReplacementRow(replacement: $replacement)
                         Divider()
@@ -66,10 +57,7 @@ struct DictionarySettingsPage: View {
                         .disabled(newHeard.trimmingCharacters(in: .whitespaces).isEmpty
                                   || newReplacement.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                Text("Matching ignores case and only replaces whole words. Separate several spoken forms with commas. Replacements apply to every speech model; Raw dictation skips them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                .help("Whole words only, ignoring case. Separate several spoken forms with commas. Raw transcription skips replacements.")
             }
 
             VocaSettingsGroup("Learning") {
@@ -92,12 +80,10 @@ struct DictionarySettingsPage: View {
                 Divider()
                 SettingsToggleRow(
                     title: "Spell names from the screen",
-                    detail: "When you start dictating, VocaMac reads the text you can see in the field you're typing into and spells matching names and code identifiers the same way (“user id” → userId in code editors). It's read on this Mac, used once, and never saved.",
+                    detail: "Matches names in the field you're typing into. Read once, never saved.",
                     isOn: $appState.useScreenContext
                 )
-                Text("Both need Accessibility permission and never read password fields.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .help("When you start dictating, VocaMac reads the visible text in the focused field and spells matching names and code identifiers the same way (“user id” → userId). Needs Accessibility permission and never reads password fields.")
             }
         }
     }

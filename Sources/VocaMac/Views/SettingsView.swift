@@ -44,9 +44,9 @@ struct SettingsView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
         } detail: {
             VStack(spacing: 0) {
-                VocaPageHeader(title: (selectedPage ?? .dictation).title,
-                               subtitle: (selectedPage ?? .dictation).subtitle)
-                Divider().padding(.horizontal, 20)
+                // Title only: the sidebar already says where you are, and a
+                // tagline under every page was one more line to read past.
+                VocaPageHeader(title: (selectedPage ?? .dictation).title, subtitle: nil)
                 settingsDetail
                     .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             }
@@ -102,28 +102,33 @@ struct SettingsView: View {
     private var settingsSidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                BrandLogoView(size: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("VocaMac").font(.headline)
-                    Text("Your voice. On your Mac.").font(.caption).foregroundStyle(.secondary)
-                }
+                BrandLogoView(size: 26)
+                Text("VocaMac").font(.headline)
                 Spacer()
             }
-            .padding(16)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             SettingsSidebarSearchField(text: $searchText)
 
             // A real List keeps arrow-key navigation, type-select, the focus
             // ring, and the system's active/inactive selection colours. Rolling
             // the rows by hand as buttons loses all four.
             List(selection: $selectedPage) {
-                ForEach(visiblePages) { page in
-                    Label(page.title, systemImage: page.systemImage)
-                        // Some glyphs here ship a multicolour variant — the
-                        // ladybug renders red and black by default, which made
-                        // Advanced the only coloured row in a monochrome list.
-                        .symbolRenderingMode(.monochrome)
-                        .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
-                        .tag(page)
+                ForEach(SettingsSection.allCases) { section in
+                    let pages = section.pages.filter(visiblePages.contains)
+                    if !pages.isEmpty {
+                        Section(section.title) {
+                            ForEach(pages) { page in
+                                Label(page.title, systemImage: page.systemImage)
+                                    // Some glyphs here ship a multicolour variant — the
+                                    // ladybug renders red and black by default, which made
+                                    // Advanced the only coloured row in a monochrome list.
+                                    .symbolRenderingMode(.monochrome)
+                                    .badge(hasSearchQuery ? (matchCounts[page] ?? 0) : 0)
+                                    .tag(page)
+                            }
+                        }
+                    }
                 }
             }
             .listStyle(.sidebar)
@@ -344,7 +349,7 @@ struct DictationSettingsPage: View {
                 Divider()
                 HotKeySelectionControl(
                     pickerLabel: "Shortcut",
-                    footerText: "Choose a preset or record your own. This key is reserved while VocaMac is running."
+                    footerText: "Reserved while VocaMac is running."
                 )
                 if appState.activationMode == .doubleTapToggle {
                     HStack {
@@ -356,48 +361,39 @@ struct DictationSettingsPage: View {
                         Text("\(String(format: "%.2f", appState.doubleTapThreshold))s")
                             .monospacedDigit().frame(width: 44)
                     }
-                    Text("A longer interval makes double-tapping more forgiving.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    .help("A longer interval makes double-tapping more forgiving.")
                 }
             }
 
-            ShortcutSettingsGroup()
-
+            // One group for everything that shapes the typed text. Per-app
+            // overrides live in Writing Styles.
             VocaSettingsGroup("Your Text") {
                 SettingsToggleRow(
                     title: "Add a trailing space",
-                    detail: "Keep consecutive dictations from running together.",
+                    detail: "Keeps dictations from running together.",
                     isOn: $appState.appendTrailingSpace
                 )
                 Divider()
                 SettingsToggleRow(
                     title: "Capitalize sentences",
-                    detail: "Capitalize the beginning of each sentence while preserving existing capitals.",
+                    detail: "Starts each sentence with a capital letter.",
                     isOn: $appState.autoCapitalize
                 )
                 Divider()
-                Text("These are the global defaults. Writing Styles can override them per app — for example, no sentence case in a code editor.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            VocaSettingsGroup("Numbers and Emoji") {
                 SettingsToggleRow(
                     title: "Write numbers as digits",
-                    detail: "Types “six pm” as “6 pm” and “twenty three” as “23”. A lone “one”, numbers said one after another, ordinals, and spoken times stay as words. English only.",
+                    detail: "“six pm” becomes “6 pm”. English only.",
                     isOn: $appState.numbersAsDigits
                 )
                 Divider()
                 SettingsToggleRow(
                     title: "Spoken emoji",
-                    detail: "Say an emoji's English name, then “emoji”: “great news, party emoji” types “great news, 🎉”. Pause before the name when it follows other words, and “emoji” on its own stays a word.",
+                    detail: "Say “party emoji” to type 🎉.",
                     isOn: $appState.spokenEmoji
                 )
-                Divider()
-                Text("Both apply in every app except those set to Raw transcription, and Smart Cleanup never undoes them.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
+
+            ShortcutSettingsGroup()
         }
     }
 }
@@ -439,11 +435,8 @@ struct ApplicationSettingsPage: View {
                     set: { appState.setLaunchAtLogin($0) }
                 ))
 
-                Toggle("Preserve clipboard after text injection", isOn: $appState.preserveClipboard)
-
-                Text("When enabled, your clipboard contents are restored after injecting text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Restore clipboard after typing", isOn: $appState.preserveClipboard)
+                    .help("Puts your clipboard back after VocaMac types text.")
             }
 
             Section("Recording Overlay") {
@@ -471,13 +464,11 @@ struct ApplicationSettingsPage: View {
             }
 
             Section("Settings Backup") {
-                Text("Export preferences, shortcuts, app and website rules, snippets, and dictionary entries. History, stats, scratchpad text, downloaded models, cleanup endpoints, and API keys are not included.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
                 HStack {
                     Button("Export Settings…", action: exportSettings)
                     Button("Import Settings…", action: importSettings)
                 }
+                .help("Includes preferences, shortcuts, rules, snippets, and dictionary. Not history, stats, models, cleanup endpoints, or API keys.")
                 if let backupNotice {
                     Text(backupNotice).font(.caption).foregroundStyle(.secondary)
                 }
@@ -535,12 +526,8 @@ struct SnippetsSettingsTab: View {
     var body: some View {
         Form {
             Section("Custom Snippets") {
-                Text("Speak the trigger phrase and VocaMac will replace it with the expansion text. Matching ignores case.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
                 if appState.snippets.isEmpty {
-                    Text("No snippets yet. Use Add Snippet… to create one.")
+                    Text("No snippets yet.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(appState.snippets) { snippet in
@@ -806,17 +793,11 @@ struct PerformanceSettingsTab: View {
             }
 
             Section("Auto-Pause for Apps") {
-                Toggle("Pause Dictation for Listed Apps", isOn: $appState.autoPauseEnabled)
-
-                Text("When a listed app is running, VocaMac unloads the speech model and blocks dictation. The model reloads once none of those apps are still running.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Pause dictation while these apps run", isOn: $appState.autoPauseEnabled)
+                    .help("Unloads the speech model and blocks dictation while a listed app is running, then reloads it.")
 
                 Group {
-                    if appState.autoPauseApps.isEmpty {
-                        Text("No apps in the list yet. Use Choose Running App… to add one.")
-                            .foregroundStyle(.secondary)
-                    } else {
+                    if !appState.autoPauseApps.isEmpty {
                         ForEach(appState.autoPauseApps) { app in
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -842,7 +823,7 @@ struct PerformanceSettingsTab: View {
                         }
                     }
 
-                    Button("Choose Running App…") {
+                    Button("Add App…") {
                         showingAppPicker = true
                     }
                 }
@@ -861,11 +842,8 @@ struct PerformanceSettingsTab: View {
             }
 
             Section("Unload When Idle") {
-                Toggle("Unload Model When Idle", isOn: $appState.modelKeepAliveEnabled)
-
-                Text("Unload the model after you stop dictating to free RAM. The next dictation reloads it, which can take a moment.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Toggle("Unload model when idle", isOn: $appState.modelKeepAliveEnabled)
+                    .help("Frees memory after you stop dictating. The next dictation reloads the model, which can take a moment.")
 
                 Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
                     ForEach(idleTimeoutChoices, id: \.seconds) { choice in
@@ -961,6 +939,26 @@ struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var languageSearch = ""
     @State private var isLanguageSectionExpanded = false
+    @State private var expandedEngines: Set<TranscriptionEngine> = []
+
+    /// Rows that stay visible without expanding: anything on disk, in use,
+    /// in flight, or recommended for this Mac.
+    private func isProminent(_ model: WhisperModelInfo) -> Bool {
+        if model.isDownloaded || model.isActive || model.isLoading || model.downloadProgress != nil {
+            return true
+        }
+        guard model.isSupported, let recommended = appState.deviceRecommendedModel else { return false }
+        return appState.modelManager.modelSize(from: recommended) == model.size
+    }
+
+    private func expansionBinding(for engine: TranscriptionEngine) -> Binding<Bool> {
+        Binding(
+            get: { expandedEngines.contains(engine) },
+            set: { isExpanded in
+                if isExpanded { expandedEngines.insert(engine) } else { expandedEngines.remove(engine) }
+            }
+        )
+    }
 
     /// When true, show language / translation / vocabulary below the catalog.
     var showsLanguageHints: Bool = false
@@ -999,26 +997,6 @@ struct ModelSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if let current = appState.currentModel {
-                    GroupBox {
-                        HStack {
-                            Image(systemName: "checkmark.seal.fill")
-                                .foregroundStyle(VocaDesign.success)
-                                .font(.title3)
-                            VStack(alignment: .leading) {
-                                Text("Active Model: \(current.size.displayName)")
-                                    .font(.callout)
-                                    .fontWeight(.semibold)
-                                Text("\(current.size.qualityDescription) quality • \(current.size.fileSizeDescription)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .padding(4)
-                    }
-                }
-
                 if appState.appStatus == .error, let errorMessage = appState.errorMessage {
                     GroupBox {
                         HStack(alignment: .top, spacing: 8) {
@@ -1043,54 +1021,50 @@ struct ModelSettingsTab: View {
                     }
                 }
 
-                // Model list, grouped by engine
+                // Model list, grouped by engine. Each engine shows what you
+                // have (and what's recommended); the rest of the catalog
+                // waits behind one row instead of twenty download buttons.
                 ForEach(modelsByEngine, id: \.engine) { group in
+                    // Hiding one or two rows behind a disclosure costs more
+                    // than it saves, so only collapse a real list.
+                    let collapses = group.models.filter { !isProminent($0) }.count >= 3
+                    let shown = collapses ? group.models.filter(isProminent) : group.models
+                    let more = collapses ? group.models.filter { !isProminent($0) } : []
                     VocaSettingsGroup(
                         group.engine.displayName,
                         systemImage: engineIconName(group.engine),
                         subtitle: group.engine.summary
                     ) {
-                        ForEach(group.models) { model in
+                        ForEach(shown) { model in
                             ModelRow(model: model, appState: appState)
-
-                            if model.id != group.models.last?.id {
+                            if model.id != shown.last?.id || !more.isEmpty {
                                 Divider()
                             }
                         }
-                    }
-                }
 
-                // Info text
-                HStack {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                    Text("Models are downloaded from HuggingFace and cached locally. Larger models produce better results but are slower and use more memory. Apple Speech assets are managed by macOS and may download language packs on first use.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let recommended = appState.deviceRecommendedModel,
-                   let recommendedSize = appState.modelManager.modelSize(from: recommended) {
-                    HStack {
-                        Image(systemName: "sparkles")
-                            .foregroundStyle(VocaDesign.accent)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Recommended for your device: **\(recommendedSize.displayName)**")
-                                .font(.callout)
-                            Text("Based on WhisperKit's tuned variants for your chip, not your RAM.")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                        if !more.isEmpty {
+                            DisclosureGroup(isExpanded: expansionBinding(for: group.engine)) {
+                                ForEach(more) { model in
+                                    ModelRow(model: model, appState: appState)
+                                    if model.id != more.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            } label: {
+                                Text(shown.isEmpty
+                                     ? "Show \(more.count) \(more.count == 1 ? "model" : "models")"
+                                     : "\(more.count) more \(more.count == 1 ? "model" : "models")")
+                            }
+                            .disclosureGroupStyle(VocaDisclosureGroupStyle())
                         }
                     }
                 }
 
-                HStack {
-                    Image(systemName: "internaldrive")
-                        .foregroundStyle(.secondary)
-                    Text("Model storage: \(appState.modelManager.diskUsageDescription())")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Label("Models download from Hugging Face and stay on this Mac · \(appState.modelManager.diskUsageDescription()) used",
+                      systemImage: "internaldrive")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Larger models are more accurate but slower and use more memory. Apple Speech assets are managed by macOS.")
 
                 if showsLanguageHints {
                     languageAndHintsSection
@@ -1214,10 +1188,9 @@ struct ModelRow: View {
 
     var body: some View {
         HStack {
-            // Status icon
-            Image(systemName: model.statusIconName)
-                .foregroundStyle(model.isActive ? VocaDesign.success : .secondary)
-                .frame(width: 20)
+            // Who made it; the check marks the model in use.
+            ModelCreatorMark(creator: model.size.creator, isActive: model.isActive)
+                .padding(.trailing, 4)
 
             // Model info
             VStack(alignment: .leading, spacing: 2) {
@@ -1252,6 +1225,8 @@ struct ModelRow: View {
                 }
 
                 HStack(spacing: 4) {
+                    Text(model.size.creator.displayName)
+                    Text("•")
                     Text(model.size.fileSizeDescription)
                     Text("•")
                     Text(model.size.qualityDescription)
@@ -1377,6 +1352,8 @@ struct AudioSettingsTab: View {
 
     var body: some View {
         Form {
+            inputDeviceSection
+
             Section("Recording") {
                 Picker("Max recording duration", selection: $appState.maxRecordingDuration) {
                     Text("15 seconds").tag(15)
@@ -1391,14 +1368,8 @@ struct AudioSettingsTab: View {
                     appState.syncHotKeyConfiguration()
                 }
 
-                Text("Recording will automatically stop after this duration.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Silence Detection") {
                 HStack {
-                    Text("Sensitivity")
+                    Text("Silence sensitivity")
                     Slider(
                         value: $appState.silenceThreshold,
                         in: 0.001...0.05,
@@ -1426,48 +1397,48 @@ struct AudioSettingsTab: View {
                     Text("seconds")
                         .foregroundStyle(.secondary)
                 }
-
-                Text("In double-tap mode, recording auto-stops after 0.5 to 300 seconds of continuous silence. In push-to-talk mode, you control when to stop by releasing the key.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .help("Hands-free and double-tap recordings stop after this much silence (0.5–300 seconds). Push-to-talk stops when you release the key.")
             }
 
-            Section("Sound Effects") {
-                Toggle("Enable sound effects", isOn: $appState.soundEffectsEnabled)
+            Section("Sounds") {
+                Toggle("Play start and stop sounds", isOn: $appState.soundEffectsEnabled)
 
-                Picker("Dictation tone", selection: $appState.dictationTone) {
-                    ForEach(DictationTone.allCases) { tone in
-                        Text(tone.displayName).tag(tone)
+                HStack {
+                    Picker("Dictation tone", selection: $appState.dictationTone) {
+                        ForEach(DictationTone.allCases) { tone in
+                            Text(tone.displayName).tag(tone)
+                        }
                     }
+                    Button {
+                        Task {
+                            await appState.previewDictationTone()
+                        }
+                    } label: {
+                        Image(systemName: "play.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(appState.dictationTone == .off)
+                    .help("Preview")
+                    .accessibilityLabel("Preview tone")
                 }
 
-                Button("Preview") {
-                    Task {
-                        await appState.previewDictationTone()
-                    }
-                }
-                .controlSize(.small)
-                .disabled(appState.dictationTone == .off)
-
-                Text("Play a short cue when recording starts and stops. Off is a saved silent tone.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Other Audio") {
                 Toggle("Mute other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
-
-                Text("Mutes your speakers or headphones while the microphone is open, then unmutes them when you stop. Only kicks in when something is playing, and leaves a mute you set yourself alone.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .help("Mutes speakers or headphones while the microphone is open, only when something is playing.")
             }
+        }
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .onAppear {
+            refreshAudioDevices()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .vocaAudioDevicesChanged)) { _ in
+            refreshAudioDevices()
+        }
+    }
 
-            Section("Input Device") {
-                Toggle("Use an external microphone when the lid is closed", isOn: $appState.externalMicWhenLidClosed)
-                Text("When your MacBook is closed, VocaMac temporarily chooses an available non-built-in input for the recording. Your saved microphone choice is not changed.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
+    private var inputDeviceSection: some View {
+        Section("Microphone") {
+            HStack {
                 Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
                     Text("System Default").tag("")
                     if selectedAudioDeviceIsUnavailable {
@@ -1481,71 +1452,43 @@ struct AudioSettingsTab: View {
                     syncSelectedAudioDeviceName()
                     syncSelectedAudioChannel()
                 }
-
-                if activeInputChannelCount > 1 {
-                    Picker("Input channel", selection: selectedAudioChannelBinding) {
-                        ForEach(0..<activeInputChannelCount, id: \.self) { channel in
-                            Text("Channel \(channel + 1)").tag(channel)
-                        }
-                    }
-
-                    Text("Choose the interface input where your microphone is connected. VocaMac keeps this channel fixed so loopback or other inputs cannot replace it during recording.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                if audioDevices.isEmpty {
-                    HStack {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Text("No audio input devices found")
-                            .foregroundStyle(.secondary)
-                    }
-                } else if selectedAudioDeviceIsUnavailable {
-                    HStack(alignment: .top) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Text("\(selectedAudioDeviceDisplayName) is unavailable. VocaMac will use System Default until it reconnects.")
-                            .foregroundStyle(.secondary)
-                    }
-                } else if let selectedAudioDevice {
-                    HStack {
-                        Image(systemName: "mic.circle.fill")
-                            .foregroundStyle(VocaDesign.accent)
-                        Text("VocaMac will record from \(selectedAudioDevice.name) without changing macOS' system default input.")
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text(systemDefaultInputDescription)
-                        .foregroundStyle(.secondary)
-                }
-
-                if let fallbackNotice = appState.inputDeviceFallbackNotice {
-                    HStack(alignment: .top) {
-                        Image(systemName: "exclamationmark.triangle")
-                            .foregroundStyle(.orange)
-                        Text(fallbackNotice)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Button("Refresh Devices") {
+                Button {
                     refreshAudioDevices()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
                 }
-                .controlSize(.small)
-
-                Text("Choose System Default to follow macOS, or pin VocaMac to a specific microphone.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .buttonStyle(.borderless)
+                .help("Refresh devices")
+                .accessibilityLabel("Refresh devices")
             }
-        }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
-        .onAppear {
-            refreshAudioDevices()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .vocaAudioDevicesChanged)) { _ in
-            refreshAudioDevices()
+            .help("System Default follows macOS. Picking a microphone never changes macOS's own setting.")
+
+            if activeInputChannelCount > 1 {
+                Picker("Input channel", selection: selectedAudioChannelBinding) {
+                    ForEach(0..<activeInputChannelCount, id: \.self) { channel in
+                        Text("Channel \(channel + 1)").tag(channel)
+                    }
+                }
+                .help("The interface input your microphone is plugged into. VocaMac keeps it fixed while recording.")
+            }
+
+            // Only say something when there is a problem to act on.
+            if audioDevices.isEmpty {
+                Label("No audio input devices found", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            } else if selectedAudioDeviceIsUnavailable {
+                Label("\(selectedAudioDeviceDisplayName) is unavailable. Using System Default until it reconnects.",
+                      systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+
+            if let fallbackNotice = appState.inputDeviceFallbackNotice {
+                Label(fallbackNotice, systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.orange)
+            }
+
+            Toggle("Use an external microphone when the lid is closed", isOn: $appState.externalMicWhenLidClosed)
+                .help("While your MacBook is closed, records from an available external input. Your saved choice is not changed.")
         }
     }
 
@@ -1571,13 +1514,6 @@ struct AudioSettingsTab: View {
 
     private var selectedAudioDeviceDisplayName: String {
         appState.selectedAudioDeviceName.isEmpty ? "Selected microphone" : appState.selectedAudioDeviceName
-    }
-
-    private var systemDefaultInputDescription: String {
-        if let defaultDevice = audioDevices.first(where: { $0.isDefault }) {
-            return "VocaMac will follow macOS' system default input: \(defaultDevice.name)."
-        }
-        return "VocaMac will follow macOS' system default input."
     }
 
     private func refreshAudioDevices() {
@@ -1636,21 +1572,72 @@ struct DebugTab: View {
     @State private var logEntryCount: Int = VocaLogger.logEntryCount
 
     var body: some View {
+        // Permissions first: they are why most people open this page. The
+        // device details that used to lead it are already under About.
         Form {
-            if let capabilities = appState.systemCapabilities {
-                Section("System Information") {
-                    HStack(spacing: 16) {
-                        SystemInfoPill(icon: "cpu", label: "CPU", value: capabilities.processorName)
-                        SystemInfoPill(icon: "memorychip", label: "RAM", value: "\(capabilities.physicalMemoryGB) GB")
-                        SystemInfoPill(
-                            icon: "bolt.fill",
-                            label: "Metal",
-                            value: capabilities.supportsMetalAcceleration ? "Yes" : "No"
-                        )
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+            Section("Permissions") {
+                PermissionRow(
+                    name: "Microphone",
+                    icon: "mic.fill",
+                    status: appState.micPermission,
+                    action: { appState.requestMicrophonePermission() }
+                )
+
+                PermissionRow(
+                    name: "Accessibility",
+                    icon: "accessibility",
+                    status: appState.accessibilityPermission,
+                    action: { appState.requestAccessibilityPermission() }
+                )
+
+                PermissionRow(
+                    name: "Input Monitoring",
+                    icon: "keyboard",
+                    status: appState.inputMonitoringPermission,
+                    action: { appState.requestInputMonitoringPermission() }
+                )
+
+                if appState.micPermission == .denied || appState.accessibilityPermission == .denied || appState.inputMonitoringPermission == .denied {
+                    Text("Turn denied permissions on in System Settings → Privacy & Security.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
+
+                HStack {
+                    Button("Re-check") {
+                        appState.checkPermissions()
+                    }
+                    Button("Restart VocaMac", action: restartApp)
+                        .help("Quit and relaunch. Can fix stuck permissions or audio devices.")
+
+                    Spacer()
+
+                    Button("Reset All…", role: .destructive, action: resetPermissions)
+                        .help("Clear every permission grant for VocaMac. The app quits and asks again on next launch.")
+                }
+                .controlSize(.small)
+            }
+
+            Section("Debug Logs") {
+                LabeledContent("Log entries") {
+                    Text("\(logEntryCount)")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                .help(VocaLogger.logFileURL().lastPathComponent)
+
+                HStack {
+                    Button("Copy", action: copyDebugLogs)
+                        .help("Copy the last 500 lines")
+                    Button("Export…", action: exportDebugLogs)
+                        .help("Save logs to a file and reveal it in Finder")
+                    Spacer()
+                    Button("Clear", role: .destructive) {
+                        VocaLogger.clearLogs()
+                        logEntryCount = VocaLogger.logEntryCount
+                    }
+                }
+                .controlSize(.small)
             }
 
             Section("Resource Usage") {
@@ -1682,131 +1669,7 @@ struct DebugTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
-
-                Text("This is VocaMac's process usage, refreshed every few seconds. It is not a model-only VRAM or ANE reading.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Permissions
-            Section("Permissions") {
-                PermissionRow(
-                    name: "Microphone",
-                    icon: "mic.fill",
-                    status: appState.micPermission,
-                    action: { appState.requestMicrophonePermission() }
-                )
-
-                PermissionRow(
-                    name: "Accessibility",
-                    icon: "accessibility",
-                    status: appState.accessibilityPermission,
-                    action: { appState.requestAccessibilityPermission() }
-                )
-
-                PermissionRow(
-                    name: "Input Monitoring",
-                    icon: "keyboard",
-                    status: appState.inputMonitoringPermission,
-                    action: { appState.requestInputMonitoringPermission() }
-                )
-
-                if appState.micPermission == .denied || appState.accessibilityPermission == .denied || appState.inputMonitoringPermission == .denied {
-                    Text("Denied permissions must be enabled manually in System Settings → Privacy & Security.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Button("Re-check Permissions") {
-                        appState.checkPermissions()
-                    }
-                    .controlSize(.small)
-
-                    Spacer()
-
-                    Button(action: resetPermissions) {
-                        Label("Reset All Permissions", systemImage: "arrow.counterclockwise")
-                            .foregroundStyle(.red)
-                    }
-                    .controlSize(.small)
-                    .help("Reset all TCC permissions for VocaMac. The app will quit and you'll need to re-grant permissions on next launch.")
-                }
-
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .foregroundStyle(VocaDesign.accent)
-                        .font(.caption)
-                    Text("**Upgrading?** Permissions now persist across updates since VocaMac is signed with a Developer ID. If permissions ever appear stuck, use the Reset button above.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Debug Logs
-            Section("Debug Logs") {
-                LabeledContent("Log File") {
-                    Text(VocaLogger.logFileURL().lastPathComponent)
-                        .foregroundStyle(.secondary)
-                }
-
-                LabeledContent("Log Entries") {
-                    Text("\(logEntryCount)")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Button(action: copyDebugLogs) {
-                        Label("Copy to Clipboard", systemImage: "doc.on.clipboard")
-                    }
-                    .help("Copy last 500 lines of logs to clipboard")
-
-                    Spacer()
-
-                    Button(action: exportDebugLogs) {
-                        Label("Export to File…", systemImage: "square.and.arrow.up")
-                    }
-                    .help("Save debug logs to file and reveal in Finder")
-
-                    Spacer()
-
-                    Button(action: {
-                        VocaLogger.clearLogs()
-                        logEntryCount = VocaLogger.logEntryCount
-                    }) {
-                        Label("Clear", systemImage: "trash")
-                            .foregroundStyle(.red)
-                    }
-                    .help("Clear all log entries")
-                }
-
-                Text("Copy or export recent application logs for troubleshooting.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Application
-            Section("Application") {
-                HStack {
-                    Button(action: restartApp) {
-                        Label("Restart VocaMac", systemImage: "arrow.trianglehead.clockwise")
-                    }
-                    .help("Quit and relaunch VocaMac")
-
-                    Spacer()
-
-                    Button(role: .destructive, action: {
-                        NSApplication.shared.terminate(nil)
-                    }) {
-                        Label("Quit VocaMac", systemImage: "power")
-                    }
-                    .help("Quit VocaMac")
-                }
-
-                Text("Restart can help resolve issues with permissions or audio devices.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .help("VocaMac's whole process, refreshed every few seconds. Not a model-only VRAM or ANE reading.")
             }
         }
         .formStyle(.grouped)

@@ -53,19 +53,22 @@ extension View {
 
 struct VocaPageHeader: View {
     let title: String
-    let subtitle: String
+    let subtitle: String?
     var horizontalPadding: CGFloat = 24
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: 25, weight: .semibold, design: .rounded))
+            Text(title).font(.system(size: subtitle == nil ? 22 : 25, weight: .semibold, design: .rounded))
                 .accessibilityAddTraits(.isHeader)
-            Text(subtitle).font(.callout).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            if let subtitle {
+                Text(subtitle).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, 20)
+        .padding(.top, 20)
+        .padding(.bottom, subtitle == nil ? 4 : 20)
     }
 }
 

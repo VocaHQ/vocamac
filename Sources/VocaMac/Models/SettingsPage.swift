@@ -6,6 +6,36 @@
 import Foundation
 import SwiftUI
 
+/// Sidebar groups, in display order. Thirteen pages in one flat list read as
+/// a wall; four short groups can be scanned at a glance.
+enum SettingsSection: CaseIterable, Identifiable {
+    case dictation
+    case writing
+    case activity
+    case app
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .dictation: return "Dictation"
+        case .writing: return "Writing"
+        case .activity: return "Activity"
+        case .app: return "VocaMac"
+        }
+    }
+
+    /// Pages in this group, in sidebar order.
+    var pages: [SettingsPage] {
+        switch self {
+        case .dictation: return [.dictation, .speechModel, .audio]
+        case .writing: return [.writingStyles, .cleanup, .dictionary, .snippets]
+        case .activity: return [.history, .stats]
+        case .app: return [.application, .performance, .advanced, .about]
+        }
+    }
+}
+
 /// Top-level settings topics shown in the left sidebar.
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictation
@@ -39,24 +69,6 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .stats: return "Stats"
         case .advanced: return "Advanced"
         case .about: return "About"
-        }
-    }
-
-    var subtitle: String {
-        switch self {
-        case .dictation: return "Make voice typing feel natural to you."
-        case .history: return "Find, copy, and retry what you've dictated."
-        case .dictionary: return "Teach VocaMac the words you use."
-        case .writingStyles: return "Match formatting and tone to the app where your words land."
-        case .snippets: return "Turn a short spoken phrase into the text you use often."
-        case .cleanup: return "Polish your words with an optional model running on this Mac."
-        case .speechModel: return "Find the right balance of speed, accuracy, and languages."
-        case .audio: return "Choose your microphone and how recording sounds."
-        case .performance: return "Keep dictation responsive and manage memory use."
-        case .application: return "Make VocaMac at home in your everyday workflow."
-        case .stats: return "See how your voice adds up."
-        case .advanced: return "Check permissions, inspect logs, and troubleshoot dictation."
-        case .about: return "Private voice typing, built in the open."
         }
     }
 

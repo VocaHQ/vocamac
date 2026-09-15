@@ -14,6 +14,7 @@ struct AboutTab: View {
         Form {
             identitySection
             thisMacSection
+            modelCreditsSection
             familySection
             talkToUsSection
             contributorsSection
@@ -113,6 +114,36 @@ struct AboutTab: View {
                 Label("Show Setup Wizard…", systemImage: "wand.and.stars")
             }
             .help("Re-run the first-launch setup wizard")
+        }
+    }
+
+    /// The teams whose models VocaMac runs. VocaMac is the app around them.
+    private var modelCreditsSection: some View {
+        Section {
+            ForEach(ModelCreator.allCases) { creator in
+                HStack(spacing: 10) {
+                    ModelCreatorMark(creator: creator, size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(creator.displayName)
+                        Text(creator.creditedModels)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Link(destination: creator.url) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .foregroundStyle(VocaDesign.accent)
+                    .help(creator.url.absoluteString)
+                    .accessibilityLabel("Open \(creator.displayName)'s models")
+                }
+            }
+        } header: {
+            Text("Model Credits")
+        } footer: {
+            Text("VocaMac runs models made by these teams. Names and logos belong to their owners and are shown for credit only. Logos from Lobe Icons (MIT).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

@@ -10,25 +10,25 @@ struct ShortcutSettingsGroup: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        VocaSettingsGroup("Shortcuts") {
+        VocaSettingsGroup("More Shortcuts") {
             ShortcutRecorderRow(
                 action: .pasteLastDictation,
-                detail: "Type your last dictation again at the cursor — handy when it landed in the wrong place."
+                detail: "Types your last dictation again."
             )
             Divider()
             ShortcutRecorderRow(
                 action: .handsFreeToggle,
-                detail: "Press once to start and again to stop, without holding anything. Silence ends it too, per Settings → Audio."
+                detail: "Press to start, press again to stop."
             )
             Divider()
             ShortcutRecorderRow(
                 action: .commandMode,
-                detail: "Select text in another app, then press once, speak an edit, and press again. You can also hold the shortcut while speaking. Choose its model in Settings → Cleanup."
+                detail: "Select text, then say how to change it."
             )
             Divider()
             SettingsToggleRow(
                 title: "Escape cancels dictation",
-                detail: "Press Escape while recording or transcribing to throw the dictation away. A dictation cancelled while transcribing stays in History to retry.",
+                detail: "Throws away the dictation in progress.",
                 isOn: Binding(
                     get: { appState.escapeCancelsDictation },
                     set: { appState.escapeCancelsDictation = $0; appState.syncShortcutConfiguration() }
@@ -38,7 +38,7 @@ struct ShortcutSettingsGroup: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Mouse button")
-                    Text("Use an extra mouse button like the hotkey: hold it to talk, or double-click it in Double-Tap mode.")
+                    Text("Use an extra mouse button as the hotkey.")
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -82,14 +82,25 @@ struct ShortcutRecorderRow: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 16)
-                Text(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
-                    .font(.system(.body, design: .rounded))
-                    .foregroundStyle(combo == nil ? .secondary : .primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                    .accessibilityLabel("\(action.displayName) shortcut")
-                    .accessibilityValue(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
+                if combo == nil, !isRecording,
+                   let suggested = ShortcutValidation.suggestion(for: action, appState: appState) {
+                    // No default is bound — a global shortcut swallows its keys in
+                    // every app — but one click takes a combination few apps use.
+                    Button("Use \(KeyCodeReference.displayName(for: suggested))") {
+                        appState.setShortcut(suggested, for: action)
+                    }
+                    .controlSize(.small)
+                    .help("Suggested: three modifiers, rarely used by other apps")
+                } else {
+                    Text(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
+                        .font(.system(.body, design: .rounded))
+                        .foregroundStyle(combo == nil ? .secondary : .primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        .accessibilityLabel("\(action.displayName) shortcut")
+                        .accessibilityValue(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
+                }
                 HotKeyRecorderButton(
                     isRecording: $isRecording,
                     onStart: beginRecording,
@@ -110,21 +121,6 @@ struct ShortcutRecorderRow: View {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
-            } else if combo == nil,
-                      let suggested = ShortcutValidation.suggestion(for: action, appState: appState) {
-                // No default is bound — a global shortcut swallows its keys in
-                // every app — but one click takes a combination few apps use.
-                HStack(spacing: 8) {
-                    Label("Suggested: \(KeyCodeReference.displayName(for: suggested)) — three modifiers, rarely used by other apps",
-                          systemImage: "lightbulb")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Button("Use \(KeyCodeReference.displayName(for: suggested))") {
-                        appState.setShortcut(suggested, for: action)
-                    }
-                    .controlSize(.small)
-                }
             }
         }
         .onDisappear {

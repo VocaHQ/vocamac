@@ -378,7 +378,7 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "system-info",
-            page: .advanced,
+            page: .about,
             title: "System Information",
             subtitle: "CPU, RAM, Metal",
             keywords: ["system", "metal", "device", "hardware"]
@@ -437,6 +437,13 @@ enum SettingsSearchIndex {
             title: "About",
             subtitle: "This app, the Voca family, and how to reach us",
             keywords: ["about", "vocamac", "beta"]
+        ),
+        SettingsSearchEntry(
+            id: "model-credits",
+            page: .about,
+            title: "Model Credits",
+            subtitle: "The teams who made the speech and cleanup models",
+            keywords: ["credits", "attribution", "openai", "nvidia", "qwen", "mistral", "whisper", "parakeet"]
         ),
         SettingsSearchEntry(
             id: "updates",

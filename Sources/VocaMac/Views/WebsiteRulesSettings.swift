@@ -9,14 +9,11 @@ struct WebsiteRulesSettings: View {
     @State private var isAdding = false
 
     var body: some View {
-        VocaSettingsGroup("Website Rules") {
-            Text("Override a browser's app rule for a domain. VocaMac reads the focused tab URL through Accessibility; URLs are never saved to history.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
+        VocaSettingsGroup("Website Rules", subtitle: "Override a browser's rule for one site.") {
             if appState.websiteStyleBindings.isEmpty {
                 Text("No website rules yet.")
                     .foregroundStyle(.secondary)
+                    .help("VocaMac reads the focused tab's URL through Accessibility. URLs are never saved to history.")
             } else {
                 ForEach(appState.websiteStyleBindings) { rule in
                     HStack {

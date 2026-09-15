@@ -30,7 +30,7 @@ struct CleanupSettingsPage: View {
             VocaSettingsGroup("Smart Cleanup") {
                 SettingsToggleRow(
                     title: "Clean up after transcription",
-                    detail: "Remove filler words, false starts, and tidy punctuation on this Mac. If cleanup cannot produce a usable result, VocaMac keeps the original transcript.",
+                    detail: "Removes fillers and false starts on this Mac. Keeps the original if it can't.",
                     isOn: $appState.transcriptCleanupEnabled
                 )
                 .onChange(of: appState.transcriptCleanupEnabled) {
@@ -163,7 +163,7 @@ struct CleanupSettingsPage: View {
             }
 
             VocaSettingsGroup("Try It") {
-                Text("Runs a sample through the same cleanup as a dictation — “um” removal, the model, and its safety checks — and shows what would be typed. The result stays in this window.")
+                Text("See what cleanup would type for a sample.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
@@ -460,9 +460,8 @@ struct CleanupModelRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: isActive ? "checkmark.circle.fill" : "circle")
-                .foregroundStyle(isActive ? VocaDesign.success : .secondary)
-                .frame(width: 20)
+            ModelCreatorMark(creator: kind.creator, isActive: isActive)
+                .padding(.trailing, 4)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -490,6 +489,8 @@ struct CleanupModelRow: View {
                 }
 
                 HStack(spacing: 4) {
+                    Text(kind.creator.displayName)
+                    Text("•")
                     Text(descriptor.sizeDescription)
                     Text("•")
                     Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
@@ -659,7 +660,8 @@ struct CommandModeSettingsGroup: View {
             title: "Apple Intelligence",
             detail: "Built into macOS 26. No download, runs on this Mac.",
             problem: appState.appleIntelligenceAvailable()
-                ? nil : AppleIntelligenceTextService.availabilityProblem()
+                ? nil : AppleIntelligenceTextService.availabilityProblem(),
+            creator: .apple
         )
 
         if !appState.cleanupEndpoint.isLocal {
@@ -696,12 +698,18 @@ private struct CommandEngineRow: View {
     let title: String
     let detail: String
     let problem: String?
+    var creator: ModelCreator?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             CommandEngineSelectionMark(isSelected: appState.commandModeEngine == engine)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.callout)
+                HStack(spacing: 6) {
+                    if let creator {
+                        ModelCreatorMark(creator: creator, size: 18)
+                    }
+                    Text(title).font(.callout)
+                }
                 Text(problem ?? detail)
                     .font(.caption2)
                     .foregroundStyle(problem == nil ? Color.secondary : Color.orange)
@@ -736,6 +744,7 @@ private struct CommandLocalModelRow: View {
             CommandEngineSelectionMark(isSelected: isSelected)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
+                    ModelCreatorMark(creator: kind.creator, size: 18)
                     Text(descriptor.displayName).font(.callout)
                     if appState.cleanupModelSuggestion.commandMode == kind {
                         RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)

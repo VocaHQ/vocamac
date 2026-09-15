@@ -31,13 +31,13 @@ struct HistorySettingsPage: View {
             VocaSettingsGroup("Keep History") {
                 SettingsToggleRow(
                     title: "Save dictation history",
-                    detail: "Keep what you dictated on this Mac so you can copy it, paste it again, or retry it. Command Mode edits keep the text from before the edit, so you can copy it back. Nothing leaves your Mac.",
+                    detail: "Copy, paste, or retry past dictations. Stays on this Mac.",
                     isOn: $appState.historyEnabled
                 )
                 Divider()
                 SettingsToggleRow(
                     title: "Keep audio recordings",
-                    detail: "Needed to play back or retry a dictation. Audio is always kept for dictations that failed or were interrupted, until they're retried or deleted.",
+                    detail: "Needed to play back or retry. Failed dictations always keep theirs.",
                     isOn: $appState.historyKeepsAudio
                 )
                 .disabled(!appState.historyEnabled)

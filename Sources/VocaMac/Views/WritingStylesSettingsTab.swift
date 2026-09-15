@@ -32,18 +32,20 @@ struct WritingStylesSettingsTab: View {
             VocaSettingsGroup("Match Each App") {
                 SettingsToggleRow(
                     title: "Use app-aware writing",
-                    detail: "Format each utterance for the app that receives it—paths in editors, safe shell text in terminals, and natural sentences in chat and email.",
+                    detail: "Formats text for the app it's typed into.",
                     isOn: $appState.writingStyleEnabled
                 )
+                .help("Paths in editors, safe shell text in terminals, and natural sentences in chat and email.")
 
                 Divider()
 
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Default format")
-                        Text("Used when the receiving app has no rule.")
+                        Text(appState.writingStyleDefault.shortDescription)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 16)
                     Picker("Default format", selection: $appState.writingStyleDefault) {
@@ -55,34 +57,32 @@ struct WritingStylesSettingsTab: View {
                     .frame(width: 170)
                 }
                 .disabled(!appState.writingStyleEnabled)
-
-                Text(appState.writingStyleDefault.shortDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                .help("Used for apps without a rule.")
 
                 Divider()
 
                 SettingsToggleRow(
-                    title: "Allow Formal and Casual wording",
-                    detail: "Optionally rephrase English dictation on this Mac while preserving names, facts, requests, and technical text.",
+                    title: "Formal and Casual wording",
+                    detail: "Rephrases English dictation on this Mac.",
                     isOn: $appState.writingRewriteEnabled
                 )
                 .disabled(!appState.writingStyleEnabled)
+                .help("Keeps names, facts, requests, and technical text intact. Unsafe edits fall back to your original wording.")
 
-                HStack {
-                    Text("Default wording")
-                    Spacer(minLength: 16)
-                    Picker("Default wording", selection: $appState.writingIntent) {
-                        ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                // Only worth a row once rewording is on.
+                if appState.writingRewriteEnabled {
+                    HStack {
+                        Text("Default wording")
+                        Spacer(minLength: 16)
+                        Picker("Default wording", selection: $appState.writingIntent) {
+                            ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        .labelsHidden()
+                        .frame(width: 170)
                     }
-                    .labelsHidden()
-                    .frame(width: 170)
+                    .disabled(!appState.writingStyleEnabled)
+                    .help(appState.writingIntent.description)
                 }
-                .disabled(!appState.writingStyleEnabled || !appState.writingRewriteEnabled)
-
-                Text(appState.writingIntent.description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
 
                 rewriteAvailabilityNotice
             }
@@ -90,15 +90,10 @@ struct WritingStylesSettingsTab: View {
             VocaSettingsGroup("App Rules") {
                 if appState.writingStyleBindings.isEmpty {
                     // Rules are never created without being asked for, so this
-                    // empty state is what every user sees first. It has to say
-                    // how to leave it, not just that it is empty.
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("No app rules yet. Every app uses the default style.")
-                            .foregroundStyle(.secondary)
-                        Text("Add Suggested Apps sets up the editors, terminals, chat and mail apps you already have installed. Nothing is added until you ask.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    // empty state is what every user sees first; the Add App
+                    // menu right below it is the way out.
+                    Text("No app rules yet. Every app uses the default format.")
+                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(appState.writingStyleBindings) { binding in
                         AppStyleBindingRow(
@@ -119,33 +114,46 @@ struct WritingStylesSettingsTab: View {
 
                 Divider()
 
+                // One "Add" menu and one overflow menu instead of six buttons.
                 HStack(spacing: 8) {
-                    Button("Choose Running App…") { showingAppPicker = true }
-                    Button("Choose Installed App…") { chooseInstalledApp() }
-                    Button("Add Suggested Apps…") {
-                        Task { await addSuggestions() }
+                    Menu("Add App") {
+                        // Menu items can't show tooltips, so the label says it.
+                        Button("Suggested Apps You Have Installed") {
+                            Task { await addSuggestions() }
+                        }
+                        .disabled(isDiscoveringApps)
+                        Divider()
+                        Button("Running App…") { showingAppPicker = true }
+                        Button("Installed App…") { chooseInstalledApp() }
                     }
-                    .disabled(isDiscoveringApps)
-                }
-                if isDiscoveringApps {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Checking which apps you have installed…")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
+                    .fixedSize()
 
-                HStack {
-                    Button("Export Rules…") { exportRules() }
-                        .disabled(appState.writingStyleBindings.isEmpty)
-                    Button("Import Rules…") { importRules() }
-                    Spacer()
-                    Button("Remove All", role: .destructive) {
-                        appState.removeAllWritingStyleBindings()
-                        suggestionNotice = "Removed every app rule. All apps use the default style."
+                    if isDiscoveringApps {
+                        ProgressView().controlSize(.small)
+                        Text("Finding your apps…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    .disabled(appState.writingStyleBindings.isEmpty)
+
+                    Spacer()
+
+                    Menu {
+                        Button("Export Rules…") { exportRules() }
+                            .disabled(appState.writingStyleBindings.isEmpty)
+                        Button("Import Rules…") { importRules() }
+                        Divider()
+                        Button("Remove All Rules", role: .destructive) {
+                            appState.removeAllWritingStyleBindings()
+                            suggestionNotice = "Removed every app rule. All apps use the default style."
+                        }
+                        .disabled(appState.writingStyleBindings.isEmpty)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Import, export, or remove rules")
                 }
 
                 if let suggestionNotice {
@@ -199,10 +207,6 @@ struct WritingStylesSettingsTab: View {
                 }
 
                 WritingProfilePreview(sample: previewSample)
-
-                Text("Test Dictation in the sidebar footer also uses the style selected here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .toggleStyle(.switch)
@@ -229,6 +233,8 @@ struct WritingStylesSettingsTab: View {
         }
     }
 
+    /// Why Formal and Casual can't run yet, if they can't. The working state
+    /// needs no caption.
     @ViewBuilder
     private var rewriteAvailabilityNotice: some View {
         if appState.writingRewriteEnabled {
@@ -240,15 +246,7 @@ struct WritingStylesSettingsTab: View {
                 Label("Download the selected model in Cleanup before Formal or Casual wording can run.", systemImage: "arrow.down.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
-            } else {
-                Label("Formal and Casual run locally. Unsafe edits automatically fall back to your original wording.", systemImage: "checkmark.shield")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
-        } else {
-            Text("Code and Terminal keep commands exact: Smart Cleanup may only remove filler there, never reword. Raw transcription bypasses cleanup, snippets, and formatting.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 

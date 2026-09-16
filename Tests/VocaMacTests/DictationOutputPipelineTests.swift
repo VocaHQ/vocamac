@@ -132,7 +132,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         let snippet = await process("my addr address is here", cleaner: MockTranscriptCleanup(), enabled: false,
                                     snippets: [Snippet(trigger: "addr", expansion: "1 Main St")])
         XCTAssertTrue(snippet.text.contains("1 Main St"), snippet.text)
-        let unguarded = await process("my addr address is here", cleaner: MockTranscriptCleanup(), enabled: false)
+        let unguarded = await process("my addre address is here", cleaner: MockTranscriptCleanup(), enabled: false)
         XCTAssertEqual(unguarded.text, "My address is here")
     }
 
@@ -140,6 +140,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         let known: Set<String> = [
             "please", "improve", "sorry", "supporting", "are", "diff", "different", "them", "theme",
             "we", "the", "done", "can", "it", "is", "what", "didn't", "typescript", "use",
+            "install", "package", "javascript", "file", "set", "here", "address",
         ]
         let isKnownWord = { known.contains($0) }
         let cases: [(String, String)] = [
@@ -148,9 +149,16 @@ final class DictationOutputPipelineTests: XCTestCase {
             ("Oh not sor, sorry tomorrow", "Oh not sorry tomorrow"),
             ("we supp are supporting it", "we are supporting it"),
             ("we supp supp are supporting it", "we are supporting it"),
-            ("can you pl ple please", "can you please"),
+            ("we su supp are supporting it", "we are supporting it"),
             ("it didn didn't work", "it didn't work"),
-            ("Wh what is it? Wh what", "What is it? What"),
+            // Capitals may be names, even opening a sentence.
+            ("Wh what is it? Wh what", "Wh what is it? Wh what"),
+            // Vowel-less abbreviations are meant.
+            ("install the pkg package", "install the pkg package"),
+            ("the js javascript file", "the js javascript file"),
+            // A word also used on its own is the speaker's.
+            ("set addr here, the addr address", "set addr here, the addr address"),
+            ("the addre address", "the address"),
             // Both halves are real words: only the model may judge.
             ("its indicator is diff different", "its indicator is diff different"),
             ("make them theme", "make them theme"),

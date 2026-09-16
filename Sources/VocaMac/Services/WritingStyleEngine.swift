@@ -197,13 +197,19 @@ enum WritingStyleEngine {
     /// leaves these in, and Code and Terminal styles only take deletions the
     /// model makes.
     ///
-    /// A fragment is a letters-only word that isn't a real word, lowercase
-    /// unless it opens a sentence in prose ("Wh what"), and a real, longer
-    /// word starting with it follows — right after it, or one word later
-    /// when the fragment has three or more letters ("supp are supporting"). A fragment that leads to a removed fragment goes too
-    /// ("supp supp are supporting"). A sentence end in between breaks the
-    /// link. "diff different" and "them theme" stay: both halves are words,
-    /// so only the model may judge them. English only.
+    /// A fragment is a lowercase, letters-only word with a vowel that isn't a
+    /// real word, and a real, longer word starting with it follows — right
+    /// after it, or one word later when the fragment has three or more
+    /// letters ("supp are supporting"). A fragment that leads to a removed
+    /// fragment goes too ("supp supp are supporting"). A sentence end in
+    /// between breaks the link. English only.
+    ///
+    /// Deliberately narrow, since nothing checks it afterwards: "diff
+    /// different" and "them theme" stay because both halves are words;
+    /// capitalized words may be names; vowel-less abbreviations ("pkg
+    /// package", "js javascript") are usually meant; and a word the speaker
+    /// also uses on its own elsewhere ("the addr field … addr address") is
+    /// theirs, not a slip.
     static func removeCutOffWords(
         _ text: String, prose: Bool = true, isKnownWord: (String) -> Bool
     ) -> (text: String, removed: Int) {
@@ -214,18 +220,24 @@ enum WritingStyleEngine {
             let trailing = String(text.reversed().prefix { ",.!?;:…—–-".contains($0) }.reversed())
             return (range: match.range, word: String(text.dropLast(trailing.count)), trailing: trailing)
         }
+        let keys = tokens.map { $0.word.lowercased() }
+        // A word used where nothing starting with it follows is intended.
+        var standalone = Set<String>()
+        for (index, key) in keys.enumerated()
+        where !keys[(index + 1)..<min(index + 3, keys.count)].contains(where: { $0.hasPrefix(key) }) {
+            standalone.insert(key)
+        }
         // Back to front, so a fragment can see whether the one after it went.
         var removed = Set<Int>()
         for index in tokens.indices.reversed() {
             let token = tokens[index]
-            let fragment = token.word.lowercased()
-            let opensSentence = index == 0 || ".!?…".contains(where: tokens[index - 1].trailing.contains)
-            guard fragment.count >= 2, fragment.allSatisfy(\.isLetter),
-                  token.word == fragment || (prose && opensSentence && token.word.dropFirst() == fragment.dropFirst()),
+            let fragment = keys[index]
+            guard fragment.count >= 2, token.word == fragment, fragment.allSatisfy(\.isLetter),
+                  fragment.contains(where: { "aeiouy".contains($0) }), !standalone.contains(fragment),
                   !".!?…".contains(where: token.trailing.contains), !isKnownWord(fragment) else { continue }
             for distance in 1...2 where index + distance < tokens.count {
                 let candidate = tokens[index + distance]
-                let word = candidate.word.lowercased()
+                let word = keys[index + distance]
                 if word.hasPrefix(fragment),
                    removed.contains(index + distance)
                     || (word.count > fragment.count && word.allSatisfy { $0.isLetter || $0 == "'" || $0 == "’" }

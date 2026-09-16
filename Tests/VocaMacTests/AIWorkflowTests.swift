@@ -1205,7 +1205,12 @@ final class IncrementalAudioTranscriberTests: XCTestCase {
             )
         }
         continuation.yield([0.1, 0.2])
-        try await Task.sleep(for: .milliseconds(300))
+        // Wait for the partial itself, not a fixed delay: a busy CI runner
+        // can take longer than any sleep to poll and decode it.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !partials.contains("count 2"), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
         continuation.yield([0.3])
         continuation.finish()
 

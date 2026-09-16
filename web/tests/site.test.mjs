@@ -198,9 +198,27 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.match(script, /showCopyFeedback\(button, "Press ⌘C", requestToken\)/);
   assert.match(script, /if \(token !== copyFeedbackToken\)/);
 
+  assert.match(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> on-device<\/span>/,
+  );
+  assert.doesNotMatch(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> local<\/span>/,
+  );
+
+  const enterprise = await readFile(
+    join(outputRoot, "enterprise/index.html"),
+    "utf8",
+  );
+  assert.doesNotMatch(enterprise, /aria-labelledby="content-title"/);
+  assert.doesNotMatch(enterprise, /id="content-title"/);
+
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
   assert.match(ogSvg, /v0\.9\.0/);
   assert.doesNotMatch(ogSvg, /v0\.8\.0/);
+  assert.match(ogSvg, /ON-DEVICE/);
+  assert.doesNotMatch(ogSvg, />LOCAL</);
 });
 
 test("all rendered local references resolve", async () => {

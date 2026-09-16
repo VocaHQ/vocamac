@@ -176,3 +176,26 @@ extension CleanupSpeculatorTests {
         XCTAssertEqual(output.summary, "Processing cancelled")
     }
 }
+
+extension CleanupSpeculatorTests {
+    func testAnswerFromAnotherCleanupModelIsNotReused() async {
+        let cleaner = MockTranscriptCleanup()
+        let pipeline = DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
+        // The model changed after the piece was cleaned.
+        let speculator = CleanupSpeculator(pipeline: pipeline) { _ in
+            var older = self.options()
+            older.model = .qwen25_1_5b_q4_k_m
+            return older
+        }
+        var current = options()
+        current.model = .ministral3_3b_q4_k_m
+        let parts = pieces([firstSentence, secondSentence])
+
+        speculator.submit(parts[0], index: 0)
+        await waitUntil { cleaner.speculateCallCount == 1 }
+        _ = await pipeline.process(TranscribedPiece.join(parts), options: current, pieces: parts, speculator: speculator)
+
+        XCTAssertEqual(speculator.hitCount, 0)
+        XCTAssertEqual(cleaner.cleanCallCount, 2, "both pieces are cleaned with the selected model")
+    }
+}

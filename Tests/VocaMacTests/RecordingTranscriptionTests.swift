@@ -450,3 +450,48 @@ extension RecordingTranscriptionTests {
         XCTAssertEqual(lengths, [audio.count], "the piece decoder never sees preview windows")
     }
 }
+
+// MARK: - Review fixes
+
+extension RecordingTranscriptionTests {
+    func testSpeechThatDecodesToNothingFallsBackToBatch() async {
+        let engine = FakePieceEngine()
+        await engine.setScript(["", "", ""])
+        let session = committedSession(engine: engine, log: PieceLog())
+        let audio = tone(5) + [Float](repeating: 0, count: 16_000) + tone(3)
+        feed(audio, to: session)
+        do {
+            _ = try await session.finish(expectedSampleCount: audio.count)
+            XCTFail("Words that decoded to nothing must not silently disappear")
+        } catch { }
+    }
+
+    func testQuietNoiseThatDecodesToNothingIsFine() async throws {
+        let engine = FakePieceEngine()
+        await engine.setScript(["hello there", "", ""])
+        let session = committedSession(engine: engine, log: PieceLog())
+        let noise = (0..<48_000).map { _ in Float.random(in: -0.003...0.003) }
+        let audio = tone(5) + [Float](repeating: 0, count: 16_000) + noise
+        feed(audio, to: session)
+        let result = try await session.finish(expectedSampleCount: audio.count)
+        XCTAssertEqual(result.text, "hello there")
+    }
+
+    func testDecodingThatFallsFarBehindGivesUpInsteadOfBuffering() async throws {
+        let engine = FakePieceEngine()
+        let gate = TestGate()
+        await engine.setHold(gate)
+        let session = committedSession(engine: engine, log: PieceLog())
+        // Longer than the cap: two 25 s pieces plus a minute of backlog.
+        let audio = (0..<18).flatMap { _ in tone(5) + [Float](repeating: 0, count: 16_000) + tone(1) }
+        feed(audio, to: session)
+        // Let the microphone side take in the whole backlog while the first
+        // decode is still stuck.
+        try await Task.sleep(nanoseconds: 500_000_000)
+        await gate.open()
+        do {
+            _ = try await session.finish(expectedSampleCount: audio.count)
+            XCTFail("An unbounded backlog must fall back to the batch path")
+        } catch { }
+    }
+}

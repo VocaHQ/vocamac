@@ -329,6 +329,10 @@ extension IncrementalAudioTranscriber {
 
         private var total: Int { base + samples.count }
 
+        /// Audio held but not yet decoded, plus the previous piece kept for
+        /// context.
+        var heldSamples: Int { samples.count }
+
         func status() -> (total: Int, hasPending: Bool, ended: Bool) {
             (total, !pending.isEmpty, ended)
         }
@@ -394,11 +398,19 @@ extension IncrementalAudioTranscriber {
         return try await withThrowingTaskGroup(of: VocaTranscription?.self) { group in
             group.addTask {
                 var segmenter = SpeechSegmenter(configuration: configuration)
+                let maxHeldSamples = Int((2 * configuration.maxPieceSeconds + maxBacklogSeconds) * 16_000)
                 for try await chunk in chunks {
                     try Task.checkCancellation()
                     let closed = segmenter.append(chunk)
                     for _ in closed { PerformanceTrace.event("PieceClosed") }
                     await buffer.append(chunk, closing: closed)
+                    // Decoding has fallen behind the microphone. Holding the
+                    // backlog would grow without bound; give up on pieces and
+                    // let the batch path decode the recording at stop.
+                    guard await buffer.heldSamples <= maxHeldSamples else {
+                        VocaLogger.warning(.general, "Piece decoding fell behind; the complete recording will be decoded at stop")
+                        throw RecordingTranscription.StreamError.overflow
+                    }
                 }
                 await buffer.finish(closing: segmenter.finish())
                 return nil
@@ -430,7 +442,7 @@ extension IncrementalAudioTranscriber {
                             }
                         }
                         let piece: TranscribedPiece
-                        if let contextual {
+                        if let contextual, !(contextual.text.isEmpty && hasSpeech(next.samples)) {
                             piece = contextual
                         } else {
                             // First piece, or the merged text couldn't be lined up
@@ -438,6 +450,12 @@ extension IncrementalAudioTranscriber {
                             piece = try await decodePiece(next.range, samples: next.samples, transcribe: transcribe) {
                                 modelUsed = $0
                             }
+                        }
+                        // Speech that decoded to nothing (a decoder that stopped on
+                        // its first token) must not vanish from the result.
+                        guard !(piece.text.isEmpty && hasSpeech(next.samples)) else {
+                            VocaLogger.warning(.general, "A piece with speech decoded to nothing; decoding the complete recording instead")
+                            throw RecordingTranscription.StreamError.incomplete
                         }
                         pieces.append(piece)
                         onPiece?(pieces.count - 1, piece)
@@ -544,6 +562,31 @@ extension IncrementalAudioTranscriber {
             text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
             language: result.detectedLanguage
         )
+    }
+
+    /// How far piece decoding may fall behind the microphone, beyond the
+    /// open and previous pieces, before the session gives up.
+    static let maxBacklogSeconds = 60.0
+
+    /// Frames at or above this energy (about -40 dBFS) are speech-level;
+    /// room noise sits well below it.
+    static let speechEnergy: Float = 1e-4
+
+    /// Whether a piece holds at least a quarter second of speech-level sound,
+    /// so an empty transcript for it means lost words rather than noise.
+    static func hasSpeech(_ samples: [Float]) -> Bool {
+        let frame = AudioSegmenter.frameLength
+        var loudFrames = 0
+        var start = 0
+        while start < samples.count {
+            let end = min(samples.count, start + frame)
+            if SpeechSegmenter.energy(samples[start..<end]) >= speechEnergy {
+                loudFrames += 1
+                if loudFrames * frame >= 4_000 { return true }
+            }
+            start = end
+        }
+        return false
     }
 
     static func padded(_ samples: [Float]) -> [Float] {

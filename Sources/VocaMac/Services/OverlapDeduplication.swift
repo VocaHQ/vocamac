@@ -52,9 +52,15 @@ enum OverlapDeduplication {
             bestScore = score[p.count][j]
             bestEnd = j
         }
-        guard bestEnd > 0, matches[p.count][bestEnd] >= 2 else { return nil }
+        // The context must actually be there: most of the previous words, not
+        // two that happen to recur in the new speech ("on Friday").
+        let matched = matches[p.count][bestEnd]
+        guard bestEnd > 0, matched >= 2, Double(matched) >= minimumMatchedShare * Double(p.count) else { return nil }
         return decodedTokens.dropFirst(bestEnd).joined(separator: " ")
     }
+
+    /// Share of the previous piece's (compared) words that must be found.
+    static let minimumMatchedShare = 0.6
 
     static func normalized(_ token: String) -> String {
         String(token.lowercased().unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "'" })

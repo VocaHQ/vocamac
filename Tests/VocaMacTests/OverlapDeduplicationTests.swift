@@ -26,6 +26,10 @@ final class OverlapDeduplicationTests: XCTestCase {
         XCTAssertEqual(newText("thank you for coming, thank you", after: "thank you for coming,"), "thank you")
     }
 
+    func testTwoWordsThatRecurInNewSpeechAreNotContext() {
+        XCTAssertNil(newText("the meeting is on Friday and we will discuss it", after: "we ship on Friday", seconds: 2))
+    }
+
     func testUnrelatedTextDoesNotAlign() {
         XCTAssertNil(newText("Something else entirely was said here.", after: "we ship on friday"))
         XCTAssertNil(newText("", after: "we ship on friday"))

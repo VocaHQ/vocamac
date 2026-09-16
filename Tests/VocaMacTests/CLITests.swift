@@ -67,6 +67,8 @@ final class CLITests: XCTestCase {
             ["--transcribe-file", "a.wav", "--json", "--cleanup", "ministral3_3b_q4_k_m"],
             ["--transcribe-file", "a.wav", "--json", "--pieces", "--cleanup", "gpt-5"],
             ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "-1"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "1e300"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--min-piece-seconds", "inf"],
             ["--list-models", "--json", "--pieces"],
         ] {
             XCTAssertThrowsError(try CLICommand.parse(arguments: arguments), "\(arguments)") { error in

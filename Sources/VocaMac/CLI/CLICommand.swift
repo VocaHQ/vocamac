@@ -92,8 +92,11 @@ enum CLICommand: Equatable {
                 cleanupModel = kind
             case "--pause-seconds", "--min-piece-seconds":
                 let text = try value(after: argument, in: arguments, index: &index)
-                guard let seconds = Double(text), seconds > 0, seconds.isFinite else {
-                    throw CLIError(.invalidArguments, "\(argument) needs a positive number of seconds.")
+                guard let seconds = Double(text), seconds > 0, seconds <= Self.maxPieceOptionSeconds else {
+                    throw CLIError(
+                        .invalidArguments,
+                        "\(argument) needs a number of seconds above 0 and at most \(Int(Self.maxPieceOptionSeconds))."
+                    )
                 }
                 if argument == "--pause-seconds" {
                     guard pauseSeconds == nil else {
@@ -153,6 +156,10 @@ enum CLICommand: Equatable {
         }
         return .transcribeFile(path: audioPath, model: model, language: language)
     }
+
+    /// Longest pause or minimum piece accepted: past a recording's 30-minute
+    /// limit it could never apply, and larger values overflow sample counts.
+    static let maxPieceOptionSeconds = 1_800.0
 
     private static func value(
         after argument: String,

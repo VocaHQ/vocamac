@@ -180,6 +180,26 @@ final class AppStateHistoryTests: XCTestCase {
         XCTAssertNil(appState.recoverableHistoryEntry)
     }
 
+    func testClearingHistoryWaitsForTheLaunchLoad() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VocaMacClearAtLaunch-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let saved = DictationHistoryStore(directory: directory)
+        let id = await saved.begin(audio: speech, target: nil, modelID: "tiny", language: nil, audioSeconds: 0.5)
+        saved.complete(id, rawText: "hello", finalText: "Hello.", summary: nil,
+                       language: nil, transcriptionSeconds: nil, keepAudio: true)
+        await saved.waitForPendingWrites()
+
+        let loading = DictationHistoryStore(directory: directory, loadInBackground: true)
+        let (appState, _) = AppState.makeTestState(historyStore: loading)
+        await appState.clearHistory().value
+        await loading.waitForPendingWrites()
+
+        XCTAssertTrue(loading.entries.isEmpty)
+        XCTAssertNil(appState.errorMessage)
+        XCTAssertTrue(DictationHistoryStore(directory: directory).entries.isEmpty)
+    }
+
     func testDismissingRecoveryKeepsTheEntry() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VocaMacDismiss-\(UUID().uuidString)", isDirectory: true)

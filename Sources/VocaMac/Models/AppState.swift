@@ -412,6 +412,10 @@ final class AppState: ObservableObject {
     }
     private var queuedRecordingStart: QueuedRecordingStart?
 
+    /// Set while a Settings control records a new shortcut with the hotkey
+    /// listener turned off, so permission recovery leaves the listener off.
+    var isCapturingShortcut = false
+
     /// The launch-time model download and load, while it runs. The hotkey is
     /// live during it; a press waits for this instead of loading on its own.
     private var startupModelPreparation: Task<Void, Never>?
@@ -2567,6 +2571,9 @@ final class AppState: ObservableObject {
     /// disabled its event tap (a revoked and re-granted permission leaves the
     /// old tap disabled for good).
     private func restartHotKeyListenerIfNeeded() {
+        // Settings turns the listener off while it records a new shortcut;
+        // turning it back on would swallow the key being recorded.
+        guard !isCapturingShortcut else { return }
         if hotKeyManager.isListening, let tap = hotKeyManager.eventTap,
            !CGEvent.tapIsEnabled(tap: tap) {
             VocaLogger.warning(.appState, "Hotkey event tap was disabled — recreating it")
@@ -3367,21 +3374,36 @@ extension AppState {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    func deleteHistoryEntry(_ id: UUID) {
-        if !historyStore.delete(id) {
-            showTemporaryError("Couldn't delete that dictation because the history file couldn't be saved. Nothing was removed.")
+    // History loads in the background at launch, and the store refuses
+    // deletions until it has. Each of these waits for the load first.
+
+    @discardableResult
+    func deleteHistoryEntry(_ id: UUID) -> Task<Void, Never> {
+        Task { @MainActor [self] in
+            await historyStore.waitUntilLoaded()
+            if !historyStore.delete(id) {
+                showTemporaryError("Couldn't delete that dictation because the history file couldn't be saved. Nothing was removed.")
+            }
         }
     }
 
-    func clearHistory() {
-        if !historyStore.deleteAll() {
-            showTemporaryError("Couldn't delete your history because the history file couldn't be saved. Nothing was removed.")
+    @discardableResult
+    func clearHistory() -> Task<Void, Never> {
+        Task { @MainActor [self] in
+            await historyStore.waitUntilLoaded()
+            if !historyStore.deleteAll() {
+                showTemporaryError("Couldn't delete your history because the history file couldn't be saved. Nothing was removed.")
+            }
         }
     }
 
-    func deleteAllHistoryAudio() {
-        if !historyStore.deleteAllAudio() {
-            showTemporaryError("Couldn't delete the recordings because the history file couldn't be saved. Nothing was removed.")
+    @discardableResult
+    func deleteAllHistoryAudio() -> Task<Void, Never> {
+        Task { @MainActor [self] in
+            await historyStore.waitUntilLoaded()
+            if !historyStore.deleteAllAudio() {
+                showTemporaryError("Couldn't delete the recordings because the history file couldn't be saved. Nothing was removed.")
+            }
         }
     }
 

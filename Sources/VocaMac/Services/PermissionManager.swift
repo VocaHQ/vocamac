@@ -210,13 +210,38 @@ final class PermissionManager: ObservableObject {
 
     // MARK: - Permission Polling
 
+    enum PollingDecision: Equatable {
+        case keepPolling
+        case stop
+        case giveUpOnHotKey
+    }
+
+    /// Creating the tap can fail for a moment right after a permission is
+    /// granted, while macOS still reports it as granted. About 30 s of 3 s
+    /// polls covers that; past it, app activation, wake and the Accessibility
+    /// notification still re-check.
+    static let maxHotKeyRestartPolls = 10
+
+    private var hotKeyRestartPolls = 0
+
+    static func pollingDecision(
+        allPermissionsGranted: Bool,
+        isHotKeyTapHealthy: Bool,
+        hotKeyRestartPolls: Int
+    ) -> PollingDecision {
+        guard allPermissionsGranted else { return .keepPolling }
+        if isHotKeyTapHealthy { return .stop }
+        return hotKeyRestartPolls >= maxHotKeyRestartPolls ? .giveUpOnHotKey : .keepPolling
+    }
+
     /// Start polling permissions every 3 seconds until all are granted and
     /// the hotkey tap is working.
     func startPermissionPolling() {
         guard permissionPollTimer == nil else { return }
-        guard !allPermissionsGranted || (hotKeyManager.isListening && !isHotKeyTapHealthy) else { return }
+        guard !allPermissionsGranted || !isHotKeyTapHealthy else { return }
 
         VocaLogger.debug(.appState, "Starting permission polling")
+        hotKeyRestartPolls = 0
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
@@ -226,12 +251,20 @@ final class PermissionManager: ObservableObject {
                 // is missing or was disabled by a revoke.
                 self.restoreHotKeyIfPossible()
 
-                // Stop once everything works, or once a tap couldn't be
-                // created at all with every permission granted: retrying that
-                // every few seconds wouldn't help, and the events above
-                // re-check later.
-                if self.allPermissionsGranted
-                    && (self.isHotKeyTapHealthy || !self.hotKeyManager.isListening) {
+                if self.allPermissionsGranted && !self.isHotKeyTapHealthy {
+                    self.hotKeyRestartPolls += 1
+                }
+                switch Self.pollingDecision(
+                    allPermissionsGranted: self.allPermissionsGranted,
+                    isHotKeyTapHealthy: self.isHotKeyTapHealthy,
+                    hotKeyRestartPolls: self.hotKeyRestartPolls
+                ) {
+                case .keepPolling:
+                    break
+                case .stop:
+                    self.stopPermissionPolling()
+                case .giveUpOnHotKey:
+                    VocaLogger.warning(.appState, "Hotkey tap still couldn't be created with every permission granted; waiting for the next activation or permission change")
                     self.stopPermissionPolling()
                 }
             }

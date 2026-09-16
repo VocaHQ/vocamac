@@ -182,6 +182,14 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("a hundred emoji"), "a hundred emoji")
     }
 
+    /// A unit makes "a hundred" a count, matching "one hundred dollars".
+    func testAWithAMultiplierBeforeAUnitConverts() {
+        XCTAssertEqual(converted("a hundred dollars"), "100 dollars")
+        XCTAssertEqual(converted("a thousand hours"), "1000 hours")
+        XCTAssertEqual(converted("It costs a hundred euros."), "It costs 100 euros.")
+        XCTAssertEqual(converted("a hundred, dollars"), "a hundred, dollars")
+    }
+
     func testTwoHundredsSideBySideAreTwoNumbers() {
         XCTAssertEqual(converted("two hundred three hundred"), "200 300")
         XCTAssertEqual(converted("one hundred five hundred"), "100 500")

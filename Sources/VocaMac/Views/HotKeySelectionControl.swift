@@ -105,6 +105,7 @@ struct HotKeySelectionControl: View {
 
     private func beginRecording() {
         problem = nil
+        appState.isCapturingShortcut = true
         wasListeningBeforeRecording = appState.hotKeyManager.isListening
         if wasListeningBeforeRecording {
             appState.hotKeyManager.stopListening()
@@ -112,6 +113,7 @@ struct HotKeySelectionControl: View {
     }
 
     private func finishRecording() {
+        appState.isCapturingShortcut = false
         if wasListeningBeforeRecording {
             restartHotKeyListener()
         }

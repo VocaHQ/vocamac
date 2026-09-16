@@ -121,8 +121,10 @@ enum SpokenNumbers {
                 last -= 1
             }
             // "a hundred times" and "a million reasons" are idioms, not
-            // quantities; "a" only counts when more of the number follows.
-            if opensWithA, tokens.count <= 2 {
+            // quantities; "a" only counts when more of the number follows,
+            // or a unit does: "a hundred dollars".
+            if opensWithA, tokens.count <= 2,
+               !isFollowedByQuantifyingUnit(last, in: words, text: string) {
                 index += 1
                 continue
             }
@@ -265,6 +267,17 @@ enum SpokenNumbers {
         case .hundred, .scale: return true
         default: return false
         }
+    }
+
+    /// Whether the word after `index`, past a single space, is a unit such as
+    /// "dollars" or "hours".
+    private static func isFollowedByQuantifyingUnit(
+        _ index: Int,
+        in words: [NSTextCheckingResult],
+        text: NSString
+    ) -> Bool {
+        guard index + 1 < words.count, gap(after: index, in: words, text: text) == " " else { return false }
+        return quantifyingUnits.contains(text.substring(with: words[index + 1].range).lowercased())
     }
 
     /// Whether `next` opens another hundreds group in a segment that already

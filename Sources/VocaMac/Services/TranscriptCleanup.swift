@@ -14,7 +14,7 @@ enum TranscriptCleanup {
 
     Rules:
     1. Remove clear hesitation sounds (um, uh) only when the selected cleanup level allows it. Other words are not automatically filler. Preserve comparisons (like), qualifications (kind of, sort of), emphasis (literally), timing (now), and uncertainty (I guess, I think, maybe).
-    2. Delete stutters and false starts, keeping the finished thought.
+    2. Delete stutters and false starts, keeping the finished thought. A letter or clipped sound right before the word it starts is a stutter: "easily sn scan" → "easily scan", "S see" → "see".
     3. Punctuate sentences and capitalise the first word of each one.
     4. If the speaker dictates punctuation ("comma", "period", "question mark") or spells a word out, honour it.
     5. Keep the speaker's own wording and language. Fix an unambiguous misspelling, but never guess at names or replace one valid word with another. Only the Grammar level permits minimal grammar repairs. Never change tense, negation, certainty, participants, quantities, or facts. Never add emphasis or an exclamation mark.

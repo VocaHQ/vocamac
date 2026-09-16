@@ -17,6 +17,7 @@ import Foundation
 /// - filler words set off by commas ("it was, like, huge", "you know,")
 /// - a sentence-opening "so," / "well," / "okay,"
 /// - an accidental repeat right next to the same word ("gone gone")
+/// - a cut-off start of the next word ("sn scan", "S see")
 /// - a restart the speaker abandoned ("I want to, I need to fix it")
 ///
 /// Everything else the model did — rewording, re-casing, insertions — is
@@ -27,7 +28,9 @@ enum CleanupSalvage {
 
     /// Ranges in `original` (words plus the punctuation stuck to them) that
     /// the model deleted and that are safe to delete.
-    static func safeDeletions(original: String, candidate: String) -> [NSRange] {
+    static func safeDeletions(
+        original: String, candidate: String, isKnownWord: (String) -> Bool = { _ in true }
+    ) -> [NSRange] {
         let source = tokens(in: original)
         let target = tokens(in: candidate)
         guard !source.isEmpty, source.count * max(target.count, 1) <= 4_000_000 else { return [] }
@@ -39,7 +42,7 @@ enum CleanupSalvage {
             guard !kept.contains(index) else { index += 1; continue }
             var end = index
             while end + 1 < source.count, !kept.contains(end + 1) { end += 1 }
-            if let ranges = safeRanges(for: Array(index...end), in: source, kept: kept) {
+            if let ranges = safeRanges(for: Array(index...end), in: source, kept: kept, isKnownWord: isKnownWord) {
                 deletions.append(contentsOf: ranges)
             }
             index = end + 1
@@ -67,7 +70,9 @@ enum CleanupSalvage {
     /// the run isn't safely filler. Usually the run itself; for a repeat, the
     /// first copy, so "the, the build" loses "the," rather than leaving
     /// "the, build".
-    private static func safeRanges(for run: [Int], in source: [Token], kept: Set<Int>) -> [NSRange]? {
+    private static func safeRanges(
+        for run: [Int], in source: [Token], kept: Set<Int>, isKnownWord: (String) -> Bool
+    ) -> [NSRange]? {
         // Hesitations can go wherever they sit, even beside an unsafe edit;
         // judge what is left.
         let hesitations = run.filter { WritingStyleEngine.isHesitationWord(source[$0].core) }.map { source[$0].range }
@@ -110,6 +115,12 @@ enum CleanupSalvage {
                     return [NSUnionRange(source[earlier.lowerBound].range, source[previous].range)] + hesitations
                 }
             }
+        }
+        // "sn scan", "S scan": a cut-off start of the next kept word, said
+        // without a pause.
+        if words.count == 1, let next, !source[first].text.contains(where: { ".!?,".contains($0) }),
+           EditMerge.isCutOffStart(source[first].core, of: source[next].core, isKnownWord: isKnownWord) {
+            return wholeRun
         }
         // "I want to, I need to": an abandoned start, marked by a comma or
         // dash, that the next kept words start over.

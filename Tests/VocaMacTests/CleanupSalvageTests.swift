@@ -31,6 +31,23 @@ final class CleanupSalvageTests: XCTestCase {
         XCTAssertEqual(salvage("this is very very important", "this is very important"), "this is very very important")
     }
 
+    func testClippedStartsOfTheNextWordGo() {
+        // Like the system spell checker: every single letter is a word.
+        let isKnownWord: (String) -> Bool = { $0.count == 1 || ["sad", "and", "scan"].contains($0) }
+        func salvage(_ original: String, _ candidate: String) -> String {
+            WritingStyleEngine.removeWordRuns(
+                CleanupSalvage.safeDeletions(original: original, candidate: candidate, isKnownWord: isKnownWord),
+                from: original
+            )
+        }
+        XCTAssertEqual(salvage("people can easily sn scan it", "people can easily scan it"), "people can easily scan it")
+        XCTAssertEqual(salvage("run S scan now", "run scan now"), "run scan now")
+        // "a" is a word; so is "sad"; a letter that doesn't start the next word stays.
+        XCTAssertEqual(salvage("add a apple", "add apple"), "add a apple")
+        XCTAssertEqual(salvage("the sad scan", "the scan"), "the sad scan")
+        XCTAssertEqual(salvage("option B deploy", "option deploy"), "option B deploy")
+    }
+
     func testRestartsNeedAMarkerAndAMatchingStart() {
         XCTAssertEqual(salvage("I want to, I need to finish it", "I need to finish it"), "I need to finish it")
         XCTAssertEqual(salvage("I want to finish it", "finish it"), "I want to finish it")

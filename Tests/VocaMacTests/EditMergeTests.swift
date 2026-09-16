@@ -19,6 +19,23 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("doesn't look even look like it", "doesn't look like it").text, "doesn't look even look like it")
     }
 
+    /// The system spell checker accepts every single letter, so a fragment
+    /// rule that asked it about "S" never fired in the app.
+    func testClippedStartsGoEvenWhenTheSpellCheckerKnowsEveryLetter() {
+        let checker: (String) -> Bool = { $0.count == 1 || self.known.contains($0) || ["and", "sad"].contains($0) }
+        func merge(_ original: String, _ candidate: String) -> String {
+            EditMerge.merge(original: original, candidate: candidate, level: .high, isKnownWord: checker).text
+        }
+        XCTAssertEqual(merge("update it. S see once", "update it. See once"), "update it. See once")
+        XCTAssertEqual(merge("people can easily sn scan and download", "people can easily scan and download"),
+                       "people can easily scan and download")
+        // Real words and letters that aren't the next word's start stay.
+        XCTAssertEqual(merge("and after b doing that", "and after doing that"), "and after b doing that")
+        XCTAssertEqual(merge("I want a apple", "I want apple"), "I want a apple")
+        XCTAssertEqual(merge("Plan B and backup", "Plan backup"), "Plan B and backup")
+        XCTAssertEqual(merge("the sad scan", "the scan"), "the sad scan")
+    }
+
     func testRiskyEditsStayAsSpokenWhileSafeOnesApply() {
         // Filler and a period are fine; a changed number is not.
         let result = merge("a quick meeting, like, at max 15 minutes", "A quick meeting at max 10 minutes.")

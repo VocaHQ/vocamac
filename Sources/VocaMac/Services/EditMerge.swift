@@ -283,10 +283,10 @@ enum EditMerge {
             if Array(hunk.following.prefix(keys.count)).map(\.key) == keys { return true }
             if Array(hunk.preceding.suffix(keys.count)).map(\.key) == keys { return true }
         }
-        // "diff different", "sor sorry", "S see": a cut-off start of the next
-        // word. "a", "I", and "o" are words, not fragments.
-        if keys.count == 1, !realOneLetterWords.contains(first.key), let next = hunk.following.first,
-           !isKnownWord(first.key), next.key.count > first.key.count, next.key.hasPrefix(first.key) {
+        // "diff different", "sor sorry", "S see", "sn scan": a cut-off start
+        // of the next word.
+        if keys.count == 1, let next = hunk.following.first,
+           isCutOffStart(first.key, of: next.key, isKnownWord: isKnownWord) {
             return true
         }
         // "I want to, I need to": an abandoned start the next words redo.
@@ -371,6 +371,26 @@ enum EditMerge {
     private static let negations: Set<String> = ["not", "no", "never", "nor", "neither", "without", "cannot"]
 
     private static let realOneLetterWords: Set<String> = ["a", "i", "o"]
+
+    /// Whether `fragment` is a clipped start of `next`: "diff" of "different",
+    /// "S" of "see", or a two- or three-letter slur of its opening such as
+    /// "sn" of "scan". "a", "I", and "o" are words, not fragments. The system
+    /// spell checker accepts every single letter, so a letter is judged by
+    /// the list alone.
+    static func isCutOffStart(_ fragment: String, of next: String, isKnownWord: (String) -> Bool) -> Bool {
+        guard !fragment.isEmpty, fragment.allSatisfy(\.isLetter), next.count > fragment.count,
+              fragment.first == next.first else { return false }
+        if fragment.count == 1 { return !realOneLetterWords.contains(fragment) }
+        guard !isKnownWord(fragment) else { return false }
+        if next.hasPrefix(fragment) { return true }
+        guard fragment.count <= 3 else { return false }
+        var remaining = next[...]
+        for letter in fragment {
+            guard let index = remaining.firstIndex(of: letter) else { return false }
+            remaining = remaining[remaining.index(after: index)...]
+        }
+        return true
+    }
 
     private static let questionLeadIns: Set<String> = ["hey", "hi", "so", "okay", "ok", "well", "and", "but", "also", "oh"]
 

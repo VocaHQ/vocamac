@@ -284,9 +284,12 @@ enum EditMerge {
             if Array(hunk.preceding.suffix(keys.count)).map(\.key) == keys { return true }
         }
         // "diff different", "sor sorry", "S see", "sn scan": a cut-off start
-        // of the next word.
-        if keys.count == 1, let next = hunk.following.first,
-           isCutOffStart(first.key, of: next.key, isKnownWord: isKnownWord) {
+        // of the next word, with nothing between them. A lone letter only
+        // opens a sentence: mid-sentence it is usually a label ("option B
+        // build", "use x xcode").
+        if keys.count == 1, hunk.removed.count == 1, let next = hunk.following.first,
+           hunk.next?.isWord == true, hunk.previous.map({ $0.isWord || [".", "!", "?", ","].contains($0.text) }) ?? true,
+           isCutOffStart(first.key, of: next.key, allowsLetter: hunk.sentenceStart, isKnownWord: isKnownWord) {
             return true
         }
         // "I want to, I need to": an abandoned start the next words redo.
@@ -374,13 +377,23 @@ enum EditMerge {
 
     /// Whether `fragment` is a clipped start of `next`: "diff" of "different",
     /// "S" of "see", or a two- or three-letter slur of its opening such as
-    /// "sn" of "scan". "a", "I", and "o" are words, not fragments. The system
-    /// spell checker accepts every single letter, so a letter is judged by
-    /// the list alone.
-    static func isCutOffStart(_ fragment: String, of next: String, isKnownWord: (String) -> Bool) -> Bool {
-        guard !fragment.isEmpty, fragment.allSatisfy(\.isLetter), next.count > fragment.count,
-              fragment.first == next.first else { return false }
-        if fragment.count == 1 { return !realOneLetterWords.contains(fragment) }
+    /// "sn" of "scan". `next` must be an ordinary word, so identifiers
+    /// ("ts tsx") are never shortened. A single letter counts only where the
+    /// caller allows it, and "a", "I", and "o" are words; the system spell
+    /// checker accepts every letter, so letters are judged by that list alone.
+    static func isCutOffStart(
+        _ fragment: String, of next: String, allowsLetter: Bool, isKnownWord: (String) -> Bool
+    ) -> Bool {
+        guard !fragment.isEmpty, fragment.allSatisfy(\.isLetter), next.allSatisfy(\.isLetter),
+              next.count > fragment.count, fragment.first == next.first, isKnownWord(next) else { return false }
+        if fragment.count == 1 {
+            guard allowsLetter, !realOneLetterWords.contains(fragment) else { return false }
+            // A clipped "code" isn't heard as the letter C, so "C code" is the language.
+            if fragment == "c" || fragment == "g" {
+                return next.dropFirst().first.map { "eiy".contains($0) } ?? false
+            }
+            return true
+        }
         guard !isKnownWord(fragment) else { return false }
         if next.hasPrefix(fragment) { return true }
         guard fragment.count <= 3 else { return false }

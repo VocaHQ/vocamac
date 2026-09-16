@@ -33,7 +33,7 @@ final class CleanupSalvageTests: XCTestCase {
 
     func testClippedStartsOfTheNextWordGo() {
         // Like the system spell checker: every single letter is a word.
-        let isKnownWord: (String) -> Bool = { $0.count == 1 || ["sad", "and", "scan"].contains($0) }
+        let isKnownWord: (String) -> Bool = { $0.count == 1 || ["sad", "scan", "build", "deploy"].contains($0) }
         func salvage(_ original: String, _ candidate: String) -> String {
             WritingStyleEngine.removeWordRuns(
                 CleanupSalvage.safeDeletions(original: original, candidate: candidate, isKnownWord: isKnownWord),
@@ -41,11 +41,15 @@ final class CleanupSalvageTests: XCTestCase {
             )
         }
         XCTAssertEqual(salvage("people can easily sn scan it", "people can easily scan it"), "people can easily scan it")
-        XCTAssertEqual(salvage("run S scan now", "run scan now"), "run scan now")
-        // "a" is a word; so is "sad"; a letter that doesn't start the next word stays.
-        XCTAssertEqual(salvage("add a apple", "add apple"), "add a apple")
+        // A lone letter is a flag, drive, or variable in a command; so are
+        // identifiers, words, and tokens with punctuation attached.
+        XCTAssertEqual(salvage("run S scan now", "run scan now"), "run S scan now")
+        XCTAssertEqual(salvage("use x xcode", "use xcode"), "use x xcode")
+        XCTAssertEqual(salvage("option B build", "option build"), "option B build")
         XCTAssertEqual(salvage("the sad scan", "the scan"), "the sad scan")
-        XCTAssertEqual(salvage("option B deploy", "option deploy"), "option B deploy")
+        XCTAssertEqual(salvage("run ts tsx now", "run tsx now"), "run ts tsx now")
+        XCTAssertEqual(salvage("sn: scan it", "scan it"), "sn: scan it")
+        XCTAssertEqual(salvage("sn- scan it", "scan it"), "sn- scan it")
     }
 
     func testRestartsNeedAMarkerAndAMatchingStart() {

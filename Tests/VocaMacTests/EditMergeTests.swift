@@ -22,18 +22,28 @@ final class EditMergeTests: XCTestCase {
     /// The system spell checker accepts every single letter, so a fragment
     /// rule that asked it about "S" never fired in the app.
     func testClippedStartsGoEvenWhenTheSpellCheckerKnowsEveryLetter() {
-        let checker: (String) -> Bool = { $0.count == 1 || self.known.contains($0) || ["and", "sad"].contains($0) }
+        let checker: (String) -> Bool = {
+            $0.count == 1 || self.known.contains($0)
+                || ["sad", "scan", "download", "build", "backup", "code", "compiler", "deploy"].contains($0)
+        }
         func merge(_ original: String, _ candidate: String) -> String {
             EditMerge.merge(original: original, candidate: candidate, level: .high, isKnownWord: checker).text
         }
         XCTAssertEqual(merge("update it. S see once", "update it. See once"), "update it. See once")
+        XCTAssertEqual(merge("S scan", "Scan"), "Scan")
         XCTAssertEqual(merge("people can easily sn scan and download", "people can easily scan and download"),
                        "people can easily scan and download")
-        // Real words and letters that aren't the next word's start stay.
+        // Real words, labels, identifiers, and letters set off by punctuation stay.
         XCTAssertEqual(merge("and after b doing that", "and after doing that"), "and after b doing that")
         XCTAssertEqual(merge("I want a apple", "I want apple"), "I want a apple")
-        XCTAssertEqual(merge("Plan B and backup", "Plan backup"), "Plan B and backup")
         XCTAssertEqual(merge("the sad scan", "the scan"), "the sad scan")
+        XCTAssertEqual(merge("pick option B build", "pick option build"), "pick option B build")
+        XCTAssertEqual(merge("we need a plan B backup", "we need a plan backup"), "we need a plan B backup")
+        XCTAssertEqual(merge("use x xcode", "use xcode"), "use x xcode")
+        XCTAssertEqual(merge("C code is fast", "Code is fast"), "C code is fast")
+        XCTAssertEqual(merge("B: build it", "Build it"), "B: build it")
+        XCTAssertEqual(merge("step B- build it", "step build it"), "step B- build it")
+        XCTAssertEqual(merge("run ts tsx now", "run tsx now"), "run ts tsx now")
     }
 
     func testRiskyEditsStayAsSpokenWhileSafeOnesApply() {

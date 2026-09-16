@@ -17,7 +17,7 @@ import Foundation
 /// - filler words set off by commas ("it was, like, huge", "you know,")
 /// - a sentence-opening "so," / "well," / "okay,"
 /// - an accidental repeat right next to the same word ("gone gone")
-/// - a cut-off start of the next word ("sn scan", "S see")
+/// - a cut-off start of the next word ("sn scan")
 /// - a restart the speaker abandoned ("I want to, I need to fix it")
 ///
 /// Everything else the model did — rewording, re-casing, insertions — is
@@ -116,10 +116,12 @@ enum CleanupSalvage {
                 }
             }
         }
-        // "sn scan", "S scan": a cut-off start of the next kept word, said
-        // without a pause.
-        if words.count == 1, let next, !source[first].text.contains(where: { ".!?,".contains($0) }),
-           EditMerge.isCutOffStart(source[first].core, of: source[next].core, isKnownWord: isKnownWord) {
+        // "sn scan": a cut-off start of the very next word, both plain
+        // letters. Never a lone letter here — in a command it is a flag,
+        // drive, or variable.
+        if run.count == 1, let next, next == first + 1,
+           source[first].text.allSatisfy(\.isLetter), source[next].text.allSatisfy(\.isLetter),
+           EditMerge.isCutOffStart(source[first].core, of: source[next].core, allowsLetter: false, isKnownWord: isKnownWord) {
             return wholeRun
         }
         // "I want to, I need to": an abandoned start, marked by a comma or

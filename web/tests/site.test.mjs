@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { access, readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { test } from "node:test";
@@ -219,6 +220,14 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.doesNotMatch(ogSvg, /v0\.8\.0/);
   assert.match(ogSvg, /ON-DEVICE/);
   assert.doesNotMatch(ogSvg, />LOCAL</);
+
+  const ogPng = await readFile(join(outputRoot, "og-image.png"));
+  // Regenerating static/og-image.png (e.g. rsvg-convert -w 1200 -h 630) requires updating this digest.
+  assert.equal(
+    createHash("sha256").update(ogPng).digest("hex"),
+    "a1fcb300f0607c8032634270c3856a996bc0479f9388d528d3db38ae47bb51a6",
+    "published og-image.png must stay in lockstep with static/og-image.svg (ON-DEVICE badge)",
+  );
 });
 
 test("all rendered local references resolve", async () => {

@@ -111,6 +111,73 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertTrue(light.text.contains("tomorrow"))
     }
 
+    func testCutOffWordsGoWithoutTheModel() async {
+        let result = await process(
+            "Can you tell me with our current changes we supp are supporting streaming in whisper models and if yes how?",
+            cleaner: MockTranscriptCleanup(), enabled: false
+        )
+        XCTAssertEqual(result.text,
+                       "Can you tell me with our current changes we are supporting streaming in whisper models and if yes how?")
+        XCTAssertTrue(result.summary.contains("cut-off word removed"), result.summary)
+        // Terminal keeps its casing and punctuation, but loses the fragment.
+        let terminal = await process("can you tell me if we supp are supporting streaming",
+                                     cleaner: MockTranscriptCleanup(), format: .terminal, enabled: false)
+        XCTAssertEqual(terminal.text, "can you tell me if we are supporting streaming")
+        // Light and per-app Formatting only keep every word.
+        let light = await process("what we can im improve", cleaner: MockTranscriptCleanup(), enabled: false, level: .light)
+        XCTAssertTrue(light.text.contains("im improve"), light.text)
+        let off = await process("what we can im improve", cleaner: MockTranscriptCleanup(), cleanup: .off)
+        XCTAssertTrue(off.text.contains("im improve"), off.text)
+        // A snippet trigger or dictionary term is never a fragment.
+        let snippet = await process("my addr address is here", cleaner: MockTranscriptCleanup(), enabled: false,
+                                    snippets: [Snippet(trigger: "addr", expansion: "1 Main St")])
+        XCTAssertTrue(snippet.text.contains("1 Main St"), snippet.text)
+        let unguarded = await process("my addr address is here", cleaner: MockTranscriptCleanup(), enabled: false)
+        XCTAssertEqual(unguarded.text, "My address is here")
+    }
+
+    func testCutOffWordRules() {
+        let known: Set<String> = [
+            "please", "improve", "sorry", "supporting", "are", "diff", "different", "them", "theme",
+            "we", "the", "done", "can", "it", "is", "what", "didn't", "typescript", "use",
+        ]
+        let isKnownWord = { known.contains($0) }
+        let cases: [(String, String)] = [
+            ("can you ple please install", "can you please install"),
+            ("what we can im improve", "what we can improve"),
+            ("Oh not sor, sorry tomorrow", "Oh not sorry tomorrow"),
+            ("we supp are supporting it", "we are supporting it"),
+            ("we supp supp are supporting it", "we are supporting it"),
+            ("can you pl ple please", "can you please"),
+            ("it didn didn't work", "it didn't work"),
+            ("Wh what is it? Wh what", "What is it? What"),
+            // Both halves are real words: only the model may judge.
+            ("its indicator is diff different", "its indicator is diff different"),
+            ("make them theme", "make them theme"),
+            // Two letters need the word right after; a sentence end breaks the link.
+            ("im the improve", "im the improve"),
+            ("we supp. Supporting it", "we supp. Supporting it"),
+            // Names, flags, and paths are not fragments.
+            ("ask Ple please", "ask Ple please"),
+            ("run --supp supporting", "run --supp supporting"),
+            // The completion must be a real word.
+            ("voca vocamac is done", "voca vocamac is done"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(WritingStyleEngine.removeCutOffWords(input, isKnownWord: isKnownWord).text, expected, input)
+        }
+        // Mid-sentence capitals are names; in a command, case is data.
+        XCTAssertEqual(WritingStyleEngine.removeCutOffWords("it is Supp supporting", isKnownWord: isKnownWord).text,
+                       "it is Supp supporting")
+        XCTAssertEqual(WritingStyleEngine.removeCutOffWords("Wh what", prose: false, isKnownWord: isKnownWord).text,
+                       "Wh what")
+        // Terminal text loses the fragment too, keeping its own case.
+        XCTAssertEqual(WritingStyleEngine.removeCutOffWords("we supp are supporting it", prose: false, isKnownWord: isKnownWord).text,
+                       "we are supporting it")
+        XCTAssertEqual(WritingStyleEngine.removeCutOffWords("use tsx use typescript", prose: false, isKnownWord: isKnownWord).text,
+                       "use tsx use typescript")
+    }
+
     func testHesitationRemovalIsEnglishOnly() async {
         let german = await process("wir treffen uns um 5 Uhr", cleaner: MockTranscriptCleanup(), enabled: false, language: "de")
         XCTAssertTrue(german.text.contains(" um 5 Uhr"))

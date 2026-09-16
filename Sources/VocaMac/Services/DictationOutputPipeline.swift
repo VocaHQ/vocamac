@@ -65,6 +65,24 @@ struct DictationOutputPipeline {
             return result("", "Only “um” or “uh” was heard — nothing typed")
         }
 
+        // "can you ple please", "we supp are supporting": a word cut off and
+        // said again in full. Rule-based and English only, like hesitations,
+        // so it runs in every style that cleans up, model or not. The user's
+        // own terms and snippet triggers count as real words, so a term is
+        // never a fragment.
+        var removedCutOffWords = 0
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations, isEnglishText {
+            let terms = (dictionary?.vocabulary ?? []) + (dictionary?.contextTerms ?? [])
+                + (dictionary?.replacements ?? []).flatMap { [$0.heard, $0.replacement] }
+                + snippetList.map(\.trigger)
+            let vocabulary = Set(terms.flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init) })
+            let isKnownWord = dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") }
+            (input, removedCutOffWords) = WritingStyleEngine.removeCutOffWords(
+                input, prose: profile.format.supportsWording,
+                isKnownWord: { vocabulary.contains($0) || isKnownWord($0) }
+            )
+        }
+
         // "let's do it tomorrow, oh, no, Wednesday" → "let's do it Wednesday".
         // Rule-based, so like hesitation removal it runs without a model, at
         // Medium and High, and in any language the resolver knows. Prose
@@ -80,6 +98,9 @@ struct DictationOutputPipeline {
                 notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
             }
             if removedHesitations { notes.append("“um”/“uh” removed") }
+            if removedCutOffWords > 0 {
+                notes.append(removedCutOffWords == 1 ? "cut-off word removed" : "\(removedCutOffWords) cut-off words removed")
+            }
             return ([summary] + notes).joined(separator: " · ")
         }
         var protectedTerms: [Snippet] = []

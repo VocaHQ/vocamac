@@ -119,9 +119,11 @@ enum EditMerge {
             let nextMatch = operations[index...].first { if case .match = $0 { return true } else { return false } }
             var following: [Token] = []
             var next: Token?
-            if case .match(let o, _) = nextMatch {
+            var nextCandidateLeading: String?
+            if case .match(let o, let c) = nextMatch {
                 following = source[o...].filter(\.isWord)
                 next = source[o]
+                nextCandidateLeading = target[c].leading
             }
             let sentence = output.reversed().prefix { ![".", "!", "?"].contains($0.token.text) }.reversed().map(\.token)
             let hunk = Hunk(
@@ -129,7 +131,7 @@ enum EditMerge {
                 preceding: output.map(\.token).filter(\.isWord),
                 precedingInSentence: sentence.filter(\.isWord),
                 following: following, sentenceStart: endsSentence(output),
-                previous: output.last?.token, next: next
+                previous: output.last?.token, next: next, nextCandidateLeading: nextCandidateLeading
             )
             if isSafe(hunk, level: level, isKnownWord: isKnownWord)
                 || (level == .grammar && allowsEnglishGrammar && isGrammarRepair(hunk, isKnownWord: isKnownWord)) {
@@ -194,6 +196,8 @@ enum EditMerge {
         /// The token written just before the edit, and the one right after.
         let previous: Token?
         let next: Token?
+        /// Whitespace the model wrote before `next`: "B—build" has none.
+        let nextCandidateLeading: String?
 
         var removedWords: [Token] { removed.filter(\.isWord) }
         var addedWords: [Token] { added.filter(\.isWord) }
@@ -222,6 +226,12 @@ enum EditMerge {
             if hunk.previous?.isWord == true, hunk.next?.isWord == true,
                hunk.removed.contains(where: { ["-", "–", "—"].contains($0.text) && $0.leading.isEmpty }),
                hunk.next?.leading.isEmpty == true { return false }
+            // Nor is joining two words with one: "option B build" → "option
+            // B—build" is a new compound, not punctuation, and the user's
+            // space after it would leave "B— build".
+            if hunk.previous?.isWord == true, hunk.next?.isWord == true,
+               hunk.added.contains(where: { ["-", "–", "—"].contains($0.text) && $0.leading.isEmpty }),
+               hunk.nextCandidateLeading?.isEmpty == true { return false }
             // "well water" must not become "Well, water". An unmarked
             // opener may be part of the sentence, not a discourse filler.
             if hunk.removed.isEmpty, hunk.precedingInSentence.count == 1,

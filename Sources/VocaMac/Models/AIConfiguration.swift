@@ -7,7 +7,7 @@ import Foundation
 
 /// How aggressively a cleanup pass may change a transcript.
 enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
-    case none, light, medium, high
+    case none, light, medium, high, grammar
 
     var id: String { rawValue }
 
@@ -16,6 +16,7 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         case .none: return "None"
         case .light: return "Light"
         case .medium: return "Medium"
+        case .grammar: return "Grammar"
         case .high: return "High"
         }
     }
@@ -25,14 +26,15 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         case .none: return "Keep the engine transcript unchanged, “um” and “uh” included."
         case .light: return "Tidy punctuation and capitalization only. Keeps “um” and “uh”."
         case .medium: return "Also remove fillers and repeated starts, and keep only the fix when you correct a day, month, number, or time (“tomorrow, no, Wednesday” → “Wednesday”). “Um”, “uh”, and these corrections are handled in every app, even with Smart Cleanup off. In Code and Terminal the model only removes filler, never rewords."
-        case .high: return "Also let the model resolve looser corrections (“send it to John, no, Mary” → “Mary”) and drop what you cancel with “scratch that”."
+        case .grammar: return "Medium cleanup plus minimal English grammar repairs: subject–verb agreement and missing articles. Keeps meaning, tense, uncertainty, and your choice of words. Ambiguous edits stay as spoken. Code and Terminal only remove filler."
+        case .high: return "Medium cleanup plus looser corrections (“send it to John, no, Mary” → “Mary”) and dropping what you cancel with “scratch that”. For English grammar repairs, choose Grammar."
         }
     }
 
     /// Whether "um" and "uh" are removed without the model. None and Light
     /// promise to keep every spoken sound.
     var removesHesitations: Bool {
-        self == .medium || self == .high
+        self == .medium || self == .grammar || self == .high
     }
 
     func prompt(custom: String) -> String {
@@ -47,6 +49,8 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
             rule = "Apply light cleanup only: punctuation and sentence capitalization. Keep every spoken word, including fillers, repetitions, and corrections."
         case .medium:
             rule = "Apply medium cleanup: punctuation, sentence capitalization, fillers, and obvious repeated false starts. Preserve all facts and wording."
+        case .grammar:
+            rule = "Apply grammar cleanup: medium cleanup plus minimal English subject–verb agreement and missing articles. For example, ‘she go to office every day’ becomes ‘She goes to the office every day.’ Preserve tense, negation, uncertainty, names, numbers, and meaning. Never paraphrase or guess at a misheard word. For other languages, preserve wording."
         case .high:
             rule = "Apply high cleanup: punctuation, fillers, false starts, and explicit self-corrections. When the speaker says ‘actually’, ‘rather’, or ‘I mean’, keep the corrected value."
         }

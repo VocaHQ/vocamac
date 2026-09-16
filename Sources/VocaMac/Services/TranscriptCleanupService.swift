@@ -19,12 +19,15 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     var isLoaded: Bool { activeLLM != nil }
     var loadedKind: CleanupModelKind? { activeLLM == nil ? nil : activeKind }
 
-    /// Characters of transcript that still fit alongside `prompt`. Zero means
-    /// the prompt has eaten the whole context and cleanup will never run.
+    /// Approximate English characters per pass, used only for Settings hints.
     nonisolated func inputBudget(forPrompt prompt: String) -> Int {
+        inputBudget(forPrompt: prompt, model: .defaultKind)
+    }
+
+    nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int {
         TranscriptCleanup.inputCharacterBudget(
             promptCharacters: prompt.count,
-            maxTokenCount: Int(CleanupModelCatalog.recommended.maxTokenCount)
+            maxTokenCount: Int(model.descriptor.maxTokenCount)
         )
     }
 
@@ -178,20 +181,6 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             ? TranscriptCleanup.defaultPrompt
             : prompt
 
-        // Past the context budget the answer is cut off mid-sentence and gets
-        // discarded anyway, so skip the wait rather than stall the paste.
-        let budget = TranscriptCleanup.inputCharacterBudget(
-            promptCharacters: activePrompt.count,
-            maxTokenCount: Int(activeKind?.descriptor.maxTokenCount ?? 4096)
-        )
-        guard trimmed.count <= budget else {
-            VocaLogger.info(
-                .transcriptCleanup,
-                "Transcript is \(trimmed.count) characters, over the \(budget)-character context budget — skipping cleanup"
-            )
-            return result(text, .skipped("the text is \(trimmed.count) characters and only \(budget) fit alongside the prompt"))
-        }
-
         let formatted = TranscriptCleanup.formatInput(trimmed)
         // The transcript is waiting to be pasted, so the deadline hands back
         // the raw text rather than waiting for llama.cpp to wind down. It
@@ -205,9 +194,43 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             )
 
         do {
-            let raw = try await runInference(
-                llm: llm, prompt: activePrompt, input: formatted, timeout: timeout
+            // Tokenization uses the same model actor as generation. Drain a
+            // timed-out pass first so counting tokens cannot wait behind it
+            // without the normal bounded busy-model fallback.
+            try await drainPendingGeneration(llm: llm)
+            // Count actual tokens in the selected model, including fences.
+            // Reserve space for the chat template and a slightly longer answer.
+            let context = Int(activeKind?.descriptor.maxTokenCount ?? 4096)
+            let promptTokens = await llm.encode(activePrompt).count
+            let chunks = await CleanupContext.chunks(
+                trimmed, contextTokens: context, promptTokens: promptTokens,
+                allowsSplitting: !allowsTransform,
+                countTokens: { await llm.encode(TranscriptCleanup.formatInput($0)).count }
             )
+            guard let chunks else {
+                return result(text, .skipped("a sentence or prompt exceeds the model context"))
+            }
+            var outputs: [String] = []
+            for chunk in chunks {
+                guard !cleanupCancelled, !Task.isCancelled, activeLLM === llm else {
+                    return result(text, .skipped("cleanup was cancelled or the model changed"))
+                }
+                let remaining = timeout - Date().timeIntervalSince(started)
+                guard remaining > 0 else { throw CleanupInferenceError.deadlineExceeded }
+                let answer = try await runInference(
+                    llm: llm, prompt: activePrompt,
+                    input: TranscriptCleanup.formatInput(chunk.trimmingCharacters(in: .whitespacesAndNewlines)),
+                    timeout: remaining
+                )
+                if chunks.count == 1 { outputs.append(answer) }
+                else {
+                    // A bad chunk must not consume its neighbours. Keep its
+                    // original text and preserve exact paragraph separators.
+                    let accepted = TranscriptCleanup.acceptedOutput(answer, original: chunk) ?? chunk
+                    outputs.append(TranscriptCleanup.preservingOuterWhitespace(of: chunk, in: accepted))
+                }
+            }
+            let raw = outputs.joined()
             // Stopped mid-sentence: neither usable nor the model's fault.
             if cleanupCancelled {
                 return result(text, .skipped("cleanup was cancelled"))
@@ -583,18 +606,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     private func runInference(
         llm: LLM, prompt: String, input: String, timeout: TimeInterval
     ) async throws -> String {
-        // A generation abandoned at an earlier deadline still owns the model.
-        // `LLM.respond` silently no-ops while the model is busy and leaves the
-        // *previous* utterance's text in `output`, so reading it back would
-        // paste the wrong transcript. Wait for the straggler, then give up on
-        // cleaning this one rather than risk that.
-        if let straggler = pendingGeneration {
-            llm.stop()
-            guard await Self.value(of: straggler, within: Self.drainSeconds) != nil else {
-                throw CleanupInferenceError.modelBusy
-            }
-            pendingGeneration = nil
-        }
+        try await drainPendingGeneration(llm: llm)
 
         let box = LLMBox(llm)
         // Detached: `respond` runs the llama.cpp loop, and a Task inherited
@@ -617,6 +629,23 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
         pendingGeneration = nil
         return output
+    }
+
+    /// Reclaim a model after a timed-out pass before any actor-bound work.
+    private func drainPendingGeneration(llm: LLM) async throws {
+        // A generation abandoned at an earlier deadline still owns the model.
+        // `LLM.respond` silently no-ops while the model is busy and leaves the
+        // *previous* utterance's text in `output`, so reading it back would
+        // paste the wrong transcript. Wait for the straggler, then give up on
+        // cleaning this one rather than risk that.
+        if let straggler = pendingGeneration {
+            llm.stop()
+            guard await Self.value(of: straggler, within: Self.drainSeconds) != nil else {
+                throw CleanupInferenceError.modelBusy
+            }
+            pendingGeneration = nil
+        }
+
     }
 
     /// Awaits `task` for at most `seconds`, returning nil at the deadline and

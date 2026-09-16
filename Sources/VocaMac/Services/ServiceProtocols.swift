@@ -349,6 +349,7 @@ protocol TranscriptCleaning: TextTransforming {
     /// False when text leaves this Mac (a remote endpoint).
     var isOnDevice: Bool { get }
     nonisolated func inputBudget(forPrompt prompt: String) -> Int
+    nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
 
     func clean(_ text: String, prompt: String) async -> String
@@ -367,6 +368,9 @@ protocol TranscriptCleaning: TextTransforming {
 }
 
 extension TranscriptCleaning {
+    nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int {
+        inputBudget(forPrompt: prompt)
+    }
     var loadedKind: CleanupModelKind? { nil }
     var isOnDevice: Bool { true }
     func cancelCleanup() {}

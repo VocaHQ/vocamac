@@ -50,11 +50,12 @@ enum CleanupSalvage {
     // MARK: - Safety rules
 
     static let commaFillers: Set<String> = [
-        "like", "you know", "basically", "kind of", "sort of", "i guess", "you see",
+        "like", "you know", "you see",
     ]
     static let openingFillers: Set<String> = [
-        "so", "well", "okay", "ok", "alright", "right", "now",
+        "so", "well", "okay", "ok", "alright",
     ]
+    static let unfinishedEndings: Set<String> = ["to", "a", "an", "the", "for", "with", "of"]
     /// Words people double on purpose: "very very", "no no", "bye bye".
     static let intentionalRepeats: Set<String> = [
         "very", "really", "so", "much", "many", "more", "no", "yes", "yeah", "bye", "ha",
@@ -113,6 +114,7 @@ enum CleanupSalvage {
         // "I want to, I need to": an abandoned start, marked by a comma or
         // dash, that the next kept words start over.
         if (2...6).contains(words.count), let next,
+           unfinishedEndings.contains(source[last].core),
            source[last].text.hasSuffix(",") || source[last].text.hasSuffix("—") || source[last].text.hasSuffix("-"),
            source[first].core == source[next].core {
             return wholeRun

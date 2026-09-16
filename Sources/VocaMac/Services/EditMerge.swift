@@ -39,12 +39,32 @@ enum EditMerge {
         original: String,
         candidate: String,
         level: CleanupLevel,
+        allowsEnglishGrammar: Bool = false,
         isKnownWord: (String) -> Bool
     ) -> Result {
         let source = tokens(in: original)
         let target = tokens(in: candidate)
-        guard !source.isEmpty, source.count * max(target.count, 1) <= 4_000_000 else {
+        guard !source.isEmpty else {
             return Result(text: original, applied: 0, skipped: 0)
+        }
+        if source.count * max(target.count, 1) > 4_000_000 {
+            // Bound alignment memory on long dictations. Pair sentences only
+            // when their structure survived; never guess a missing boundary.
+            let originals = CleanupContext.sentences(original)
+            let candidates = CleanupContext.sentences(candidate)
+            guard originals.count > 1, originals.count == candidates.count else {
+                return Result(text: original, applied: 0, skipped: 1)
+            }
+            var parts: [String] = []
+            var applied = 0, skipped = 0
+            for (sourcePart, targetPart) in zip(originals, candidates) {
+                let result = merge(original: sourcePart, candidate: targetPart, level: level,
+                                   allowsEnglishGrammar: allowsEnglishGrammar, isKnownWord: isKnownWord)
+                parts.append(TranscriptCleanup.preservingOuterWhitespace(of: sourcePart, in: result.text))
+                applied += result.applied
+                skipped += result.skipped
+            }
+            return Result(text: parts.joined(), applied: applied, skipped: skipped)
         }
         let operations = align(source, target)
         // An answer that adds more new words than a cleanup ever would, or
@@ -111,7 +131,8 @@ enum EditMerge {
                 following: following, sentenceStart: endsSentence(output),
                 previous: output.last?.token, next: next
             )
-            if isSafe(hunk, level: level, isKnownWord: isKnownWord) {
+            if isSafe(hunk, level: level, isKnownWord: isKnownWord)
+                || (level == .grammar && allowsEnglishGrammar && isGrammarRepair(hunk, isKnownWord: isKnownWord)) {
                 pendingLineBreak = deepestBreak(hunk.removed.map(\.leading) + [pendingLineBreak].compactMap { $0 })
                 for token in hunk.added { write(token, leading: token.leading) }
                 applied += 1
@@ -120,7 +141,8 @@ enum EditMerge {
                 // A refused word change can still end the sentence: keep the
                 // punctuation the model put after it ("expender" →
                 // "expander." keeps "expender" and the period).
-                if hunk.removed.last?.isWord ?? true {
+                if !hunk.removedWords.isEmpty || !hunk.addedWords.isEmpty,
+                   hunk.removed.last?.isWord ?? true {
                     // A period or comma only: a "?" or "!" from a refused
                     // rewrite would change what kind of sentence it is.
                     let trailing = hunk.added.reversed().prefix { [".", ","].contains($0.text) }
@@ -128,6 +150,12 @@ enum EditMerge {
                 }
                 skipped += 1
             }
+        }
+        // Grammar edits can depend on one another. If any edit is unsafe,
+        // retry without grammar rather than applying half a grammatical rewrite.
+        if level == .grammar, allowsEnglishGrammar, skipped > 0 {
+            return merge(original: original, candidate: candidate, level: level,
+                         allowsEnglishGrammar: false, isKnownWord: isKnownWord)
         }
         return Result(text: render(output), applied: applied, skipped: skipped)
     }
@@ -176,6 +204,7 @@ enum EditMerge {
         guard !hunk.removed.contains(where: \.isProtected), !hunk.added.contains(where: \.isProtected) else {
             return false
         }
+        guard preservesStructuralPunctuation(hunk) else { return false }
         // A question stays a question.
         let questionsBefore = hunk.removed.filter { $0.text == "?" }.count
         guard hunk.added.filter({ $0.text == "?" }).count >= questionsBefore else { return false }
@@ -188,6 +217,18 @@ enum EditMerge {
         // which the model reworded to "Will we ship today?" — does not.
         if removedWords.isEmpty, addedWords.isEmpty {
             guard hunk.added.allSatisfy({ allowedPunctuation.contains($0.text) }) else { return false }
+            // Emphasis and word-internal punctuation carry meaning too.
+            guard hunk.added.filter({ $0.text == "!" }).count == hunk.removed.filter({ $0.text == "!" }).count else { return false }
+            if hunk.previous?.isWord == true, hunk.next?.isWord == true,
+               hunk.removed.contains(where: { ["-", "–", "—"].contains($0.text) && $0.leading.isEmpty }),
+               hunk.next?.leading.isEmpty == true { return false }
+            // "well water" must not become "Well, water". An unmarked
+            // opener may be part of the sentence, not a discourse filler.
+            if hunk.removed.isEmpty, hunk.precedingInSentence.count == 1,
+               let previous = hunk.previous?.key,
+               CleanupSalvage.openingFillers.union(["like", "now", "right"]).contains(previous),
+               hunk.next?.isWord == true,
+               hunk.added.contains(where: { [",", ".", ";", ":", "—", "–"].contains($0.text) }) { return false }
             if hunk.added.contains(where: { $0.text == "?" }), questionsBefore == 0 {
                 let sentence = hunk.precedingInSentence.map(\.key)
                 // "can you…", or "hey, can you…" / "so what…" after an opener.
@@ -206,7 +247,7 @@ enum EditMerge {
                hunk.added.contains(where: { $0.text == mark }) || hunk.previous?.text == mark || hunk.next?.text == mark {
                 return true
             }
-            return level != .light && isSafeDeletion(hunk, level: level)
+            return level != .light && isSafeDeletion(hunk, level: level, isKnownWord: isKnownWord)
         }
 
         // Light promises punctuation and capitals only: no word changes.
@@ -223,7 +264,7 @@ enum EditMerge {
         return false
     }
 
-    private static func isSafeDeletion(_ hunk: Hunk, level: CleanupLevel) -> Bool {
+    private static func isSafeDeletion(_ hunk: Hunk, level: CleanupLevel, isKnownWord: (String) -> Bool) -> Bool {
         let words = hunk.removedWords.filter { !WritingStyleEngine.isHesitationWord($0.key) }
         guard let first = words.first else { return true }
         let keys = words.map(\.key)
@@ -231,7 +272,7 @@ enum EditMerge {
         let commaNearby = hunk.removed.contains { $0.text == "," }
             || hunk.previous?.text == "," || hunk.next?.text == ","
 
-        if CleanupSalvage.openingFillers.contains(phrase) || phrase == "like", hunk.sentenceStart {
+        if CleanupSalvage.openingFillers.contains(phrase) || phrase == "like", hunk.sentenceStart, commaNearby {
             return true
         }
         if CleanupSalvage.commaFillers.contains(phrase), commaNearby {
@@ -245,24 +286,13 @@ enum EditMerge {
         // "diff different", "sor sorry", "S see": a cut-off start of the next
         // word. "a", "I", and "o" are words, not fragments.
         if keys.count == 1, !realOneLetterWords.contains(first.key), let next = hunk.following.first,
-           next.key.count > first.key.count, next.key.hasPrefix(first.key) {
-            return true
-        }
-        // "after b doing": a stray letter the recognizer left between words.
-        if keys.count == 1, first.key.count == 1, first.key.allSatisfy(\.isLetter),
-           !realOneLetterWords.contains(first.key), first.text == first.key,
-           !hunk.preceding.isEmpty, !hunk.following.isEmpty {
+           !isKnownWord(first.key), next.key.count > first.key.count, next.key.hasPrefix(first.key) {
             return true
         }
         // "I want to, I need to": an abandoned start the next words redo.
         if (2...6).contains(keys.count), let next = hunk.following.first, next.key == first.key,
+           keys.last.map({ CleanupSalvage.unfinishedEndings.contains($0) }) == true,
            hunk.removed.contains(where: { ["," , "—", "-"].contains($0.text) }) {
-            return true
-        }
-        // "doesn't look even look like": a short restart without a comma. Not
-        // when it opens with a pronoun — "I think I know" means something.
-        if (2...3).contains(keys.count), let next = hunk.following.first, next.key == first.key,
-           !pronouns.contains(first.key) {
             return true
         }
         // "send it to John, no, Mary": the model resolved a correction the
@@ -305,6 +335,30 @@ enum EditMerge {
         return distance <= (before.count <= 4 ? 1 : 2)
     }
 
+    /// Grammar is opt-in and deliberately bounded. A nearby explicit subject
+    /// permits agreement, never a tense change. Articles require a recognized
+    /// construction; arbitrary added function words can reverse meaning.
+    private static func isGrammarRepair(_ hunk: Hunk, isKnownWord: (String) -> Bool) -> Bool {
+        guard !hunk.removed.contains(where: \.isProtected), !hunk.added.contains(where: \.isProtected),
+              preservesStructuralPunctuation(hunk),
+              hunk.added.filter({ !$0.isWord }).allSatisfy({ allowedPunctuation.contains($0.text) }),
+              hunk.removed.filter({ $0.text == "?" }).count == hunk.added.filter({ $0.text == "?" }).count,
+              hunk.added.filter({ $0.text == "!" }).count == hunk.removed.filter({ $0.text == "!" }).count else { return false }
+        return CleanupGrammar.accepts(
+            removed: hunk.removedWords.map(\.key), added: hunk.addedWords.map(\.key),
+            preceding: hunk.precedingInSentence.map(\.key), following: hunk.following.map(\.key),
+            isKnownWord: isKnownWord
+        )
+    }
+
+    /// Quotes, brackets, and other structural symbols are literal data, not
+    /// punctuation for the model to add or remove as part of a word edit.
+    private static func preservesStructuralPunctuation(_ hunk: Hunk) -> Bool {
+        let original = hunk.removed.filter { !$0.isWord && !allowedPunctuation.contains($0.text) }.map(\.text)
+        let proposed = hunk.added.filter { !$0.isWord && !allowedPunctuation.contains($0.text) }.map(\.text)
+        return original == proposed
+    }
+
     // MARK: - Tables
 
     private static let allowedPunctuation: Set<String> = [",", ".", "!", "?", ";", ":", "—", "–", "-", "…"]
@@ -336,8 +390,9 @@ enum EditMerge {
         "can't": ["can", "not"], "cannot": ["can", "not"], "won't": ["will", "not"], "wouldn't": ["would", "not"],
         "shouldn't": ["should", "not"], "couldn't": ["could", "not"], "haven't": ["have", "not"],
         "hasn't": ["has", "not"], "hadn't": ["had", "not"],
-        "i'm": ["i", "am"], "i've": ["i", "have"], "i'll": ["i", "will"], "i'd": ["i", "would"],
-        "it's": ["it", "is"], "that's": ["that", "is"], "there's": ["there", "is"], "what's": ["what", "is"],
+        // 'd can mean had/would and 's can mean is/has; do not expand them
+        // without parsing tense and the rest of the clause.
+        "i'm": ["i", "am"], "i've": ["i", "have"], "i'll": ["i", "will"],
         "let's": ["let", "us"], "we're": ["we", "are"], "you're": ["you", "are"], "they're": ["they", "are"],
         "we'll": ["we", "will"], "you'll": ["you", "will"], "they'll": ["they", "will"],
         "we've": ["we", "have"], "you've": ["you", "have"], "they've": ["they", "have"],
@@ -369,7 +424,7 @@ enum EditMerge {
     }
 
     private static let tokenExpression = try? NSRegularExpression(
-        pattern: #"(\s*)(VOCAKEEPX*\d+END|[\p{L}\p{N}]+(?:['’][\p{L}]+)*|\S)"#
+        pattern: #"(\s*)(VOCAKEEPX*\d+END|[\p{L}\p{M}\p{N}]+(?:['’][\p{L}\p{M}]+)*|\S)"#
     )
 
     private static func tokens(in text: String) -> [Token] {

@@ -213,14 +213,14 @@ struct CleanupSettingsPage: View {
                     // here rather than let it look like the feature is broken.
                     if promptBudget <= 0 {
                         Label(
-                            "This prompt fills the model's whole context, so cleanup will be skipped for every transcript. Shorten it.",
+                            "This prompt may leave too little room for speech. Shorten it; the exact limit depends on the model and language.",
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.caption)
                         .foregroundStyle(.orange)
                     } else if promptBudget < 1500 {
                         Label(
-                            "This prompt leaves room for only about \(promptBudget) characters of speech — longer dictations will skip cleanup.",
+                            "About \(promptBudget) English characters fit per pass. Long dictations may need multiple passes; oversized sentences stay as spoken.",
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.caption)
@@ -252,7 +252,7 @@ struct CleanupSettingsPage: View {
                         }
 
                     HStack(spacing: 12) {
-                        Text("Room for about \(max(0, promptBudget)) characters of speech")
+                        Text("About \(max(0, promptBudget)) English characters per pass")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -380,7 +380,7 @@ struct CleanupSettingsPage: View {
         let draft = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = draft.isEmpty ? TranscriptCleanup.defaultPrompt : draft
         if !appState.cleanupEndpoint.isLocal { return max(0, 64_000 - prompt.count) }
-        return appState.transcriptCleanup.inputBudget(forPrompt: prompt)
+        return appState.transcriptCleanup.inputBudget(forPrompt: prompt, model: appState.selectedCleanupModelKind)
     }
 
     /// An empty stored prompt means "use the default", so a draft that matches

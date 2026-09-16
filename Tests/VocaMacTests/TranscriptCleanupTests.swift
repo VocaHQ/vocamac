@@ -620,7 +620,8 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(mocks.transcriptCleanup.cleanCallCount, 1)
         // "um" is already gone before the model sees the transcript.
         XCTAssertEqual(mocks.transcriptCleanup.lastCleanedText, "so hello world")
-        XCTAssertEqual(mocks.textInjector.lastInjectedText, "Hello world ")
+        // Without a comma, the opener may carry meaning and stays as spoken.
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "So hello world ")
     }
 
     func testCleanupDoesNotRunWhenModelIsMissing() async {
@@ -742,7 +743,7 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(cleanup.previewCallCount, 1, "Preview never counts toward the give-up limit")
         XCTAssertTrue(cleanup.lastPrompt?.contains("custom prompt") == true)
         XCTAssertTrue(cleanup.lastPrompt?.contains("Apply medium cleanup") == true)
-        XCTAssertEqual(result.text, "Hello.")
+        XCTAssertEqual(result.text, "So hello.")
         XCTAssertTrue(result.changedText)
     }
 

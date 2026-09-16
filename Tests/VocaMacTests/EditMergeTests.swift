@@ -15,8 +15,8 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("its indicator is diff different", "its indicator is different").text,
                        "its indicator is different")
         XCTAssertEqual(merge("update it. S see once", "update it. See once").text, "update it. See once")
-        XCTAssertEqual(merge("and after b doing that", "and after doing that").text, "and after doing that")
-        XCTAssertEqual(merge("doesn't look even look like it", "doesn't look like it").text, "doesn't look like it")
+        XCTAssertEqual(merge("and after b doing that", "and after doing that").text, "and after b doing that")
+        XCTAssertEqual(merge("doesn't look even look like it", "doesn't look like it").text, "doesn't look even look like it")
     }
 
     func testRiskyEditsStayAsSpokenWhileSafeOnesApply() {

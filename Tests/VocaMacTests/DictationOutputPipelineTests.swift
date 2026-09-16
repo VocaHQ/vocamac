@@ -3,6 +3,20 @@ import XCTest
 
 @MainActor
 final class DictationOutputPipelineTests: XCTestCase {
+    func testGrammarModeRepairsAgreementAndArticlesThroughThePipeline() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { _ in "She goes to the office every day." }
+        let result = await process("she go to office every day", cleaner: cleaner, level: .grammar)
+        XCTAssertEqual(result.text, "She goes to the office every day.")
+    }
+
+    func testGermanPrepositionSurvivesTheModelsFillerDeletion() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { $0.replacingOccurrences(of: "um ", with: "") }
+        let result = await process("wir treffen uns um 5 Uhr", cleaner: cleaner, language: "de")
+        XCTAssertTrue(result.text.contains("um 5 Uhr"), result.text)
+    }
+
     private func process(
         _ input: String, cleaner: MockTranscriptCleanup,
         format: WritingStyle = .plain, intent: WritingIntent = .preserve,

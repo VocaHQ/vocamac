@@ -250,7 +250,7 @@ final class VocaLoggerTests: XCTestCase {
 
     func testLogLevelFilteringErrorHidesLower() {
         VocaLogger.setLogLevel(.error)
-        let countBefore = VocaLogger.logEntryCount
+        defer { VocaLogger.setLogLevel(.info) }
 
         let marker = UUID().uuidString
         VocaLogger.debug(.general, "should-not-appear-\(marker)")
@@ -259,21 +259,16 @@ final class VocaLoggerTests: XCTestCase {
 
         Thread.sleep(forTimeInterval: 0.2)
 
-        let countAfterLower = VocaLogger.logEntryCount
-
         VocaLogger.error(.general, "should-appear-\(marker)")
 
         Thread.sleep(forTimeInterval: 0.2)
 
-        let countAfterError = VocaLogger.logEntryCount
-
-        // Debug, info, warning should have been filtered
-        XCTAssertEqual(countAfterLower, countBefore,
-                      "Debug/info/warning messages should be filtered at error level")
-        XCTAssertEqual(countAfterError, countBefore + 1,
+        // The installed app and background tasks can write to this same log.
+        // Assert this test's messages, not a process-global line-count delta.
+        let logs = VocaLogger.exportLogs(lastLines: 1000)
+        XCTAssertFalse(logs.contains("should-not-appear-\(marker)"),
+                       "Debug/info/warning messages should be filtered at error level")
+        XCTAssertTrue(logs.contains("should-appear-\(marker)"),
                       "Error message should be logged at error level")
-
-        // Reset
-        VocaLogger.setLogLevel(.info)
     }
 }

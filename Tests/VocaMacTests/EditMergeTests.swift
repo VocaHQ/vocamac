@@ -50,6 +50,8 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("Pick option B build for the release.", "Pick option B—build for the release.").text,
                        "Pick option B build for the release.")
         XCTAssertEqual(merge("send the e mail", "send the e-mail").text, "send the e mail")
+        XCTAssertEqual(merge("Pick option B build now", "Pick option B— build now").text, "Pick option B build now")
+        XCTAssertEqual(merge("it works mostly", "it works —mostly").text, "it works — mostly")
         // A spaced dash between clauses is still punctuation.
         XCTAssertEqual(merge("it works mostly", "it works — mostly").text, "it works — mostly")
     }

@@ -412,23 +412,32 @@ extension IncrementalAudioTranscriber {
                     if let next = await buffer.takePending() {
                         let interval = PerformanceTrace.begin(next.isLast ? "TailDecode" : "PieceDecode")
                         defer { PerformanceTrace.end(interval) }
-                        // The tail is decoded together with the piece before
-                        // it, so it doesn't start cold after a pause.
-                        if next.isLast, let previous = pieces.last, !isSilent(next.samples),
+                        // Every piece after the first is decoded together with
+                        // the piece before it, so it doesn't start cold after a
+                        // pause: on its own a piece loses the words that decide
+                        // "flour" from "flower", and drops repeated phrases.
+                        // Only the words after the previous piece's text are
+                        // kept; that piece, and any cleanup already done for
+                        // it, stays as it was.
+                        var contextual: TranscribedPiece?
+                        if let previous = pieces.last, !isSilent(next.samples),
                            let audio = await buffer.audio(previous.range.lowerBound..<next.range.upperBound) {
                             let merged = try await decodePiece(
                                 previous.range.lowerBound..<next.range.upperBound, samples: audio, transcribe: transcribe
                             ) { modelUsed = $0 }
-                            pieces.removeLast()
-                            let replacement = splitMergedTail(previous: previous, tail: next.range, merged: merged)
-                            pieces += replacement
-                            if let last = replacement.last {
-                                onPiece?(pieces.count - 1, last)
+                            if let text = textAfter(previous: previous, in: merged.text) {
+                                contextual = TranscribedPiece(range: next.range, text: text, language: merged.language)
                             }
-                            continue
                         }
-                        let piece = try await decodePiece(next.range, samples: next.samples, transcribe: transcribe) {
-                            modelUsed = $0
+                        let piece: TranscribedPiece
+                        if let contextual {
+                            piece = contextual
+                        } else {
+                            // First piece, or the merged text couldn't be lined up
+                            // with the previous piece: decode this one alone.
+                            piece = try await decodePiece(next.range, samples: next.samples, transcribe: transcribe) {
+                                modelUsed = $0
+                            }
                         }
                         pieces.append(piece)
                         onPiece?(pieces.count - 1, piece)
@@ -488,40 +497,25 @@ extension IncrementalAudioTranscriber {
         }
     }
 
-    /// The pieces a merged decode of `previous` and the tail stands for.
+    /// The words of `merged`, a decode of `previous` and the piece after it,
+    /// that belong to the new piece. Nil when `previous`'s text can't be found
+    /// at the start of it.
     ///
-    /// When the merged text begins with exactly the previous piece's text,
-    /// that piece is kept as it was, so a cleanup already done for it is
-    /// still used, and only the rest is the tail. Otherwise the two become
-    /// one piece.
-    static func splitMergedTail(
-        previous: TranscribedPiece,
-        tail: Range<Int>,
-        merged: TranscribedPiece
-    ) -> [TranscribedPiece] {
+    /// An exact prefix is the common case. The merged decode often words the
+    /// previous piece slightly differently ("hour." for "hour,"), so failing
+    /// that, the best word alignment with it decides where the new words start.
+    static func textAfter(previous: TranscribedPiece, in merged: String) -> String? {
         let prefix = previous.text
-        if !prefix.isEmpty, merged.text.hasPrefix(prefix) {
-            let rest = merged.text.dropFirst(prefix.count)
+        guard !prefix.isEmpty else { return merged }
+        if merged.hasPrefix(prefix) {
+            let rest = merged.dropFirst(prefix.count)
             if rest.isEmpty || rest.first?.isWhitespace == true {
-                return [previous, TranscribedPiece(
-                    range: tail,
-                    text: rest.trimmingCharacters(in: .whitespacesAndNewlines),
-                    language: merged.language
-                )]
+                return rest.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
-        // The merged decode usually words the previous piece slightly
-        // differently ("hour." for "hour,"). Keep the previous piece's own
-        // text, whose cleanup may already be done, and take from the merged
-        // decode only what follows it.
-        if !prefix.isEmpty, let rest = OverlapDeduplication.newText(
-            decoded: merged.text, previous: prefix, contextSeconds: Double(previous.range.count) / 16_000
-        ) {
-            return [previous, TranscribedPiece(range: tail, text: rest, language: merged.language)]
-        }
-        return [TranscribedPiece(
-            range: previous.range.lowerBound..<tail.upperBound, text: merged.text, language: merged.language
-        )]
+        return OverlapDeduplication.newText(
+            decoded: merged, previous: prefix, contextSeconds: Double(previous.range.count) / 16_000
+        )
     }
 
     private static func decodePiece(

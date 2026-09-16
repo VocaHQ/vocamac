@@ -287,15 +287,34 @@ extension RecordingTranscriptionTests {
         XCTAssertEqual(log.pieces.last?.1, result.pieces.last)
     }
 
-    func testTailThatCantBeAlignedBecomesOnePieceWithThePreviousOne() async throws {
+    func testPieceThatCantBeAlignedIsDecodedAlone() async throws {
         let engine = FakePieceEngine()
-        await engine.setScript(["we ship on friday", "Something else entirely was said here."])
+        await engine.setScript(["we ship on friday", "Something else entirely was said here.", "then the review"])
         let session = committedSession(engine: engine, log: PieceLog())
         let audio = tone(5) + [Float](repeating: 0, count: 16_000) + tone(3)
         feed(audio, to: session)
         let result = try await session.finish(expectedSampleCount: audio.count)
-        XCTAssertEqual(result.pieces.map(\.text), ["Something else entirely was said here."])
-        XCTAssertEqual(result.pieces.map(\.range), [0..<audio.count])
+        XCTAssertEqual(result.pieces.map(\.text), ["we ship on friday", "then the review"])
+        let lengths = await engine.decodedLengths
+        XCTAssertEqual(lengths.count, 3, "merged decode, then the piece on its own")
+    }
+
+    func testEveryPieceIsDecodedWithThePieceBeforeIt() async throws {
+        let engine = FakePieceEngine()
+        let log = PieceLog()
+        let session = committedSession(engine: engine, log: log)
+        let silence = [Float](repeating: 0, count: 16_000)
+        let audio = tone(5) + silence + tone(6) + silence + tone(2)
+        feed(audio, to: session)
+        let result = try await session.finish(expectedSampleCount: audio.count)
+        XCTAssertEqual(result.pieces.map(\.text), ["tone5", "tone6", "tone2"])
+        let lengths = await engine.decodedLengths
+        XCTAssertEqual(lengths, [
+            result.pieces[0].range.count,
+            result.pieces[0].range.count + result.pieces[1].range.count,
+            result.pieces[1].range.count + result.pieces[2].range.count,
+        ], "a middle piece gets context too, not only the tail")
+        XCTAssertEqual(log.pieces.map(\.1), result.pieces, "each piece is reported once, already with context")
     }
 
     func testSilentTailIsNotMerged() async throws {
@@ -309,22 +328,14 @@ extension RecordingTranscriptionTests {
         XCTAssertEqual(result.text, "tone5")
     }
 
-    func testMergedTailSplitsOnlyAtTheExactPreviousText() {
-        let previous = TranscribedPiece(range: 0..<10, text: "Hello there.", language: "en")
-        func merged(_ text: String) -> TranscribedPiece { TranscribedPiece(range: 0..<20, text: text, language: "en") }
-        XCTAssertEqual(
-            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Hello there. How are you?")),
-            [previous, TranscribedPiece(range: 10..<20, text: "How are you?", language: "en")]
-        )
-        XCTAssertEqual(
-            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Hello there, how are you?")),
-            [previous, TranscribedPiece(range: 10..<20, text: "how are you?", language: "en")],
-            "punctuation the merged decode changed doesn't stop the split"
-        )
-        XCTAssertEqual(
-            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Goodbye now")),
-            [merged("Goodbye now")]
-        )
+    func testNewWordsStartAfterThePreviousPieceText() {
+        let previous = TranscribedPiece(range: 0..<160_000, text: "Hello there.", language: "en")
+        XCTAssertEqual(IncrementalAudioTranscriber.textAfter(previous: previous, in: "Hello there. How are you?"), "How are you?")
+        XCTAssertEqual(IncrementalAudioTranscriber.textAfter(previous: previous, in: "Hello there, how are you?"), "how are you?",
+                       "punctuation the merged decode changed doesn't stop the split")
+        XCTAssertNil(IncrementalAudioTranscriber.textAfter(previous: previous, in: "Goodbye now"))
+        let silent = TranscribedPiece(range: 0..<160_000, text: "", language: "auto")
+        XCTAssertEqual(IncrementalAudioTranscriber.textAfter(previous: silent, in: "Goodbye now"), "Goodbye now")
     }
 
     func testFailedPieceDecodeInvalidatesTheSession() async {

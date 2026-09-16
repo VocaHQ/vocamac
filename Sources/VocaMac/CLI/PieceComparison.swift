@@ -181,28 +181,24 @@ extension HeadlessTranscriber {
                 ))
                 decodeSeconds.append(seconds)
             }
-            // As a live session does: the tail is decoded with the piece before it.
-            if pieces.count >= 2, let tail = pieces.last, let previous = pieces.dropLast().last,
-               !IncrementalAudioTranscriber.isSilent(Array(samples[tail.range])) {
-                let range = previous.range.lowerBound..<tail.range.upperBound
+            // As a live session does: each piece after the first is decoded
+            // together with the one before it.
+            for index in pieces.indices.dropFirst() where !IncrementalAudioTranscriber.isSilent(Array(samples[pieces[index].range])) {
+                let previous = pieces[index - 1]
+                let range = previous.range.lowerBound..<pieces[index].range.upperBound
                 let (result, seconds) = try await timed {
                     try await transcriber.transcribe(
                         audioData: IncrementalAudioTranscriber.padded(Array(samples[range])),
                         language: language, translate: false, vocabulary: ""
                     )
                 }
-                let merged = TranscribedPiece(
-                    range: range, text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
-                    language: result.detectedLanguage
-                )
-                let replacement = IncrementalAudioTranscriber.splitMergedTail(
-                    previous: previous, tail: tail.range, merged: merged
-                )
-                pieces.removeLast(2)
-                pieces += replacement
-                let previousSeconds = decodeSeconds[decodeSeconds.count - 2]
-                decodeSeconds.removeLast(2)
-                decodeSeconds += replacement.count == 2 ? [previousSeconds, seconds] : [seconds]
+                let merged = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard let text = IncrementalAudioTranscriber.textAfter(previous: previous, in: merged) else {
+                    decodeSeconds[index] += seconds
+                    continue
+                }
+                pieces[index] = TranscribedPiece(range: pieces[index].range, text: text, language: result.detectedLanguage)
+                decodeSeconds[index] = seconds
             }
             let pieceText = TranscribedPiece.join(pieces)
             let tailSeconds = decodeSeconds.last ?? 0

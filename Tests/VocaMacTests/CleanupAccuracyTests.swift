@@ -75,6 +75,27 @@ final class CleanupAccuracyTests: XCTestCase {
         XCTAssertEqual(TranscriptCleanup.acceptedOutput("I cannot attend today.", original: "I cannot attend today"),
                        "I cannot attend today.")
         XCTAssertNil(TranscriptCleanup.acceptedOutput("I cannot help with that.", original: "Send the report."))
+        XCTAssertNil(TranscriptCleanup.acceptedOutput("I cannot help with that.", original: "I cannot attend today"))
+        XCTAssertNil(TranscriptCleanup.acceptedOutput("I cannot attend today because I am an AI.", original: "I cannot attend today"))
+        XCTAssertNil(TranscriptCleanup.acceptedOutput("I cannot attend.", original: "I cannot attend today"))
+        XCTAssertNil(TranscriptCleanup.acceptedOutput("I can’t help with that.", original: "I can't attend today"))
+        XCTAssertEqual(TranscriptCleanup.acceptedOutput("I CAN’T attend today!", original: "I can't attend today"),
+                       "I CAN’T attend today!")
+    }
+
+    func testCompoundAndAmbiguousSubjectsDoNotReceiveAgreementEdits() {
+        for (source, candidate) in [
+            ("he and she go", "he and she goes"),
+            ("you and I are ready", "you and I am ready"),
+            ("both he and she have reports", "both he and she has reports"),
+            ("neither they nor we are ready", "neither they nor we is ready"),
+            ("I think she go", "I think she goes")
+        ] {
+            XCTAssertEqual(merge(source, candidate, level: .grammar), source, source)
+        }
+        // The bounded sentence-initial case is still supported.
+        XCTAssertEqual(merge("she go", "she goes", level: .grammar), "she goes")
+        XCTAssertEqual(merge("they was ready", "they were ready", level: .grammar), "they were ready")
     }
 
     func testLongMergeRemainsBoundedAndPreservesSentences() {

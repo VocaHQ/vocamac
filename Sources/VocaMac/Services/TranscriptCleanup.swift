@@ -250,9 +250,21 @@ enum TranscriptCleanup {
             "sure, here is",
             "i'm sorry, i"
         ]
-        let originalLowered = original.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if refusalPrefixes.contains(where: { lowered.hasPrefix($0) && !originalLowered.hasPrefix($0) }) {
-            return false
+        let originalLowered = original.trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased().replacingOccurrences(of: "’", with: "'")
+        let refusalText = lowered.replacingOccurrences(of: "’", with: "'")
+        if refusalPrefixes.contains(where: { refusalText.hasPrefix($0) }) {
+            // A shared "I cannot" alone does not establish that the model
+            // reproduced the dictation. Only exempt the same complete words,
+            // allowing punctuation/case cleanup. Unrelated refusals must still
+            // reach the service's consecutive-failure counter.
+            func words(_ text: String) -> [String] {
+                text.lowercased().split {
+                    !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’"
+                }.map { $0.replacingOccurrences(of: "’", with: "'") }
+            }
+            guard refusalPrefixes.contains(where: { originalLowered.hasPrefix($0) }),
+                  words(trimmed) == words(original) else { return false }
         }
 
         let maxAllowed = max(original.count * 3, original.count + 200)

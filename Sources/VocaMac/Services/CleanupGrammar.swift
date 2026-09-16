@@ -9,6 +9,11 @@ enum CleanupGrammar {
     ) -> Bool {
         guard let previous = preceding.last else { return false }
         if removed.count == 1, added.count == 1 {
+            // Without a parser, a trailing pronoun is not proof of the whole
+            // subject: "he and she", "neither he nor she", and quoted or
+            // embedded clauses need more context. Qualify only a standalone
+            // sentence-initial pronoun; ambiguous agreement stays as spoken.
+            guard preceding.count == 1 else { return false }
             let before = removed[0], after = added[0]
             let singular = ["he", "she", "it"].contains(previous)
             let plural = ["we", "you", "they"].contains(previous)

@@ -35,23 +35,33 @@ final class WhisperService: @unchecked Sendable {
 
     // MARK: - Properties
 
+    /// Guards the loaded model, which the main thread reads through
+    /// `isModelLoaded` while loads and transcriptions run elsewhere.
+    private let stateLock = NSLock()
+    private var loadedKit: WhisperKit?
+    private var loadedName: String?
+
     /// The WhisperKit instance (initialized when a model is loaded)
-    private var whisperKit: WhisperKit?
+    private var whisperKit: WhisperKit? {
+        stateLock.withLock { loadedKit }
+    }
 
     /// Whether a model is currently loaded and ready
     var isModelLoaded: Bool { whisperKit != nil }
 
     /// The name/variant of the currently loaded model
-    private(set) var loadedModelName: String?
+    var loadedModelName: String? {
+        stateLock.withLock { loadedName }
+    }
 
-    /// Lock to prevent concurrent transcription
-    private let transcriptionLock = NSLock()
+    /// Records which models have already been specialized for this OS build.
+    private let prewarmLedger: WhisperPrewarmLedger
+
+    init(prewarmLedger: WhisperPrewarmLedger = WhisperPrewarmLedger()) {
+        self.prewarmLedger = prewarmLedger
+    }
 
     // MARK: - Lifecycle
-
-    deinit {
-        whisperKit = nil
-    }
 
     // MARK: - Model Management
 
@@ -97,11 +107,14 @@ final class WhisperService: @unchecked Sendable {
             config.verbose = false
             #endif
 
-            // Prewarm the model so the CoreML pipeline (Metal/ANE) is compiled
-            // at load time rather than on the first transcription request.
-            // Without this, the first transcription after switching models is
-            // extremely slow as CoreML compiles shaders and optimizes the graph.
-            config.prewarm = true
+            // Loading already specializes the CoreML models for this chip.
+            // Prewarm only lowers peak memory while that specialization runs,
+            // at the cost of loading everything twice, so it is used only the
+            // first time a model loads on this OS build (Core ML drops its
+            // specialization cache on OS updates).
+            let ledgerKey = modelName ?? modelFolder?.path ?? "auto"
+            let shouldPrewarm = prewarmLedger.needsPrewarm(model: ledgerKey)
+            config.prewarm = shouldPrewarm
 
             // If a local model folder is specified, use it
             if let folder = modelFolder {
@@ -113,8 +126,13 @@ final class WhisperService: @unchecked Sendable {
             let kit = try await WhisperKit(config)
 
             onPhaseChange?("Compiling neural engine…")
-            self.whisperKit = kit
-            self.loadedModelName = modelName ?? kit.modelVariant.description
+            stateLock.withLock {
+                loadedKit = kit
+                loadedName = modelName ?? kit.modelVariant.description
+            }
+            if shouldPrewarm {
+                prewarmLedger.recordPrewarm(model: ledgerKey)
+            }
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             VocaLogger.info(.whisperService, "Model loaded in \(String(format: "%.2f", elapsed))s")
@@ -126,9 +144,13 @@ final class WhisperService: @unchecked Sendable {
 
     /// Unload the current model and free memory
     func unloadModel() {
-        if whisperKit != nil {
-            whisperKit = nil
-            loadedModelName = nil
+        let didUnload = stateLock.withLock {
+            guard loadedKit != nil else { return false }
+            loadedKit = nil
+            loadedName = nil
+            return true
+        }
+        if didUnload {
             VocaLogger.info(.whisperService, "Model unloaded")
         }
     }
@@ -180,14 +202,11 @@ final class WhisperService: @unchecked Sendable {
             wordTimestamps: false,
             windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
-            chunkingStrategy: nil  // No chunking for short dictation clips
+            chunkingStrategy: nil
         )
 
         do {
-            var results = try await kit.transcribe(
-                audioArray: audioData,
-                decodeOptions: options
-            )
+            var results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
 
             // Concatenate all segment texts
             var rawText = results.map { $0.text }.joined(separator: " ")
@@ -206,7 +225,7 @@ final class WhisperService: @unchecked Sendable {
                 )
                 options.promptTokens = nil
                 options.usePrefillPrompt = language != nil
-                results = try await kit.transcribe(audioArray: audioData, decodeOptions: options)
+                results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
                 rawText = results.map { $0.text }.joined(separator: " ")
                 fullText = Self.filterHallucinationTokens(rawText)
             }
@@ -231,6 +250,65 @@ final class WhisperService: @unchecked Sendable {
         } catch {
             throw WhisperError.transcriptionFailed(reason: error.localizedDescription)
         }
+    }
+
+    // MARK: - Long Audio
+
+    /// One Whisper window (30 s at 16 kHz), the longest chunk.
+    static let maxChunkSamples = 480_000
+
+    /// Only long files and meetings are split (2 min at 16 kHz). Dictations
+    /// keep WhisperKit's sequential windows, which carry context across them.
+    static let chunkingThresholdSamples = 1_920_000
+
+    /// How many chunks decode at once. The encoder shares one accelerator,
+    /// so more workers mostly add memory.
+    private static let chunkWorkerCount = 4
+
+    /// Transcribe audio, splitting anything longer than one window at
+    /// silences and decoding the pieces concurrently.
+    ///
+    /// Sequential windowed decoding of a 20-minute file runs one window at a
+    /// time. WhisperKit's own `.vad` strategy parallelizes but logs and drops
+    /// any chunk that fails, which would silently remove text, so the chunks
+    /// are decoded here and a failure fails the whole transcription.
+    private static func transcribeInChunks(
+        kit: WhisperKit,
+        audioData: [Float],
+        options: DecodingOptions
+    ) async throws -> [TranscriptionResult] {
+        guard audioData.count > chunkingThresholdSamples else {
+            return try await kit.transcribe(audioArray: audioData, decodeOptions: options)
+        }
+
+        let chunks = try await VADAudioChunker(vad: EnergyVAD()).chunkAll(
+            audioArray: audioData,
+            maxChunkLength: maxChunkSamples,
+            decodeOptions: options
+        )
+        VocaLogger.info(.whisperService, "Decoding \(chunks.count) chunks of long audio")
+
+        var ordered = [[TranscriptionResult]](repeating: [], count: chunks.count)
+        try await withThrowingTaskGroup(of: (Int, [TranscriptionResult]).self) { group in
+            var running = 0
+            for (index, chunk) in chunks.enumerated() {
+                if running == chunkWorkerCount, let (finished, results) = try await group.next() {
+                    ordered[finished] = results
+                    running -= 1
+                }
+                var chunkOptions = options
+                chunkOptions.windowClipTime = windowClipTime(sampleCount: chunk.audioSamples.count)
+                let samples = chunk.audioSamples
+                group.addTask {
+                    (index, try await kit.transcribe(audioArray: samples, decodeOptions: chunkOptions))
+                }
+                running += 1
+            }
+            while let (finished, results) = try await group.next() {
+                ordered[finished] = results
+            }
+        }
+        return ordered.flatMap { $0 }
     }
 
     // MARK: - Device Recommendations
@@ -339,6 +417,42 @@ final class WhisperService: @unchecked Sendable {
             return "WhisperKit loaded | Model: \(loadedModelName ?? "unknown") | Device: \(WhisperKit.deviceName())"
         }
         return "WhisperKit not loaded | Device: \(WhisperKit.deviceName())"
+    }
+}
+
+// MARK: - WhisperPrewarmLedger
+
+/// Remembers which Whisper models have been prewarmed on the current OS build.
+struct WhisperPrewarmLedger: @unchecked Sendable {
+    static let defaultsKey = "whisperPrewarmedModels"
+
+    private let defaults: UserDefaults
+    private let osBuild: String
+
+    init(
+        defaults: UserDefaults = .standard,
+        osBuild: String = ProcessInfo.processInfo.operatingSystemVersionString
+    ) {
+        self.defaults = defaults
+        self.osBuild = osBuild
+    }
+
+    func needsPrewarm(model: String) -> Bool {
+        let ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+        return ledger[model] != osBuild
+    }
+
+    /// Drop a model's record, so a re-download prewarms again.
+    func forget(model: String) {
+        var ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+        guard ledger.removeValue(forKey: model) != nil else { return }
+        defaults.set(ledger, forKey: Self.defaultsKey)
+    }
+
+    func recordPrewarm(model: String) {
+        var ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
+        ledger[model] = osBuild
+        defaults.set(ledger, forKey: Self.defaultsKey)
     }
 }
 

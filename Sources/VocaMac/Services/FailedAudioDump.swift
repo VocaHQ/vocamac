@@ -87,8 +87,14 @@ enum FailedAudioDump {
 
         data.append(contentsOf: Array("data".utf8))
         append(UInt32(dataBytes))
-        for sample in samples {
-            append(Int16(max(-1, min(1, sample)) * 32_767))
+        let headerBytes = data.count
+        data.count = headerBytes + dataBytes
+        data.withUnsafeMutableBytes { raw in
+            let body = UnsafeMutableRawBufferPointer(rebasing: raw[headerBytes...])
+            for (index, sample) in samples.enumerated() {
+                let value = Int16(max(-1, min(1, sample)) * 32_767).littleEndian
+                body.storeBytes(of: value, toByteOffset: index * bytesPerSample, as: Int16.self)
+            }
         }
         return data
     }

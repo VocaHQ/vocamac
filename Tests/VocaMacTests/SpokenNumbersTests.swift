@@ -168,6 +168,29 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("at some point five people came"), "at some point 5 people came")
     }
 
+    func testAStandsForOneInsideALargerNumber() {
+        XCTAssertEqual(converted("about a hundred and fifty people"), "about 150 people")
+        XCTAssertEqual(converted("a thousand five hundred dollars"), "1500 dollars")
+        XCTAssertEqual(converted("A hundred and one dalmatians"), "101 dalmatians")
+    }
+
+    /// Alone, "a hundred" and "a million" are idioms more often than counts.
+    func testAWithOnlyAMultiplierStaysWords() {
+        XCTAssertEqual(converted("a hundred times"), "a hundred times")
+        XCTAssertEqual(converted("a million reasons"), "a million reasons")
+        XCTAssertEqual(converted("a hundred and the rest"), "a hundred and the rest")
+        XCTAssertEqual(converted("a hundred emoji"), "a hundred emoji")
+    }
+
+    func testTwoHundredsSideBySideAreTwoNumbers() {
+        XCTAssertEqual(converted("two hundred three hundred"), "200 300")
+        XCTAssertEqual(converted("one hundred five hundred"), "100 500")
+        XCTAssertEqual(converted("two hundred nineteen hundred"), "200 1900")
+        // One hundreds group per scale still composes.
+        XCTAssertEqual(converted("two hundred thousand three hundred"), "200300")
+        XCTAssertEqual(converted("two hundred and three"), "203")
+    }
+
     func testImpossibleCombinationsAreLeftAsWords() {
         XCTAssertEqual(converted("zero hundred"), "zero hundred")
         XCTAssertEqual(converted("twenty hundred"), "twenty hundred")

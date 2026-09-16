@@ -216,8 +216,11 @@ final class TextInjector {
     private func performInjection(text: String, preserveClipboard: Bool, targetPID: pid_t?, completion: @escaping () -> Void) {
         let trusted = accessibilityTrustedOverride ?? AXIsProcessTrusted()
         guard trusted else {
-            pasteboard.clearContents()
-            pasteboard.setString(text, forType: .string)
+            // Without Accessibility neither insertion path works. Leave the
+            // transcript on the clipboard so it isn't lost, and say so.
+            writeTranscribedText(text, to: pasteboard)
+            VocaLogger.warning(.textInjector, "Accessibility not granted; transcript copied instead of pasted")
+            onFailure?(Self.accessibilityOffMessage)
             completion()
             return
         }
@@ -450,10 +453,20 @@ final class TextInjector {
     @discardableResult
     private func writeTranscribedText(_ text: String, to pasteboard: NSPasteboard) -> Bool {
         pasteboard.clearContents()
-        let didSetText = pasteboard.setString(text, forType: .string)
+        let item = NSPasteboardItem()
+        let didSetText = item.setString(text, forType: .string)
+        item.setData(Data(), forType: Self.transientType)
+        let didWrite = didSetText && pasteboard.writeObjects([item])
         VocaLogger.debug(.textInjector, "Set clipboard: \(text.count) characters")
-        return didSetText
+        return didWrite
     }
+
+    /// Marks VocaMac's own clipboard writes for clipboard managers
+    /// (nspasteboard.org), so neither a transcript on its way to Cmd+V nor the
+    /// restored clipboard shows up as a new copy in their history.
+    static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
+
+    static let accessibilityOffMessage = "Accessibility is off, so your text was copied instead. Press ⌘V to paste it."
 
     // MARK: - Clipboard Snapshot Management
 
@@ -512,6 +525,7 @@ final class TextInjector {
             for (type, data) in itemSnapshot.dataByType {
                 newItem.setData(data, forType: type)
             }
+            newItem.setData(Data(), forType: Self.transientType)
             newItems.append(newItem)
         }
 

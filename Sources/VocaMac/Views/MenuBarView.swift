@@ -888,6 +888,9 @@ struct MenuBarView: View {
             menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,") {
                 settingsManager.open(appState: appState)
             }
+            menuRow("Set Up VocaMac…", systemImage: "wand.and.stars", shortcut: nil) {
+                NotificationCenter.default.post(name: .showOnboarding, object: nil)
+            }
             menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q") {
                 NSApplication.shared.terminate(nil)
             }

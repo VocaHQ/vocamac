@@ -22,8 +22,19 @@ final class SystemAudioAccumulator: @unchecked Sendable {
         self.maximumDurationSeconds = maximumDurationSeconds
     }
 
+    /// Start a new capture. Storage for the whole duration limit is reserved
+    /// up front: the pages stay untouched, and so cost no memory, until
+    /// samples land in them, while growing on demand would briefly hold two
+    /// copies of a recording that reaches hundreds of megabytes.
     func reset(sampleRate: Double) {
-        state.withLock { $0 = State(samples: [], sampleRate: sampleRate) }
+        var samples: [Float] = []
+        samples.reserveCapacity(Self.sampleLimit(sampleRate: sampleRate, seconds: maximumDurationSeconds))
+        state.withLock { $0 = State(samples: samples, sampleRate: sampleRate) }
+    }
+
+    private static func sampleLimit(sampleRate: Double, seconds: Double) -> Int {
+        guard sampleRate.isFinite, sampleRate > 0 else { return 0 }
+        return Int(sampleRate * seconds)
     }
 
     func append(_ input: UnsafePointer<AudioBufferList>, format: AudioStreamBasicDescription) -> Bool {
@@ -62,7 +73,7 @@ final class SystemAudioAccumulator: @unchecked Sendable {
         guard !captured.isEmpty else { return false }
         return state.withLock { state in
             let wasAtLimit = state.didReachLimit
-            let limit = Int(state.sampleRate * maximumDurationSeconds)
+            let limit = Self.sampleLimit(sampleRate: state.sampleRate, seconds: maximumDurationSeconds)
             let remaining = max(0, limit - state.samples.count)
             state.samples.append(contentsOf: captured.prefix(remaining))
             if captured.count >= remaining { state.didReachLimit = true }
@@ -75,6 +86,17 @@ final class SystemAudioAccumulator: @unchecked Sendable {
     func normalizedSamples() -> [Float] {
         let snapshot = state.withLock { $0 }
         return Self.resampleTo16k(snapshot.samples, from: snapshot.sampleRate)
+    }
+
+    /// The captured audio at 16 kHz, releasing the full-rate recording so it
+    /// isn't held until the next capture starts.
+    func takeNormalizedSamples() -> [Float] {
+        let (samples, sampleRate) = state.withLock { state in
+            let taken = (state.samples, state.sampleRate)
+            state.samples = []
+            return taken
+        }
+        return Self.resampleTo16k(samples, from: sampleRate)
     }
 
     /// Downsample by averaging every source sample that falls in each output
@@ -196,7 +218,7 @@ final class SystemAudioCapture: ObservableObject {
     func stop() -> [Float] {
         cleanup()
         didReachLimit = accumulator.reachedLimit()
-        let samples = accumulator.normalizedSamples()
+        let samples = accumulator.takeNormalizedSamples()
         VocaLogger.info(.audioEngine, "System-audio process tap stopped with \(samples.count) samples")
         return samples
     }

@@ -153,6 +153,12 @@ protocol CursorOverlayManaging: AnyObject {
     /// Whether partial words will arrive for this recording, so the live
     /// panel doesn't promise words an engine never sends.
     func setLiveWordsAvailable(_ available: Bool)
+    /// Show a short failure message near the caret, then hide. Shown
+    /// whatever the overlay style, so callers check that overlays are on.
+    func showFailure(message: String)
+    /// Maximum recording length, for the countdown in the last seconds.
+    /// Nil shows no countdown.
+    var recordingLimit: TimeInterval? { get set }
 }
 
 extension CursorOverlayManaging {
@@ -173,12 +179,17 @@ protocol ModelManaging: AnyObject {
     func modelIdentifier(for size: ModelSize) -> String
     func modelSize(from identifier: String) -> ModelSize?
     func downloadModel(size: ModelSize, onProgress: @escaping (Double) -> Void) async throws
+    func cancelDownload(for size: ModelSize)
     func deleteModel(_ size: ModelSize) async throws
     func diskUsageDescription() -> String
 }
 
 extension ModelManaging {
     func bundledModelFolder(for size: ModelSize) -> URL? { nil }
+}
+
+extension ModelManaging {
+    func cancelDownload(for size: ModelSize) {}
 }
 
 extension ModelManaging {

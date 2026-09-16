@@ -738,8 +738,14 @@ final class AudioEngine {
     /// This is a last-resort recovery mechanism — it unconditionally tears down
     /// taps, stops the engine, clears buffers, and resets all flags.
     /// Use when the engine is suspected to be in an inconsistent state.
+    ///
+    /// Returns without waiting: a Bluetooth start can hold `lifecycleQueue` for
+    /// seconds, and recovery is called from the main thread exactly when the
+    /// microphone looks stuck. The start in flight is cancelled first, and any
+    /// later start or stop queues behind this reset.
     func forceReset() {
-        lifecycleQueue.sync {
+        cancelPendingStart()
+        lifecycleQueue.async { [self] in
             VocaLogger.warning(.audioEngine, "Force reset requested (wasRecording=\(_isCurrentlyRecording))")
 
             setRecordingActive(false)
@@ -754,6 +760,8 @@ final class AudioEngine {
             // Drop the engine entirely so the input route is released. The
             // next recording will create a fresh instance.
             releaseEngine()
+            // Nothing is starting any more; don't let the cancel hit a later start.
+            startCancelled.withLock { $0 = false }
 
             VocaLogger.info(.audioEngine, "Force reset complete — engine is clean")
         }

@@ -323,10 +323,33 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         }
         try? FileManager.default.removeItem(at: destination)
 
+        do {
+            try ModelManager.ensureFreeSpace(
+                forModel: descriptor.displayName,
+                requiredBytes: descriptor.expectedByteCount + 200_000_000,
+                at: modelsDirectory,
+                availableCapacity: { ModelManager.volumeAvailableCapacity(at: $0) }
+            )
+        } catch {
+            setDownloadState(.error(error.localizedDescription), generation: generation)
+            VocaLogger.error(.transcriptCleanup, error.localizedDescription)
+            return
+        }
+
         // A new attempt clears whatever error the last one left on screen.
         setDownloadState(.downloading(kind: kind, progress: 0), generation: generation)
+
+        // Download and verify under a name only this attempt uses. Hashing
+        // runs off the main actor, so a cancel or a new attempt can interleave
+        // with it; an unverified file at `destination` would already count
+        // as downloaded.
+        let staging = modelsDirectory.appendingPathComponent(
+            ".\(destination.lastPathComponent).\(UUID().uuidString).partial"
+        )
+        defer { try? FileManager.default.removeItem(at: staging) }
+
         do {
-            try await FileDownloader.download(from: descriptor.url, to: destination) { [weak self] progress in
+            try await FileDownloader.download(from: descriptor.url, to: staging) { [weak self] progress in
                 // Progress arrives on a session queue and is hopped to the
                 // main actor, so a final tick can land after the transfer has
                 // already completed. The generation check keeps it from
@@ -338,11 +361,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
                     )
                 }
             }
-            let digest = try ModelManager.sha256Hex(ofFileAt: destination)
-            let size = fileSize(at: destination)
-            guard digest.caseInsensitiveCompare(descriptor.expectedSHA256) == .orderedSame,
-                  size == descriptor.expectedByteCount else {
-                try? FileManager.default.removeItem(at: destination)
+            // Size first: it is free, and a wrong size skips seconds of hashing.
+            let sizeMatches = fileSize(at: staging) == descriptor.expectedByteCount
+            let digest = sizeMatches
+                ? try await ModelManager.sha256HexInBackground(ofFileAt: staging)
+                : ""
+            guard sizeMatches,
+                  digest.caseInsensitiveCompare(descriptor.expectedSHA256) == .orderedSame else {
                 setDownloadState(
                     .error("The download for \(descriptor.displayName) did not match its expected contents."),
                     generation: generation
@@ -350,19 +375,15 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
                 VocaLogger.error(.transcriptCleanup, "Checksum mismatch for \(descriptor.displayName)")
                 return
             }
+            try Task.checkCancellation()
+            try? FileManager.default.removeItem(at: destination)
+            try FileManager.default.moveItem(at: staging, to: destination)
             setDownloadState(.idle, generation: generation)
             VocaLogger.info(.transcriptCleanup, "Downloaded \(descriptor.displayName)")
         } catch is CancellationError {
-            // Only the attempt that still owns the file may delete it.
-            if generation == downloadGeneration {
-                try? FileManager.default.removeItem(at: destination)
-            }
             setDownloadState(.idle, generation: generation)
             VocaLogger.info(.transcriptCleanup, "Download cancelled: \(descriptor.displayName)")
         } catch {
-            if generation == downloadGeneration {
-                try? FileManager.default.removeItem(at: destination)
-            }
             let message = "Failed to download \(descriptor.displayName): \(error.localizedDescription)"
             setDownloadState(.error(message), generation: generation)
             VocaLogger.error(.transcriptCleanup, message)

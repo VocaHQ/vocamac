@@ -26,6 +26,22 @@ enum OverlayLayout {
         }
     }
 
+    /// A failure message needs room for text in every style, including Minimal.
+    static let failureContentSize = CGSize(width: 300, height: 52)
+
+    static func contentSize(for style: OverlayStyle, phase: IndicatorPhase) -> CGSize {
+        phase == .failure ? failureContentSize : contentSize(for: style)
+    }
+
+    static func size(for style: OverlayStyle, phase: IndicatorPhase) -> CGSize {
+        let content = contentSize(for: style, phase: phase)
+        guard content != .zero else { return .zero }
+        return CGSize(
+            width: content.width + edgeInset * 2,
+            height: content.height + edgeInset * 2
+        )
+    }
+
     static func size(for style: OverlayStyle) -> CGSize {
         let content = contentSize(for: style)
         guard content != .zero else { return .zero }
@@ -97,6 +113,19 @@ enum OverlayPlacement {
     }
 }
 
+/// Seconds left before the recording limit, once inside the warning window.
+enum RecordingCountdown {
+    static let warningWindow: TimeInterval = 10
+
+    /// Whole seconds remaining when the limit is within `warningWindow`, else nil.
+    static func secondsRemaining(elapsed: TimeInterval, limit: TimeInterval?) -> Int? {
+        guard let limit, limit > 0, elapsed >= 0 else { return nil }
+        let remaining = limit - elapsed
+        guard remaining <= warningWindow else { return nil }
+        return max(0, Int(remaining.rounded(.up)))
+    }
+}
+
 // MARK: - CursorOverlayManager
 
 @MainActor
@@ -119,8 +148,24 @@ final class CursorOverlayManager {
     private var isPositionQueryRunning = false
     private var positionGeneration = UUID()
 
-    /// Timer for the recording duration shown by the live panel.
+    /// Timer for the recording duration and the limit countdown.
     private var elapsedTimer: Timer?
+    private var recordingStartedAt: Date?
+
+    /// Dismisses a failure message; replaced by any later show or failure.
+    private var failureDismissal: DispatchWorkItem?
+
+    static let failureDisplayDuration: TimeInterval = 2.5
+
+    /// Maximum recording length, so the overlay can count down its last seconds.
+    /// Nil shows no countdown.
+    var recordingLimit: TimeInterval? {
+        didSet { viewModel.recordingLimit = recordingLimit }
+    }
+
+    private var isShowingRecordingSession: Bool {
+        viewModel.isActive && viewModel.phase != .failure && viewModel.phase != .idle
+    }
 
     // MARK: - Public API
 
@@ -131,6 +176,7 @@ final class CursorOverlayManager {
             return
         }
 
+        cancelFailureDismissal()
         positionGeneration = UUID()
         viewModel.style = style
         viewModel.position = position
@@ -139,16 +185,143 @@ final class CursorOverlayManager {
         viewModel.audioLevel = 0
         viewModel.elapsedSeconds = 0
         viewModel.transcript = ""
+        viewModel.failureMessage = ""
         viewModel.commandSession = nil
         viewModel.liveWordsAvailable = false
         viewModel.isActive = true
+        recordingStartedAt = nil
 
-        if let overlayPanel {
-            updatePanelLayout(overlayPanel)
-            startTimers()
-            VocaLogger.debug(.cursorOverlay, "Overlay shown (existing panel, style=\(style.rawValue))")
+        let panel = preparedPanel()
+        updatePanelLayout(panel)
+        panel.orderFrontRegardless()
+        startTimers()
+
+        VocaLogger.debug(.cursorOverlay, "Overlay shown (style=\(style.rawValue), position=\(position.rawValue))")
+    }
+
+    /// The input route is live and the microphone is actually capturing.
+    func transitionToRecording() {
+        guard viewModel.isActive, viewModel.phase == .connecting else { return }
+        viewModel.phase = .recording
+        viewModel.audioLevel = 0
+        viewModel.elapsedSeconds = 0
+        viewModel.transcript = ""
+        recordingStartedAt = Date()
+        VocaLogger.debug(.cursorOverlay, "Overlay transitioned to recording")
+    }
+
+    /// Transitions the overlay from recording to batch transcription.
+    func transitionToProcessing() {
+        guard isShowingRecordingSession, let overlayPanel else { return }
+        viewModel.phase = .processing
+        updatePanelLayout(overlayPanel)
+        VocaLogger.debug(.cursorOverlay, "Overlay transitioned to processing")
+    }
+
+    /// Shows a short failure message for a few seconds, then hides. It appears
+    /// whatever the overlay style, since the user is looking at the target app,
+    /// not the menu bar.
+    func showFailure(message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        let panel = preparedPanel()
+        let wasVisible = panel.isVisible && viewModel.isActive
+        stopTimers()
+        recordingStartedAt = nil
+        positionGeneration = UUID()
+
+        viewModel.failureMessage = trimmed
+        viewModel.phase = .failure
+        viewModel.audioLevel = 0
+        viewModel.commandSession = nil
+        viewModel.isActive = true
+
+        let size = overlaySize
+        panel.setContentSize(size)
+        hostingView?.frame = NSRect(origin: .zero, size: size)
+        if wasVisible {
+            // Keep the message where the user was already looking.
+            let frames = NSScreen.screens.map(\.visibleFrame)
+            panel.setFrameOrigin(OverlayPlacement.clampedOrigin(panel.frame.origin, panelSize: size, visibleFrames: frames))
+        } else {
+            positionPanel(panel, size: size)
+        }
+        panel.orderFrontRegardless()
+
+        cancelFailureDismissal()
+        let dismissal = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.viewModel.phase == .failure else { return }
+                self.failureDismissal = nil
+                self.hideNow()
+            }
+        }
+        failureDismissal = dismissal
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.failureDisplayDuration, execute: dismissal)
+        VocaLogger.debug(.cursorOverlay, "Overlay showing failure")
+    }
+
+    /// Hides the recording overlay and resets its transient state. A failure
+    /// message stays up until its own dismissal, so an error path that hides
+    /// the recording overlay after reporting the failure doesn't erase it.
+    func hide() {
+        if viewModel.phase == .failure, failureDismissal != nil {
             return
         }
+        hideNow()
+    }
+
+    private func hideNow() {
+        cancelFailureDismissal()
+        positionGeneration = UUID()
+        stopTimers()
+        recordingStartedAt = nil
+
+        viewModel.isActive = false
+        viewModel.phase = .idle
+        viewModel.audioLevel = 0
+        viewModel.waveformTick = 0
+        viewModel.elapsedSeconds = 0
+
+        // The panel is kept and reused: rebuilding an NSPanel and hosting view
+        // on the hotkey path costs main-thread time on every dictation.
+        overlayPanel?.orderOut(nil)
+        VocaLogger.debug(.cursorOverlay, "Overlay hidden")
+    }
+
+    /// Updates the current audio level used to animate the waveform.
+    func updateAudioLevel(_ level: Float) {
+        guard viewModel.isActive, viewModel.phase == .recording else { return }
+        // Mild pre-gain so quiet speech still drives a lively waveform.
+        let target = min(max(level * 2.6, 0), 1)
+        let smoothing: Float = target > viewModel.audioLevel ? 0.78 : 0.28
+        viewModel.audioLevel += (target - viewModel.audioLevel) * smoothing
+        viewModel.waveformTick &+= 1
+    }
+
+    func updateTranscript(_ text: String) {
+        guard isShowingRecordingSession, viewModel.style == .live else { return }
+        viewModel.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func setCommandSession(_ session: CommandModeSession?) {
+        viewModel.commandSession = session
+    }
+
+    func setLiveWordsAvailable(_ available: Bool) {
+        viewModel.liveWordsAvailable = available
+    }
+
+    // MARK: - Layout
+
+    private var overlaySize: CGSize {
+        OverlayLayout.size(for: viewModel.style, phase: viewModel.phase)
+    }
+
+    /// Returns the one overlay panel, creating it on first use.
+    private func preparedPanel() -> NSPanel {
+        if let overlayPanel { return overlayPanel }
 
         let size = overlaySize
         let hosting = NSHostingView(rootView: HandyOverlayView(viewModel: viewModel))
@@ -172,85 +345,17 @@ final class CursorOverlayManager {
         panel.ignoresMouseEvents = true
         panel.hidesOnDeactivate = false
         panel.isMovableByWindowBackground = false
+        panel.isReleasedWhenClosed = false
         panel.contentView = hosting
 
         overlayPanel = panel
         hostingView = hosting
-        updatePanelLayout(panel)
-        panel.orderFrontRegardless()
-        startTimers()
-
-        VocaLogger.debug(.cursorOverlay, "Overlay shown (style=\(style.rawValue), position=\(position.rawValue))")
+        return panel
     }
 
-    /// The input route is live and the microphone is actually capturing.
-    func transitionToRecording() {
-        guard overlayPanel != nil, viewModel.phase == .connecting else { return }
-        viewModel.phase = .recording
-        viewModel.audioLevel = 0
-        viewModel.elapsedSeconds = 0
-        viewModel.transcript = ""
-        VocaLogger.debug(.cursorOverlay, "Overlay transitioned to recording")
-    }
-
-    /// Transitions the overlay from recording to batch transcription.
-    func transitionToProcessing() {
-        guard overlayPanel != nil else { return }
-        viewModel.phase = .processing
-        viewModel.isActive = true
-        if let overlayPanel {
-            updatePanelLayout(overlayPanel)
-        }
-        VocaLogger.debug(.cursorOverlay, "Overlay transitioned to processing")
-    }
-
-    /// Hides the recording overlay and resets its transient state.
-    func hide() {
-        positionGeneration = UUID()
-        repositionTimer?.invalidate()
-        repositionTimer = nil
-        elapsedTimer?.invalidate()
-        elapsedTimer = nil
-
-        viewModel.isActive = false
-        viewModel.phase = .idle
-        viewModel.audioLevel = 0
-        viewModel.waveformTick = 0
-        viewModel.elapsedSeconds = 0
-
-        overlayPanel?.orderOut(nil)
-        overlayPanel = nil
-        hostingView = nil
-        VocaLogger.debug(.cursorOverlay, "Overlay hidden")
-    }
-
-    /// Updates the current audio level used to animate the waveform.
-    func updateAudioLevel(_ level: Float) {
-        guard overlayPanel != nil, viewModel.phase == .recording else { return }
-        // Mild pre-gain so quiet speech still drives a lively waveform.
-        let target = min(max(level * 2.6, 0), 1)
-        let smoothing: Float = target > viewModel.audioLevel ? 0.78 : 0.28
-        viewModel.audioLevel += (target - viewModel.audioLevel) * smoothing
-        viewModel.waveformTick &+= 1
-    }
-
-    func updateTranscript(_ text: String) {
-        guard overlayPanel != nil, viewModel.style == .live else { return }
-        viewModel.transcript = text.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    func setCommandSession(_ session: CommandModeSession?) {
-        viewModel.commandSession = session
-    }
-
-    func setLiveWordsAvailable(_ available: Bool) {
-        viewModel.liveWordsAvailable = available
-    }
-
-    // MARK: - Layout
-
-    private var overlaySize: CGSize {
-        OverlayLayout.size(for: viewModel.style)
+    private func cancelFailureDismissal() {
+        failureDismissal?.cancel()
+        failureDismissal = nil
     }
 
     private func updatePanelLayout(_ panel: NSPanel) {
@@ -296,18 +401,31 @@ final class CursorOverlayManager {
         repositionTimer?.invalidate()
         repositionTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, let panel = self.overlayPanel else { return }
+                guard let self, self.isShowingRecordingSession, let panel = self.overlayPanel else { return }
                 self.positionPanel(panel, size: self.overlaySize)
             }
         }
 
         elapsedTimer?.invalidate()
-        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        // Sub-second ticks keep the countdown aligned with the recording start;
+        // the published value only changes once per second.
+        elapsedTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.viewModel.phase == .recording else { return }
-                self.viewModel.elapsedSeconds += 1
+                guard let self, self.viewModel.phase == .recording,
+                      let start = self.recordingStartedAt else { return }
+                let elapsed = Int(Date().timeIntervalSince(start))
+                if self.viewModel.elapsedSeconds != elapsed {
+                    self.viewModel.elapsedSeconds = elapsed
+                }
             }
         }
+    }
+
+    private func stopTimers() {
+        repositionTimer?.invalidate()
+        repositionTimer = nil
+        elapsedTimer?.invalidate()
+        elapsedTimer = nil
     }
 
     /// At most one query runs at once. Hide/show and focus changes invalidate its result.
@@ -354,6 +472,8 @@ enum IndicatorPhase {
     case connecting
     case recording
     case processing
+    /// A dictation failed; the overlay shows a short message, then hides.
+    case failure
 }
 
 // MARK: - MicIndicatorViewModel
@@ -371,8 +491,16 @@ final class MicIndicatorViewModel: ObservableObject {
     /// Set while the session edits selected text (Command Mode).
     @Published var commandSession: CommandModeSession?
     @Published var liveWordsAvailable = false
+    @Published var failureMessage: String = ""
+    @Published var recordingLimit: TimeInterval?
 
     var isCommandMode: Bool { commandSession != nil }
+
+    /// Seconds left before the recording limit stops capture, during its last ten seconds.
+    var countdownSeconds: Int? {
+        guard phase == .recording else { return nil }
+        return RecordingCountdown.secondsRemaining(elapsed: TimeInterval(elapsedSeconds), limit: recordingLimit)
+    }
 }
 
 // MARK: - Waveform Metrics
@@ -452,11 +580,28 @@ struct HandyOverlayView: View {
         isDark ? Color.white.opacity(0.55) : Color.black.opacity(0.45)
     }
 
+    /// Same brightness split as `processingColor`: orange reads on the dark
+    /// panel, a deep red on the light one.
+    private var failureColor: Color {
+        isDark
+            ? Color(nsColor: .systemOrange)
+            : Color(red: 0.66, green: 0.16, blue: 0.06)
+    }
+
+    /// The last seconds before the recording limit use the processing amber,
+    /// which reads as a warning in both appearances.
+    private var countdownColor: Color {
+        isDark
+            ? Color(nsColor: .systemYellow)
+            : Color(red: 0.55, green: 0.27, blue: 0.0)
+    }
+
     private var waveformColor: Color {
         switch viewModel.phase {
-        case .recording: return recordingColor
+        case .recording: return viewModel.countdownSeconds == nil ? recordingColor : countdownColor
         case .connecting: return connectingColor
         case .idle, .processing: return processingColor
+        case .failure: return failureColor
         }
     }
 
@@ -467,13 +612,19 @@ struct HandyOverlayView: View {
         case .connecting: return "Connecting"
         case .recording: return viewModel.isCommandMode ? "Command Mode" : "Listening"
         case .idle, .processing: return viewModel.isCommandMode ? "Editing Selection" : "Transcribing"
+        case .failure: return "Didn’t work"
         }
     }
 
     private var statusDetail: String {
         switch viewModel.phase {
         case .connecting: return "Waiting for microphone…"
-        case .recording: return viewModel.isCommandMode ? "Say how to change it" : "Speak now"
+        case .recording:
+            if let seconds = viewModel.countdownSeconds {
+                return "Stopping in \(seconds)s"
+            }
+            return viewModel.isCommandMode ? "Say how to change it" : "Speak now"
+        case .failure: return viewModel.failureMessage
         case .idle, .processing:
             guard let session = viewModel.commandSession else { return "Transcribing…" }
             return session.phase == .rewriting ? "Rewriting with \(session.engineName)…" : "Transcribing instruction…"
@@ -523,12 +674,22 @@ struct HandyOverlayView: View {
                 .padding(.vertical, 3)
                 .background(VocaDesign.command.opacity(isDark ? 0.22 : 0.12), in: Capsule())
         } else if viewModel.phase == .recording {
-            Text(formattedElapsed)
-                .font(.system(size: 11, weight: .medium, design: .monospaced))
-                .foregroundStyle(secondaryText)
-                .padding(.horizontal, 7)
-                .padding(.vertical, 3)
-                .background(tertiaryFill, in: Capsule())
+            if let seconds = viewModel.countdownSeconds {
+                Text("\(seconds)s left")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(countdownColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(countdownColor.opacity(isDark ? 0.22 : 0.12), in: Capsule())
+                    .accessibilityLabel("Recording stops in \(seconds) seconds")
+            } else {
+                Text(formattedElapsed)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(secondaryText)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(tertiaryFill, in: Capsule())
+            }
         }
     }
 
@@ -553,10 +714,12 @@ struct HandyOverlayView: View {
     }
 
     var body: some View {
-        let content = OverlayLayout.contentSize(for: viewModel.style)
+        let content = OverlayLayout.contentSize(for: viewModel.style, phase: viewModel.phase)
 
         Group {
-            if viewModel.style == .live {
+            if viewModel.phase == .failure {
+                failureContent
+            } else if viewModel.style == .live {
                 livePanelContent
             } else {
                 minimalControlRow
@@ -567,12 +730,7 @@ struct HandyOverlayView: View {
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(
-                    viewModel.phase == .recording
-                        ? recordingColor.opacity(isPulsing ? 0.95 : 0.55)
-                        : strokeBase,
-                    lineWidth: viewModel.phase == .recording ? 1.6 : 1
-                )
+                .strokeBorder(borderColor, lineWidth: viewModel.phase == .recording ? 1.6 : 1)
         }
         // Leave only enough transparent room for rounded-edge antialiasing.
         // There is deliberately no outer shadow that could reveal panel bounds.
@@ -585,18 +743,22 @@ struct HandyOverlayView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: viewModel.phase)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.9), value: isPulsing)
         .onAppear {
-            if !reduceMotion {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
+            startPulsingIfNeeded()
             playEntranceIfNeeded()
         }
         .onChange(of: viewModel.isActive) { _, active in
             if active {
+                startPulsingIfNeeded()
                 playEntranceIfNeeded()
             } else {
-                hasEntered = false
+                // The panel is reused while hidden; stop the endless pulse so a
+                // hidden overlay doesn't keep animating.
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    isPulsing = false
+                    hasEntered = false
+                }
             }
         }
         .onChange(of: viewModel.position) { _, _ in
@@ -606,6 +768,45 @@ struct HandyOverlayView: View {
                 playEntranceIfNeeded()
             }
         }
+    }
+
+    private func startPulsingIfNeeded() {
+        guard viewModel.isActive, !reduceMotion, !isPulsing else { return }
+        withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+            isPulsing = true
+        }
+    }
+
+    private var borderColor: Color {
+        switch viewModel.phase {
+        case .recording:
+            let color = viewModel.countdownSeconds == nil ? recordingColor : countdownColor
+            return color.opacity(isPulsing ? 0.95 : 0.55)
+        case .failure:
+            return failureColor.opacity(0.6)
+        case .idle, .connecting, .processing:
+            return strokeBase
+        }
+    }
+
+    private var failureContent: some View {
+        HStack(alignment: .center, spacing: 9) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(failureColor)
+                .accessibilityHidden(true)
+
+            Text(viewModel.failureMessage)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(primaryText)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 12)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(statusTitle): \(viewModel.failureMessage)")
     }
 
     private func playEntranceIfNeeded() {
@@ -620,11 +821,12 @@ struct HandyOverlayView: View {
     }
 
     private var panelSize: CGSize {
-        OverlayLayout.size(for: viewModel.style)
+        OverlayLayout.size(for: viewModel.style, phase: viewModel.phase)
     }
 
     private var cornerRadius: CGFloat {
-        viewModel.style == .live ? 16 : 22
+        if viewModel.phase == .failure { return 16 }
+        return viewModel.style == .live ? 16 : 22
     }
 
     private var liveHeader: some View {
@@ -687,7 +889,16 @@ struct HandyOverlayView: View {
     private var minimalControlRow: some View {
         HStack(spacing: 8) {
             if viewModel.phase == .recording {
-                recordingIndicatorIcon
+                if let seconds = viewModel.countdownSeconds {
+                    Text("\(seconds)")
+                        .font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(countdownColor)
+                        .frame(width: 22, height: 22)
+                        .background(countdownColor.opacity(isDark ? 0.24 : 0.14), in: Circle())
+                        .accessibilityLabel("Recording stops in \(seconds) seconds")
+                } else {
+                    recordingIndicatorIcon
+                }
                 waveform
             } else {
                 ProgressView()
@@ -766,10 +977,9 @@ private enum CaretPositionQuery {
 
         let app = systemWide
 
-        var focusedElement: AnyObject?
+        var focusedElement: CFTypeRef?
         if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-           focusedElement != nil {
-            let element = focusedElement as! AXUIElement
+           let element = axElement(focusedElement) {
             AXUIElementSetMessagingTimeout(element, 0.1)
 
             if let caretRect = getCaretRectFromElement(element, primaryScreenTop: primaryScreenTop) {
@@ -808,43 +1018,61 @@ private enum CaretPositionQuery {
         let rangeResult = AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectedRange)
         guard rangeResult == .success, let range = selectedRange else { return nil }
 
-        var bounds: AnyObject?
-        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success else { return nil }
+        var bounds: CFTypeRef?
+        guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success,
+              let boundsValue = axValue(bounds) else { return nil }
 
         var rect = CGRect.zero
-        guard AXValueGetValue(bounds as! AXValue, .cgRect, &rect) else { return nil }
+        guard AXValueGetValue(boundsValue, .cgRect, &rect) else { return nil }
 
         return convertAXRectToAppKit(rect, primaryScreenTop: primaryScreenTop)
     }
 
     private static func getElementRect(_ element: AXUIElement) -> CGRect? {
-        var positionValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success else { return nil }
+        var positionRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
+              let positionValue = axValue(positionRef) else { return nil }
 
-        var sizeValue: AnyObject?
-        guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success else { return nil }
+        var sizeRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
+              let sizeValue = axValue(sizeRef) else { return nil }
 
         var position = CGPoint.zero
         var size = CGSize.zero
-        guard AXValueGetValue(positionValue as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeValue as! AXValue, .cgSize, &size) else { return nil }
+        guard AXValueGetValue(positionValue, .cgPoint, &position),
+              AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
 
         return CGRect(origin: position, size: size)
     }
 
     private static func getFocusedWindowRect(_ app: AXUIElement) -> CGRect? {
-        var window: AnyObject?
+        var window: CFTypeRef?
         var result = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &window)
 
         if result != .success {
             result = AXUIElementCopyAttributeValue(app, kAXMainWindowAttribute as CFString, &window)
         }
 
-        guard result == .success, window != nil else { return nil }
-        let element = window as! AXUIElement
+        guard result == .success, let element = axElement(window) else { return nil }
         AXUIElementSetMessagingTimeout(element, 0.1)
         return getElementRect(element)
     }
+
+    // MARK: - Type-checked AX casts
+
+    // Other apps' Accessibility implementations can return nil or an
+    // unexpected CF type even when the call reports success.
+    // swiftlint:disable force_cast
+    private static func axElement(_ ref: CFTypeRef?) -> AXUIElement? {
+        guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
+        return (ref as! AXUIElement)
+    }
+
+    private static func axValue(_ ref: CFTypeRef?) -> AXValue? {
+        guard let ref, CFGetTypeID(ref) == AXValueGetTypeID() else { return nil }
+        return (ref as! AXValue)
+    }
+    // swiftlint:enable force_cast
 
     // MARK: - Coordinate Helpers
 

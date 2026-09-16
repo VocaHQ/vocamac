@@ -119,14 +119,16 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 0)
     }
 
-    func testStartRecordingInProcessingStateForceRecovers() async {
+    func testStartRecordingInStaleProcessingStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
+        // Processing with nothing actually being transcribed is a stuck status.
         appState.appStatus = .processing
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-                      "startRecording in processing state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+                      "a stale processing status is cleared and the same press starts recording")
+        await appState.cancelRecording()
     }
 
     func testStopRecordingWhenNotRecording() async {
@@ -849,28 +851,30 @@ final class AppStateRecordingGuardTests: XCTestCase {
     }
 
     @MainActor
-    func testStartRecordingInErrorStateForceRecovers() async {
+    func testStartRecordingInErrorStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
         appState.appStatus = .error
         appState.errorMessage = "Previous error"
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-            "startRecording in error state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+            "an error only reports the past; the same press starts recording")
         XCTAssertNil(appState.errorMessage,
-            "Error message should be cleared after force recovery")
+            "Error message should be cleared when the new recording starts")
+        await appState.cancelRecording()
     }
 
     @MainActor
-    func testStartRecordingInProcessingStateForceRecovers() async {
+    func testStartRecordingInStaleProcessingStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
         appState.appStatus = .processing
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-            "startRecording in processing state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+            "a stale processing status is cleared and the same press starts recording")
+        await appState.cancelRecording()
     }
 
     @MainActor

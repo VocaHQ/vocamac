@@ -179,4 +179,46 @@ extension ClipboardPreservationTests {
         await fulfillment(of: [cancelled], timeout: 1)
         XCTAssertEqual(board.string(forType: .string), "original")
     }
+
+    func testClipboardWritesAreMarkedTransientForClipboardManagers() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let pasted = expectation(description: "paste")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: {
+                XCTAssertEqual(board.string(forType: .string), "dictation")
+                XCTAssertNotNil(board.data(forType: TextInjector.transientType), "transcript must be transient")
+                pasted.fulfill()
+            },
+            frontmostPIDProvider: { 123 }
+        )
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [pasted], timeout: 2)
+        await drainInjectionQueue()
+        XCTAssertEqual(board.string(forType: .string), "original")
+        XCTAssertNotNil(board.data(forType: TextInjector.transientType), "restore must be transient")
+    }
+
+    func testWithoutAccessibilityTheTranscriptIsCopiedAndReported() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let reported = expectation(description: "accessibility off reported")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: false,
+            pasteActionOverride: { XCTFail("Must not paste without Accessibility") },
+            frontmostPIDProvider: { 123 }
+        )
+        injector.onFailure = { message in
+            XCTAssertEqual(message, TextInjector.accessibilityOffMessage)
+            reported.fulfill()
+        }
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [reported], timeout: 1)
+        XCTAssertEqual(board.string(forType: .string), "dictation")
+        XCTAssertNotNil(board.data(forType: TextInjector.transientType))
+    }
 }

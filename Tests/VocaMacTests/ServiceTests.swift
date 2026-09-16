@@ -60,7 +60,12 @@ final class KeyCodeReferenceTests: XCTestCase {
     }
 
     func testComboPresetIsRecognizedAsCommonHotKey() {
-        XCTAssertTrue(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .command)))
+        XCTAssertTrue(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .option)))
+    }
+
+    func testSystemSpaceShortcutsAreNotOffered() {
+        XCTAssertFalse(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .command)))
+        XCTAssertFalse(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .control)))
     }
 
     func testCommonHotKeysValid() {

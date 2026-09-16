@@ -92,7 +92,8 @@ enum SpokenNumbers {
             // "point" — those are "hundreds of people", "you and I", "to the
             // point", and starting a run on one would swallow the number that
             // follows it.
-            guard let first = word(for: string.substring(with: words[index].range)),
+            let opensWithA = isArticleBeforeAMultiplier(at: index, in: words, text: string)
+            guard let first = opensWithA ? .unit(1) : word(for: string.substring(with: words[index].range)),
                   first.opensANumber
             else {
                 index += 1
@@ -107,7 +108,8 @@ enum SpokenNumbers {
             while last + 1 < words.count,
                   isJoiner(gapAfter: last, in: words, text: string),
                   let next = word(for: string.substring(with: words[last + 1].range)),
-                  next.mayExtend(tokens)
+                  next.mayExtend(tokens),
+                  !startsASecondHundreds(next, after: tokens, at: last + 1, in: words, text: string)
             {
                 tokens.append(next)
                 last += 1
@@ -117,6 +119,12 @@ enum SpokenNumbers {
             while let trailing = tokens.last, trailing.isConnector {
                 tokens.removeLast()
                 last -= 1
+            }
+            // "a hundred times" and "a million reasons" are idioms, not
+            // quantities; "a" only counts when more of the number follows.
+            if opensWithA, tokens.count <= 2 {
+                index += 1
+                continue
             }
 
             guard !tokens.isEmpty,
@@ -241,6 +249,45 @@ enum SpokenNumbers {
         "and", "or", "but", "so", "then",
         "i", "we", "you", "he", "she", "they", "it", "is", "was", "will",
     ]
+
+    /// Whether word `index` is an "a" that stands for one before "hundred" or a
+    /// scale: "a hundred and fifty", "a thousand five hundred".
+    private static func isArticleBeforeAMultiplier(
+        at index: Int,
+        in words: [NSTextCheckingResult],
+        text: NSString
+    ) -> Bool {
+        guard index + 1 < words.count,
+              text.substring(with: words[index].range).lowercased() == "a",
+              isJoiner(gapAfter: index, in: words, text: text)
+        else { return false }
+        switch word(for: text.substring(with: words[index + 1].range)) {
+        case .hundred, .scale: return true
+        default: return false
+        }
+    }
+
+    /// Whether `next` opens another hundreds group in a segment that already
+    /// has one: in "two hundred three hundred" the "three" starts a second
+    /// number, where taking it would read as 20300.
+    private static func startsASecondHundreds(
+        _ next: Token,
+        after tokens: [Token],
+        at position: Int,
+        in words: [NSTextCheckingResult],
+        text: NSString
+    ) -> Bool {
+        switch next {
+        case .unit, .teen: break
+        default: return false
+        }
+        let segment = tokens.reversed().prefix { if case .scale = $0 { false } else { true } }
+        guard segment.contains(.hundred),
+              position + 1 < words.count,
+              isJoiner(gapAfter: position, in: words, text: text)
+        else { return false }
+        return word(for: text.substring(with: words[position + 1].range)) == .hundred
+    }
 
     /// The text between word `index` and the next one.
     private static func gap(after index: Int, in words: [NSTextCheckingResult], text: NSString) -> String {
@@ -377,6 +424,9 @@ enum SpokenNumbers {
             case let .tens(value):
                 group += value
             case .hundred:
+                // A group takes one "hundred": "two hundred three hundred" is
+                // two numbers, not 20300.
+                guard group < 100 else { return nil }
                 group *= 100
             case let .scale(value):
                 // Scales descend: "two million three thousand", never "three

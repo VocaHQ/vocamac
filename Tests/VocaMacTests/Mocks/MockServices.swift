@@ -362,6 +362,13 @@ final class MockCursorOverlay: CursorOverlayManaging {
         lastAudioLevel = level
     }
     func updateTranscript(_ text: String) { lastTranscript = text }
+
+    var failureMessages: [String] = []
+    var recordingLimit: TimeInterval?
+
+    func showFailure(message: String) {
+        failureMessages.append(message)
+    }
 }
 
 // MARK: - MockModelManager
@@ -470,9 +477,19 @@ final class MockModelManager: ModelManaging {
         if downloadDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: downloadDelayNanoseconds)
         }
+        if let downloadError {
+            throw downloadError
+        }
 
         onProgress(1.0)
         downloadedModels.insert(size)
+    }
+
+    var downloadError: Error?
+    var cancelledDownloads: [ModelSize] = []
+
+    func cancelDownload(for size: ModelSize) {
+        cancelledDownloads.append(size)
     }
 
     var deleteModelError: Error?

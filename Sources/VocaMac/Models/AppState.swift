@@ -127,6 +127,26 @@ enum ScratchpadOutputDestination {
     case scratchpad
 }
 
+/// Resumes a continuation with whichever value arrives first.
+private final class FirstValueGate<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Never>?
+
+    func install(_ continuation: CheckedContinuation<T, Never>) {
+        lock.lock()
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume(with value: T) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+        pending?.resume(returning: value)
+    }
+}
+
 // MARK: - AppState
 
 @MainActor
@@ -382,6 +402,20 @@ final class AppState: ObservableObject {
     private var isLoadingModelForRecording = false
     private var pendingStopDuringModelLoad: PendingStopKind?
 
+    /// A dictation started while the previous one was still being transcribed
+    /// or delivered. It starts as soon as that delivery finishes, unless the
+    /// hotkey is released (or pressed again to stop) first.
+    private struct QueuedRecordingStart {
+        let injectResult: Bool
+        let outputDestination: ScratchpadOutputDestination
+        let isHandsFree: Bool
+    }
+    private var queuedRecordingStart: QueuedRecordingStart?
+
+    /// The launch-time model download and load, while it runs. The hotkey is
+    /// live during it; a press waits for this instead of loading on its own.
+    private var startupModelPreparation: Task<Void, Never>?
+
     /// Frontmost app captured when recording started. Used only when the app
     /// in front at injection time is VocaMac itself (Settings has focus).
     private var pendingTargetApp: RunningAppSnapshot?
@@ -569,7 +603,12 @@ final class AppState: ObservableObject {
     /// True from the end of a recording until its text is delivered. Escape
     /// cancels during this window as well as while recording.
     private var isTranscribing = false {
-        didSet { refreshCancelKeyArming() }
+        didSet {
+            refreshCancelKeyArming()
+            if oldValue && !isTranscribing {
+                scheduleQueuedRecordingStart()
+            }
+        }
     }
 
     /// Names and identifiers read from the screen when recording started.
@@ -751,8 +790,12 @@ final class AppState: ObservableObject {
         self.skipSystemIntegration = skipSystemIntegration
         // Tests and other headless runs keep history in memory and never read
         // another app's text.
+        // Launch reads, replays, and compacts history off the main thread.
         self.historyStore = historyStore
-            ?? DictationHistoryStore(directory: skipSystemIntegration ? nil : DictationHistoryStore.defaultDirectory)
+            ?? DictationHistoryStore(
+                directory: skipSystemIntegration ? nil : DictationHistoryStore.defaultDirectory,
+                loadInBackground: !skipSystemIntegration
+            )
         self.screenContextReader = screenContextReader ?? (skipSystemIntegration ? nil : ScreenContextReader())
         self.correctionObserver = correctionObserver ?? (skipSystemIntegration ? nil : CorrectionObserver())
         self.selectedTextService = selectedTextService
@@ -877,7 +920,9 @@ final class AppState: ObservableObject {
         textInjector.onFailure = { [weak self] message in
             Task { @MainActor in
                 guard let self, !self.isRecording else { return }
-                self.showTemporaryError(message)
+                // "Copied, press ⌘V" has to stay up long enough to act on.
+                self.showOverlayFailure(message)
+                self.showTemporaryError(message, duration: Self.deliveryFailureMessageDuration)
             }
         }
         // Detect system capabilities
@@ -961,6 +1006,9 @@ final class AppState: ObservableObject {
                 VocaLogger.warning(.appState, "Audio device changed — recovering from interrupted recording")
                 self.recordingGeneration = UUID()
                 self.discardRecordingState()
+                // The new generation abandons any transcription that had
+                // already begun, and its own cleanup is skipped for it.
+                self.isTranscribing = false
                 self.appStatus = .idle
                 self.errorMessage = nil
             }
@@ -988,7 +1036,7 @@ final class AppState: ObservableObject {
         hotKeyManager.onRecordingStop = { [weak self] in
             PerformanceTrace.event("HotKeyStop")
             Task { @MainActor in
-                await self?.stopRecordingAndTranscribe()
+                await self?.stopRecordingAndTranscribe(endsHotKeyToggle: false)
             }
         }
 
@@ -1015,6 +1063,9 @@ final class AppState: ObservableObject {
         $appStatus
             .sink { [weak self] status in
                 self?.refreshCancelKeyArming(status: status)
+                if status == .idle || status == .error {
+                    self?.scheduleQueuedRecordingStart()
+                }
             }
             .store(in: &cancellables)
 
@@ -1022,17 +1073,12 @@ final class AppState: ObservableObject {
             self?.receiveCorrections(corrections)
         }
 
-        // Wire permission manager: start hotkey listener when permissions granted
+        // Start the hotkey listener when permissions are granted, and rebuild
+        // it when a revoke-and-grant left macOS's tap disabled.
         permissionManager.onAllPermissionsGranted = { [weak self] in
             guard let self = self else { return }
-            self.hotKeyManager.startListening(
-                keyCode: self.hotKeyCode,
-                mode: self.activationMode,
-                doubleTapThreshold: self.doubleTapThreshold,
-                safetyTimeout: self.hotKeySafetyTimeout,
-                modifiers: self.hotKeyModifiers
-            )
-            VocaLogger.info(.appState, "Hotkey listener started after permission grant")
+            self.restartHotKeyListenerIfNeeded()
+            VocaLogger.info(.appState, "Hotkey listener checked after permission grant")
         }
 
         // Forward PermissionManager state changes to trigger SwiftUI updates
@@ -1145,17 +1191,10 @@ final class AppState: ObservableObject {
         sleepWakeMonitor.onDidWake = { [weak self] in
             guard let self else { return }
             VocaLogger.info(.appState, "Wake recovery: refreshing hotkey health")
+            self.checkPermissions()
             if self.permissionManager.allPermissionsGranted {
                 self.syncHotKeyConfiguration()
-                if !self.hotKeyManager.isListening {
-                    self.hotKeyManager.startListening(
-                        keyCode: self.hotKeyCode,
-                        mode: self.activationMode,
-                        doubleTapThreshold: self.doubleTapThreshold,
-                        safetyTimeout: self.hotKeySafetyTimeout,
-                        modifiers: self.hotKeyModifiers
-                    )
-                }
+                self.restartHotKeyListenerIfNeeded()
             }
             if !self.isAutoPaused {
                 self.modelKeepAlive.bump()
@@ -1246,7 +1285,19 @@ final class AppState: ObservableObject {
             ?? currentModel?.size
             ?? .tiny
         VocaLogger.info(.appState, "Ensuring model loaded: \(size.displayName)")
-        await loadModel(size)
+        // Checked again once earlier model operations finish: a load queued
+        // ahead of this one may already have loaded a model.
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            guard !whisperService.isModelLoaded else { return }
+            await performLoadModel(size)
+        }
+    }
+
+    private var autoPausedMessage: String {
+        if let name = autoPauseTriggerDisplayName ?? autoPauseMonitor.activeTrigger?.displayName, !name.isEmpty {
+            return "Dictation is paused while \(name) is running."
+        }
+        return "Dictation is paused while a listed app is running."
     }
 
     private func handleAutoPauseEntered() async {
@@ -1254,11 +1305,14 @@ final class AppState: ObservableObject {
         autoPauseTriggerDisplayName = autoPauseMonitor.activeTrigger?.displayName
         modelKeepAlive.cancel()
 
+        queuedRecordingStart = nil
         if isRecording || appStatus == .recording {
             VocaLogger.warning(.appState, "Auto-pause entered while recording: stopping without inject")
             recordingGeneration = UUID()
             _ = await stopAudioEngine()
+            showOverlayFailure(autoPausedMessage)
             discardRecordingState()
+            isTranscribing = false
             appStatus = .idle
         }
 
@@ -1563,7 +1617,11 @@ final class AppState: ObservableObject {
     /// and all published state back to idle.
     func forceRecovery() {
         recordingGeneration = UUID()
+        queuedRecordingStart = nil
         finishingTranscription?.cancel()
+        // Otherwise the local model keeps generating for the abandoned
+        // dictation, and the next dictation's cleanup waits behind it.
+        transcriptCleanup.cancelCleanup()
         VocaLogger.warning(.appState, "Force recovery: resetting all state to idle (was appStatus=\(appStatus.rawValue), isRecording=\(isRecording))")
 
         // Reset audio engine unconditionally
@@ -1583,6 +1641,8 @@ final class AppState: ObservableObject {
         liveTranscript = ""
         screenContextTask?.cancel()
         screenContextTask = nil
+        screenDocumentURLTask?.cancel()
+        screenDocumentURLTask = nil
         if let id = activeHistoryEntryID {
             historyStore.markCancelled(id)
             activeHistoryEntryID = nil
@@ -1613,10 +1673,66 @@ final class AppState: ObservableObject {
         }
 
         if isAutoPaused {
-            let message = "Dictation is paused while a listed app is running."
+            let message = autoPausedMessage
             VocaLogger.info(.appState, message)
+            endHotKeyToggleSession()
+            showOverlayFailure(message)
             showTemporaryError(message)
             return
+        }
+
+        // A file or system-audio transcription owns the speech model and shows
+        // as processing. Treating that as a stuck state would force-recover
+        // mid-job and run two decodes on one model.
+        if isTranscribingMedia {
+            VocaLogger.info(.appState, "Dictation ignored while a file or system-audio transcription is running")
+            endHotKeyToggleSession()
+            errorMessage = "VocaMac is transcribing audio. Dictation is available when it finishes."
+            let message = errorMessage
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                if self?.errorMessage == message { self?.errorMessage = nil }
+            }
+            return
+        }
+
+        if isLoadingModelForRecording {
+            VocaLogger.info(.appState, "Dictation already starting while the speech model loads — ignoring")
+            return
+        }
+
+        // The previous dictation is still being transcribed, cleaned up, or
+        // delivered. Never throw it away: start this one when it's done.
+        if isTranscribing {
+            if queuedRecordingStart != nil {
+                // Toggle-style triggers (hands-free, menu) press again to stop.
+                queuedRecordingStart = nil
+                VocaLogger.info(.appState, "Queued dictation withdrawn before it started")
+            } else {
+                queuedRecordingStart = QueuedRecordingStart(
+                    injectResult: injectResult,
+                    outputDestination: outputDestination,
+                    isHandsFree: isHandsFreeSession
+                )
+                VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
+            }
+            return
+        }
+
+        switch appStatus {
+        case .idle, .recording:
+            break
+        case .error:
+            // An error only reports something that already happened. Clear it
+            // and start, rather than making the user press twice.
+            errorMessage = nil
+            appStatus = .idle
+        case .processing:
+            // Processing with no transcription, model load, or media job
+            // behind it is a stuck status. Clear it and start in one press
+            // (not `forceRecovery`, which would forget the key being held).
+            VocaLogger.warning(.appState, "startRecording found a stale processing state — clearing it and starting")
+            errorMessage = nil
+            appStatus = .idle
         }
 
         // Snapshot the target app now. Injection re-reads the frontmost app —
@@ -1627,32 +1743,9 @@ final class AppState: ObservableObject {
         // Starting another dictation means the user is done fixing the last one.
         correctionObserver?.flush()
 
-        // A file or system-audio transcription owns the speech model and shows
-        // as processing. Treating that as a stuck state would force-recover
-        // mid-job and run two decodes on one model.
-        if isTranscribingMedia {
-            VocaLogger.info(.appState, "Dictation ignored while a file or system-audio transcription is running")
-            errorMessage = "VocaMac is transcribing audio. Dictation is available when it finishes."
-            let message = errorMessage
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                if self?.errorMessage == message { self?.errorMessage = nil }
-            }
-            return
-        }
-
-        guard appStatus == .idle else {
-            // If stuck in .processing or .error for too long, force recovery
-            // so the user can start a fresh recording.
-            if appStatus == .error || appStatus == .processing {
-                VocaLogger.warning(.appState, "startRecording called in \(appStatus.rawValue) state — force recovering to allow new recording")
-                forceRecovery()
-                // Don't start recording in the same call — let the user press again
-                return
-            }
-            VocaLogger.warning(.appState, "startRecording called in non-idle state: \(appStatus.rawValue) — ignoring")
-            return
-        }
         guard micPermission == .granted else {
+            endHotKeyToggleSession()
+            showOverlayFailure("Microphone access is off.")
             errorMessage = "Microphone permission is required. Please grant access in System Settings."
             appStatus = .error
             return
@@ -1660,14 +1753,30 @@ final class AppState: ObservableObject {
 
         // Lazy-reload after idle unload (or any other cold start).
         if !whisperService.isModelLoaded {
+            // The first download can take minutes. Say so instead of leaving
+            // the hotkey looking stuck on "processing" until it finishes.
+            if startupModelPreparation != nil,
+               availableModels.contains(where: { $0.downloadProgress != nil }) {
+                let message = "The speech model is still downloading. Dictation will work as soon as it finishes."
+                VocaLogger.info(.appState, message)
+                endHotKeyToggleSession()
+                showOverlayFailure("The speech model is still downloading.")
+                showTemporaryError(message)
+                return
+            }
             appStatus = .processing
             isLoadingModelForRecording = true
             pendingStopDuringModelLoad = nil
+            if let startupModelPreparation {
+                await startupModelPreparation.value
+            }
             await ensureModelLoaded()
             isLoadingModelForRecording = false
             let pendingStop = pendingStopDuringModelLoad
             pendingStopDuringModelLoad = nil
             guard whisperService.isModelLoaded else {
+                endHotKeyToggleSession()
+                showOverlayFailure("Couldn't load the speech model.")
                 showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
                 return
             }
@@ -1701,6 +1810,7 @@ final class AppState: ObservableObject {
         // Bluetooth that can be seconds later, and anything said before then is
         // not captured by anyone.
         if showCursorIndicator && overlayStyle != .off {
+            cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
             cursorOverlay.show(style: overlayStyle, position: overlayPosition)
             cursorOverlay.setCommandSession(commandModeSession)
         }
@@ -1761,6 +1871,7 @@ final class AppState: ObservableObject {
 
         guard didStartRecording else {
             VocaLogger.warning(.appState, "Audio engine failed to start — resetting recording state")
+            showOverlayFailure("Couldn't start the microphone.")
             discardRecordingState()
             // Silently dropping back to idle looks like the hotkey did nothing.
             // Tell the user which microphone we tried and where to change it.
@@ -1814,8 +1925,16 @@ final class AppState: ObservableObject {
     }
 
     func stopRecordingAndTranscribe(injectResult: Bool = true) async {
-        // Start-time recordingInjectsResult alone decides injection. The parameter is kept
-        // for source compatibility but ignored so practice/settings UIs cannot demote an ordinary hotkey session.
+        await stopRecordingAndTranscribe(endsHotKeyToggle: true)
+    }
+
+    /// - Parameter endsHotKeyToggle: False only when the hotkey itself asked
+    ///   for the stop. Any other stop (silence, the time limit, the menu or
+    ///   overlay) must also end the hotkey's double-tap session, or the next
+    ///   double-tap would be taken as a stop and do nothing.
+    private func stopRecordingAndTranscribe(endsHotKeyToggle: Bool) async {
+        // Start-time recordingInjectsResult alone decides injection.
+        // Practice/settings UIs cannot demote an ordinary hotkey session.
         let injectResult = recordingInjectsResult
         let interval = PerformanceTrace.begin("StopToResultQueued")
         defer { PerformanceTrace.end(interval) }
@@ -1824,7 +1943,16 @@ final class AppState: ObservableObject {
         // isRecording and appStatus may be out of sync).
         guard isRecording || appStatus == .recording else {
             if isLoadingModelForRecording { pendingStopDuringModelLoad = .transcribe }
+            if queuedRecordingStart != nil {
+                // Released (or toggled off) before the previous dictation
+                // finished, so this one never started.
+                queuedRecordingStart = nil
+                VocaLogger.info(.appState, "Queued dictation ended before it could start")
+            }
             return
+        }
+        if endsHotKeyToggle {
+            endHotKeyToggleSession()
         }
 
         // A start that is still negotiating its input route holds the audio
@@ -1873,6 +2001,7 @@ final class AppState: ObservableObject {
 
         guard audioData.contains(where: { abs($0) >= 0.0001 }) else {
             resetCommandModeState()
+            showOverlayFailure("No audio from the microphone.")
             cursorOverlay.hide()
             // Don't keep a route warm when it produced only silence.
             audioEngine.forceReset()
@@ -1892,7 +2021,8 @@ final class AppState: ObservableObject {
         screenContextTask = nil
         let documentURLTask = screenDocumentURLTask
         screenDocumentURLTask = nil
-        // Saved before transcribing, so a crash or failure can't lose it.
+        // Journaled before transcribing; the audio is written alongside the
+        // transcription, so a failure can still be retried from history.
         let historyID = injectResult ? await beginHistoryEntry(audio: audioData) : nil
         activeHistoryEntryID = historyID
         guard generation == recordingGeneration else {
@@ -1960,6 +2090,8 @@ final class AppState: ObservableObject {
             statsManager.recordTranscription(result)
 
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Set when nothing was heard and no overlay could say so.
+            var heardNothing = false
             if !trimmedText.isEmpty {
                 let target = frontmostAppResolver.currentFrontmostApp()
                     ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
@@ -2006,9 +2138,11 @@ final class AppState: ObservableObject {
                         ?? frontmostAppResolver.lastActiveApp() ?? pendingTargetApp
                     guard Self.sameOutputTarget(target, current) else {
                         heldOutput = output.text
+                        showOverlayFailure("The app changed. Your text is saved in the menu bar.")
                         cursorOverlay.hide()
-                        errorMessage = "The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want."
-                        appStatus = .error
+                        // The held text stays in the menu bar; the error
+                        // itself clears so the app doesn't stay in .error.
+                        showTemporaryError("The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want.")
                         return
                     }
                     textInjector.inject(text: output.text, preserveClipboard: preserveClipboard)
@@ -2030,28 +2164,36 @@ final class AppState: ObservableObject {
                         keepAudio: historyKeepsAudio
                     )
                 }
-                if !injectResult {
+                if injectResult {
+                    heardNothing = !showOverlayFailure("Didn't catch that.")
+                } else {
                     settingsTestResultText = nil
                 }
             }
 
             cursorOverlay.hide()
             appStatus = .idle
+            if heardNothing {
+                showTemporaryError("Didn't catch that. Nothing was typed.")
+            }
         } catch {
             guard generation == recordingGeneration else {
                 if let historyID { historyStore.markCancelled(historyID) }
                 return
             }
-            cursorOverlay.hide()
             resetCommandModeState()
             liveTranscript = ""
             var message = "Transcription failed: \(error.localizedDescription)"
+            var overlayMessage = "Transcription failed."
             if let historyID {
                 historyStore.markFailed(historyID, message: error.localizedDescription)
                 if historyStore.entry(id: historyID)?.hasAudio == true {
                     message += " Your audio is saved — retry it from the menu bar."
+                    overlayMessage = "Transcription failed. Retry it from the menu bar."
                 }
             }
+            showOverlayFailure(overlayMessage)
+            cursorOverlay.hide()
             errorMessage = message
             appStatus = .error
 
@@ -2078,6 +2220,7 @@ final class AppState: ObservableObject {
     func cancelRecording() async {
         guard isRecording || appStatus == .recording else {
             if isLoadingModelForRecording { pendingStopDuringModelLoad = .discard }
+            queuedRecordingStart = nil
             return
         }
 
@@ -2087,6 +2230,9 @@ final class AppState: ObservableObject {
             return
         }
 
+        // A stop already waiting on the audio engine (the hotkey released a
+        // moment before Escape) must not go on to transcribe and paste.
+        recordingGeneration = UUID()
         _ = await stopAudioEngine()
         discardRecordingState()
         appStatus = .idle
@@ -2121,6 +2267,8 @@ final class AppState: ObservableObject {
         }
         guard isTranscribing else { return }
         recordingGeneration = UUID()
+        // Escape cancels everything, including a dictation waiting to start.
+        queuedRecordingStart = nil
         finishingTranscription?.cancel()
         transcriptCleanup.cancelCleanup()
         resetCommandModeState()
@@ -2395,12 +2543,76 @@ final class AppState: ObservableObject {
         await loadModel(size)
     }
 
+    /// Say near the caret why a dictation produced nothing. The menu bar
+    /// popover is closed while dictating, so an error only shown there goes
+    /// unseen. Returns false when overlays are off; the caller then relies on
+    /// its temporary error instead.
+    @discardableResult
+    private func showOverlayFailure(_ message: String) -> Bool {
+        guard showCursorIndicator, overlayStyle != .off else { return false }
+        cursorOverlay.showFailure(message: message)
+        return true
+    }
+
+    /// End the hotkey's double-tap toggle session after a recording stopped,
+    /// or failed to start, without a double-tap. Otherwise the next
+    /// double-tap is read as "stop" and does nothing. Push-to-talk tracks the
+    /// physical key instead, which a reset here could lose mid-press.
+    private func endHotKeyToggleSession() {
+        guard activationMode == .doubleTapToggle else { return }
+        hotKeyManager.resetKeyState()
+    }
+
+    /// Start the hotkey listener if it isn't running, and rebuild it if macOS
+    /// disabled its event tap (a revoked and re-granted permission leaves the
+    /// old tap disabled for good).
+    private func restartHotKeyListenerIfNeeded() {
+        if hotKeyManager.isListening, let tap = hotKeyManager.eventTap,
+           !CGEvent.tapIsEnabled(tap: tap) {
+            VocaLogger.warning(.appState, "Hotkey event tap was disabled — recreating it")
+            hotKeyManager.stopListening()
+        }
+        guard !hotKeyManager.isListening else { return }
+        hotKeyManager.startListening(
+            keyCode: hotKeyCode,
+            mode: activationMode,
+            doubleTapThreshold: doubleTapThreshold,
+            safetyTimeout: hotKeySafetyTimeout,
+            modifiers: hotKeyModifiers
+        )
+    }
+
+    /// Start a dictation queued behind the previous one, once that one is
+    /// delivered. Runs on a later turn so the delivery finishes unwinding.
+    private func scheduleQueuedRecordingStart() {
+        guard queuedRecordingStart != nil else { return }
+        Task { @MainActor [weak self] in
+            await self?.startQueuedRecordingIfReady()
+        }
+    }
+
+    /// Clearing the queue and marking the recording as started happen in one
+    /// main-actor turn, so a key release can't slip between them and leave a
+    /// push-to-talk recording running with nobody holding the key.
+    private func startQueuedRecordingIfReady() async {
+        guard let queued = queuedRecordingStart,
+              !isTranscribing, !isRecording, !isTranscribingMedia,
+              appStatus == .idle || appStatus == .error else { return }
+        queuedRecordingStart = nil
+        VocaLogger.info(.appState, "Previous dictation delivered — starting the queued one")
+        if queued.isHandsFree { isHandsFreeSession = true }
+        await startRecording(injectResult: queued.injectResult, outputDestination: queued.outputDestination)
+        if queued.isHandsFree && !isRecording { isHandsFreeSession = false }
+    }
+
+    static let deliveryFailureMessageDuration: TimeInterval = 10
+
     /// Surface a short-lived error state for settings and menu UI.
-    private func showTemporaryError(_ message: String) {
+    private func showTemporaryError(_ message: String, duration: TimeInterval = 5.0) {
         errorMessage = message
         appStatus = .error
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             if self?.appStatus == .error, self?.errorMessage == message {
                 self?.appStatus = .idle
                 self?.errorMessage = nil
@@ -2504,7 +2716,17 @@ final class AppState: ObservableObject {
             if let idx = availableModels.firstIndex(where: { $0.size == size }) {
                 availableModels[idx].downloadProgress = nil
             }
-            errorMessage = "Download failed: \(error.localizedDescription)"
+            if error is CancellationError {
+                // The user pressed Cancel; that isn't a failure to report.
+                VocaLogger.info(.appState, "Download cancelled for \(size.displayName)")
+                return
+            }
+            if case ModelManagerError.insufficientDiskSpace = error {
+                // Already a complete sentence saying what to do.
+                errorMessage = error.localizedDescription
+            } else {
+                errorMessage = "Download failed: \(error.localizedDescription)"
+            }
             VocaLogger.error(.appState, "Download failed for \(size.displayName): \(error.localizedDescription)")
         }
     }
@@ -2587,11 +2809,44 @@ final class AppState: ObservableObject {
         // Start polling if any permission is still missing
         startPermissionPolling()
 
-        // 3. Load the user's preferred model.
-        // On first launch the preferred model (tiny by default) won't be
-        // downloaded yet. We download it explicitly so the UI can show real
-        // progress, rather than delegating to WhisperKit's opaque auto-select
-        // which provides no progress callbacks and may pick a different model.
+        // 3. Start the hotkey listener before any model work. Loading a model
+        // (and the cleanup model after it) takes seconds, and a login launch
+        // with a dead hotkey looks broken. A press while the model is still
+        // loading waits for it (see `startRecording`).
+        // The event tap creation itself will fail if permissions aren't granted,
+        // and we handle that gracefully in HotKeyManager.
+        VocaLogger.info(.appState, "Attempting to start hotkey listener...")
+        restartHotKeyListenerIfNeeded()
+        if hotKeyManager.isListening {
+            VocaLogger.info(.appState, "Hotkey listener active (keyCode=\(hotKeyCode), mode=\(activationMode.rawValue))")
+        } else {
+            VocaLogger.warning(.appState, "Hotkey listener failed to start. Check Accessibility & Input Monitoring permissions.")
+        }
+
+        // 4. Load the user's preferred model.
+        let preparation = Task<Void, Never> { @MainActor [weak self] in
+            await self?.prepareStartupModel()
+        }
+        startupModelPreparation = preparation
+        await preparation.value
+        startupModelPreparation = nil
+
+        transcriptCleanup.pruneUnknownModels()
+        if transcriptCleanupEnabled {
+            await syncTranscriptCleanup()
+        }
+
+        await updateChecker.checkOnLaunchIfNeeded()
+
+        VocaLogger.info(.appState, "Startup complete!")
+    }
+    /// Download (if needed) and load the preferred speech model at launch.
+    ///
+    /// On first launch the preferred model (tiny by default) won't be
+    /// downloaded yet. We download it explicitly so the UI can show real
+    /// progress, rather than delegating to WhisperKit's opaque auto-select
+    /// which provides no progress callbacks and may pick a different model.
+    private func prepareStartupModel() async {
         let preferredModel = ModelSize(rawValue: selectedModelSize) ?? .tiny
         var modelToLoad = startupFallbackModel(for: preferredModel)
         if modelToLoad != preferredModel {
@@ -2624,33 +2879,8 @@ final class AppState: ObservableObject {
         VocaLogger.info(.appState, "Loading model: \(modelToLoad.displayName)...")
         await loadModel(modelToLoad)
         VocaLogger.info(.appState, "Model loaded: \(whisperService.loadedModelName ?? "none")")
-
-        transcriptCleanup.pruneUnknownModels()
-        if transcriptCleanupEnabled {
-            await syncTranscriptCleanup()
-        }
-
-        // 4. Always attempt to start hotkey listener
-        // The event tap creation itself will fail if permissions aren't granted,
-        // and we handle that gracefully in HotKeyManager.
-        VocaLogger.info(.appState, "Attempting to start hotkey listener...")
-        hotKeyManager.startListening(
-            keyCode: hotKeyCode,
-            mode: activationMode,
-            doubleTapThreshold: doubleTapThreshold,
-            safetyTimeout: hotKeySafetyTimeout,
-            modifiers: hotKeyModifiers
-        )
-        if hotKeyManager.isListening {
-            VocaLogger.info(.appState, "Hotkey listener active (keyCode=\(hotKeyCode), mode=\(activationMode.rawValue))")
-        } else {
-            VocaLogger.warning(.appState, "Hotkey listener failed to start. Check Accessibility & Input Monitoring permissions.")
-        }
-
-        await updateChecker.checkOnLaunchIfNeeded()
-
-        VocaLogger.info(.appState, "Startup complete!")
     }
+
     func completeOnboarding() {
         syncHotKeyConfiguration()
         if !isRecording {
@@ -3049,12 +3279,16 @@ extension AppState {
         guard historyEnabled else { return nil }
         historyStore.applyRetention(historyRetention)
         let modelID = currentModel?.size.rawValue ?? selectedModelSize
+        // Transcription starts as soon as the entry is journaled. The audio is
+        // still written (a failed or cancelled dictation needs it for Retry),
+        // but in parallel rather than first.
         return await historyStore.begin(
             audio: audio,
             target: frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp,
             modelID: modelID,
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
-            audioSeconds: Double(audio.count) / 16_000
+            audioSeconds: Double(audio.count) / 16_000,
+            waitForAudio: false
         )
     }
 
@@ -3679,30 +3913,37 @@ extension AppState {
     /// The screen terms, if they arrive in time. Never holds up a dictation
     /// for more than a moment on a slow app.
     fileprivate static func awaitContextTerms(_ task: Task<[String], Never>?) async -> [String] {
-        guard let task else { return [] }
-        return await withTaskGroup(of: [String]?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first ?? []
-        }
+        await value(of: task, within: screenContextTimeout, otherwise: [])
     }
 
     fileprivate static func awaitDocumentURL(_ task: Task<URL?, Never>?) async -> URL? {
-        guard let task else { return nil }
-        return await withTaskGroup(of: URL?.self) { group in
-            group.addTask { await task.value }
-            group.addTask {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                return nil
+        await value(of: task, within: screenContextTimeout, otherwise: nil)
+    }
+
+    static let screenContextTimeout: TimeInterval = 0.3
+
+    /// A task's value if it arrives within `timeout`, otherwise `fallback`.
+    ///
+    /// Returns at the deadline even when the task ignores cancellation: a
+    /// task group would wait for every child, and `Task.value` does not stop
+    /// waiting when cancelled, so a slow Accessibility read would hold up the
+    /// dictation for as long as it took. The task is left to finish on its own.
+    static func value<T: Sendable>(
+        of task: Task<T, Never>?,
+        within timeout: TimeInterval,
+        otherwise fallback: T
+    ) async -> T {
+        guard let task else { return fallback }
+        let gate = FirstValueGate<T>()
+        return await withCheckedContinuation { continuation in
+            gate.install(continuation)
+            Task.detached {
+                gate.resume(with: await task.value)
             }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            Task.detached {
+                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+                gate.resume(with: fallback)
+            }
         }
     }
 
@@ -3712,8 +3953,9 @@ extension AppState {
     private func revalidatedDocumentURL(_ capturedURL: URL?) async -> URL? {
         guard !websiteStyleBindings.isEmpty,
               let capturedURL,
-              let reader = screenContextReader,
-              let currentURL = await reader.captureFrontmostDocumentURL(),
+              let reader = screenContextReader else { return nil }
+        let refresh = Task { @MainActor in await reader.captureFrontmostDocumentURL() }
+        guard let currentURL = await Self.value(of: refresh, within: Self.screenContextTimeout, otherwise: nil),
               capturedURL.host?.lowercased() == currentURL.host?.lowercased() else {
             if capturedURL != nil {
                 VocaLogger.warning(.appState, "Website changed before dictation output; skipping the captured website rule")

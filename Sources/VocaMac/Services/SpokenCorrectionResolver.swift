@@ -66,10 +66,26 @@ enum SpokenCorrectionResolver {
         let replacement = text.substring(with: match.range(withName: "replacement"))
         guard let firstKind = kind(of: first), firstKind == kind(of: replacement),
               first.lowercased() != replacement.lowercased() else { return false }
+        // A correction stays inside one sentence: "We need 2. Sorry, 3 of us
+        // can't make it." is an apology, then a new sentence.
+        let firstEnd = match.range(withName: "first").upperBound
+        let gap = text.substring(with: NSRange(
+            location: firstEnd,
+            length: match.range(withName: "replacement").location - firstEnd
+        ))
+        guard !endsASentence(gap) else { return false }
         // Only the clause the first value sits in: from the last sentence end.
         let before = text.substring(to: match.range(withName: "correction").location)
         let clause = before.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).last ?? before
         return !containsNegation(clause)
+    }
+
+    /// A full stop between the value and its replacement. An ellipsis
+    /// ("tomorrow… no, Wednesday") is a hesitation, not a sentence end.
+    private static func endsASentence(_ gap: String) -> Bool {
+        gap.replacingOccurrences(of: "…", with: "")
+            .replacingOccurrences(of: "\\.{2,}", with: "", options: .regularExpression)
+            .contains { ".!?".contains($0) }
     }
 
     private enum Kind { case day, month, number }

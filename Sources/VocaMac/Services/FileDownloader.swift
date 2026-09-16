@@ -5,6 +5,60 @@
 // archives that engines don't download themselves (sherpa-onnx).
 
 import Foundation
+import os
+
+/// Drops progress updates that arrive faster than the UI can use them.
+///
+/// URLSession reports every write, often hundreds of times a second, and each
+/// report that reaches the main actor re-renders every view observing the
+/// download. The first value and completion always pass.
+final class ProgressThrottle: @unchecked Sendable {
+    private struct State {
+        var lastValue: Double?
+        var lastTime: TimeInterval = 0
+    }
+
+    private let minimumInterval: TimeInterval
+    private let now: @Sendable () -> TimeInterval
+    private let state = OSAllocatedUnfairLock(initialState: State())
+
+    init(
+        minimumInterval: TimeInterval = 0.1,
+        now: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
+        self.minimumInterval = minimumInterval
+        self.now = now
+    }
+
+    /// Whether `progress` should be forwarded: the first value, completion,
+    /// or a changed value at least `minimumInterval` after the last one sent.
+    func shouldDeliver(_ progress: Double) -> Bool {
+        let time = now()
+        return state.withLock { state in
+            if let last = state.lastValue {
+                // Nothing after completion: a late tick would move a
+                // finished bar backwards.
+                guard last < 1.0 else { return false }
+                let completes = progress >= 1.0
+                let due = progress != last && time - state.lastTime >= minimumInterval
+                guard completes || due else { return false }
+            }
+            state.lastValue = progress
+            state.lastTime = time
+            return true
+        }
+    }
+
+    /// Wrap a progress handler so only throttled values reach it.
+    static func wrap(
+        _ handler: @escaping (Double) -> Void,
+        throttle: ProgressThrottle = ProgressThrottle()
+    ) -> (Double) -> Void {
+        { progress in
+            if throttle.shouldDeliver(progress) { handler(progress) }
+        }
+    }
+}
 
 enum FileDownloaderError: LocalizedError {
     case badResponse(statusCode: Int)
@@ -25,6 +79,7 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
 
     private let destination: URL
     private let onProgress: (Double) -> Void
+    private let progressThrottle = ProgressThrottle()
     private var continuation: CheckedContinuation<Void, Error>?
     private var task: URLSessionDownloadTask?
     private var isCancelled = false
@@ -109,7 +164,9 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         totalBytesExpectedToWrite: Int64
     ) {
         guard totalBytesExpectedToWrite > 0 else { return }
-        onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        let progress = Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
+        guard progressThrottle.shouldDeliver(progress) else { return }
+        onProgress(progress)
     }
 
     func urlSession(

@@ -34,7 +34,7 @@ final class DictationHistoryStore: ObservableObject {
     /// Serializes audio file writes, reads, and deletions, so a retry's read
     /// always sees the finished WAV file. The index and journal are written
     /// synchronously on the main actor.
-    private let ioQueue = DispatchQueue(label: "com.vocamac.history.io", qos: .utility)
+    private let ioQueue = DispatchQueue(label: "com.vocamac.history.io", qos: .userInitiated)
 
     nonisolated private static let sampleRate = 16_000
 
@@ -49,9 +49,43 @@ final class DictationHistoryStore: ObservableObject {
             .appendingPathComponent("History", isDirectory: true)
     }
 
-    init(directory: URL?) {
+    /// - Parameter loadInBackground: Read and compact the saved history off
+    ///   the main thread, publishing `entries` when done. Changes made before
+    ///   then wait for the load, so nothing is written over the file being read.
+    init(directory: URL?, loadInBackground: Bool = false) {
         self.directory = directory
-        loadIndex()
+        if loadInBackground, directory != nil {
+            let paths = LoadPaths(indexURL: indexURL, journalURL: journalURL, audioDirectory: audioDirectory)
+            loadTask = Task { [weak self] in
+                let result = await Task.detached(priority: .utility) {
+                    Self.readHistory(paths)
+                }.value
+                self?.finishLoading(result)
+            }
+        } else {
+            finishLoading(Self.readHistory(LoadPaths(
+                indexURL: indexURL, journalURL: journalURL, audioDirectory: audioDirectory
+            )))
+        }
+    }
+
+    /// Set while a background load is running.
+    private var loadTask: Task<Void, Never>?
+    private var isLoaded = false
+    /// Changes requested before the background load finished.
+    private var pendingUntilLoaded: [() -> Void] = []
+
+    /// Resolves once saved history has been loaded.
+    func waitUntilLoaded() async {
+        await loadTask?.value
+    }
+
+    private func whenLoaded(_ change: @escaping () -> Void) {
+        if isLoaded {
+            change()
+        } else {
+            pendingUntilLoaded.append(change)
+        }
     }
 
     // MARK: - Paths
@@ -129,6 +163,10 @@ final class DictationHistoryStore: ObservableObject {
     /// If the entry itself can't be saved, no audio is written (launch would
     /// delete a file no saved entry owns) and the returned id matches no
     /// entry: the dictation carries on without history.
+    ///
+    /// With `waitForAudio` false it returns once the entry is journaled and
+    /// the write is queued, so transcription doesn't wait on the disk. The
+    /// window in which a crash loses the audio is then the write itself.
     @discardableResult
     func begin(
         audio: [Float]?,
@@ -136,8 +174,10 @@ final class DictationHistoryStore: ObservableObject {
         modelID: String,
         language: String?,
         audioSeconds: Double,
-        now: Date = Date()
+        now: Date = Date(),
+        waitForAudio: Bool = true
     ) async -> UUID {
+        await waitUntilLoaded()
         var entry = DictationHistoryEntry(
             createdAt: now,
             status: .pending,
@@ -167,28 +207,41 @@ final class DictationHistoryStore: ObservableObject {
 
         if let pendingAudio {
             let fileURL = pendingAudio.folder.appendingPathComponent(pendingAudio.name)
-            let saved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            let write = { [ioQueue] (finished: @escaping @Sendable (Bool) -> Void) in
                 ioQueue.async {
                     do {
                         try FileManager.default.createDirectory(at: pendingAudio.folder, withIntermediateDirectories: true)
                         try FailedAudioDump.wavData(from: pendingAudio.samples, sampleRate: Self.sampleRate)
                             .write(to: fileURL, options: .atomic)
-                        continuation.resume(returning: true)
+                        finished(true)
                     } catch {
                         VocaLogger.error(.history, "Could not save dictation audio: \(error.localizedDescription)")
-                        continuation.resume(returning: false)
+                        finished(false)
                     }
                 }
             }
-            if !saved {
-                update(id) { entry in
-                    entry.audioFileName = nil
-                    entry.audioBytes = nil
+            if waitForAudio {
+                let saved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    write { continuation.resume(returning: $0) }
+                }
+                if !saved { audioWriteFailed(id) }
+            } else {
+                write { saved in
+                    guard !saved else { return }
+                    Task { @MainActor [weak self] in self?.audioWriteFailed(id) }
                 }
             }
         }
         enforceCaps()
         return id
+    }
+
+    private func audioWriteFailed(_ id: UUID) {
+        guard entry(id: id)?.audioFileName != nil else { return }
+        update(id) { entry in
+            entry.audioFileName = nil
+            entry.audioBytes = nil
+        }
     }
 
     /// Record a finished Command Mode edit. It has no audio to keep: what
@@ -205,6 +258,16 @@ final class DictationHistoryStore: ObservableObject {
         audioSeconds: Double,
         now: Date = Date()
     ) {
+        guard isLoaded else {
+            whenLoaded { [weak self] in
+                self?.recordCommandEdit(
+                    instruction: instruction, original: original, replacement: replacement,
+                    summary: summary, target: target, modelID: modelID, language: language,
+                    audioSeconds: audioSeconds, now: now
+                )
+            }
+            return
+        }
         let entry = DictationHistoryEntry(
             createdAt: now,
             status: .completed,
@@ -299,6 +362,7 @@ final class DictationHistoryStore: ObservableObject {
 
     @discardableResult
     func delete(_ id: UUID) -> Bool {
+        guard isLoaded else { return false }
         guard let index = entries.firstIndex(where: { $0.id == id }) else { return true }
         let previous = entries
         var entry = entries.remove(at: index)
@@ -313,6 +377,7 @@ final class DictationHistoryStore: ObservableObject {
 
     @discardableResult
     func deleteAll() -> Bool {
+        guard isLoaded else { return false }
         let previous = entries
         entries = []
         pendingAudioRemovals = []
@@ -332,6 +397,7 @@ final class DictationHistoryStore: ObservableObject {
     /// Drop the audio of every entry but keep the text.
     @discardableResult
     func deleteAllAudio() -> Bool {
+        guard isLoaded else { return false }
         let previous = entries
         for index in entries.indices {
             removeAudio(of: &entries[index])
@@ -345,6 +411,10 @@ final class DictationHistoryStore: ObservableObject {
 
     /// Delete entries older than the retention window.
     func applyRetention(_ retention: HistoryRetention, now: Date = Date()) {
+        guard isLoaded else {
+            whenLoaded { [weak self] in self?.applyRetention(retention, now: now) }
+            return
+        }
         guard let maximumAge = retention.maximumAge else { return }
         let cutoff = now.addingTimeInterval(-maximumAge)
         let expired = entries.filter { $0.createdAt < cutoff }
@@ -495,17 +565,20 @@ final class DictationHistoryStore: ObservableObject {
 
     private var journalLineCount = 0
 
-    private static let encoder: JSONEncoder = {
+    /// Main-actor writes share one encoder; the background load makes its own.
+    private static let encoder: JSONEncoder = makeEncoder()
+
+    nonisolated private static func makeEncoder() -> JSONEncoder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         return encoder
-    }()
+    }
 
-    private static let decoder: JSONDecoder = {
+    nonisolated private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return decoder
-    }()
+    }
 
     /// Save one change: append it to the journal, or failing that rewrite
     /// the whole index. Returns false if neither worked, in which case any
@@ -566,13 +639,30 @@ final class DictationHistoryStore: ObservableObject {
         }
     }
 
+    private struct LoadPaths: Sendable {
+        let indexURL: URL?
+        let journalURL: URL?
+        let audioDirectory: URL?
+    }
+
+    private struct LoadResult: Sendable {
+        let entries: [DictationHistoryEntry]
+        /// Whether `index.json` now holds everything and the journal is gone.
+        let compacted: Bool
+        /// Whether the loaded history differs from what is on disk.
+        let changed: Bool
+    }
+
     /// Apply journal lines over the loaded index. A torn last line (VocaMac
     /// died mid-write) is skipped.
-    private func replayJournal(onto entries: inout [DictationHistoryEntry]) -> Bool {
+    nonisolated private static func replayJournal(
+        at journalURL: URL?, onto entries: inout [DictationHistoryEntry]
+    ) -> Bool {
         guard let journalURL, let data = try? Data(contentsOf: journalURL), !data.isEmpty else { return false }
+        let decoder = makeDecoder()
         var byID = Dictionary(entries.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         for line in data.split(separator: 0x0A) where !line.isEmpty {
-            guard let record = try? Self.decoder.decode(JournalRecord.self, from: Data(line)) else {
+            guard let record = try? decoder.decode(JournalRecord.self, from: Data(line)) else {
                 VocaLogger.warning(.history, "Skipped an unreadable history journal line")
                 continue
             }
@@ -586,12 +676,15 @@ final class DictationHistoryStore: ObservableObject {
         return true
     }
 
-    private func loadIndex() {
+    /// Read the index, replay the journal, and fold the result back into the
+    /// index. Touches only files, so it can run off the main thread; nothing
+    /// else writes history until it has finished.
+    nonisolated private static func readHistory(_ paths: LoadPaths) -> LoadResult {
         var loaded: [DictationHistoryEntry] = []
         var indexWasUnreadable = false
-        if let indexURL, FileManager.default.fileExists(atPath: indexURL.path) {
+        if let indexURL = paths.indexURL, FileManager.default.fileExists(atPath: indexURL.path) {
             do {
-                loaded = try Self.decoder.decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
+                loaded = try makeDecoder().decode([DictationHistoryEntry].self, from: Data(contentsOf: indexURL))
             } catch {
                 // Keep the unreadable file aside rather than overwrite it on the
                 // next save, and keep its recordings too.
@@ -603,14 +696,14 @@ final class DictationHistoryStore: ObservableObject {
             }
         }
 
-        var changed = replayJournal(onto: &loaded)
+        var changed = replayJournal(at: paths.journalURL, onto: &loaded)
         for index in loaded.indices {
             if loaded[index].status == .pending {
                 loaded[index].status = .interrupted
                 changed = true
             }
             // Never advertise audio that isn't there.
-            if let name = loaded[index].audioFileName, let folder = audioDirectory,
+            if let name = loaded[index].audioFileName, let folder = paths.audioDirectory,
                !FileManager.default.fileExists(atPath: folder.appendingPathComponent(name).path) {
                 loaded[index].audioFileName = nil
                 loaded[index].audioBytes = nil
@@ -621,16 +714,49 @@ final class DictationHistoryStore: ObservableObject {
         // With the index unreadable, "unreferenced" would mean every
         // recording it listed; leave them for the set-aside file.
         if !indexWasUnreadable {
-            removeUnreferencedAudio(referenced: Set(loaded.compactMap(\.audioFileName)))
+            removeUnreferencedAudio(in: paths.audioDirectory, referenced: Set(loaded.compactMap(\.audioFileName)))
         }
 
-        entries = loaded
         let interrupted = loaded.filter { $0.status == .interrupted }.count
         if interrupted > 0 {
             VocaLogger.warning(.history, "\(interrupted) dictation(s) didn't finish; their audio is kept for retry")
         }
-        if changed, !compact() {
+        let compacted = changed && writeIndex(loaded, indexURL: paths.indexURL, journalURL: paths.journalURL)
+        return LoadResult(entries: loaded, compacted: compacted, changed: changed)
+    }
+
+    /// Replace `index.json` with `entries`, then remove the journal.
+    nonisolated private static func writeIndex(
+        _ entries: [DictationHistoryEntry], indexURL: URL?, journalURL: URL?
+    ) -> Bool {
+        guard let indexURL else { return true }
+        do {
+            try FileManager.default.createDirectory(
+                at: indexURL.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try makeEncoder().encode(entries).write(to: indexURL, options: .atomic)
+            if let journalURL {
+                try? FileManager.default.removeItem(at: journalURL)
+            }
+            return true
+        } catch {
+            VocaLogger.error(.history, "Could not save dictation history: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func finishLoading(_ result: LoadResult) {
+        entries = result.entries
+        journalLineCount = 0
+        if result.changed && !result.compacted && directory != nil {
             hasUnsavedChanges = true
+        }
+        isLoaded = true
+        loadTask = nil
+        let pending = pendingUntilLoaded
+        pendingUntilLoaded = []
+        for change in pending {
+            change()
         }
     }
 
@@ -639,8 +765,8 @@ final class DictationHistoryStore: ObservableObject {
     /// whose deletion was saved but whose file removal hadn't run yet (or a
     /// temporary file from a write that never finished). Deleted audio stays
     /// deleted.
-    private func removeUnreferencedAudio(referenced: Set<String>) {
-        guard let folder = audioDirectory,
+    nonisolated private static func removeUnreferencedAudio(in folder: URL?, referenced: Set<String>) {
+        guard let folder,
               let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
         for file in files where !referenced.contains(file) {
             try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))

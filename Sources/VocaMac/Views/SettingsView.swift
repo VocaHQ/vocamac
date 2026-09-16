@@ -997,7 +997,9 @@ struct ModelSettingsTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                if appState.appStatus == .error, let errorMessage = appState.errorMessage {
+                // Download and delete failures set only the message, not the
+                // error status, so gate on the message alone.
+                if let errorMessage = appState.errorMessage {
                     GroupBox {
                         HStack(alignment: .top, spacing: 8) {
                             Image(systemName: "exclamationmark.triangle.fill")
@@ -1009,13 +1011,16 @@ struct ModelSettingsTab: View {
                             Spacer()
                             Button {
                                 appState.errorMessage = nil
-                                appState.appStatus = .idle
+                                if appState.appStatus == .error {
+                                    appState.appStatus = .idle
+                                }
                             } label: {
                                 Image(systemName: "xmark.circle.fill")
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
                             .help("Dismiss")
+                            .accessibilityLabel("Dismiss")
                         }
                         .padding(4)
                     }
@@ -1249,7 +1254,19 @@ struct ModelRow: View {
                         .controlSize(.small)
                     Text("\(Int(progress * 100))%")
                         .font(.caption2)
+                        .monospacedDigit()
                         .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Downloading \(model.size.displayName)")
+                .accessibilityValue("\(Int(progress * 100)) percent")
+
+                if progress < 1.0 {
+                    Button("Cancel") {
+                        appState.modelManager.cancelDownload(for: model.size)
+                    }
+                    .controlSize(.small)
+                    .accessibilityLabel("Cancel downloading \(model.size.displayName)")
                 }
             } else if model.isLoading {
                 VStack(spacing: 2) {

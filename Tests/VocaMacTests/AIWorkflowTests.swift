@@ -347,6 +347,19 @@ final class SpokenCorrectionResolverTests: XCTestCase {
         let text = "I was actually thrilled with the result"
         XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text)
     }
+
+    func testCorrectionsNeverCrossASentenceEnd() {
+        for text in [
+            "We need 2. Sorry, 3 of us can't make it.",
+            "Version 2. Actually 3 people asked",
+            "Ship it Monday! Wait, Tuesday is a holiday",
+        ] {
+            XCTAssertEqual(SpokenCorrectionResolver.resolve(text), text, text)
+        }
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("meet at 2, sorry, 3 pm"), "meet at 3 pm")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("call me at 5 p.m., no, 6 p.m."), "call me at 6 p.m.")
+        XCTAssertEqual(SpokenCorrectionResolver.resolve("let's do it tomorrow… no, Wednesday"), "let's do it Wednesday")
+    }
 }
 
 final class DeepLinkRouterTests: XCTestCase {

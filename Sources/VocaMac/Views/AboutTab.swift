@@ -111,7 +111,7 @@ struct AboutTab: View {
             Button {
                 NotificationCenter.default.post(name: .showOnboarding, object: nil)
             } label: {
-                Label("Show Setup Wizard…", systemImage: "wand.and.stars")
+                Label("Set Up VocaMac…", systemImage: "wand.and.stars")
             }
             .help("Re-run the first-launch setup wizard")
         }

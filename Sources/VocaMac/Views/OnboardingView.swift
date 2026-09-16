@@ -63,11 +63,6 @@ struct OnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var practiceBusy = false
 
-    private var permissionsReady: Bool {
-        appState.micPermission == .granted && appState.accessibilityPermission == .granted
-            && appState.inputMonitoringPermission == .granted
-    }
-
     var body: some View {
         HStack(spacing: 0) {
             journeySidebar
@@ -100,7 +95,7 @@ struct OnboardingView: View {
                         Button("Set up later", action: skipOnboarding)
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .help("Reopen setup from the VocaMac menu whenever you're ready.")
+                            .help("Open setup again from the VocaMac menu (Set Up VocaMac…) whenever you're ready.")
                     }
                     Spacer()
                     Button(action: currentStep == .complete ? completeOnboarding : goToNextStep) {
@@ -113,7 +108,6 @@ struct OnboardingView: View {
                     .controlSize(.large)
                     .tint(VocaDesign.accentSolid)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(currentStep == .permissions && !permissionsReady)
                 }
                 .disabled(practiceBusy || appState.isRecording || appState.appStatus == .processing)
                 .padding(22)
@@ -256,14 +250,29 @@ struct WelcomeStep: View {
 
 // MARK: - Step 2: Permissions
 
+/// What stops working for each permission still missing, in step order.
+enum OnboardingPermissionGaps {
+    static func consequences(
+        microphone: PermissionStatus,
+        accessibility: PermissionStatus,
+        inputMonitoring: PermissionStatus
+    ) -> [String] {
+        var gaps: [String] = []
+        if microphone != .granted {
+            gaps.append("Without Microphone, VocaMac can't hear you, so dictation won't work.")
+        }
+        if accessibility != .granted {
+            gaps.append("Without Accessibility, VocaMac can't type your words into other apps.")
+        }
+        if inputMonitoring != .granted {
+            gaps.append("Without Input Monitoring, your shortcut won't start dictation.")
+        }
+        return gaps
+    }
+}
+
 struct PermissionsStep: View {
     @EnvironmentObject var appState: AppState
-
-    private var allPermissionsGranted: Bool {
-        appState.micPermission == .granted &&
-        appState.accessibilityPermission == .granted &&
-        appState.inputMonitoringPermission == .granted
-    }
 
     var body: some View {
         VStack(spacing: 16) {
@@ -293,17 +302,30 @@ struct PermissionsStep: View {
                 )
             }
 
-            if !allPermissionsGranted {
-                HStack(spacing: 8) {
+            let gaps = OnboardingPermissionGaps.consequences(
+                microphone: appState.micPermission,
+                accessibility: appState.accessibilityPermission,
+                inputMonitoring: appState.inputMonitoringPermission
+            )
+            if !gaps.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
                         .foregroundStyle(.yellow)
-                    Text("Enable each permission to continue. If you prefer to do this later, reopen setup from the VocaMac menu.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(gaps, id: \.self) { gap in
+                            Text(gap)
+                        }
+                        Text("You can continue now and enable these later in Settings, or from Set Up VocaMac… in the menu.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vocaCard()
+                .accessibilityElement(children: .combine)
             }
 
             HStack(spacing: 8) {

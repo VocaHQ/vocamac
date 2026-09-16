@@ -309,7 +309,7 @@ struct VocaMacApp: App {
             NSApp?.setActivationPolicy(.accessory)
         }
 
-        // Listen for "Show Setup Wizard" requests from Settings / Menu Bar
+        // Listen for "Set Up VocaMac…" requests from Settings / Menu Bar
         NotificationCenter.default.addObserver(
             forName: .showOnboarding,
             object: nil,

@@ -11,6 +11,7 @@ struct HotKeySelectionControl: View {
     @EnvironmentObject private var appState: AppState
     @State private var isRecording = false
     @State private var wasListeningBeforeRecording = false
+    @State private var problem: String?
 
     let pickerLabel: String
     let footerText: String?
@@ -55,6 +56,7 @@ struct HotKeySelectionControl: View {
                     ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
                         let combo = HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers)
                         VocaMenuChoice(title: hotKey.name, isSelected: combo == currentCombo) {
+                            problem = nil
                             comboBinding.wrappedValue = combo
                         }
                     }
@@ -78,6 +80,16 @@ struct HotKeySelectionControl: View {
                 Label("Press a key, or press Escape to cancel", systemImage: "keyboard")
                     .font(.caption)
                     .foregroundStyle(Color.accentColor)
+            } else if let problem {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let conflict = HotKeyComboRules.systemConflict(currentCombo) {
+                Label(conflict, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if let footerText {
                 Text(footerText)
                     .font(.caption)
@@ -92,6 +104,7 @@ struct HotKeySelectionControl: View {
     }
 
     private func beginRecording() {
+        problem = nil
         wasListeningBeforeRecording = appState.hotKeyManager.isListening
         if wasListeningBeforeRecording {
             appState.hotKeyManager.stopListening()
@@ -106,6 +119,11 @@ struct HotKeySelectionControl: View {
     }
 
     private func recordKey(_ combo: HotKeyCombo) {
+        if let reason = ShortcutValidation.dictationHotKeyProblem(with: combo, appState: appState) {
+            problem = reason
+            finishRecording()
+            return
+        }
         appState.hotKeyCode = combo.keyCode
         appState.hotKeyModifiers = combo.modifiers
         appState.syncHotKeyConfiguration()
@@ -268,6 +286,7 @@ private final class HotKeyComboRecorder {
     private var heldModifierKeyCodes: Set<Int> = []
 
     private static let modifierKeyCodes = [54, 55, 56, 58, 59, 60, 61, 62, 63]
+    private static let tabKeyCode = 48
 
     func start() {
         guard eventTap == nil, fallbackMonitor == nil else { return }
@@ -386,6 +405,13 @@ private final class HotKeyComboRecorder {
         if keyCode == KeyCodeReference.escapeKeyCode {
             cancel()
             return true
+        }
+
+        // Tab moves keyboard focus. Recording it as a shortcut would swallow
+        // Tab in every app, so end the recording and let the Tab through.
+        if keyCode == Self.tabKeyCode, modifiers.isEmpty {
+            cancel()
+            return false
         }
 
         finish(with: HotKeyCombo(keyCode: keyCode, modifiers: modifiers))

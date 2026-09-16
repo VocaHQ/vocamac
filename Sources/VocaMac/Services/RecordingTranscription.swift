@@ -157,7 +157,9 @@ enum IncrementalAudioTranscriber {
                         lastDecodedCount = status.count
                         let window = await buffer.tail(max(1, partialWindowSamples))
                         do {
-                            let result = try await transcribe(window)
+                            let result = try await decodeUntilEnded(window, buffer: buffer, transcribe: transcribe)
+                            try Task.checkCancellation()
+                            guard let result else { continue }
                             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                             if !text.isEmpty, text != lastPartial {
                                 lastPartial = text
@@ -168,6 +170,7 @@ enum IncrementalAudioTranscriber {
                         } catch is CancellationError {
                             throw CancellationError()
                         } catch {
+                            try Task.checkCancellation()
                             VocaLogger.debug(
                                 .general,
                                 "Live preview decode was not ready; the complete recording remains authoritative"
@@ -187,5 +190,38 @@ enum IncrementalAudioTranscriber {
             }
             throw RecordingTranscription.StreamError.incomplete
         }
+    }
+
+    /// Run one partial decode, cancelling it as soon as the stream ends so
+    /// the final decode doesn't wait behind a preview nobody will see.
+    /// Returns nil when the decode was abandoned for that reason. The decode
+    /// has stopped by the time this returns, so the engine is never asked
+    /// for two decodes at once.
+    private static func decodeUntilEnded(
+        _ window: [Float],
+        buffer: Buffer,
+        pollNanoseconds: UInt64 = 50_000_000,
+        transcribe: @escaping @Sendable ([Float]) async throws -> VocaTranscription
+    ) async throws -> VocaTranscription? {
+        let decode = Task { try await transcribe(window) }
+        let watcher = Task {
+            while !Task.isCancelled {
+                if await buffer.status().ended {
+                    decode.cancel()
+                    return
+                }
+                try? await Task.sleep(nanoseconds: pollNanoseconds)
+            }
+        }
+        defer { watcher.cancel() }
+        let outcome = await withTaskCancellationHandler {
+            await decode.result
+        } onCancel: {
+            decode.cancel()
+        }
+        if decode.isCancelled, await buffer.status().ended {
+            return nil
+        }
+        return try outcome.get()
     }
 }

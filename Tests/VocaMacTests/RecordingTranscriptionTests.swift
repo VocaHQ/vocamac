@@ -125,11 +125,31 @@ extension RecordingTranscriptionTests {
 
 // MARK: - Commit mode
 
-/// Records every decode it is asked for and names each by its length.
+/// Records every decode it is asked for and "transcribes" each stretch of
+/// sound as `tone<seconds>`, so a merged decode reads like its parts joined.
 private actor FakePieceEngine {
     private(set) var decodedLengths: [Int] = []
     var failOnDecode: Int?
     var hold: TestGate?
+    /// Text for the next decodes, in order, instead of the tone names.
+    var scriptedTexts: [String] = []
+
+    func setScript(_ texts: [String]) { scriptedTexts = texts }
+
+    static func toneNames(_ samples: [Float]) -> String {
+        var names: [String] = []
+        var run = 0
+        func close() {
+            if run >= 3_200 { names.append("tone\(Int((Double(run) / 16_000).rounded()))") }
+            run = 0
+        }
+        for start in stride(from: 0, to: samples.count, by: 320) {
+            let frame = samples[start..<min(samples.count, start + 320)]
+            if SpeechSegmenter.energy(frame) > 1e-4 { run += frame.count } else { close() }
+        }
+        close()
+        return names.joined(separator: " ")
+    }
 
     func setFailure(onDecode index: Int) { failOnDecode = index }
     func setHold(_ gate: TestGate) { hold = gate }
@@ -140,8 +160,9 @@ private actor FakePieceEngine {
         if failOnDecode == decodedLengths.count - 1 {
             throw WhisperError.transcriptionFailed(reason: "fake failure")
         }
+        let text = scriptedTexts.isEmpty ? Self.toneNames(samples) : scriptedTexts.removeFirst()
         return VocaTranscription(
-            text: "len\(samples.count)", duration: 0, detectedLanguage: "en",
+            text: text, duration: 0, detectedLanguage: "en",
             audioLengthSeconds: Double(samples.count) / 16_000, modelUsed: .tiny
         )
     }
@@ -203,8 +224,10 @@ extension RecordingTranscriptionTests {
         XCTAssertEqual(result.pieces.count, 2)
         XCTAssertTrue(RecordingTranscription.piecesCover(result.pieces, sampleCount: audio.count))
         let lengths = await engine.decodedLengths
-        XCTAssertEqual(lengths, result.pieces.map(\.range.count), "each piece, and only each piece, is decoded once")
-        XCTAssertEqual(result.text, result.pieces.map { "len\($0.range.count)" }.joined(separator: " "))
+        XCTAssertEqual(lengths, [result.pieces[0].range.count, audio.count],
+                       "the first piece while recording, then the tail together with it")
+        XCTAssertEqual(result.pieces.map(\.text), ["tone5", "tone3"], "the merged decode kept the first piece as it was")
+        XCTAssertEqual(result.text, "tone5 tone3")
         XCTAssertEqual(log.pieces.map(\.0), [0, 1])
         XCTAssertEqual(log.pieces.map(\.1), result.pieces)
         XCTAssertEqual(result.audioLengthSeconds, Double(audio.count) / 16_000)
@@ -235,20 +258,73 @@ extension RecordingTranscriptionTests {
             try await Task.sleep(nanoseconds: 5_000_000)
         }
         let result = try await session.finish(expectedSampleCount: audio.count)
-        XCTAssertEqual(result.text, result.pieces.map { "len\($0.range.count)" }.joined(separator: " "))
+        XCTAssertEqual(result.text, "tone6 tone2")
         XCTAssertFalse(log.partials.isEmpty, "the live overlay still gets words")
     }
 
-    func testShortTailIsPaddedForTheDecoder() async throws {
+    func testShortRecordingIsPaddedForTheDecoder() async throws {
         let engine = FakePieceEngine()
         let session = committedSession(engine: engine, log: PieceLog())
-        let audio = tone(5) + [Float](repeating: 0, count: 12_000) + tone(0.2)
+        let audio = tone(0.5)
         feed(audio, to: session)
         let result = try await session.finish(expectedSampleCount: audio.count)
-        XCTAssertEqual(result.pieces.count, 2)
+        XCTAssertEqual(result.pieces.count, 1)
         let lengths = await engine.decodedLengths
-        XCTAssertEqual(lengths.last, IncrementalAudioTranscriber.minimumDecodeSamples)
-        XCTAssertLessThan(result.pieces[1].range.count, IncrementalAudioTranscriber.minimumDecodeSamples)
+        XCTAssertEqual(lengths, [IncrementalAudioTranscriber.minimumDecodeSamples])
+    }
+
+    func testTailWordedDifferentlyKeepsThePreviousPieceText() async throws {
+        let engine = FakePieceEngine()
+        await engine.setScript(["we ship on friday", "We ship on Friday. Crying emoji. Crying emoji."])
+        let log = PieceLog()
+        let session = committedSession(engine: engine, log: log)
+        let audio = tone(5) + [Float](repeating: 0, count: 16_000) + tone(3)
+        feed(audio, to: session)
+        let result = try await session.finish(expectedSampleCount: audio.count)
+        XCTAssertEqual(result.pieces.map(\.text), ["we ship on friday", "Crying emoji. Crying emoji."],
+                       "the previous piece's text, and its finished cleanup, stay")
+        XCTAssertTrue(RecordingTranscription.piecesCover(result.pieces, sampleCount: audio.count))
+        XCTAssertEqual(log.pieces.last?.1, result.pieces.last)
+    }
+
+    func testTailThatCantBeAlignedBecomesOnePieceWithThePreviousOne() async throws {
+        let engine = FakePieceEngine()
+        await engine.setScript(["we ship on friday", "Something else entirely was said here."])
+        let session = committedSession(engine: engine, log: PieceLog())
+        let audio = tone(5) + [Float](repeating: 0, count: 16_000) + tone(3)
+        feed(audio, to: session)
+        let result = try await session.finish(expectedSampleCount: audio.count)
+        XCTAssertEqual(result.pieces.map(\.text), ["Something else entirely was said here."])
+        XCTAssertEqual(result.pieces.map(\.range), [0..<audio.count])
+    }
+
+    func testSilentTailIsNotMerged() async throws {
+        let engine = FakePieceEngine()
+        let session = committedSession(engine: engine, log: PieceLog())
+        let audio = tone(5) + [Float](repeating: 0, count: 40_000)
+        feed(audio, to: session)
+        let result = try await session.finish(expectedSampleCount: audio.count)
+        let lengths = await engine.decodedLengths
+        XCTAssertEqual(lengths.count, 1, "a silent tail adds no decode")
+        XCTAssertEqual(result.text, "tone5")
+    }
+
+    func testMergedTailSplitsOnlyAtTheExactPreviousText() {
+        let previous = TranscribedPiece(range: 0..<10, text: "Hello there.", language: "en")
+        func merged(_ text: String) -> TranscribedPiece { TranscribedPiece(range: 0..<20, text: text, language: "en") }
+        XCTAssertEqual(
+            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Hello there. How are you?")),
+            [previous, TranscribedPiece(range: 10..<20, text: "How are you?", language: "en")]
+        )
+        XCTAssertEqual(
+            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Hello there, how are you?")),
+            [previous, TranscribedPiece(range: 10..<20, text: "how are you?", language: "en")],
+            "punctuation the merged decode changed doesn't stop the split"
+        )
+        XCTAssertEqual(
+            IncrementalAudioTranscriber.splitMergedTail(previous: previous, tail: 10..<20, merged: merged("Goodbye now")),
+            [merged("Goodbye now")]
+        )
     }
 
     func testFailedPieceDecodeInvalidatesTheSession() async {
@@ -358,7 +434,7 @@ extension RecordingTranscriptionTests {
         }
         let result = try await session.finish(expectedSampleCount: audio.count)
         XCTAssertFalse(previews.partials.isEmpty)
-        XCTAssertEqual(result.text, "len\(audio.count)")
+        XCTAssertEqual(result.text, "tone3")
         let lengths = await engine.decodedLengths
         XCTAssertEqual(lengths, [audio.count], "the piece decoder never sees preview windows")
     }

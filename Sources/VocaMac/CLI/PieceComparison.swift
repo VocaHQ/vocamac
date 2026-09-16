@@ -82,7 +82,6 @@ struct CLIPieceComparisonResponse: Codable, Equatable {
     let batch: Batch
     let pieces: [Piece]
     let pieceMode: PieceMode
-
     enum CodingKeys: String, CodingKey {
         case model, engine, batch, pieces
         case cleanupModel = "cleanup_model"
@@ -181,6 +180,29 @@ extension HeadlessTranscriber {
                     language: result.detectedLanguage
                 ))
                 decodeSeconds.append(seconds)
+            }
+            // As a live session does: the tail is decoded with the piece before it.
+            if pieces.count >= 2, let tail = pieces.last, let previous = pieces.dropLast().last,
+               !IncrementalAudioTranscriber.isSilent(Array(samples[tail.range])) {
+                let range = previous.range.lowerBound..<tail.range.upperBound
+                let (result, seconds) = try await timed {
+                    try await transcriber.transcribe(
+                        audioData: IncrementalAudioTranscriber.padded(Array(samples[range])),
+                        language: language, translate: false, vocabulary: ""
+                    )
+                }
+                let merged = TranscribedPiece(
+                    range: range, text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    language: result.detectedLanguage
+                )
+                let replacement = IncrementalAudioTranscriber.splitMergedTail(
+                    previous: previous, tail: tail.range, merged: merged
+                )
+                pieces.removeLast(2)
+                pieces += replacement
+                let previousSeconds = decodeSeconds[decodeSeconds.count - 2]
+                decodeSeconds.removeLast(2)
+                decodeSeconds += replacement.count == 2 ? [previousSeconds, seconds] : [seconds]
             }
             let pieceText = TranscribedPiece.join(pieces)
             let tailSeconds = decodeSeconds.last ?? 0

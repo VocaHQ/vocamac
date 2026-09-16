@@ -304,11 +304,16 @@ struct StreamingCommitOptions: Sendable {
 
 extension IncrementalAudioTranscriber {
     /// Samples, closed pieces waiting for a decode, and end of input. Audio
-    /// before the oldest undecoded piece is dropped as pieces are taken.
+    /// is kept from the start of the last decoded piece, so the tail can be
+    /// decoded together with it; anything older is dropped.
     private actor CommitBuffer {
         private var samples: [Float] = []
         /// Absolute offset of `samples[0]`.
         private var base = 0
+        /// Where the last piece taken for decoding started and ended. Its
+        /// audio is kept until the next piece is taken, and the tail's.
+        private var takenStart = 0
+        private var takenEnd = 0
         private var pending: [Range<Int>] = []
         private var ended = false
 
@@ -336,14 +341,25 @@ extension IncrementalAudioTranscriber {
             let upper = range.upperBound - base
             guard lower >= 0, upper <= samples.count else { return nil }
             let audio = Array(samples[lower..<upper])
-            samples.removeFirst(upper)
-            base = range.upperBound
+            // Keep the previous piece too: the tail is decoded together with it.
+            samples.removeFirst(takenStart - base)
+            base = takenStart
+            takenStart = range.lowerBound
+            takenEnd = range.upperBound
             return (range, audio, ended && pending.isEmpty)
+        }
+
+        /// Audio still held for `range`, or nil once it has been dropped.
+        func audio(_ range: Range<Int>) -> [Float]? {
+            let lower = range.lowerBound - base
+            let upper = range.upperBound - base
+            guard lower >= 0, upper <= samples.count, lower < upper else { return nil }
+            return Array(samples[lower..<upper])
         }
 
         /// Audio of the piece still being spoken, at most `limit` samples.
         func openPiece(limit: Int) -> [Float] {
-            let start = (pending.last?.upperBound ?? base) - base
+            let start = (pending.last?.upperBound ?? takenEnd) - base
             guard start < samples.count else { return [] }
             return Array(samples[max(start, samples.count - limit)...])
         }
@@ -395,12 +411,24 @@ extension IncrementalAudioTranscriber {
                     try Task.checkCancellation()
                     if let next = await buffer.takePending() {
                         let interval = PerformanceTrace.begin(next.isLast ? "TailDecode" : "PieceDecode")
-                        let piece: TranscribedPiece
-                        do {
-                            defer { PerformanceTrace.end(interval) }
-                            piece = try await decodePiece(next.range, samples: next.samples, transcribe: transcribe) {
-                                modelUsed = $0
+                        defer { PerformanceTrace.end(interval) }
+                        // The tail is decoded together with the piece before
+                        // it, so it doesn't start cold after a pause.
+                        if next.isLast, let previous = pieces.last, !isSilent(next.samples),
+                           let audio = await buffer.audio(previous.range.lowerBound..<next.range.upperBound) {
+                            let merged = try await decodePiece(
+                                previous.range.lowerBound..<next.range.upperBound, samples: audio, transcribe: transcribe
+                            ) { modelUsed = $0 }
+                            pieces.removeLast()
+                            let replacement = splitMergedTail(previous: previous, tail: next.range, merged: merged)
+                            pieces += replacement
+                            if let last = replacement.last {
+                                onPiece?(pieces.count - 1, last)
                             }
+                            continue
+                        }
+                        let piece = try await decodePiece(next.range, samples: next.samples, transcribe: transcribe) {
+                            modelUsed = $0
                         }
                         pieces.append(piece)
                         onPiece?(pieces.count - 1, piece)
@@ -458,6 +486,42 @@ extension IncrementalAudioTranscriber {
             }
             throw RecordingTranscription.StreamError.incomplete
         }
+    }
+
+    /// The pieces a merged decode of `previous` and the tail stands for.
+    ///
+    /// When the merged text begins with exactly the previous piece's text,
+    /// that piece is kept as it was, so a cleanup already done for it is
+    /// still used, and only the rest is the tail. Otherwise the two become
+    /// one piece.
+    static func splitMergedTail(
+        previous: TranscribedPiece,
+        tail: Range<Int>,
+        merged: TranscribedPiece
+    ) -> [TranscribedPiece] {
+        let prefix = previous.text
+        if !prefix.isEmpty, merged.text.hasPrefix(prefix) {
+            let rest = merged.text.dropFirst(prefix.count)
+            if rest.isEmpty || rest.first?.isWhitespace == true {
+                return [previous, TranscribedPiece(
+                    range: tail,
+                    text: rest.trimmingCharacters(in: .whitespacesAndNewlines),
+                    language: merged.language
+                )]
+            }
+        }
+        // The merged decode usually words the previous piece slightly
+        // differently ("hour." for "hour,"). Keep the previous piece's own
+        // text, whose cleanup may already be done, and take from the merged
+        // decode only what follows it.
+        if !prefix.isEmpty, let rest = OverlapDeduplication.newText(
+            decoded: merged.text, previous: prefix, contextSeconds: Double(previous.range.count) / 16_000
+        ) {
+            return [previous, TranscribedPiece(range: tail, text: rest, language: merged.language)]
+        }
+        return [TranscribedPiece(
+            range: previous.range.lowerBound..<tail.upperBound, text: merged.text, language: merged.language
+        )]
     }
 
     private static func decodePiece(

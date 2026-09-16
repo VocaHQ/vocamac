@@ -91,6 +91,9 @@ VocaMacApp (entry point)
     │     ├── UpdateChecker
     │     ├── FrontmostAppResolver
     │     │     └── WritingStyleResolver → WritingProfile (format, intent, cleanup policy)
+    │     ├── RecordingTranscription (live session; optional commit mode)
+    │     │     └── SpeechSegmenter (cuts pieces at pauses while recording)
+    │     ├── CleanupSpeculator (cleans finished pieces before stop)
     │     ├── DictationOutputPipeline
     │     │     ├── SnippetExpander / RewriteProtectedText
     │     │     ├── TranscriptCleanupService (one optional local inference)

@@ -10,7 +10,7 @@ import Foundation
 enum AudioSegmenter {
 
     /// Frame used when measuring loudness — 20ms at 16kHz.
-    private static let frameLength = 320
+    static let frameLength = 320
 
     /// How far back from the target boundary to look for a quiet point.
     ///
@@ -19,7 +19,7 @@ enum AudioSegmenter {
     /// there splits a word — the following segment then starts mid-word and
     /// the model invents something to fit. Segments come out shorter, which
     /// costs a little speed but keeps the joins clean.
-    private static let searchWindowSeconds = 4.0
+    static let searchWindowSeconds = 4.0
 
     /// Split `samples` into consecutive ranges no longer than `maxSeconds`.
     ///
@@ -88,7 +88,7 @@ enum AudioSegmenter {
     /// Quiet is judged relative to this window rather than by a fixed level,
     /// so it holds for both a whisper and a loud room. When speech never
     /// pauses there is no good cut, and the quietest single frame is used.
-    private static func bestCutOffset(
+    static func bestCutOffset(
         energies: [Float],
         frameOffsets: [Int],
         fallback: Int

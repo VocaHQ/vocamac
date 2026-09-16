@@ -124,6 +124,23 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         await attemptClean(text, prompt: prompt, recordingFailures: false, allowsTransform: false)
     }
 
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt {
+        await attemptClean(
+            text, prompt: prompt, recordingFailures: false, allowsTransform: false, honoursGiveUp: true
+        )
+    }
+
+    func recordOutcome(_ attempt: CleanupAttempt) {
+        switch attempt.outcome {
+        case .cleaned, .unchanged:
+            consecutiveFailures = 0
+        case .rejected(let reason):
+            recordFailure(reason: reason)
+        case .skipped:
+            break
+        }
+    }
+
     func transform(_ text: String, prompt: String) async -> CleanupAttempt {
         transformInProgress = true
         defer { transformInProgress = false }
@@ -148,7 +165,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         _ text: String,
         prompt: String,
         recordingFailures: Bool,
-        allowsTransform: Bool
+        allowsTransform: Bool,
+        honoursGiveUp: Bool = false
     ) async -> CleanupAttempt {
         let started = Date()
         func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
@@ -173,7 +191,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
         // Already given up on this model; do not make every dictation pay for
         // an inference that has failed three times running.
-        if recordingFailures, case .error = modelState, consecutiveFailures >= Self.failureLimit {
+        if recordingFailures || honoursGiveUp, case .error = modelState, consecutiveFailures >= Self.failureLimit {
             return result(text, .skipped("cleanup gave up after \(consecutiveFailures) failures"))
         }
 

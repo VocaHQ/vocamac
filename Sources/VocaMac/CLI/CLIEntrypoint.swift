@@ -71,6 +71,15 @@ final class CLIEntrypoint {
             return await runJSONOperation {
                 self.headlessTranscriber.listModels()
             }
+        case .comparePieces(let path, let model, let language, let options):
+            return await runJSONOperation {
+                try await self.headlessTranscriber.comparePieces(
+                    fileURL: URL(fileURLWithPath: path),
+                    modelOverride: model,
+                    languageOverride: language,
+                    options: options
+                )
+            }
         case .transcribeFile(let path, let model, let language):
             return await runJSONOperation {
                 try await self.headlessTranscriber.transcribe(
@@ -198,11 +207,16 @@ final class CLIEntrypoint {
 
     Usage:
       VocaMac --transcribe-file <audio-path> --json [--model <id>] [--language <code>]
+      VocaMac --transcribe-file <audio-path> --json --pieces [--cleanup <cleanup-model-id>]
+          [--pause-seconds <s>] [--min-piece-seconds <s>] [--model <id>] [--language <code>]
       VocaMac --list-models --json
       VocaMac --help
 
     Omitting --model and --language follows the current VocaMac app preferences.
     Models must already be downloaded; headless mode never opens the GUI or downloads models.
+    --pieces compares decoding the whole file with decoding it piece by piece at pauses, as
+    "Process while speaking" does while recording, and reports both texts and timings.
+    --cleanup also cleans both with a downloaded cleanup model.
     """ + "\n"
 }
 

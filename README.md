@@ -288,6 +288,15 @@ Failures exit nonzero and write a JSON error to stderr, for example:
 
 Stable error categories are `invalid_arguments`, `invalid_audio`, `model_not_found`, `model_not_downloaded`, `model_unsupported`, and `transcription_failed`. Use `--help` for command syntax; it exits without launching the GUI.
 
+To check how "Process while speaking" would handle a recording, add `--pieces`. The file is decoded whole and then piece by piece, cut at pauses the way a live dictation is, and the response reports both texts, a word difference rate between them, and the projected wait after stop. Add `--cleanup <cleanup-model-id>` (for example `ministral3_3b_q4_k_m`) to clean both with a downloaded cleanup model, and `--pause-seconds` or `--min-piece-seconds` to try other cut thresholds:
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac \
+  --transcribe-file /path/to/audio.wav \
+  --pieces --cleanup ministral3_3b_q4_k_m \
+  --json
+```
+
 One-shot CLI mode loads the selected model in a separate process for each request. This preserves isolation from the running menu bar app, but the first request has the normal model-loading cost.
 
 ### First Launch

@@ -210,10 +210,14 @@ extension ModelManaging {
 protocol SpeechTranscribing: AnyObject {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
+    /// Start a live session. With `commit`, finished pieces are decoded while
+    /// recording (see `StreamingCommitOptions`); without it, a session exists
+    /// only for engines that stream natively or to show partial words.
     func startStreaming(
         language: String?,
         vocabulary: String,
-        onPartial: (@Sendable (String) -> Void)?
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
     ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
@@ -231,9 +235,18 @@ extension SpeechTranscribing {
 
     func startStreaming(
         language: String?,
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
+    ) -> RecordingTranscription? { nil }
+
+    func startStreaming(
+        language: String?,
         vocabulary: String = "",
         onPartial: (@Sendable (String) -> Void)? = nil
-    ) -> RecordingTranscription? { nil }
+    ) -> RecordingTranscription? {
+        startStreaming(language: language, vocabulary: vocabulary, onPartial: onPartial, commit: nil)
+    }
 
     func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: ((String) -> Void)? = nil) async throws {
         try await _loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
@@ -362,6 +375,13 @@ protocol TranscriptCleaning: TextTransforming {
     func clean(_ text: String, prompt: String) async -> String
     func attempt(_ text: String, prompt: String) async -> CleanupAttempt
     func preview(_ text: String, prompt: String) async -> CleanupAttempt
+    /// A dictation cleanup run while the user is still speaking. It honours
+    /// the give-up limit like `attempt` but doesn't count toward it: the
+    /// answer may never be used. The final pass reports it with
+    /// `recordOutcome` if it is.
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Count a speculative answer the dictation used, as `attempt` would have.
+    func recordOutcome(_ attempt: CleanupAttempt)
     /// Stop a dictation cleanup pass in flight; it returns the raw text.
     func cancelCleanup()
     func availabilityProblem(for kind: CleanupModelKind) -> String?
@@ -381,6 +401,10 @@ extension TranscriptCleaning {
     var loadedKind: CleanupModelKind? { nil }
     var isOnDevice: Bool { true }
     func cancelCleanup() {}
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt {
+        await preview(text, prompt: prompt)
+    }
+    func recordOutcome(_ attempt: CleanupAttempt) {}
 
     func availabilityProblem(for kind: CleanupModelKind) -> String? {
         isDownloaded(kind) ? nil : "download a local cleanup model in Settings"

@@ -147,10 +147,14 @@ final class AppleSpeechService: @unchecked Sendable {
     }
 
     /// Own one prepared analyzer for one utterance. Finished sessions are never reused.
+    /// - Parameter onPiece: Called with each finalized result while audio is
+    ///   still arriving, as a piece ending where the result's audio ends.
+    ///   When given, the transcription also carries those pieces.
     func transcribe(
         chunks: AsyncThrowingStream<[Float], Error>,
         language: String?,
-        vocabulary: String = ""
+        vocabulary: String = "",
+        onPiece: (@Sendable (Int, TranscribedPiece) -> Void)? = nil
     ) async throws -> VocaTranscription {
         #if compiler(>=6.2)
         guard #available(macOS 26.0, *) else { throw AppleSpeechError.unsupportedSystem }
@@ -169,11 +173,16 @@ final class AppleSpeechService: @unchecked Sendable {
         do {
             try Task.checkCancellation()
             let hints = RecognitionHints.contextualStrings(from: vocabulary)
-            let (text, count) = try await session.transcribe(chunks, contextualStrings: hints)
+            let detectedLanguage = language ?? locale.language.languageCode?.identifier ?? "auto"
+            let tracker = onPiece.map { FinalizedPieceTracker(language: detectedLanguage, onPiece: $0) }
+            let (text, count) = try await session.transcribe(chunks, contextualStrings: hints) { text, endSeconds in
+                tracker?.finalized(text, endSeconds: endSeconds)
+            }
             return VocaTranscription(
                 text: text, duration: CFAbsoluteTimeGetCurrent() - start,
-                detectedLanguage: language ?? locale.language.languageCode?.identifier ?? "auto",
-                audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech
+                detectedLanguage: detectedLanguage,
+                audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech,
+                pieces: tracker?.pieces(sampleCount: count) ?? []
             )
         } catch {
             await session.cancel()
@@ -272,7 +281,8 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
 
     func transcribe(
         _ chunks: AsyncThrowingStream<[Float], Error>,
-        contextualStrings: [String]
+        contextualStrings: [String],
+        onFinal: @escaping @Sendable (String, Double) -> Void
     ) async throws -> (String, Int) {
         guard !started else { throw AppleSpeechError.modelNotLoaded }
         started = true
@@ -280,7 +290,9 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
         let collector = Task { [transcriber] in
             var pieces: [String] = []
             for try await result in transcriber.results where result.isFinal {
-                pieces.append(String(result.text.characters))
+                let text = String(result.text.characters)
+                pieces.append(text)
+                onFinal(text, result.range.end.seconds)
             }
             return pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -415,7 +427,59 @@ private final class SpeechConverterInput: @unchecked Sendable {
 private protocol PreparedSpeechSession: Sendable {
     func transcribe(
         _ chunks: AsyncThrowingStream<[Float], Error>,
-        contextualStrings: [String]
+        contextualStrings: [String],
+        onFinal: @escaping @Sendable (String, Double) -> Void
     ) async throws -> (String, Int)
     func cancel() async
+}
+
+/// Turns Apple Speech's finalized results into pieces as they arrive. Each
+/// piece runs from where the previous result's audio ended to where its own
+/// does; the last one is stretched to the end of the recording.
+final class FinalizedPieceTracker: @unchecked Sendable {
+    private let lock = NSLock()
+    private let language: String
+    private let onPiece: @Sendable (Int, TranscribedPiece) -> Void
+    private var finalized: [(text: String, end: Int)] = []
+
+    init(language: String, onPiece: @escaping @Sendable (Int, TranscribedPiece) -> Void) {
+        self.language = language
+        self.onPiece = onPiece
+    }
+
+    func finalized(_ text: String, endSeconds: Double) {
+        let piece: (Int, TranscribedPiece)? = lock.withLock {
+            let start = finalized.last?.end ?? 0
+            let end = endSeconds.isFinite ? max(start, Int((endSeconds * 16_000).rounded())) : start
+            finalized.append((text, end))
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard end > start, !trimmed.isEmpty else { return nil }
+            return (finalized.count - 1, TranscribedPiece(range: start..<end, text: trimmed, language: language))
+        }
+        if let piece { onPiece(piece.0, piece.1) }
+    }
+
+    /// The pieces covering `0..<sampleCount`, or none when the results'
+    /// audio ranges don't line up with the recording.
+    func pieces(sampleCount: Int) -> [TranscribedPiece] {
+        lock.withLock {
+            var pieces: [TranscribedPiece] = []
+            var start = 0
+            for (index, result) in finalized.enumerated() {
+                let end = index == finalized.count - 1 ? sampleCount : result.end
+                guard end > start, end <= sampleCount else { return [] }
+                pieces.append(TranscribedPiece(
+                    range: start..<end,
+                    text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                    language: language
+                ))
+                start = end
+            }
+            // Apple's own join keeps each result's leading space; pieces that
+            // wouldn't read the same joined with spaces aren't usable.
+            let joined = finalized.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard pieces.count >= 2, TranscribedPiece.join(pieces) == joined else { return [] }
+            return pieces
+        }
+    }
 }

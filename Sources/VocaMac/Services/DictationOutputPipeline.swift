@@ -7,6 +7,43 @@ struct DictationOutputResult: Equatable {
     let summary: String
 }
 
+/// Everything one pipeline run needs besides the text.
+struct DictationOutputOptions {
+    var profile: WritingProfile
+    var snippetList: [Snippet]
+    var cleanupEnabled: Bool
+    var rewritingEnabled: Bool
+    var model: CleanupModelKind
+    var customPrompt: String
+    var cleanupLevel: CleanupLevel = .medium
+    var language: String?
+    var autoCapitalize: Bool
+    var trailingSpace: Bool
+    var preview: Bool = false
+    var dictionary: DictionaryContext? = nil
+    var numbersAsDigits: Bool = false
+    var numberSymbols: Bool = false
+    var spokenEmoji: Bool = false
+}
+
+/// What the cleanup model is asked, exactly. Two requests with the same key
+/// get the same answer, so a result computed while recording can stand in for
+/// the one the pipeline would compute at stop.
+struct CleanupRequestKey: Hashable, Sendable {
+    /// An answer from one model never stands in for another's.
+    let model: CleanupModelKind
+    let prompt: String
+    let input: String
+}
+
+/// A cleanup the pipeline would run for some text, ready to run ahead of time.
+struct CleanupRequest: Equatable {
+    let key: CleanupRequestKey
+    let model: CleanupModelKind
+    /// Settings previews and Code/Terminal don't count toward the give-up limit.
+    let usesPreview: Bool
+}
+
 /// Coordinates exact formatting and one optional local rewrite. Never injects text.
 @MainActor
 struct DictationOutputPipeline {
@@ -29,7 +66,34 @@ struct DictationOutputPipeline {
         dictionary: DictionaryContext? = nil,
         numbersAsDigits: Bool = false,
         numberSymbols: Bool = false,
-        spokenEmoji: Bool = false
+        spokenEmoji: Bool = false,
+        pieces: [TranscribedPiece] = [],
+        speculator: CleanupSpeculator? = nil
+    ) async -> DictationOutputResult {
+        await process(
+            original,
+            options: DictationOutputOptions(
+                profile: profile, snippetList: snippetList, cleanupEnabled: cleanupEnabled,
+                rewritingEnabled: rewritingEnabled, model: model, customPrompt: customPrompt,
+                cleanupLevel: cleanupLevel, language: language, autoCapitalize: autoCapitalize,
+                trailingSpace: trailingSpace, preview: preview, dictionary: dictionary,
+                numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
+            ),
+            pieces: pieces, speculator: speculator
+        )
+    }
+
+    /// - Parameters:
+    ///   - pieces: The pieces a live session decoded, in order, whose texts
+    ///     joined are `original`. With two or more, the model runs piece by
+    ///     piece; everything else still runs over the whole text.
+    ///   - speculator: Cleanups started while recording. A piece whose request
+    ///     matches one exactly reuses its answer instead of running again.
+    func process(
+        _ original: String,
+        options: DictationOutputOptions,
+        pieces: [TranscribedPiece] = [],
+        speculator: CleanupSpeculator? = nil
     ) async -> DictationOutputResult {
         // The glyph a spoken emoji left at the very end of the utterance, if
         // any. An emoji ends a sentence on its own, so a full stop that
@@ -39,16 +103,232 @@ struct DictationOutputPipeline {
             let text = closingGlyph.map { Self.droppingFullStop(after: $0, in: text) } ?? text
             return DictationOutputResult(original: original, text: text, summary: summary)
         }
-        guard profile.cleanup != .raw else { return result(original, "Raw transcription") }
+        guard options.profile.cleanup != .raw else { return result(original, "Raw transcription") }
 
+        let prepared: PreparedDictation
+        switch prepare(original, options: options) {
+        case .finished(let text, let summary):
+            return result(text, summary)
+        case .prepared(let value):
+            prepared = value
+        }
+        closingGlyph = prepared.closingGlyph
+
+        let plan: CleanupPlan
+        switch planCleanup(prepared, options: options) {
+        case .finished(let text, let summary):
+            return result(text, summary)
+        case .model(let value):
+            plan = value
+        }
+
+        let masked = prepared.masked
+        let slices = pieces.count >= 2
+            ? Self.slices(of: masked.text, pieces: pieces) { text in
+                guard case .prepared(let piece) = prepare(text, options: options, isEnglishText: prepared.isEnglishText) else {
+                    return ""
+                }
+                return piece.masked.text
+            }
+            : [Self.wholeSlice(of: masked.text)]
+        let sources = slices.map(\.text)
+        let protectedSlices = await Task.detached(priority: .userInitiated) {
+            sources.map(RewriteProtectedText.init)
+        }.value
+        guard !Task.isCancelled else { return result(plan.fallback, "Processing cancelled") }
+        // Local cleanup counts actual model tokens and can split at sentence
+        // boundaries. Remote endpoints retain their configured request cap.
+        let budget = (cleaner.isOnDevice ? CleanupContext.maximumCharacters
+            : cleaner.inputBudget(forPrompt: plan.prompt, model: options.model))
+        if protectedSlices.count == 1, protectedSlices[0].text.count > budget {
+            return result(plan.fallback, prepared.noting("Rewrite skipped — transcript exceeds the model context"))
+        }
+        let keys = protectedSlices.map { CleanupRequestKey(model: options.model, prompt: plan.prompt, input: $0.text) }
+        await speculator?.beginFinal(needed: Set(keys))
+        await cleaner.load(options.model)
+        guard !Task.isCancelled else { return result(plan.fallback, "Processing cancelled") }
+        guard cleaner.isLoaded, !cleaner.isOnDevice || cleaner.loadedKind == options.model else {
+            return result(plan.fallback, prepared.noting("Rewrite skipped — model could not load"))
+        }
+
+        var outcomes: [SliceOutcome] = []
+        for (index, protected) in protectedSlices.enumerated() {
+            guard speculator?.isCancelled != true else { return result(plan.fallback, "Processing cancelled") }
+            guard protected.text.count <= budget else {
+                outcomes.append(.skipped("transcript exceeds the model context"))
+                continue
+            }
+            let attempt = await runCleanup(keys[index], usesPreview: plan.usesPreview, speculator: speculator)
+            guard !Task.isCancelled else { return result(plan.fallback, "Processing cancelled") }
+            outcomes.append(outcome(
+                of: attempt, protected: protected, source: sources[index],
+                plan: plan, prepared: prepared, dictionary: options.dictionary
+            ))
+        }
+
+        // Never interpret words the model invented, or words that became
+        // neighbours after a deletion, as new formatting commands.
+        var finalRules = options.profile.rules
+        finalRules.spokenSymbols = .none
+        finalRules.pathStitching = false
+        finalRules.caseCommands = false
+        finalRules.newlineCommands = false
+        finalRules.listMarkers = false
+        finalRules.emphasisDialect = .none
+        finalRules.filler = .keep
+
+        func format(_ text: String) -> String {
+            masked.restore(in: WritingStyleEngine.format(
+                text, rules: finalRules, globalAutoCapitalize: options.autoCapitalize,
+                globalTrailingSpace: options.trailingSpace
+            ))
+        }
+        func finish(_ formatting: MaskedText) -> String {
+            let formatted = WritingStyleEngine.format(
+                formatting.text, rules: finalRules, globalAutoCapitalize: options.autoCapitalize,
+                globalTrailingSpace: options.trailingSpace
+            )
+            return masked.restore(in: formatting.restore(in: formatted))
+        }
+
+        let styleName = plan.styleName
+        if outcomes.count == 1 {
+            switch outcomes[0] {
+            case .skipped(let reason):
+                return result(plan.fallback, prepared.noting("Rewrite skipped — \(reason)"))
+            case .noFiller:
+                return result(plan.fallback, prepared.noting("\(styleName) style — no filler found, commands kept exact"))
+            case .keptWording:
+                return result(plan.fallback, prepared.noting("Kept your wording — the model only suggested rewording"))
+            case .salvaged(let text):
+                return plan.technical
+                    ? result(format(text), "\(styleName) style — model removed filler only, commands kept exact")
+                    : result(format(text), prepared.noting("Cleaned up — filler only"))
+            case .rewritten(let formatting, let changed):
+                return result(
+                    finish(formatting),
+                    changed ? "\(plan.intent.displayName) wording applied" : prepared.noting("Wording unchanged")
+                )
+            case .merged(let formatting, let applied, let skipped):
+                return result(finish(formatting), prepared.noting(Self.mergeSummary(applied: applied, skipped: skipped)))
+            }
+        }
+
+        // Several pieces: put the model's work back together, then format the
+        // whole text once, so capitalization and spacing see every sentence.
+        let separators = slices.dropFirst().map(\.separatorBefore)
+        let kept = outcomes.filter(\.keepsSource).count
+        if kept == outcomes.count {
+            let summary: String
+            switch outcomes[0] {
+            case .skipped(let reason): summary = "Rewrite skipped — \(reason)"
+            case .noFiller: summary = "\(styleName) style — no filler found, commands kept exact"
+            default: summary = "Kept your wording — the model only suggested rewording"
+            }
+            return result(plan.fallback, prepared.noting(summary))
+        }
+        if plan.technical {
+            var joined = ""
+            for (index, outcome) in outcomes.enumerated() {
+                if index > 0 { joined += separators[index - 1] }
+                if case .salvaged(let text) = outcome { joined += text } else { joined += sources[index] }
+            }
+            return result(format(joined), "\(styleName) style — model removed filler only, commands kept exact")
+        }
+        var parts: [MaskedText] = []
+        var applied = 0, skipped = 0, rewritten = 0, unchanged = kept
+        for (index, outcome) in outcomes.enumerated() {
+            switch outcome {
+            case .rewritten(let formatting, let changed):
+                parts.append(formatting)
+                if changed { rewritten += 1 }
+            case .merged(let formatting, 0, let mergeSkipped) where mergeSkipped > 0:
+                // Every edit for this part was rewording: it reads as spoken.
+                parts.append(formatting)
+                unchanged += 1
+            case .merged(let formatting, let mergeApplied, let mergeSkipped):
+                parts.append(formatting)
+                applied += mergeApplied
+                skipped += mergeSkipped
+            case .salvaged(let text):
+                parts.append(MaskedText(text: text, base: TextPlaceholder.identifierBase))
+                applied += 1
+            case .skipped, .noFiller, .keptWording:
+                let protected = protectedSlices[index]
+                parts.append(protected.formattingMask(protected.text)
+                    ?? MaskedText(text: sources[index], base: TextPlaceholder.identifierBase))
+            }
+        }
+        guard let combined = Self.concatenate(parts, separators: separators) else {
+            return result(plan.fallback, prepared.noting("Rewrite skipped — too many protected terms"))
+        }
+        var summary: String
+        if plan.intent != .preserve, rewritten > 0 {
+            summary = "\(plan.intent.displayName) wording applied"
+        } else {
+            summary = Self.mergeSummary(applied: applied, skipped: skipped)
+        }
+        if unchanged == outcomes.count {
+            summary = "Kept your wording — the model only suggested rewording"
+        } else if unchanged > 0 {
+            summary += " · \(unchanged) of \(outcomes.count) parts kept as spoken"
+        }
+        return result(finish(combined), plan.intent != .preserve && rewritten > 0 ? summary : prepared.noting(summary))
+    }
+
+    // MARK: - Stages
+
+    /// Text after the rule-based stages, ready for formatting and the model.
+    struct PreparedDictation {
+        let masked: MaskedText
+        let closingGlyph: String?
+        let removedHesitations: Bool
+        let resolvedCorrections: Int
+        let collapsedStutters: Int
+        let removedCutOffWords: Int
+        let isEnglishText: Bool
+        let effectiveLevel: CleanupLevel
+
+        /// Say what the rule stages did, after the model's summary.
+        func noting(_ summary: String) -> String {
+            var notes: [String] = []
+            if resolvedCorrections > 0 {
+                notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
+            }
+            if removedHesitations { notes.append("“um”/“uh” removed") }
+            if collapsedStutters > 0 { notes.append("stutter collapsed") }
+            if removedCutOffWords > 0 {
+                notes.append(removedCutOffWords == 1 ? "cut-off word removed" : "\(removedCutOffWords) cut-off words removed")
+            }
+            return ([summary] + notes).joined(separator: " · ")
+        }
+    }
+
+    enum Preparation {
+        case finished(text: String, summary: String)
+        case prepared(PreparedDictation)
+    }
+
+    /// The stages that need no model: hesitations, spoken corrections, the
+    /// personal dictionary, snippets, spoken emoji and numbers.
+    ///
+    /// - Parameter isEnglishText: Decided by the caller when this is part of a
+    ///   larger text, so every part is judged the same way as the whole.
+    func prepare(
+        _ original: String,
+        options: DictationOutputOptions,
+        isEnglishText knownEnglish: Bool? = nil
+    ) -> Preparation {
+        let profile = options.profile
         // The personal dictionary runs first, so snippets, styles, and cleanup
         // all see the user's spelling. Terms whose exact casing matters travel
         // through the snippet mask, which formatting and cleanup never touch.
-        let effectiveLevel = profile.cleanupLevel ?? cleanupLevel
+        let effectiveLevel = profile.cleanupLevel ?? options.cleanupLevel
         var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
         // Parakeet and Apple Speech report "auto" when no language was chosen;
         // that says nothing about the text, so judge the text instead.
-        let isEnglishText = Self.knownLanguage(language).map(Self.isEnglish)
+        let isEnglishText = knownEnglish
+            ?? Self.knownLanguage(options.language).map(Self.isEnglish)
             ?? RewriteValidation.likelyEnglish(input)
 
         // "um" and "uh" go without a model, in every style that cleans up —
@@ -66,12 +346,12 @@ struct DictationOutputPipeline {
                 // Other languages lose only sounds that are a word nowhere
                 // ("uhm", "hmm"), plus their own when the language is known.
                 (input, removedHesitations) = WritingStyleEngine.removeOtherLanguageHesitations(
-                    input, language: Self.knownLanguage(language), prose: profile.format.supportsWording
+                    input, language: Self.knownLanguage(options.language), prose: profile.format.supportsWording
                 )
             }
         }
         if removedHesitations, input.isEmpty {
-            return result("", "Only “um” or “uh” was heard — nothing typed")
+            return .finished(text: "", summary: "Only “um” or “uh” was heard — nothing typed")
         }
 
         // "I I I think" → "I think". Single letters in any language; in
@@ -79,7 +359,7 @@ struct DictationOutputPipeline {
         var collapsedStutters = 0
         if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
             let isKnownWord: (String) -> Bool = isEnglishText
-                ? (dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") })
+                ? (options.dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") })
                 : { _ in true }
             (input, collapsedStutters) = WritingStyleEngine.collapseStutters(input, isKnownWord: isKnownWord)
         }
@@ -91,11 +371,11 @@ struct DictationOutputPipeline {
         // never a fragment.
         var removedCutOffWords = 0
         if profile.cleanup == .inherit, effectiveLevel.removesHesitations, isEnglishText {
-            let terms = (dictionary?.vocabulary ?? []) + (dictionary?.contextTerms ?? [])
-                + (dictionary?.replacements ?? []).flatMap { [$0.heard, $0.replacement] }
-                + snippetList.map(\.trigger)
+            let terms = (options.dictionary?.vocabulary ?? []) + (options.dictionary?.contextTerms ?? [])
+                + (options.dictionary?.replacements ?? []).flatMap { [$0.heard, $0.replacement] }
+                + options.snippetList.map(\.trigger)
             let vocabulary = Set(terms.flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init) })
-            let isKnownWord = dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") }
+            let isKnownWord = options.dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") }
             (input, removedCutOffWords) = WritingStyleEngine.removeCutOffWords(
                 input, prose: profile.format.supportsWording,
                 isKnownWord: { vocabulary.contains($0) || isKnownWord($0) }
@@ -111,20 +391,8 @@ struct DictationOutputPipeline {
         if profile.cleanup == .inherit, effectiveLevel.removesHesitations, profile.format.supportsWording {
             (input, resolvedCorrections) = SpokenCorrectionResolver.resolveCounting(input)
         }
-        func noting(_ summary: String) -> String {
-            var notes: [String] = []
-            if resolvedCorrections > 0 {
-                notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
-            }
-            if removedHesitations { notes.append("“um”/“uh” removed") }
-            if collapsedStutters > 0 { notes.append("stutter collapsed") }
-            if removedCutOffWords > 0 {
-                notes.append(removedCutOffWords == 1 ? "cut-off word removed" : "\(removedCutOffWords) cut-off words removed")
-            }
-            return ([summary] + notes).joined(separator: " · ")
-        }
         var protectedTerms: [Snippet] = []
-        if let dictionary, !dictionary.isEmpty {
+        if let dictionary = options.dictionary, !dictionary.isEmpty {
             let correction = DictionaryCorrector.correct(
                 input, context: dictionary,
                 allowIdentifierJoins: profile.format == .code || profile.format == .terminal
@@ -138,41 +406,67 @@ struct DictationOutputPipeline {
         // cross the model boundary as protected tokens, so a rewrite can
         // neither drop nor re-spell what was converted.
         let converted = Self.convertSpokenForms(
-            snippets.expandMasked(in: input, using: snippetList + protectedTerms),
-            emoji: spokenEmoji, digits: numbersAsDigits, symbols: numberSymbols, language: language
+            snippets.expandMasked(in: input, using: options.snippetList + protectedTerms),
+            emoji: options.spokenEmoji, digits: options.numbersAsDigits,
+            symbols: options.numberSymbols, language: options.language
         )
-        let masked = converted.masked
-        closingGlyph = converted.closingGlyph
-        func render(_ text: String, rules: WritingStyleRules) -> String {
-            masked.restore(in: WritingStyleEngine.format(
-                text, rules: rules, globalAutoCapitalize: autoCapitalize,
-                globalTrailingSpace: trailingSpace
-            ))
-        }
-        let fallback = render(masked.text, rules: profile.rules)
+        return .prepared(PreparedDictation(
+            masked: converted.masked, closingGlyph: converted.closingGlyph,
+            removedHesitations: removedHesitations, resolvedCorrections: resolvedCorrections,
+            collapsedStutters: collapsedStutters, removedCutOffWords: removedCutOffWords,
+            isEnglishText: isEnglishText, effectiveLevel: effectiveLevel
+        ))
+    }
+
+    /// How the model will be asked, once every reason not to ask it is ruled out.
+    struct CleanupPlan {
+        /// The exact-formatting result, used whenever the model's isn't.
+        let fallback: String
+        /// Code and Terminal: the model may only point at filler.
+        let technical: Bool
+        let intent: WritingIntent
+        let styleName: String
+        let prompt: String
+        let usesPreview: Bool
+    }
+
+    enum Planning {
+        case finished(text: String, summary: String)
+        case model(CleanupPlan)
+    }
+
+    func planCleanup(_ prepared: PreparedDictation, options: DictationOutputOptions) -> Planning {
+        let profile = options.profile
+        let masked = prepared.masked
+        let effectiveLevel = prepared.effectiveLevel
+        let noting = prepared.noting
+        let fallback = masked.restore(in: WritingStyleEngine.format(
+            masked.text, rules: profile.rules, globalAutoCapitalize: options.autoCapitalize,
+            globalTrailingSpace: options.trailingSpace
+        ))
         // Code and Terminal text may be a command. The model may only point
         // at filler there; see `CleanupSalvage`.
         let technical = !profile.format.supportsWording
-        let allowsEnglishWordEdits = isEnglishText && !RewriteValidation.containsNonLatinLetters(masked.text)
+        let allowsEnglishWordEdits = prepared.isEnglishText && !RewriteValidation.containsNonLatinLetters(masked.text)
         let styleName = profile.format.displayName
         // Say why the model didn't run, so "why is 'um' still here?" has an
         // answer in the menu and History.
         if profile.cleanup == .off {
-            return result(fallback, "Formatting only")
+            return .finished(text: fallback, summary: "Formatting only")
         }
-        guard cleanupEnabled else {
-            return result(fallback, noting("Formatting only — Smart Cleanup is off"))
+        guard options.cleanupEnabled else {
+            return .finished(text: fallback, summary: noting("Formatting only — Smart Cleanup is off"))
         }
         guard effectiveLevel != .none else {
-            return result(fallback, "Cleanup level None — formatting only")
+            return .finished(text: fallback, summary: "Cleanup level None — formatting only")
         }
         // The local cleanup models read romanized Hindi as broken English:
         // they reordered words, added emphasis, and changed "ho gae" to
         // "hoge". Voca Hinglish already punctuates, so its text is kept.
-        if Self.isRomanized(language) {
-            return result(fallback, noting("Romanized text kept as written — cleanup models reword it"))
+        if Self.isRomanized(options.language) {
+            return .finished(text: fallback, summary: noting("Romanized text kept as written — cleanup models reword it"))
         }
-        guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
+        guard !Task.isCancelled else { return .finished(text: fallback, summary: "Processing cancelled") }
 
         // Resolve explicit commands before inference. Until structured command
         // rewriting is qualified, command-bearing utterances take the exact path.
@@ -188,64 +482,125 @@ struct DictationOutputPipeline {
         )
         guard commanded == masked.text,
               !RewriteValidation.containsLiteralEscape(masked.text) else {
-            return result(fallback, noting(technical
+            return .finished(text: fallback, summary: noting(technical
                 ? "\(styleName) style — spoken symbols kept exact"
                 : "Spoken formatting kept exact"))
         }
         // A short technical utterance is a command, not prose with filler;
         // don't make it wait on the model.
         if technical, RewriteValidation.wordCount(masked.text) < Self.minimumTechnicalWords {
-            return result(fallback, noting("\(styleName) style — short command kept exact"))
+            return .finished(text: fallback, summary: noting("\(styleName) style — short command kept exact"))
         }
 
-        let intent = (rewritingEnabled && !technical) ? profile.intent : .preserve
+        let intent = (options.rewritingEnabled && !technical) ? profile.intent : .preserve
         if intent != .preserve,
-           (!isEnglishText || RewriteValidation.containsNonLatinLetters(masked.text)) {
-            return result(fallback, noting("Writing intent skipped — English preview only"))
+           (!prepared.isEnglishText || RewriteValidation.containsNonLatinLetters(masked.text)) {
+            return .finished(text: fallback, summary: noting("Writing intent skipped — English preview only"))
         }
         // Commands and code stay on this Mac: a remote cleanup endpoint gets
         // prose only.
         if technical, !cleaner.isOnDevice {
-            return result(fallback, noting("\(styleName) style — commands aren't sent to the cleanup endpoint"))
+            return .finished(text: fallback, summary: noting("\(styleName) style — commands aren't sent to the cleanup endpoint"))
         }
         if technical, !allowsEnglishWordEdits {
-            return result(fallback, noting("\(styleName) style — non-English wording kept exact"))
+            return .finished(text: fallback, summary: noting("\(styleName) style — non-English wording kept exact"))
         }
-        if let problem = cleaner.availabilityProblem(for: model) {
-            return result(fallback, noting("Rewrite skipped — \(problem)"))
+        if let problem = cleaner.availabilityProblem(for: options.model) {
+            return .finished(text: fallback, summary: noting("Rewrite skipped — \(problem)"))
         }
         let selectedPrompt = profile.cleanupPrompt?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let basePrompt = (selectedPrompt?.isEmpty == false) ? (selectedPrompt ?? customPrompt) : customPrompt
+        let basePrompt = (selectedPrompt?.isEmpty == false) ? (selectedPrompt ?? options.customPrompt) : options.customPrompt
         let prompt = technical
             ? RewriteValidation.technicalPrompt
             : RewriteValidation.prompt(intent: intent, customCleanup: effectiveLevel.prompt(custom: basePrompt))
-        let source = masked.text
-        let protected = await Task.detached(priority: .userInitiated) {
-            RewriteProtectedText(source)
-        }.value
-        guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
-        // Local cleanup counts actual model tokens and can split at sentence
-        // boundaries. Remote endpoints retain their configured request cap.
-        guard protected.text.count <= (cleaner.isOnDevice ? CleanupContext.maximumCharacters
-            : cleaner.inputBudget(forPrompt: prompt, model: model)) else {
-            return result(fallback, noting("Rewrite skipped — transcript exceeds the model context"))
+        return .model(CleanupPlan(
+            fallback: fallback, technical: technical, intent: intent, styleName: styleName,
+            prompt: prompt,
+            // A Code/Terminal answer is only mined for deletions, so an odd one
+            // mustn't count toward the give-up limit that turns cleanup off for
+            // every app.
+            usesPreview: options.preview || technical
+        ))
+    }
+
+    /// The model request `process` would make for `text` on its own, or nil
+    /// when it would not ask the model. Lets a piece be cleaned while the
+    /// user is still speaking, under exactly the key the final pass will use.
+    func cleanupRequest(for text: String, options: DictationOutputOptions) async -> CleanupRequest? {
+        guard options.profile.cleanup != .raw,
+              case .prepared(let prepared) = prepare(text, options: options),
+              case .model(let plan) = planCleanup(prepared, options: options) else { return nil }
+        let source = prepared.masked.text
+        let protected = await Task.detached(priority: .utility) { RewriteProtectedText(source) }.value
+        guard !protected.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              protected.text.count <= (cleaner.isOnDevice ? CleanupContext.maximumCharacters
+                : cleaner.inputBudget(forPrompt: plan.prompt, model: options.model)) else { return nil }
+        return CleanupRequest(
+            key: CleanupRequestKey(model: options.model, prompt: plan.prompt, input: protected.text),
+            model: options.model, usesPreview: plan.usesPreview
+        )
+    }
+
+    /// Run a request ahead of time. Never counts toward the give-up limit;
+    /// the final pass records the outcome if it uses the answer.
+    func speculate(_ request: CleanupRequest) async -> CleanupAttempt {
+        await cleaner.load(request.model)
+        guard cleaner.isLoaded, !cleaner.isOnDevice || cleaner.loadedKind == request.model else {
+            return CleanupAttempt(output: request.key.input, outcome: .skipped("model could not load"), duration: 0)
         }
-        await cleaner.load(model)
-        guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
-        guard cleaner.isLoaded, !cleaner.isOnDevice || cleaner.loadedKind == model else {
-            return result(fallback, noting("Rewrite skipped — model could not load"))
+        return request.usesPreview
+            ? await cleaner.preview(request.key.input, prompt: request.key.prompt)
+            : await cleaner.speculate(request.key.input, prompt: request.key.prompt)
+    }
+
+    private func runCleanup(
+        _ key: CleanupRequestKey,
+        usesPreview: Bool,
+        speculator: CleanupSpeculator?
+    ) async -> CleanupAttempt {
+        if let speculator, let reused = await speculator.claim(key) {
+            if !usesPreview { cleaner.recordOutcome(reused) }
+            return reused
         }
-        let attempt: CleanupAttempt
-        // A Code/Terminal answer is only mined for deletions, so an odd one
-        // mustn't count toward the give-up limit that turns cleanup off for
-        // every app.
-        if preview || technical {
-            attempt = await cleaner.preview(protected.text, prompt: prompt)
-        } else {
-            attempt = await cleaner.attempt(protected.text, prompt: prompt)
+        return usesPreview
+            ? await cleaner.preview(key.input, prompt: key.prompt)
+            : await cleaner.attempt(key.input, prompt: key.prompt)
+    }
+
+    // MARK: - Model answers
+
+    /// What one part of the text became after the model.
+    enum SliceOutcome {
+        /// The model didn't run or gave nothing usable.
+        case skipped(String)
+        /// Code/Terminal answer with nothing safe to delete.
+        case noFiller
+        /// Every edit was rewording, and nothing could be salvaged.
+        case keptWording
+        /// The user's words minus the filler the model found, before formatting.
+        case salvaged(String)
+        /// A Formal/Casual rewrite that passed every check.
+        case rewritten(MaskedText, changed: Bool)
+        /// The model's safe edits, applied one at a time.
+        case merged(MaskedText, applied: Int, skipped: Int)
+
+        var keepsSource: Bool {
+            switch self {
+            case .skipped, .noFiller, .keptWording: return true
+            case .salvaged, .rewritten, .merged: return false
+            }
         }
-        guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
+    }
+
+    private func outcome(
+        of attempt: CleanupAttempt,
+        protected: RewriteProtectedText,
+        source: String,
+        plan: CleanupPlan,
+        prepared: PreparedDictation,
+        dictionary: DictionaryContext?
+    ) -> SliceOutcome {
         // The model's answer, including one the service's whole-answer check
         // refused: its safe edits are still worth having.
         let modelText: String
@@ -253,31 +608,19 @@ struct DictationOutputPipeline {
         case .cleaned, .unchanged:
             modelText = attempt.output
         case .rejected(let reason):
-            guard let candidate = attempt.rejectedCandidate else {
-                return result(fallback, noting("Rewrite skipped — \(reason)"))
-            }
+            guard let candidate = attempt.rejectedCandidate else { return .skipped(reason) }
             modelText = candidate
         case .skipped(let reason):
-            return result(fallback, noting("Rewrite skipped — \(reason)"))
+            return .skipped(reason)
         }
-
-        // Never interpret words the model invented, or words that became
-        // neighbours after a deletion, as new formatting commands.
-        var finalRules = profile.rules
-        finalRules.spokenSymbols = .none
-        finalRules.pathStitching = false
-        finalRules.caseCommands = false
-        finalRules.newlineCommands = false
-        finalRules.listMarkers = false
-        finalRules.emphasisDialect = .none
-        finalRules.filler = .keep
 
         /// The user's own words minus the filler the model found, or nil when
         /// it found none that is safe to remove.
-        let spellingLanguage: String? = isEnglishText ? "en" : "und"
+        let spellingLanguage: String? = prepared.isEnglishText ? "en" : "und"
         let isKnownWord: (String) -> Bool = {
             dictionary?.isKnownWord($0) ?? SpellingOracle.shared.isKnownWord($0, language: spellingLanguage)
         }
+        let allowsEnglishWordEdits = prepared.isEnglishText && !RewriteValidation.containsNonLatinLetters(source)
 
         func salvage() -> String? {
             let deletions = CleanupSalvage.safeDeletions(
@@ -285,66 +628,165 @@ struct DictationOutputPipeline {
             )
             guard !deletions.isEmpty,
                   let trimmed = protected.restoreValidated(
-                    WritingStyleEngine.removeWordRuns(deletions, from: protected.text, prose: !technical)
+                    WritingStyleEngine.removeWordRuns(deletions, from: protected.text, prose: !plan.technical)
                   ),
                   !trimmed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-            return masked.restore(in: WritingStyleEngine.format(
-                trimmed, rules: finalRules, globalAutoCapitalize: autoCapitalize,
-                globalTrailingSpace: trailingSpace
-            ))
+            return trimmed
         }
 
-        if technical {
+        if plan.technical {
             // Never the model's text in a command — only its deletions.
-            guard let salvaged = salvage() else {
-                return result(fallback, noting("\(styleName) style — no filler found, commands kept exact"))
-            }
-            return result(salvaged, "\(styleName) style — model removed filler only, commands kept exact")
-        }
-
-        func finish(_ formatting: MaskedText) -> String {
-            let formatted = WritingStyleEngine.format(
-                formatting.text, rules: finalRules, globalAutoCapitalize: autoCapitalize,
-                globalTrailingSpace: trailingSpace
-            )
-            return masked.restore(in: formatting.restore(in: formatted))
+            return salvage().map(SliceOutcome.salvaged) ?? .noFiller
         }
 
         // Formal and Casual exist to reword, so a rewrite that passes every
         // check is used whole.
-        if intent != .preserve,
+        if plan.intent != .preserve,
            let candidate = protected.restoreValidated(modelText),
            let formatting = protected.formattingMask(modelText),
-           RewriteValidation.accepts(candidate, original: masked.text) {
-            let summary = candidate == masked.text ? noting("Wording unchanged") : "\(intent.displayName) wording applied"
-            return result(finish(formatting), summary)
+           RewriteValidation.accepts(candidate, original: source) {
+            return .rewritten(formatting, changed: candidate != source)
         }
 
         // Otherwise — and always for cleanup, whose job is only fillers,
         // stutters, punctuation, and spelling — take the model's edits one at
         // a time and leave any risky one as spoken. Nothing is rejected whole.
         let merged = EditMerge.merge(
-            original: protected.text, candidate: modelText, level: allowsEnglishWordEdits ? effectiveLevel : .light,
+            original: protected.text, candidate: modelText,
+            level: allowsEnglishWordEdits ? prepared.effectiveLevel : .light,
             allowsEnglishGrammar: allowsEnglishWordEdits,
             isKnownWord: isKnownWord
         )
         if protected.restoreValidated(merged.text) != nil,
            let formatting = protected.formattingMask(merged.text) {
-            let summary: String
-            switch (merged.applied, merged.skipped) {
-            case (0, 0): summary = "Wording unchanged"
-            case (0, _): summary = "Kept your wording — the model only suggested rewording"
-            case (_, 0): summary = "Cleaned up"
-            default: summary = "Cleaned up · \(merged.skipped) risky edit\(merged.skipped == 1 ? "" : "s") left as spoken"
-            }
-            return result(finish(formatting), noting(summary))
+            return .merged(formatting, applied: merged.applied, skipped: merged.skipped)
         }
         // Only if the merge itself lost a name or protected token, which it
         // is built not to: fall back to plain filler removal.
-        if let salvaged = salvage() {
-            return result(salvaged, noting("Cleaned up — filler only"))
+        return salvage().map(SliceOutcome.salvaged) ?? .keptWording
+    }
+
+    static func mergeSummary(applied: Int, skipped: Int) -> String {
+        switch (applied, skipped) {
+        case (0, 0): return "Wording unchanged"
+        case (0, _): return "Kept your wording — the model only suggested rewording"
+        case (_, 0): return "Cleaned up"
+        default: return "Cleaned up · \(skipped) risky edit\(skipped == 1 ? "" : "s") left as spoken"
         }
-        return result(fallback, noting("Kept your wording — the model only suggested rewording"))
+    }
+
+    // MARK: - Pieces
+
+    /// One part of the prepared text that goes to the model on its own.
+    struct TextSlice: Equatable {
+        let text: String
+        /// Whitespace between the previous slice and this one; empty for the first.
+        let separatorBefore: String
+    }
+
+    static func wholeSlice(of text: String) -> TextSlice {
+        TextSlice(text: text, separatorBefore: "")
+    }
+
+    /// Split the prepared whole text where the pieces begin and end.
+    ///
+    /// The rule stages run over the whole text, so piece boundaries aren't
+    /// carried through them. Instead each piece is prepared on its own and
+    /// found, in order, in the prepared whole. When a stage worked across a
+    /// boundary (a spoken correction that reaches back into the previous
+    /// sentence), that piece is joined with the next ones until the combined
+    /// text matches, so those pieces go to the model together. If nothing
+    /// matches, the rest of the text is one slice. Placeholders are numbered
+    /// per text, so any two are treated as equal when comparing.
+    ///
+    /// - Parameter prepare: The prepared (masked) text for a piece's raw text.
+    static func slices(
+        of whole: String,
+        pieces: [TranscribedPiece],
+        prepare: (String) -> String
+    ) -> [TextSlice] {
+        let wholeScalars = Array(whole.unicodeScalars)
+        let normalizedWhole = wholeScalars.map(normalizedForMatching)
+        var ranges: [Range<Int>] = []
+        var cursor = skippingWhitespace(normalizedWhole, from: 0)
+        var start = 0
+        pieceLoop: while start < pieces.count, cursor < normalizedWhole.count {
+            for end in start..<pieces.count {
+                let raw = TranscribedPiece.join(Array(pieces[start...end]))
+                let prepared = prepare(raw).trimmingCharacters(in: .whitespacesAndNewlines)
+                let candidate = prepared.unicodeScalars.map(normalizedForMatching)
+                guard !candidate.isEmpty else {
+                    // Nothing left of this piece (only "um"): it has no slice.
+                    if end == start {
+                        start += 1
+                        continue pieceLoop
+                    }
+                    continue
+                }
+                let upper = cursor + candidate.count
+                if upper <= normalizedWhole.count,
+                   Array(normalizedWhole[cursor..<upper]) == candidate,
+                   upper == normalizedWhole.count || normalizedWhole[upper].properties.isWhitespace {
+                    ranges.append(cursor..<upper)
+                    cursor = skippingWhitespace(normalizedWhole, from: upper)
+                    start = end + 1
+                    continue pieceLoop
+                }
+            }
+            break
+        }
+        if cursor < normalizedWhole.count {
+            var upper = normalizedWhole.count
+            while upper > cursor, normalizedWhole[upper - 1].properties.isWhitespace { upper -= 1 }
+            if upper > cursor { ranges.append(cursor..<upper) }
+        }
+        guard ranges.count >= 2 else { return [wholeSlice(of: whole)] }
+
+        func string(_ range: Range<Int>) -> String {
+            var view = String.UnicodeScalarView()
+            view.append(contentsOf: wholeScalars[range])
+            return String(view)
+        }
+        return ranges.enumerated().map { index, range in
+            let separator = index == 0 ? "" : string(ranges[index - 1].upperBound..<range.lowerBound)
+            return TextSlice(text: string(range), separatorBefore: separator)
+        }
+    }
+
+    private static func normalizedForMatching(_ scalar: Unicode.Scalar) -> Unicode.Scalar {
+        guard scalar.value >= TextPlaceholder.firstScalar, scalar.value <= TextPlaceholder.lastScalar,
+              let first = Unicode.Scalar(TextPlaceholder.firstScalar) else { return scalar }
+        return first
+    }
+
+    private static func skippingWhitespace(_ scalars: [Unicode.Scalar], from index: Int) -> Int {
+        var index = index
+        while index < scalars.count, scalars[index].properties.isWhitespace { index += 1 }
+        return index
+    }
+
+    /// Join identifier-lane masks, renumbering each part's placeholders after
+    /// the ones before it. Nil if the lane runs out of placeholders.
+    static func concatenate(_ parts: [MaskedText], separators: [String]) -> MaskedText? {
+        var text = ""
+        var replacements: [String] = []
+        for (index, part) in parts.enumerated() {
+            if index > 0 { text += separators[index - 1] }
+            let offset = replacements.count
+            for scalar in part.text.unicodeScalars {
+                if let local = TextPlaceholder.index(of: Character(scalar), base: TextPlaceholder.identifierBase),
+                   local < part.replacements.count {
+                    guard let renumbered = TextPlaceholder.character(
+                        at: offset + local, base: TextPlaceholder.identifierBase
+                    ) else { return nil }
+                    text.unicodeScalars.append(contentsOf: renumbered.unicodeScalars)
+                } else {
+                    text.unicodeScalars.append(scalar)
+                }
+            }
+            replacements += part.replacements
+        }
+        return MaskedText(text: text, replacements: replacements, base: TextPlaceholder.identifierBase)
     }
 
     /// Code and Terminal utterances shorter than this are treated as commands.

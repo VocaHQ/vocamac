@@ -185,9 +185,17 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// model switch cannot unload an analyzer that is still consuming audio.
     func startStreaming(
         language: String?,
-        vocabulary: String = "",
-        onPartial: (@Sendable (String) -> Void)? = nil
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
     ) -> RecordingTranscription? {
+        // Apple Speech streams natively; in commit mode its finalized results
+        // become the pieces, with no segmenter.
+        if let commit, isModelLoaded, activeEngine != .appleSpeech {
+            return startCommittedStreaming(
+                language: language, vocabulary: vocabulary, onPartial: onPartial, commit: commit
+            )
+        }
         guard isModelLoaded, activeEngine != .sherpaOnnx else { return nil }
         // Whisper and Parakeet are batch decoders: a live session only earns
         // its extra decodes when something shows the partial words. Without a
@@ -200,7 +208,9 @@ extension TranscriptionRouter: SpeechTranscribing {
                 guard activeEngine == expectedEngine else { throw RecordingTranscription.StreamError.incomplete }
                 switch expectedEngine {
                 case .appleSpeech:
-                    return try await appleSpeech.transcribe(chunks: chunks, language: language, vocabulary: vocabulary)
+                    return try await appleSpeech.transcribe(
+                        chunks: chunks, language: language, vocabulary: vocabulary, onPiece: commit?.onPiece
+                    )
                 case .whisperKit:
                     return try await IncrementalAudioTranscriber.run(
                         chunks: chunks,
@@ -226,6 +236,79 @@ extension TranscriptionRouter: SpeechTranscribing {
                 case .sherpaOnnx:
                     throw RecordingTranscription.StreamError.incomplete
                 }
+            }
+        }
+    }
+
+    /// Engine limit for one piece. Whisper's window is 30 s and Parakeet
+    /// chunks internally, but a piece that long would defeat the purpose.
+    static let defaultMaxPieceSeconds = 25.0
+
+    /// The longest piece `model` should decode in one pass.
+    static func maxPieceSeconds(for model: ModelSize?) -> Double {
+        guard let model, model.engine == .sherpaOnnx,
+              let limit = SherpaModelCatalog.spec(for: model)?.maxSegmentSeconds else {
+            return defaultMaxPieceSeconds
+        }
+        // Leave room for the silence SherpaService pads each decode with, so a
+        // piece is never split again inside the engine.
+        return limit - SherpaAudioPreparation.addedSilenceSeconds
+    }
+
+    /// Decode each finished piece with the engine's batch decoder while the
+    /// user keeps talking. The session holds the operation serializer for its
+    /// whole life, like the preview session, so a model switch cannot unload
+    /// the engine between pieces.
+    private func startCommittedStreaming(
+        language: String?,
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions
+    ) -> RecordingTranscription {
+        let expectedEngine = activeEngine
+        let loadedSize = loadedModelName.flatMap(ModelSize.init(rawValue:))
+        let configuration = commit.segmenterConfiguration(
+            maxPieceSeconds: Self.maxPieceSeconds(for: expectedEngine == .sherpaOnnx ? loadedSize : nil)
+        )
+        let transcribe: @Sendable ([Float]) async throws -> VocaTranscription
+        var previewTranscribe: (@Sendable ([Float]) async throws -> VocaTranscription)?
+        switch expectedEngine {
+        case .whisperKit:
+            transcribe = { [whisper] samples in
+                try await whisper.transcribe(
+                    audioData: samples, language: language, translate: false,
+                    vocabulary: commit.vocabulary?() ?? vocabulary
+                )
+            }
+            previewTranscribe = { [whisper] samples in
+                try await whisper.transcribe(
+                    audioData: samples, language: language, translate: false, vocabulary: vocabulary
+                )
+            }
+        case .parakeet:
+            transcribe = { [parakeet] samples in
+                // Each piece is a kept decode, so it gets the same dictionary
+                // boost the batch final decode would. Previews are not used.
+                try await parakeet.transcribe(
+                    audioData: samples, language: language,
+                    vocabulary: commit.vocabulary?() ?? vocabulary
+                )
+            }
+        case .sherpaOnnx:
+            transcribe = { [sherpa] samples in
+                try await sherpa.transcribe(audioData: samples, language: language)
+            }
+        case .appleSpeech:
+            transcribe = { _ in throw RecordingTranscription.StreamError.incomplete }
+        }
+        let preview = previewTranscribe
+        return RecordingTranscription(language: language) { [self] chunks in
+            try await operationSerializer.run { [self] in
+                guard activeEngine == expectedEngine else { throw RecordingTranscription.StreamError.incomplete }
+                return try await IncrementalAudioTranscriber.runCommitted(
+                    chunks: chunks, segmenter: configuration, onPiece: commit.onPiece,
+                    transcribe: transcribe, previewTranscribe: preview, onPartial: onPartial
+                )
             }
         }
     }

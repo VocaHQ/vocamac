@@ -54,15 +54,6 @@ final class WhisperService: @unchecked Sendable {
         stateLock.withLock { loadedName }
     }
 
-    /// Records which models have already been specialized for this OS build.
-    private let prewarmLedger: WhisperPrewarmLedger
-
-    init(prewarmLedger: WhisperPrewarmLedger = WhisperPrewarmLedger()) {
-        self.prewarmLedger = prewarmLedger
-    }
-
-    // MARK: - Lifecycle
-
     // MARK: - Model Management
 
     /// Initialize WhisperKit with a specific model (or auto-select best for device)
@@ -107,14 +98,21 @@ final class WhisperService: @unchecked Sendable {
             config.verbose = false
             #endif
 
-            // Loading already specializes the CoreML models for this chip.
-            // Prewarm only lowers peak memory while that specialization runs,
-            // at the cost of loading everything twice, so it is used only the
-            // first time a model loads on this OS build (Core ML drops its
-            // specialization cache on OS updates).
-            let ledgerKey = modelName ?? modelFolder?.path ?? "auto"
-            let shouldPrewarm = prewarmLedger.needsPrewarm(model: ledgerKey)
-            config.prewarm = shouldPrewarm
+            // Always load the CoreML models, which is what specializes them
+            // for this chip and keeps them resident. WhisperKit otherwise
+            // decides with `config.load ?? (config.modelFolder != nil)`, and
+            // `config.modelFolder` is only set below for a model already in
+            // our own cache. Leaving it to that default meant a model
+            // WhisperKit had to fetch itself was downloaded and then never
+            // loaded: `init` returned a kit whose encoder, decoder and
+            // tokenizer were all nil, which we stored and reported as ready.
+            config.load = true
+
+            // Prewarm is deliberately left off. It runs the same load and
+            // throws the result away (`model = prewarmMode ? nil : loaded`),
+            // so with `load` on it only repeats work; the real load above
+            // already pays the specialization cost once.
+            config.prewarm = false
 
             // If a local model folder is specified, use it
             if let folder = modelFolder {
@@ -129,9 +127,6 @@ final class WhisperService: @unchecked Sendable {
             stateLock.withLock {
                 loadedKit = kit
                 loadedName = modelName ?? kit.modelVariant.description
-            }
-            if shouldPrewarm {
-                prewarmLedger.recordPrewarm(model: ledgerKey)
             }
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
@@ -417,42 +412,6 @@ final class WhisperService: @unchecked Sendable {
             return "WhisperKit loaded | Model: \(loadedModelName ?? "unknown") | Device: \(WhisperKit.deviceName())"
         }
         return "WhisperKit not loaded | Device: \(WhisperKit.deviceName())"
-    }
-}
-
-// MARK: - WhisperPrewarmLedger
-
-/// Remembers which Whisper models have been prewarmed on the current OS build.
-struct WhisperPrewarmLedger: @unchecked Sendable {
-    static let defaultsKey = "whisperPrewarmedModels"
-
-    private let defaults: UserDefaults
-    private let osBuild: String
-
-    init(
-        defaults: UserDefaults = .standard,
-        osBuild: String = ProcessInfo.processInfo.operatingSystemVersionString
-    ) {
-        self.defaults = defaults
-        self.osBuild = osBuild
-    }
-
-    func needsPrewarm(model: String) -> Bool {
-        let ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-        return ledger[model] != osBuild
-    }
-
-    /// Drop a model's record, so a re-download prewarms again.
-    func forget(model: String) {
-        var ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-        guard ledger.removeValue(forKey: model) != nil else { return }
-        defaults.set(ledger, forKey: Self.defaultsKey)
-    }
-
-    func recordPrewarm(model: String) {
-        var ledger = defaults.dictionary(forKey: Self.defaultsKey) as? [String: String] ?? [:]
-        ledger[model] = osBuild
-        defaults.set(ledger, forKey: Self.defaultsKey)
     }
 }
 

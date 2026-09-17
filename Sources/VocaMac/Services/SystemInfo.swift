@@ -180,13 +180,20 @@ enum SystemInfo {
     /// Uses the catalog RAM estimate against installed memory and against
     /// reclaimable free memory from host_statistics64. A zero available
     /// reading is treated as unknown so we do not block loads on a failed probe.
+    ///
+    /// - Parameter freeingGB: RAM the pending load will release before it
+    ///   allocates, because it unloads the model currently resident. Without
+    ///   this the outgoing model counts against the incoming one, which
+    ///   rejected perfectly possible switches away from a large engine.
     static func canFitModelInMemory(
         _ size: ModelSize,
+        freeingGB: Double = 0,
         physicalMemoryGB: Int = physicalMemoryGB,
         availableBytes: UInt64 = availableMemoryBytes
     ) -> Bool {
         canFitInMemory(
             requiredGB: size.ramRequiredGB,
+            freeingGB: freeingGB,
             physicalMemoryGB: physicalMemoryGB,
             availableBytes: availableBytes
         )
@@ -196,6 +203,7 @@ enum SystemInfo {
     /// `ModelSize` values (the GGUF cleanup catalog).
     static func canFitInMemory(
         requiredGB: Double,
+        freeingGB: Double = 0,
         physicalMemoryGB: Int = physicalMemoryGB,
         availableBytes: UInt64 = availableMemoryBytes
     ) -> Bool {
@@ -204,6 +212,8 @@ enum SystemInfo {
         }
         guard availableBytes > 0 else { return true }
         let requiredBytes = UInt64((requiredGB * 1024 * 1024 * 1024).rounded(.up))
-        return availableBytes >= requiredBytes
+        let reclaimedBytes = UInt64(max(0, freeingGB) * 1024 * 1024 * 1024)
+        let (sum, overflowed) = availableBytes.addingReportingOverflow(reclaimedBytes)
+        return overflowed || sum >= requiredBytes
     }
 }

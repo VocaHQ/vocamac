@@ -239,7 +239,7 @@ final class AppStateRecoveryTests: XCTestCase {
             frontmostAppResolver: mocks.frontmostAppResolver,
             skipSystemIntegration: true
         )
-        appState.modelFitsInMemory = { _ in true }
+        appState.modelFitsInMemory = { _, _ in true }
 
         await appState.startRecording()
         XCTAssertTrue(appState.isRecording)

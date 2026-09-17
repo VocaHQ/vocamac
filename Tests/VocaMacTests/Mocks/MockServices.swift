@@ -889,7 +889,7 @@ extension AppState {
         // small fixed word list instead.
         appState.isKnownWord = { word, _ in TestWords.common.contains(word.lowercased()) }
         // Bypass host free-RAM probe so mock loads are not refused on CI.
-        appState.modelFitsInMemory = { _ in true }
+        appState.modelFitsInMemory = { _, _ in true }
         // Command Mode's automatic engine choice must not depend on whether
         // the machine running the tests has Apple Intelligence turned on.
         appState.appleIntelligenceAvailable = { false }

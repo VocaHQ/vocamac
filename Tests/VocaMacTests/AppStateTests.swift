@@ -363,6 +363,104 @@ final class AppStateModelLoadingTests: XCTestCase {
     }
 
     @MainActor
+    func testLoadingWithNoSizeUsesTheStoredPreferenceNotEngineAutoSelect() async {
+        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small]
+
+        let whisperService = MockWhisperService()
+        whisperService.loadResponses = [.success("openai_whisper-small")]
+
+        let (appState, mocks) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+
+        await appState.loadModel()
+
+        // A concrete model and folder, rather than nil to let the engine pick
+        // and fetch its own copy with no progress reporting.
+        XCTAssertEqual(mocks.whisperService.loadRequests.count, 1)
+        XCTAssertEqual(mocks.whisperService.loadRequests.first?.name, "openai_whisper-small")
+        XCTAssertNotNil(mocks.whisperService.loadRequests.first?.folder)
+        XCTAssertEqual(appState.currentModel?.size, .small)
+    }
+
+    @MainActor
+    func testLoadingAMissingModelDownloadsItFirst() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = []
+
+        let whisperService = MockWhisperService()
+        whisperService.loadResponses = [.success("openai_whisper-small")]
+
+        let (appState, mocks) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+
+        await appState.loadModel(.small)
+
+        // Fetched with real progress rather than left to the engine to pull
+        // down silently, and loaded from our own cache afterwards.
+        XCTAssertEqual(modelManager.downloadRequests, [.small])
+        XCTAssertEqual(mocks.whisperService.loadRequests.count, 1)
+        XCTAssertNotNil(mocks.whisperService.loadRequests.first?.folder)
+        XCTAssertEqual(appState.currentModel?.size, .small)
+    }
+
+    @MainActor
+    func testLoadingAMissingModelPrefersTheBundledCopyOverDownloading() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = []
+        modelManager.bundledModels = [.small]
+
+        let whisperService = MockWhisperService()
+        whisperService.loadResponses = [.success("openai_whisper-small")]
+
+        let (appState, _) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+
+        await appState.loadModel(.small)
+
+        XCTAssertEqual(modelManager.installedBundledModels, [.small])
+        XCTAssertTrue(modelManager.downloadRequests.isEmpty)
+        XCTAssertEqual(appState.currentModel?.size, .small)
+    }
+
+    @MainActor
+    func testAFailedDownloadStopsTheLoadInsteadOfLoadingNothing() async {
+        struct Boom: LocalizedError {
+            var errorDescription: String? { "network went away" }
+        }
+
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = []
+        modelManager.downloadError = Boom()
+
+        let whisperService = MockWhisperService()
+
+        let (appState, mocks) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+
+        await appState.loadModel(.small)
+
+        XCTAssertEqual(modelManager.downloadRequests, [.small])
+        // The engine is never asked to load a model whose files are absent.
+        XCTAssertTrue(mocks.whisperService.loadRequests.isEmpty)
+        XCTAssertEqual(appState.errorMessage?.contains("network went away"), true)
+        XCTAssertEqual(
+            appState.availableModels.first(where: { $0.size == .small })?.isLoading,
+            false
+        )
+    }
+
+    @MainActor
     func testLowMemoryGateRefusesMediumBeforeWhisperWithoutTouchingLoadedModel() async {
         UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
 
@@ -384,7 +482,7 @@ final class AppStateModelLoadingTests: XCTestCase {
         XCTAssertEqual(appState.currentModel?.size, .small)
         XCTAssertTrue(mocks.whisperService.isModelLoaded)
 
-        appState.modelFitsInMemory = { $0 != .medium }
+        appState.modelFitsInMemory = { size, _ in size != .medium }
         await appState.loadModel(.medium)
 
         XCTAssertTrue(

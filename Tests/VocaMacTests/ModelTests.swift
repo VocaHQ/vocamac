@@ -74,6 +74,41 @@ final class SystemInfoTests: XCTestCase {
         )
     }
 
+    func testCanFitModelCreditsTheOutgoingModelsMemory() {
+        // Switching Parakeet -> a Whisper model that only fits once Parakeet
+        // has been unloaded. The outgoing model is still resident when the
+        // gate runs, so without the credit this switch was refused outright.
+        let availableBytes: UInt64 = 1024 * 1024 * 1024
+        XCTAssertFalse(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                physicalMemoryGB: 16,
+                availableBytes: availableBytes
+            )
+        )
+        XCTAssertTrue(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                freeingGB: ModelSize.parakeetV3.ramRequiredGB,
+                physicalMemoryGB: 16,
+                availableBytes: availableBytes
+            )
+        )
+    }
+
+    func testCanFitModelStillRejectsWhatPhysicalMemoryCannotHold() {
+        // The credit is against free memory only; it must not let a model
+        // through that installed RAM cannot hold at all.
+        XCTAssertFalse(
+            SystemInfo.canFitModelInMemory(
+                .largeV3Latest,
+                freeingGB: 64,
+                physicalMemoryGB: 4,
+                availableBytes: UInt64(64) * 1024 * 1024 * 1024
+            )
+        )
+    }
+
     func testCanFitModelAllowsWhenAvailableIsUnknown() {
         XCTAssertTrue(
             SystemInfo.canFitModelInMemory(

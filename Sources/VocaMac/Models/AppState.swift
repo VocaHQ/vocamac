@@ -747,7 +747,12 @@ final class AppState: ObservableObject {
 
     /// Pre-load memory gate. Production defaults to SystemInfo; tests stub this
     /// so CI free+inactive pages cannot flake medium/large mock loads.
-    var modelFitsInMemory: (ModelSize) -> Bool = { SystemInfo.canFitModelInMemory($0) }
+    ///
+    /// `freeingGB` is the RAM the outgoing model releases as part of this
+    /// load, which must not count against the incoming one.
+    var modelFitsInMemory: (_ size: ModelSize, _ freeingGB: Double) -> Bool = { size, freeingGB in
+        SystemInfo.canFitModelInMemory(size, freeingGB: freeingGB)
+    }
     var availableInputDevices: () -> [AudioDevice] = { AudioEngine.availableInputDevices() }
     var isLidClosed: () -> Bool = { LidStateReader.isClosed() }
     /// Seam for tests, which must not depend on the host's Apple Intelligence.
@@ -1380,6 +1385,16 @@ final class AppState: ObservableObject {
             return nil
         }
         return size
+    }
+
+    /// The model a load with no explicit size should use: the stored
+    /// preference, corrected to something this Mac supports, else whatever
+    /// this device is recommended. Nil only when the catalog offers nothing.
+    private func resolvedDefaultModel() -> ModelSize? {
+        if let stored = ModelSize(rawValue: selectedModelSize) {
+            return startupFallbackModel(for: stored)
+        }
+        return currentModel?.size ?? recommendedModelSize()
     }
 
     /// Pick a supported startup model when the stored preference is no longer valid.
@@ -2377,22 +2392,30 @@ final class AppState: ObservableObject {
             ?? ModelSize(rawValue: selectedModelSize)
         let hadLoadedModel = whisperService.isModelLoaded
 
-        let modelName: String?
-        if let size = size {
-            modelName = modelManager.modelIdentifier(for: size)
-        } else {
-            modelName = nil  // Let WhisperKit auto-select
+        // Decide the model here rather than passing nil and letting WhisperKit
+        // auto-select. Its choice arrives with no progress reporting and lands
+        // in its own cache, and it is only a WhisperKit choice, so it can
+        // never reach the other three engines. Resolving first means the
+        // download and memory paths below always know what they are handling.
+        guard let targetSize = size ?? resolvedDefaultModel() else {
+            let failureMessage = "No speech model is available for this Mac."
+            showTemporaryError(failureMessage)
+            VocaLogger.error(.appState, failureMessage)
+            clearActiveModelState()
+            return
         }
-
-        // Resolve which ModelSize we're loading. When size is nil (auto-select),
-        // we don't know yet — we'll detect it after loading completes.
-        let targetSize = size
+        let modelName = modelManager.modelIdentifier(for: targetSize)
 
         // Refuse known-too-large loads before WhisperKit/CoreML can hang the
         // UI spinner under memory pressure (vocamac#250). Leave any already
         // loaded model alone — we never started a load, so do not restore/clear.
-        if let targetSize,
-           !modelFitsInMemory(targetSize) {
+        //
+        // The resident model is still in memory at this point: the router only
+        // unloads it once the load is under way. Credit what it will release,
+        // or switching away from a large engine (Parakeet especially) is
+        // measured against memory that model is about to give back.
+        let reclaimableGB = hadLoadedModel ? (previousModelSize?.ramRequiredGB ?? 0) : 0
+        if !modelFitsInMemory(targetSize, reclaimableGB) {
             let needed = String(format: "%.1f", targetSize.ramRequiredGB)
             let failureMessage =
                 "Not enough free memory to load \(targetSize.displayName) "
@@ -2402,25 +2425,55 @@ final class AppState: ObservableObject {
             return
         }
 
+        // Fetch the weights ourselves when they are missing, so the wait shows
+        // real download progress. Left to the engine it is a silent multi-GB
+        // transfer behind a spinner that only ever says "Loading model…" —
+        // and for WhisperKit the files land in its own cache rather than ours.
+        // Settings' "Download & Load" already does this; every other entry
+        // point (a hotkey reloading after the files were deleted, a language
+        // change, an intent) arrives here instead.
+        //
+        // `performDownloadModel` rather than `downloadModel`: we already hold
+        // `modelOperationSerializer`, and re-entering it would deadlock this
+        // load behind itself.
+        if !modelManager.isModelDownloaded(targetSize) {
+            VocaLogger.info(
+                .appState,
+                "\(targetSize.displayName) is not downloaded — fetching it before loading"
+            )
+            // A bundled copy costs a file move instead of a transfer.
+            if await installBundledOrFallback(preferred: targetSize) {
+                refreshModelStatuses()
+            }
+            if !modelManager.isModelDownloaded(targetSize) {
+                await performDownloadModel(targetSize)
+            }
+            guard generation == loadGeneration else {
+                clearLoadingFlag(for: targetSize)
+                return
+            }
+            guard modelManager.isModelDownloaded(targetSize) else {
+                // The download path owns its own messaging, including staying
+                // quiet when the user cancelled, so do not invent one here.
+                clearLoadingFlag(for: targetSize)
+                return
+            }
+        }
+
         // Mark the model as loading in the UI
-        if let targetSize = targetSize, let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
+        if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
             availableModels[idx].isLoading = true
             availableModels[idx].loadingStatus = "Preparing…"
         }
 
         do {
-            // If model is downloaded locally, pass the folder URL so WhisperKit
-            // loads from disk instead of downloading again. WhisperKit handles
+            // The files are present by now, so the engine loads from our own
+            // cache instead of fetching its own copy. WhisperKit handles
             // tokenizer fetching itself — we don't pre-validate those files.
-            let folderURL: URL?
-            if let targetSize = targetSize, modelManager.isModelDownloaded(targetSize) {
-                folderURL = modelManager.modelFolder(for: targetSize)
-            } else {
-                folderURL = nil
-            }
+            let folderURL = modelManager.modelFolder(for: targetSize)
 
             // Update status: unpacking
-            if let targetSize = targetSize, let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
+            if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
                 availableModels[idx].loadingStatus = "Unpacking model…"
             }
 
@@ -2428,45 +2481,10 @@ final class AppState: ObservableObject {
             try await whisperService.loadModel(name: modelName, folder: folderURL) { [weak self] phase in
                 Task { @MainActor in
                     guard let self = self else { return }
-                    if let targetSize = targetSize,
-                       let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
+                    if let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
                         self.availableModels[idx].loadingStatus = phase
                     }
                 }
-            }
-
-            // Determine which ModelSize was actually loaded.
-            // When auto-selecting, WhisperKit chooses the model and we need
-            // to detect which one it picked by inspecting the loaded model name.
-            let resolvedSize: ModelSize
-            if let targetSize = targetSize {
-                resolvedSize = targetSize
-            } else {
-                let loadedName = (whisperService.loadedModelName ?? "").lowercased()
-                if let loadedSize = modelManager.modelSize(from: whisperService.loadedModelName ?? "") {
-                    resolvedSize = loadedSize
-                } else if loadedName.contains("v20240930_turbo") {
-                    resolvedSize = .largeV3LatestTurbo
-                } else if loadedName.contains("v20240930") {
-                    resolvedSize = .largeV3Latest
-                } else if loadedName.contains("distil") && loadedName.contains("turbo") {
-                    resolvedSize = .distilLargeV3TurboCompact
-                } else if loadedName.contains("distil") {
-                    resolvedSize = .distilLargeV3Compact
-                } else if loadedName.contains("large") && loadedName.contains("turbo") {
-                    resolvedSize = .largeV3Turbo
-                } else if loadedName.contains("large") {
-                    resolvedSize = .largeV3
-                } else if loadedName.contains("medium") {
-                    resolvedSize = .medium
-                } else if loadedName.contains("small") {
-                    resolvedSize = .small
-                } else if loadedName.contains("base") {
-                    resolvedSize = .base
-                } else {
-                    resolvedSize = .tiny
-                }
-                VocaLogger.info(.appState, "Auto-selected model resolved to: \(resolvedSize.displayName) (from '\(whisperService.loadedModelName ?? "unknown")')")
             }
 
             // A newer loadModel started while we were waiting; leave UI to it.
@@ -2476,17 +2494,16 @@ final class AppState: ObservableObject {
             }
 
             // Persist the resolved model as the user's preference
-            selectedModelSize = resolvedSize.rawValue
+            selectedModelSize = targetSize.rawValue
 
             // Update model states — clear all, then mark the loaded one as active
             for i in availableModels.indices {
-                let matches = availableModels[i].size == resolvedSize
+                let matches = availableModels[i].size == targetSize
                 availableModels[i].isActive = matches
                 availableModels[i].isLoading = false
                 availableModels[i].loadingStatus = "Loading…"
                 if matches {
-                    // Refresh download status in case the auto-select downloaded it
-                    availableModels[i].isDownloaded = modelManager.isModelDownloaded(resolvedSize)
+                    availableModels[i].isDownloaded = modelManager.isModelDownloaded(targetSize)
                     currentModel = availableModels[i]
                 }
             }
@@ -2494,7 +2511,7 @@ final class AppState: ObservableObject {
             lastModelUnloadReason = nil
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
-            VocaLogger.info(.appState, "Model ready: \(resolvedSize.displayName)")
+            VocaLogger.info(.appState, "Model ready: \(targetSize.displayName)")
         } catch {
             // A newer load superseded this one; do not restore over it.
             guard generation == loadGeneration else {
@@ -2502,14 +2519,12 @@ final class AppState: ObservableObject {
                 return
             }
 
-            // Clear loading state on error for all models (covers auto-select case)
             for i in availableModels.indices {
                 availableModels[i].isLoading = false
                 availableModels[i].loadingStatus = "Loading…"
             }
 
-            let modelDisplayName = targetSize?.displayName ?? "model"
-            let failureMessage = "Failed to load \(modelDisplayName): \(error.localizedDescription)"
+            let failureMessage = "Failed to load \(targetSize.displayName): \(error.localizedDescription)"
             showTemporaryError(failureMessage)
             VocaLogger.error(.appState, failureMessage)
 
@@ -2695,7 +2710,15 @@ final class AppState: ObservableObject {
     /// prevents multiple progress indicators from representing concurrent
     /// writes to the model cache.
     private func performDownloadModel(_ size: ModelSize) async {
-        guard let index = availableModels.firstIndex(where: { $0.size == size }) else { return }
+        guard let index = availableModels.firstIndex(where: { $0.size == size }) else {
+            // No row to report progress against. Callers check the files
+            // afterwards rather than assume success, so say why here.
+            VocaLogger.warning(
+                .appState,
+                "Not downloading \(size.displayName): it is not in this device's model list"
+            )
+            return
+        }
 
         availableModels[index].downloadProgress = 0.0
 

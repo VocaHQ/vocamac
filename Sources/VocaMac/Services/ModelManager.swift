@@ -867,8 +867,6 @@ final class ModelManager {
                 throw ModelManagerError.missingModelDirectory(installedDir.path)
             }
 
-            // Fresh files have not been specialized for this chip yet.
-            WhisperPrewarmLedger().forget(model: whisperKitModelName(for: size))
             onProgress(1.0)
             VocaLogger.info(.modelManager, "Model '\(whisperKitModelName(for: size))' downloaded successfully to: \(installedDir.path)")
         } catch {
@@ -916,9 +914,6 @@ final class ModelManager {
 
         if FileManager.default.fileExists(atPath: modelDir.path) {
             try FileManager.default.removeItem(at: modelDir)
-            if size.engine == .whisperKit {
-                WhisperPrewarmLedger().forget(model: whisperKitModelName(for: size))
-            }
             invalidateDiskUsageCache()
             VocaLogger.info(.modelManager, "Deleted model: \(modelIdentifier(for: size))")
         }

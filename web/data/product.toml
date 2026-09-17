@@ -27,13 +27,13 @@ archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
 permissions = ["Microphone", "Accessibility", "Input Monitoring"]
 
-# Languages that can actually be pinned in Settings in v0.10.0, verified by
-# counting the tags in the Transcription Language picker in SettingsView.swift.
+# Languages that can actually be pinned in Settings in v0.10.0, verified against
+# TranscriptionLanguage.selectable in TranscriptionLanguage.swift.
 # The Whisper model is trained on ~99 languages, but only these are selectable,
 # so the site must not claim "99+ languages".
 [languages]
-count = 17
-list = "English, Spanish, French, German, Italian, Portuguese, Dutch, Chinese, Japanese, Korean, Hindi, Arabic, Russian, Turkish, Polish, Swedish, and Ukrainian"
+count = 37
+list = "Arabic, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Spanish, Swedish, Tamil, Thai, Turkish, Ukrainian, and Vietnamese"
 autoDetect = true
 
 [engine]

@@ -75,6 +75,8 @@ test("keeps the PRODUCT.md product boundary explicit", () => {
   assert.doesNotMatch(index, /remove local models/i);
   assert.match(product, /status = "Beta"/);
   assert.match(product, /osShort = "macOS 14\+"/);
+  assert.match(product, /count = 37/);
+  assert.doesNotMatch(product, /count = 17/);
 });
 
 test("uses local assets and accurate social metadata", async () => {
@@ -199,8 +201,12 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.match(script, /if \(token !== copyFeedbackToken\)/);
 
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
-  assert.match(ogSvg, /v0\.9\.0/);
-  assert.doesNotMatch(ogSvg, /v0\.8\.0/);
+  assert.match(ogSvg, /v0\.10\.0/);
+  assert.doesNotMatch(ogSvg, /v0\.9\.0/);
+
+  const languages = await readFile(join(outputRoot, "features/languages/index.html"), "utf8");
+  assert.match(languages, /37 language hints/);
+  assert.doesNotMatch(languages, /17 language hints/);
 });
 
 test("all rendered local references resolve", async () => {

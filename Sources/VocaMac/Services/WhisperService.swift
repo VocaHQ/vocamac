@@ -54,6 +54,18 @@ final class WhisperService: @unchecked Sendable {
         stateLock.withLock { loadedName }
     }
 
+    /// Key the retired prewarm ledger wrote to. Prewarm is no longer used —
+    /// loading specializes the models on its own — so the stored dictionary is
+    /// dead weight in every upgrading install's preferences.
+    static let legacyPrewarmLedgerKey = "whisperPrewarmedModels"
+
+    /// Drop the retired prewarm ledger. Safe to call when it was never written.
+    static func removeLegacyPrewarmLedger(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: legacyPrewarmLedgerKey) != nil else { return }
+        defaults.removeObject(forKey: legacyPrewarmLedgerKey)
+        VocaLogger.info(.whisperService, "Removed the retired Whisper prewarm ledger")
+    }
+
     // MARK: - Model Management
 
     /// Initialize WhisperKit with a specific model (or auto-select best for device)

@@ -158,6 +158,39 @@ final class ModelDownloadDiskSpaceTests: XCTestCase {
     }
 }
 
+// MARK: - Retired prewarm ledger
+
+final class LegacyPrewarmLedgerCleanupTests: XCTestCase {
+
+    private var suiteName = ""
+    private var defaults: UserDefaults!
+
+    override func setUp() {
+        super.setUp()
+        suiteName = "LegacyPrewarmLedgerCleanupTests.\(UUID().uuidString)"
+        defaults = UserDefaults(suiteName: suiteName)
+    }
+
+    override func tearDown() {
+        defaults.removePersistentDomain(forName: suiteName)
+        super.tearDown()
+    }
+
+    func testUpgradingClearsTheStoredLedger() {
+        defaults.set(["openai_whisper-small": "26.0 (A)"], forKey: WhisperService.legacyPrewarmLedgerKey)
+
+        WhisperService.removeLegacyPrewarmLedger(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: WhisperService.legacyPrewarmLedgerKey))
+    }
+
+    func testClearingIsHarmlessWhenTheLedgerWasNeverWritten() {
+        WhisperService.removeLegacyPrewarmLedger(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: WhisperService.legacyPrewarmLedgerKey))
+    }
+}
+
 // MARK: - Live preview
 
 final class IncrementalPartialCancellationTests: XCTestCase {

@@ -2861,6 +2861,7 @@ final class AppState: ObservableObject {
         await preparation.value
         startupModelPreparation = nil
 
+        WhisperService.removeLegacyPrewarmLedger()
         transcriptCleanup.pruneUnknownModels()
         if transcriptCleanupEnabled {
             await syncTranscriptCleanup()

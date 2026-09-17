@@ -219,9 +219,16 @@ protocol SpeechTranscribing: AnyObject {
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
     func unloadModel() async
+    /// Discard stored state that retired engine code left behind, so callers
+    /// never reach past this facade into an individual engine to do it.
+    func removeRetiredEngineState()
 }
 
 extension SpeechTranscribing {
+    /// Conformances with no retired state to clear — the mocks, and the
+    /// individual engines — need do nothing.
+    func removeRetiredEngineState() {}
+
     func startStreaming(
         language: String?,
         vocabulary: String = "",

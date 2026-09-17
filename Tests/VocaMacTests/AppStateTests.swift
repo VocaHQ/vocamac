@@ -259,6 +259,19 @@ final class AppStateOnboardingTests: XCTestCase {
     }
 
     @MainActor
+    func testPerformStartupClearsRetiredEngineStateThroughTheFacade() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.modelManager.bundledModels = [.tiny]
+        appState.selectedModelSize = ModelSize.tiny.rawValue
+
+        await appState.performStartup()
+
+        // Asked through SpeechTranscribing, never by reaching past the router
+        // into an individual engine service (AGENTS.md service-layer rule).
+        XCTAssertEqual(mocks.whisperService.removeRetiredEngineStateCallCount, 1)
+    }
+
+    @MainActor
     func testPerformStartupInstallsBundledTinyModelBeforeDownload() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.modelManager.bundledModels = [.tiny]

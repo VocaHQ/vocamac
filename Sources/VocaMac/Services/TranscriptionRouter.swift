@@ -213,6 +213,12 @@ extension TranscriptionRouter: SpeechTranscribing {
         }
     }
 
+    /// Clear preferences retired engine code left behind. Owned here so
+    /// `AppState` asks the facade rather than an engine service directly.
+    func removeRetiredEngineState() {
+        WhisperService.removeLegacyPrewarmLedger()
+    }
+
     /// Unload every engine so only cold-start memory remains.
     ///
     /// Serialized with load/transcribe so a hotkey cannot decode against an

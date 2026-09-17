@@ -538,6 +538,11 @@ final class MockWhisperService: SpeechTranscribing {
     var mockTranscriptionResult: VocaTranscription = VocaTranscription(text: "mock transcription", duration: 1.0, detectedLanguage: "en", audioLengthSeconds: 1.0, modelUsed: .tiny)
     var shouldThrow = false
     var transcribeDelayNanoseconds: UInt64 = 0
+    private(set) var removeRetiredEngineStateCallCount = 0
+
+    func removeRetiredEngineState() {
+        removeRetiredEngineStateCallCount += 1
+    }
 
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription {
         lastTranscribedAudioData = audioData

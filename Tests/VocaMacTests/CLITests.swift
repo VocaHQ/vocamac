@@ -48,6 +48,64 @@ final class CLITests: XCTestCase {
         }
     }
 
+    // MARK: - Piece comparison
+
+    func testPiecesFlagParsesWithItsOptions() throws {
+        XCTAssertEqual(
+            try CLICommand.parse(arguments: [
+                "--transcribe-file", "a.wav", "--json", "--pieces",
+                "--cleanup", "ministral3_3b_q4_k_m", "--min-piece-seconds", "5",
+            ]),
+            .comparePieces(path: "a.wav", model: nil, language: nil, options: PieceComparisonOptions(
+                cleanupModel: .ministral3_3b_q4_k_m, pauseSeconds: 0.6, minPieceSeconds: 5
+            ))
+        )
+    }
+
+    func testPieceOptionsNeedPiecesAndValidValues() {
+        for arguments in [
+            ["--transcribe-file", "a.wav", "--json", "--cleanup", "ministral3_3b_q4_k_m"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--cleanup", "gpt-5"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "-1"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "1e300"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--min-piece-seconds", "inf"],
+            ["--list-models", "--json", "--pieces"],
+        ] {
+            XCTAssertThrowsError(try CLICommand.parse(arguments: arguments), "\(arguments)") { error in
+                XCTAssertCLIError(error, category: .invalidArguments)
+            }
+        }
+    }
+
+    func testPieceComparisonDecodesWholeAndPieceByPiece() async throws {
+        let dependencies = makeDependencies(selectedModel: .tiny)
+        let tone = (0..<80_000).map { 0.3 * sin(Float($0) * 2 * .pi * 220 / 16_000) }
+        let audio = tone + [Float](repeating: 0, count: 16_000) + Array(tone.prefix(48_000))
+        dependencies.audioLoader.loadedAudio = LoadedAudioFile(samples: audio, durationSeconds: Double(audio.count) / 16_000)
+
+        let response = try await dependencies.headless.comparePieces(
+            fileURL: URL(fileURLWithPath: "/mock/audio.wav"), modelOverride: nil, languageOverride: nil,
+            options: PieceComparisonOptions(cleanupModel: nil, pauseSeconds: 0.6, minPieceSeconds: 4)
+        )
+
+        XCTAssertEqual(response.batch.text, "mock transcription")
+        XCTAssertEqual(response.pieces.count, 2)
+        // The fake engine answers the same for every decode, so the tail's
+        // merged decode only repeats the first piece and adds nothing.
+        XCTAssertEqual(response.pieces.map(\.text), ["mock transcription", ""])
+        XCTAssertEqual(response.pieceMode.text, "mock transcription")
+        XCTAssertEqual(response.pieceMode.wordDifferenceRate, 0)
+        XCTAssertFalse(response.pieceMode.fallsBackToBatch)
+        XCTAssertNil(response.batch.cleanedText)
+    }
+
+    func testWordDifferenceCountsEditsOverReferenceWords() {
+        XCTAssertEqual(WordDifference.rate(reference: "Ship it on Friday.", hypothesis: "ship it on friday"), 0)
+        XCTAssertEqual(WordDifference.rate(reference: "ship it on friday", hypothesis: "ship it friday"), 0.25)
+        XCTAssertEqual(WordDifference.rate(reference: "ship it", hypothesis: "we ship it now"), 1)
+        XCTAssertEqual(WordDifference.rate(reference: "", hypothesis: ""), 0)
+    }
+
     // MARK: - Preference and model resolution
 
     func testOmittedModelReadsInjectedAppSelection() async throws {

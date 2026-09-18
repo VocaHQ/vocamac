@@ -60,6 +60,7 @@ enum SettingsArchiveService {
         PreferenceKey.externalMicWhenLidClosed: .bool, PreferenceKey.historyEnabled: .bool,
         PreferenceKey.historyKeepsAudio: .bool, PreferenceKey.modelKeepAliveEnabled: .bool,
         PreferenceKey.numbersAsDigits: .bool, PreferenceKey.spokenEmoji: .bool,
+        PreferenceKey.processWhileSpeaking: .bool,
         PreferenceKey.transcriptCleanupEnabled: .bool, PreferenceKey.useScreenContext: .bool,
         PreferenceKey.aiModelsKeptSeparate: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,

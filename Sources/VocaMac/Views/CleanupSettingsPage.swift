@@ -88,6 +88,16 @@ struct CleanupSettingsPage: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            VocaSettingsGroup("Speed") {
+                SettingsToggleRow(
+                    title: "Process while speaking",
+                    detail: "Transcribes and cleans up each sentence as you finish it, so long dictations "
+                        + "paste sooner. Your Mac works while you talk, which uses more battery, and that "
+                        + "work is wasted if you cancel. Command Mode and previews are unaffected.",
+                    isOn: $appState.processWhileSpeaking
+                )
+            }
+
             modelLibrary
 
             VocaDisclosureCard(

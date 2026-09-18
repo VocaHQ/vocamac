@@ -222,6 +222,13 @@ enum SettingsSearchIndex {
             keywords: ["level", "none", "light", "medium", "high", "corrections"]
         ),
         SettingsSearchEntry(
+            id: "process-while-speaking",
+            page: .cleanup,
+            title: "Process While Speaking",
+            subtitle: "Transcribe and clean up each sentence before you stop",
+            keywords: ["speed", "faster", "latency", "wait", "streaming", "sentence", "live", "battery", "long dictation"]
+        ),
+        SettingsSearchEntry(
             id: "cleanup-provider",
             page: .cleanup,
             title: "Cleanup Provider",

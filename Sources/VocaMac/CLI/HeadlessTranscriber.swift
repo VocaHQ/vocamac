@@ -45,30 +45,37 @@ final class HeadlessTranscriber {
     private let preferences: CLIPreferencesReading
     private let audioLoader: AudioFileLoading
     private let transcriberFactory: TranscriberFactory
+    /// The cleanup model service for `--pieces --cleanup`. Created only when
+    /// asked for, so plain transcription never touches llama.cpp.
+    let cleanerFactory: @MainActor () -> TranscriptCleaning
 
     init(
         modelManager: ModelManaging,
         preferences: CLIPreferencesReading,
         audioLoader: AudioFileLoading,
-        transcriberFactory: @escaping TranscriberFactory
+        transcriberFactory: @escaping TranscriberFactory,
+        cleanerFactory: @escaping @MainActor () -> TranscriptCleaning = { TranscriptCleanupService() }
     ) {
         self.modelManager = modelManager
         self.preferences = preferences
         self.audioLoader = audioLoader
         self.transcriberFactory = transcriberFactory
+        self.cleanerFactory = cleanerFactory
     }
 
     convenience init(
         modelManager: ModelManaging,
         preferences: CLIPreferencesReading,
         audioLoader: AudioFileLoading,
-        transcriber: SpeechTranscribing
+        transcriber: SpeechTranscribing,
+        cleanerFactory: @escaping @MainActor () -> TranscriptCleaning = { TranscriptCleanupService() }
     ) {
         self.init(
             modelManager: modelManager,
             preferences: preferences,
             audioLoader: audioLoader,
-            transcriberFactory: { _ in transcriber }
+            transcriberFactory: { _ in transcriber },
+            cleanerFactory: cleanerFactory
         )
     }
 
@@ -78,17 +85,15 @@ final class HeadlessTranscriber {
         modelOverride: String?,
         languageOverride: String?
     ) async throws -> CLITranscriptionResponse {
-        let model = try resolveModel(identifier: modelOverride ?? preferences.selectedModelIdentifier)
-        try validateAvailability(of: model)
-
-        let loadedAudio = try audioLoader.loadAudio(at: fileURL)
-        let language = resolvedLanguage(override: languageOverride)
-        let transcriber = transcriberFactory(language)
-        let modelIdentifier = modelManager.modelIdentifier(for: model)
-        let modelFolder = modelManager.modelFolder(for: model)
+        let prepared = try await prepareTranscription(
+            fileURL: fileURL, modelOverride: modelOverride, languageOverride: languageOverride
+        )
+        let model = prepared.model
+        let loadedAudio = prepared.audio
+        let language = prepared.language
+        let transcriber = prepared.transcriber
 
         do {
-            try await transcriber.loadModel(name: modelIdentifier, folder: modelFolder)
             // Only model and language follow app prefs (see README); translate
             // and custom vocabulary are intentionally always off headlessly.
             let result = try await transcriber.transcribe(
@@ -110,6 +115,37 @@ final class HeadlessTranscriber {
         } catch {
             throw CLIError(.transcriptionFailed, "Transcription failed: \(error.localizedDescription)")
         }
+    }
+
+    struct PreparedTranscription {
+        let model: ModelSize
+        let audio: LoadedAudioFile
+        let language: String?
+        let transcriber: SpeechTranscribing
+    }
+
+    /// Resolve and validate the model, load the audio, and load the model.
+    func prepareTranscription(
+        fileURL: URL,
+        modelOverride: String?,
+        languageOverride: String?
+    ) async throws -> PreparedTranscription {
+        let model = try resolveModel(identifier: modelOverride ?? preferences.selectedModelIdentifier)
+        try validateAvailability(of: model)
+
+        let loadedAudio = try audioLoader.loadAudio(at: fileURL)
+        let language = resolvedLanguage(override: languageOverride)
+        let transcriber = transcriberFactory(language)
+        do {
+            try await transcriber.loadModel(
+                name: modelManager.modelIdentifier(for: model), folder: modelManager.modelFolder(for: model)
+            )
+        } catch let error as CLIError {
+            throw error
+        } catch {
+            throw CLIError(.transcriptionFailed, "Transcription failed: \(error.localizedDescription)")
+        }
+        return PreparedTranscription(model: model, audio: loadedAudio, language: language, transcriber: transcriber)
     }
 
     /// Return the complete known model catalog with current runtime state.

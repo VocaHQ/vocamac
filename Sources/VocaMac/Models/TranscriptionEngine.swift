@@ -31,6 +31,7 @@ enum PreferenceKey {
     static let transcriptCleanupModel = "vocamac.transcriptCleanup.model"
     static let transcriptCleanupPrompt = "vocamac.transcriptCleanup.prompt"
     static let transcriptCleanupLevel = "vocamac.transcriptCleanup.level"
+    static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
     static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
     static let historyEnabled = "vocamac.history.enabled"
     static let historyKeepsAudio = "vocamac.history.keepAudio"

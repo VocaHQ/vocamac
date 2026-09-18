@@ -168,6 +168,12 @@ final class AppState: ObservableObject {
 
     private var recordingTranscription: RecordingTranscription?
     private var finishingTranscription: RecordingTranscription?
+    /// Cleanups of finished pieces, run while recording ("Process while
+    /// speaking"). Moves to `finishingSpeculator` at stop.
+    private var recordingSpeculator: CleanupSpeculator?
+    private var finishingSpeculator: CleanupSpeculator?
+    /// Vocabulary a commit-mode Whisper session reads per piece.
+    private var recordingVocabulary: LiveVocabulary?
     private var isStoppingAudio = false
     /// Every way a recording ends — stop, cancel, force recovery, a failed
     /// start, an input device change, auto-pause — sets this to `false`, so
@@ -180,6 +186,9 @@ final class AppState: ObservableObject {
                 audioEngine.onAudioSamples = nil
                 recordingTranscription?.cancel()
                 recordingTranscription = nil
+                recordingSpeculator?.cancelAll()
+                recordingSpeculator = nil
+                recordingVocabulary = nil
                 isHandsFreeSession = false
             }
             if oldValue && !isRecording {
@@ -283,6 +292,9 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.transcriptCleanupModel) var transcriptCleanupModel: String = CleanupModelKind.defaultKind.rawValue
     @AppStorage(PreferenceKey.transcriptCleanupPrompt) var transcriptCleanupPrompt: String = ""
     @AppStorage(PreferenceKey.transcriptCleanupLevel) var transcriptCleanupLevel: CleanupLevel = .medium
+    /// Decode (and clean up) each finished sentence while recording, so long
+    /// dictations paste sooner. Off by default until measured on more Macs.
+    @AppStorage(PreferenceKey.processWhileSpeaking) var processWhileSpeaking: Bool = false
     @AppStorage(PreferenceKey.cleanupEndpoint) var cleanupEndpointJSON: String = ""
     @AppStorage(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
     @AppStorage(PreferenceKey.historyKeepsAudio) var historyKeepsAudio: Bool = false
@@ -1638,6 +1650,7 @@ final class AppState: ObservableObject {
         recordingGeneration = UUID()
         queuedRecordingStart = nil
         finishingTranscription?.cancel()
+        finishingSpeculator?.cancelAll()
         // Otherwise the local model keeps generating for the abandoned
         // dictation, and the next dictation's cleanup waits behind it.
         transcriptCleanup.cancelCleanup()
@@ -1851,15 +1864,24 @@ final class AppState: ObservableObject {
         } else {
             partialHandler = nil
         }
+        let commit = commitOptionsForRecording(injectResult: injectResult, generation: generation)
         let session = whisperService.startStreaming(
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             vocabulary: customVocabulary,
-            onPartial: partialHandler
+            onPartial: partialHandler,
+            commit: commit
         )
+        if commit == nil || session == nil {
+            recordingSpeculator = nil
+            recordingVocabulary = nil
+        }
         // Only promise live words when an engine will actually send them:
-        // Whisper and Parakeet decode partial snapshots; the Apple Speech
-        // session streams audio but reports text only when it finishes.
-        let engineSendsPartials = [.whisperKit, .parakeet].contains(ModelSize(rawValue: selectedModelSize)?.engine)
+        // Whisper and Parakeet decode partial snapshots, and so does ONNX when
+        // it commits pieces; the Apple Speech session streams audio but
+        // reports text only when it finishes.
+        let recordingEngine = ModelSize(rawValue: selectedModelSize)?.engine
+        let engineSendsPartials = [.whisperKit, .parakeet].contains(recordingEngine)
+            || (commit != nil && recordingEngine == .sherpaOnnx)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in
@@ -1928,6 +1950,109 @@ final class AppState: ObservableObject {
         }
     }
 
+    // MARK: - Process while speaking
+
+    /// Commit-mode options for a new recording, or nil to record as before.
+    /// Also creates the recording's cleanup speculator and live vocabulary.
+    ///
+    /// Only real dictations commit pieces: Command Mode needs the whole
+    /// instruction, previews and practice show batch output, and Whisper
+    /// translation always decodes the whole recording.
+    private func commitOptionsForRecording(injectResult: Bool, generation: UUID) -> StreamingCommitOptions? {
+        recordingSpeculator = nil
+        recordingVocabulary = nil
+        guard processWhileSpeaking, injectResult, activeCommandSelection == nil,
+              let engine = ModelSize(rawValue: selectedModelSize)?.engine,
+              !(engine == .whisperKit && translationEnabled) else { return nil }
+
+        let vocabulary = LiveVocabulary(customVocabulary)
+        recordingVocabulary = vocabulary
+        if let contextTask = screenContextTask {
+            let customVocabulary = customVocabulary
+            Task { @MainActor in
+                let terms = await contextTask.value
+                vocabulary.update(Self.recognitionVocabulary(customVocabulary, contextTerms: terms))
+            }
+        }
+
+        // Cleanup ahead of time only on this Mac: an endpoint would be sent
+        // pieces that may never be used.
+        if transcriptCleanupEnabled, cleanupEndpoint.isLocal {
+            recordingSpeculator = makeSpeculator(
+                target: frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp,
+                contextTask: screenContextTask,
+                documentURLTask: screenDocumentURLTask
+            )
+        }
+
+        let onPiece: @Sendable (Int, TranscribedPiece) -> Void = { [weak self] index, piece in
+            Task { @MainActor [weak self] in
+                self?.submitPiece(piece, index: index, generation: generation)
+            }
+        }
+        var readVocabulary: (@Sendable () -> String)?
+        if engine == .whisperKit {
+            readVocabulary = { vocabulary.read() }
+        }
+        return StreamingCommitOptions(onPiece: onPiece, vocabulary: readVocabulary)
+    }
+
+    private func submitPiece(_ piece: TranscribedPiece, index: Int, generation: UUID) {
+        guard recordingGeneration == generation else { return }
+        (recordingSpeculator ?? finishingSpeculator)?.submit(piece, index: index)
+    }
+
+    /// A speculator whose options match what the stop path will use, as far
+    /// as can be known while recording. Anything that turns out different at
+    /// stop (another app in front, new dictionary words) changes the request,
+    /// and that piece is simply cleaned again.
+    private func makeSpeculator(
+        target: RunningAppSnapshot?,
+        contextTask: Task<[String], Never>?,
+        documentURLTask: Task<URL?, Never>?
+    ) -> CleanupSpeculator {
+        var cachedProfile: WritingProfile?
+        var cachedTerms: [String]?
+        return CleanupSpeculator(pipeline: outputPipeline) { [weak self] language in
+            guard let self else { return nil }
+            if cachedProfile == nil {
+                let documentURL = await Self.awaitDocumentURL(documentURLTask)
+                cachedProfile = self.nextWritingProfile
+                    ?? self.resolveWritingStyle(for: target, documentURL: documentURL).profile
+            }
+            if cachedTerms == nil {
+                cachedTerms = await Self.awaitContextTerms(contextTask)
+            }
+            guard let profile = cachedProfile else { return nil }
+            return DictationOutputOptions(
+                profile: profile, snippetList: self.snippets,
+                cleanupEnabled: self.transcriptCleanupEnabled, rewritingEnabled: self.writingRewriteEnabled,
+                model: self.selectedCleanupModelKind, customPrompt: self.effectiveCleanupPrompt,
+                cleanupLevel: self.transcriptCleanupLevel, language: language,
+                autoCapitalize: self.autoCapitalize, trailingSpace: self.appendTrailingSpace,
+                preview: false,
+                dictionary: self.dictionaryContext(contextTerms: cachedTerms ?? [], language: language),
+                numbersAsDigits: self.numbersAsDigits, spokenEmoji: self.spokenEmoji
+            )
+        }
+    }
+
+    private static func logPieceSummary(
+        result: VocaTranscription,
+        speculator: CleanupSpeculator?,
+        stopToResult: TimeInterval
+    ) {
+        let tailSeconds = result.pieces.last.map { Double($0.range.count) / 16_000 } ?? 0
+        var line = "Process while speaking: \(result.pieces.count) pieces, "
+            + "tail \(String(format: "%.1f", tailSeconds))s, "
+            + "stop to result \(String(format: "%.2f", stopToResult))s"
+        if let speculator {
+            line += ", cleanup hits \(speculator.hitCount), misses \(speculator.missCount), "
+                + "cancelled \(speculator.cancelledCount) of \(speculator.submittedCount) submitted"
+        }
+        VocaLogger.info(.appState, line)
+    }
+
     private func automaticExternalInputIfNeeded() -> AudioDevice? {
         guard externalMicWhenLidClosed, isLidClosed() else { return nil }
         let devices = availableInputDevices()
@@ -1994,9 +2119,17 @@ final class AppState: ObservableObject {
         let session = recordingTranscription
         recordingTranscription = nil
         finishingTranscription = session
+        let speculator = recordingSpeculator
+        recordingSpeculator = nil
+        finishingSpeculator = speculator
+        let liveVocabulary = recordingVocabulary
+        recordingVocabulary = nil
+        let stopStarted = ProcessInfo.processInfo.systemUptime
         defer {
             session?.cancel()
             if finishingTranscription === session { finishingTranscription = nil }
+            speculator?.cancelAll()
+            if finishingSpeculator === speculator { finishingSpeculator = nil }
         }
         isRecording = false
         audioLevel = 0.0
@@ -2059,8 +2192,12 @@ final class AppState: ObservableObject {
             )
             let result: VocaTranscription
             let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
+            // A commit-mode session reads the vocabulary per piece, so context
+            // terms reach it too, provided no piece was decoded without them.
+            liveVocabulary?.update(recognitionVocabulary)
+            let pieceVocabularyMatches = liveVocabulary?.servedOnly(recognitionVocabulary) ?? false
             let contextNeedsWhisperBatch = selectedEngine == .whisperKit
-                && (!contextTerms.isEmpty || translationEnabled)
+                && ((!contextTerms.isEmpty && !pieceVocabularyMatches) || translationEnabled)
             if let session, session.language == language, !contextNeedsWhisperBatch {
                 do {
                     result = try await session.finish(expectedSampleCount: audioData.count)
@@ -2138,8 +2275,17 @@ final class AppState: ObservableObject {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
                     dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage),
-                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
+                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji,
+                    // Cleaning piece by piece only pays off with answers from
+                    // while recording; an endpoint would get one call per piece.
+                    pieces: speculator == nil ? [] : result.pieces, speculator: speculator
                 )
+                if !result.pieces.isEmpty {
+                    Self.logPieceSummary(
+                        result: result, speculator: speculator,
+                        stopToResult: ProcessInfo.processInfo.systemUptime - stopStarted
+                    )
+                }
                 guard generation == recordingGeneration, !Task.isCancelled else {
                     if let historyID { historyStore.markCancelled(historyID) }
                     return
@@ -2289,6 +2435,7 @@ final class AppState: ObservableObject {
         // Escape cancels everything, including a dictation waiting to start.
         queuedRecordingStart = nil
         finishingTranscription?.cancel()
+        finishingSpeculator?.cancelAll()
         transcriptCleanup.cancelCleanup()
         resetCommandModeState()
         liveTranscript = ""

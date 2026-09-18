@@ -455,3 +455,143 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(state.nextWritingProfile?.cleanup, .inherit)
     }
 }
+
+// MARK: - Pieces
+
+extension DictationOutputPipelineTests {
+    private func pieces(_ texts: [String]) -> [TranscribedPiece] {
+        texts.enumerated().map { index, text in
+            TranscribedPiece(range: (index * 16_000)..<((index + 1) * 16_000), text: text, language: "en")
+        }
+    }
+
+    private func options(format: WritingStyle = .plain, intent: WritingIntent = .preserve) -> DictationOutputOptions {
+        DictationOutputOptions(
+            profile: WritingProfile(format: format, rules: format.defaultRules, intent: intent),
+            snippetList: [], cleanupEnabled: true, rewritingEnabled: true,
+            model: .defaultKind, customPrompt: "Custom cleanup instructions",
+            language: "en", autoCapitalize: true, trailingSpace: true
+        )
+    }
+
+    func testPiecesGiveTheSameTextAsTheWholeWhenTheModelChangesNothing() async {
+        let cases: [[String]] = [
+            ["so um I was thinking we could ship it on friday.", "then maybe after the review we talk."],
+            ["meet me at readme.md on the 15th, okay?", "email alice@example.com about it.", "um thanks"],
+            ["first part without punctuation", "second part also without it"],
+        ]
+        for texts in cases {
+            let wholeCleaner = MockTranscriptCleanup()
+            wholeCleaner.cleanHandler = { $0 }
+            let pieceCleaner = MockTranscriptCleanup()
+            pieceCleaner.cleanHandler = { $0 }
+            let joined = TranscribedPiece.join(texts)
+            let whole = await DictationOutputPipeline(cleaner: wholeCleaner, snippets: SnippetExpander())
+                .process(joined, options: options())
+            let split = await DictationOutputPipeline(cleaner: pieceCleaner, snippets: SnippetExpander())
+                .process(joined, options: options(), pieces: pieces(texts))
+            XCTAssertEqual(split.text, whole.text, "\(texts)")
+            XCTAssertEqual(split.summary, whole.summary, "\(texts)")
+            XCTAssertEqual(pieceCleaner.cleanCallCount, texts.count, "\(texts)")
+        }
+    }
+
+    func testRejectedPieceKeepsItsWordsAndTheOthersAreStillCleaned() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { text in
+            text.contains("ship") ? "Something else entirely." : text.replacingOccurrences(of: "if if", with: "if")
+        }
+        let texts = ["we will ship it on friday.", "tell me if if the review comes after that."]
+        let output = await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
+            .process(TranscribedPiece.join(texts), options: options(), pieces: pieces(texts))
+        XCTAssertEqual(output.text, "We will ship it on friday. Tell me if the review comes after that. ")
+        XCTAssertTrue(output.summary.hasPrefix("Cleaned up"), output.summary)
+        XCTAssertTrue(output.summary.contains("1 of 2 parts kept as spoken"), output.summary)
+    }
+
+    func testEveryPieceKeptGivesTheExactFormattingFallback() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { _ in "Something else entirely." }
+        let texts = ["we will ship it on friday.", "the review comes after that."]
+        let joined = TranscribedPiece.join(texts)
+        let whole = await DictationOutputPipeline(cleaner: MockTranscriptCleanup(), snippets: SnippetExpander())
+            .process(joined, options: DictationOutputOptions(
+                profile: options().profile, snippetList: [], cleanupEnabled: false, rewritingEnabled: true,
+                model: .defaultKind, customPrompt: "", language: "en", autoCapitalize: true, trailingSpace: true
+            ))
+        let output = await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
+            .process(joined, options: options(), pieces: pieces(texts))
+        XCTAssertEqual(output.text, whole.text)
+        XCTAssertTrue(output.summary.hasPrefix("Kept your wording"), output.summary)
+    }
+
+    func testTechnicalPiecesOnlyLoseFiller() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { $0.replacingOccurrences(of: "with with", with: "with") }
+        let texts = ["git commit with with the message fix the build", "then push it to the main branch"]
+        let output = await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
+            .process(TranscribedPiece.join(texts), options: options(format: .terminal), pieces: pieces(texts))
+        XCTAssertFalse(output.text.contains("with with"), output.text)
+        XCTAssertTrue(output.text.contains("then push it to the main branch"), output.text)
+        XCTAssertEqual(cleaner.previewCallCount, 2, "Code and Terminal never count toward the give-up limit")
+    }
+
+    func testSlicesFollowThePiecesInThePreparedText() {
+        let texts = ["Hello there.", "How are you?", "Fine."]
+        let slices = DictationOutputPipeline.slices(
+            of: "Hello there. How are you? Fine.", pieces: pieces(texts), prepare: { $0 }
+        )
+        XCTAssertEqual(slices.map(\.text), texts)
+        XCTAssertEqual(slices.map(\.separatorBefore), ["", " ", " "])
+    }
+
+    func testPieceThatVanishedHasNoSlice() {
+        let prepare: (String) -> String = {
+            $0.replacingOccurrences(of: "um ", with: "").replacingOccurrences(of: "um", with: "")
+        }
+        let slices = DictationOutputPipeline.slices(
+            of: "One two. Three four.", pieces: pieces(["One two.", "um", "Three four."]), prepare: prepare
+        )
+        XCTAssertEqual(slices.map(\.text), ["One two.", "Three four."])
+    }
+
+    func testStageThatWorksAcrossABoundaryJoinsThosePieces() {
+        // A correction in the third piece reaches back into the second.
+        let prepare: (String) -> String = { text in
+            text.replacingOccurrences(of: "at 2. No, 3.", with: "at 3.")
+        }
+        let texts = ["First sentence here.", "Let's meet at 2.", "No, 3.", "See you."]
+        let whole = prepare(TranscribedPiece.join(texts))
+        let slices = DictationOutputPipeline.slices(of: whole, pieces: pieces(texts), prepare: prepare)
+        XCTAssertEqual(slices.map(\.text), ["First sentence here.", "Let's meet at 3.", "See you."])
+    }
+
+    func testPlaceholdersNumberedPerPieceStillMatch() {
+        let whole = "Mail \u{E000} now. Call \u{E001} later."
+        let prepare: (String) -> String = { $0.replacingOccurrences(of: "X", with: "\u{E000}") }
+        let slices = DictationOutputPipeline.slices(
+            of: whole, pieces: pieces(["Mail X now.", "Call X later."]), prepare: prepare
+        )
+        XCTAssertEqual(slices.map(\.text), ["Mail \u{E000} now.", "Call \u{E001} later."])
+    }
+
+    func testUnmatchedTextStaysOneSlice() {
+        let slices = DictationOutputPipeline.slices(
+            of: "Completely different", pieces: pieces(["One.", "Two."]), prepare: { $0 }
+        )
+        XCTAssertEqual(slices, [DictationOutputPipeline.wholeSlice(of: "Completely different")])
+    }
+
+    func testConcatenatedMasksAreRenumbered() throws {
+        let base = TextPlaceholder.identifierBase
+        let first = try XCTUnwrap(TextPlaceholder.character(at: 0, base: base))
+        let second = try XCTUnwrap(TextPlaceholder.character(at: 1, base: base))
+        let parts = [
+            MaskedText(text: "a \(first)", replacements: ["x.md"], base: base),
+            MaskedText(text: "b \(first)", replacements: ["y.md"], base: base),
+        ]
+        let combined = try XCTUnwrap(DictationOutputPipeline.concatenate(parts, separators: [" "]))
+        XCTAssertEqual(combined.text, "a \(first) b \(second)")
+        XCTAssertEqual(combined.restore(in: combined.text), "a x.md b y.md")
+    }
+}

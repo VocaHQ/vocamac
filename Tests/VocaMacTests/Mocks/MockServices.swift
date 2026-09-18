@@ -516,12 +516,17 @@ final class MockWhisperService: SpeechTranscribing {
     var streamingFactory: ((String?) -> RecordingTranscription?)?
     var streamingPartialHandler: (@Sendable (String) -> Void)?
     var lastStreamingVocabulary: String?
+    var lastStreamingCommit: StreamingCommitOptions?
+    var streamingStartCount = 0
     func startStreaming(
         language: String?, vocabulary: String,
-        onPartial: (@Sendable (String) -> Void)?
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
     ) -> RecordingTranscription? {
+        streamingStartCount += 1
         lastStreamingVocabulary = vocabulary
         streamingPartialHandler = onPartial
+        lastStreamingCommit = commit
         return streamingFactory?(language)
     }
     var loadedModelName: String? = "openai_whisper-tiny"
@@ -710,7 +715,17 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     /// Runs inside `clean` before it answers, e.g. to press Escape mid-cleanup.
     var onClean: (() async -> Void)?
 
+    /// Most model calls ever in flight at once; the real service allows one.
+    private(set) var maxConcurrentModelCalls = 0
+    private var modelCallsInFlight = 0
+    private func beginModelCall() {
+        modelCallsInFlight += 1
+        maxConcurrentModelCalls = max(maxConcurrentModelCalls, modelCallsInFlight)
+    }
+
     func clean(_ text: String, prompt: String) async -> String {
+        beginModelCall()
+        defer { modelCallsInFlight -= 1 }
         await onClean?()
         cleanCallCount += 1
         lastCleanedText = text
@@ -735,6 +750,33 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     var cancelCleanupCallCount = 0
     func cancelCleanup() {
         cancelCleanupCallCount += 1
+        speculationCancelled = true
+        onCancelCleanup?()
+    }
+    var onCancelCleanup: (() -> Void)?
+
+    var speculateCallCount = 0
+    var speculatedTexts: [String] = []
+    /// Runs inside `speculate` before it answers, e.g. to hold a job running.
+    var onSpeculate: (() async -> Void)?
+    private var speculationCancelled = false
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt {
+        beginModelCall()
+        defer { modelCallsInFlight -= 1 }
+        speculateCallCount += 1
+        speculatedTexts.append(text)
+        speculationCancelled = false
+        await onSpeculate?()
+        if speculationCancelled {
+            return CleanupAttempt(output: text, outcome: .skipped("cleanup was cancelled"), duration: 0)
+        }
+        let output = cleanHandler?(text) ?? text
+        return CleanupAttempt(output: output, outcome: output == text ? .unchanged : .cleaned, duration: 0)
+    }
+
+    var recordedOutcomes: [CleanupAttempt] = []
+    func recordOutcome(_ attempt: CleanupAttempt) {
+        recordedOutcomes.append(attempt)
     }
 
     func preview(_ text: String, prompt: String) async -> CleanupAttempt {
@@ -838,6 +880,7 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
+            PreferenceKey.processWhileSpeaking,
             PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine,
             PreferenceKey.commandModeClipboardFallback, PreferenceKey.websiteStyleBindings,
             PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",

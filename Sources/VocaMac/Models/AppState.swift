@@ -709,6 +709,8 @@ final class AppState: ObservableObject {
     /// Invalidates an onboarding recommendation when its language or user intent changes.
     private var onboardingModelRequestGeneration: UInt64 = 0
     private var onboardingRequestedModel: ModelSize?
+    /// Non-nil only while onboarding itself owns the serialized engine load.
+    private var onboardingLoadingRequestGeneration: UInt64?
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
     /// the intentional background handoff explicit for Dispatch's @Sendable API.
@@ -2628,7 +2630,23 @@ final class AppState: ObservableObject {
             return
         }
 
+        onboardingLoadingRequestGeneration = generation
+        defer {
+            if onboardingLoadingRequestGeneration == generation {
+                onboardingLoadingRequestGeneration = nil
+            }
+        }
         await performLoadModel(model)
+
+        guard generation == onboardingModelRequestGeneration else {
+            // The engine may have completed after cancellation even though
+            // performLoadModel correctly declined to publish the stale model.
+            // Keep service and AppState readiness aligned until a replacement
+            // preparation (already queued for language changes) takes over.
+            await whisperService.unloadModel()
+            clearActiveModelState()
+            return
+        }
     }
 
     /// Invalidate onboarding's recommendation and stop its download, if any.
@@ -2636,6 +2654,12 @@ final class AppState: ObservableObject {
         onboardingModelRequestGeneration &+= 1
         if let onboardingRequestedModel {
             modelManager.cancelDownload(for: onboardingRequestedModel)
+        }
+        if onboardingLoadingRequestGeneration != nil {
+            // Safe to invalidate the global load only here: this marker is set
+            // after onboarding acquires the serializer, so no unrelated model
+            // operation can be running at the same time.
+            loadGeneration &+= 1
         }
         onboardingRequestedModel = nil
         isPreparingOnboardingModel = false

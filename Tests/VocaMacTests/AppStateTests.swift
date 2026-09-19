@@ -856,4 +856,31 @@ final class AppStateModelLoadingTests: XCTestCase {
         XCTAssertEqual(appState.currentModel?.size, .medium)
         XCTAssertEqual(whisperService.loadRequests.map(\.name), ["openai_whisper-medium"])
     }
+
+    @MainActor
+    func testCancellingAnActiveOnboardingLoadDoesNotPublishStaleModel() async throws {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.parakeetTdtCtc110m]
+        let whisperService = MockWhisperService()
+        whisperService.loadDelayNanoseconds = 100_000_000
+        let (appState, _) = AppState.makeTestState(
+            modelManager: modelManager,
+            whisperService: whisperService
+        )
+        appState.selectedLanguage = "en"
+
+        let preparation = Task { @MainActor in
+            await appState.prepareOnboardingRecommendedModel()
+        }
+        for _ in 0..<100 where whisperService.loadRequests.isEmpty {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+
+        appState.cancelOnboardingModelPreparation()
+        await preparation.value
+
+        XCTAssertNil(appState.currentModel)
+        XCTAssertFalse(whisperService.isModelLoaded)
+        XCTAssertFalse(appState.isPreparingOnboardingModel)
+    }
 }

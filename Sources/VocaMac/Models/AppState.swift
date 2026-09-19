@@ -2588,8 +2588,23 @@ final class AppState: ObservableObject {
         isPreparingOnboardingModel = true
         errorMessage = nil
 
-        _ = try? await modelOperationSerializer.run { [self] in
-            await performOnboardingModelPreparation(model, generation: generation)
+        defer {
+            if generation == onboardingModelRequestGeneration {
+                onboardingRequestedModel = nil
+                isPreparingOnboardingModel = false
+            }
+        }
+
+        do {
+            try await modelOperationSerializer.run { [self] in
+                await performOnboardingModelPreparation(model, generation: generation)
+            }
+        } catch is CancellationError {
+            VocaLogger.info(.appState, "Onboarding model preparation cancelled for \(model.displayName)")
+        } catch {
+            let message = "Could not prepare \(model.displayName): \(error.localizedDescription)"
+            showTemporaryError(message)
+            VocaLogger.error(.appState, message)
         }
     }
 
@@ -2598,13 +2613,6 @@ final class AppState: ObservableObject {
         _ model: ModelSize,
         generation: UInt64
     ) async {
-        defer {
-            if generation == onboardingModelRequestGeneration {
-                onboardingRequestedModel = nil
-                isPreparingOnboardingModel = false
-            }
-        }
-
         guard generation == onboardingModelRequestGeneration else { return }
         if !modelManager.isModelDownloaded(model) {
             await performDownloadModel(model)
@@ -2625,15 +2633,9 @@ final class AppState: ObservableObject {
 
     /// Invalidate onboarding's recommendation and stop its download, if any.
     func cancelOnboardingModelPreparation() {
-        let wasPreparingModel = onboardingRequestedModel != nil
         onboardingModelRequestGeneration &+= 1
         if let onboardingRequestedModel {
             modelManager.cancelDownload(for: onboardingRequestedModel)
-        }
-        if wasPreparingModel {
-            // Also prevents an engine load that just finished from publishing
-            // the superseded model as active.
-            loadGeneration &+= 1
         }
         onboardingRequestedModel = nil
         isPreparingOnboardingModel = false

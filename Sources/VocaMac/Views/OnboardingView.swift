@@ -55,6 +55,16 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
     var stepNumber: String {
         "Step \(rawValue + 1) of \(OnboardingStep.allCases.count)"
     }
+
+    /// Keep the final escape hatch available while optional background work finishes.
+    func disablesNavigation(
+        practiceBusy: Bool,
+        isRecording: Bool,
+        appStatus: AppStatus
+    ) -> Bool {
+        guard self != .complete else { return false }
+        return practiceBusy || isRecording || appStatus == .processing
+    }
 }
 
 // MARK: - OnboardingView
@@ -115,7 +125,11 @@ struct OnboardingView: View {
                     .tint(VocaDesign.accentSolid)
                     .keyboardShortcut(.defaultAction)
                 }
-                .disabled(practiceBusy || appState.isRecording || appState.appStatus == .processing)
+                .disabled(currentStep.disablesNavigation(
+                    practiceBusy: practiceBusy,
+                    isRecording: appState.isRecording,
+                    appStatus: appState.appStatus
+                ))
                 .padding(22)
             }
         }

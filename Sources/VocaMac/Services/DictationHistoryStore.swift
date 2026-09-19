@@ -226,9 +226,9 @@ final class DictationHistoryStore: ObservableObject {
                 }
                 if !saved { audioWriteFailed(id) }
             } else {
-                write { saved in
+                write { [weak self] saved in
                     guard !saved else { return }
-                    Task { @MainActor [weak self] in self?.audioWriteFailed(id) }
+                    Task { @MainActor in self?.audioWriteFailed(id) }
                 }
             }
         }

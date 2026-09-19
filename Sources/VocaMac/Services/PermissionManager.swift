@@ -53,7 +53,7 @@ final class PermissionManager: ObservableObject {
     /// notification, the hotkey tap reporting that macOS disabled it, and the
     /// user coming back to VocaMac.
     private func observePermissionChanges() {
-        let recheck: (Notification) -> Void = { [weak self] _ in
+        let recheck: @Sendable (Notification) -> Void = { [weak self] _ in
             Task { @MainActor in self?.recheckHotKeyHealth() }
         }
         observers.append(DistributedNotificationCenter.default().addObserver(

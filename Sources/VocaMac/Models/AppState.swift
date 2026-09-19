@@ -4155,11 +4155,12 @@ extension AppState {
               let capturedURL,
               let reader = screenContextReader else { return nil }
         let refresh = Task { @MainActor in await reader.captureFrontmostDocumentURL() }
-        guard let currentURL = await Self.value(of: refresh, within: Self.screenContextTimeout, otherwise: nil),
-              capturedURL.host?.lowercased() == currentURL.host?.lowercased() else {
-            if capturedURL != nil {
-                VocaLogger.warning(.appState, "Website changed before dictation output; skipping the captured website rule")
-            }
+        guard let currentURL = await Self.value(of: refresh, within: Self.screenContextTimeout, otherwise: nil) else {
+            VocaLogger.warning(.appState, "Couldn't re-read the website before dictation output; skipping the captured website rule")
+            return nil
+        }
+        guard capturedURL.host?.lowercased() == currentURL.host?.lowercased() else {
+            VocaLogger.warning(.appState, "Website changed before dictation output; skipping the captured website rule")
             return nil
         }
         return currentURL

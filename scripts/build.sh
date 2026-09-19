@@ -149,10 +149,18 @@ cp -f "$BINARY" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 # a Swift package executable, and without Contents/Resources/Metadata.appintents
 # the Shortcuts app and Spotlight never see VocaMac's actions. Run the same
 # extractor on the compiler's const-value output.
-OBJECTS_DIR="${DERIVED_DATA}/Build/Intermediates.noindex/${APP_NAME}.build/${XCODE_CONFIG}/${APP_NAME}.build/Objects-normal/arm64"
+#
+# The objects directory is searched for rather than spelled out: SwiftPM's
+# xcodebuild integration builds the executable as a product target, so the
+# files land in "${APP_NAME}-p.build", and the hardcoded "${APP_NAME}.build"
+# quietly skipped this step — every bundle shipped without its Shortcuts
+# actions, including release DMGs.
+SWIFT_FILE_LIST="$(find "${DERIVED_DATA}/Build/Intermediates.noindex/${APP_NAME}.build/${XCODE_CONFIG}" \
+    -name "${APP_NAME}.SwiftFileList" -print -quit 2>/dev/null || true)"
 mkdir -p "${APP_DIR}/Contents/Resources"
 rm -rf "${APP_DIR}/Contents/Resources/Metadata.appintents"
-if [ -f "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" ]; then
+if [ -n "$SWIFT_FILE_LIST" ]; then
+    OBJECTS_DIR="$(dirname "$SWIFT_FILE_LIST")"
     CONST_VALUES_LIST="$(mktemp -t vocamac-constvalues)"
     find "$OBJECTS_DIR" -name '*.swiftconstvalues' > "$CONST_VALUES_LIST"
     if xcrun appintentsmetadataprocessor \
@@ -164,7 +172,7 @@ if [ -f "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" ]; then
         --platform-family macOS \
         --deployment-target 14.0 \
         --target-triple arm64-apple-macos14.0 \
-        --source-file-list "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" \
+        --source-file-list "$SWIFT_FILE_LIST" \
         --swift-const-vals-list "$CONST_VALUES_LIST" \
         --force --quiet-warnings > /dev/null 2>&1 \
         && [ -d "${APP_DIR}/Contents/Resources/Metadata.appintents" ]; then
@@ -174,7 +182,7 @@ if [ -f "${OBJECTS_DIR}/${APP_NAME}.SwiftFileList" ]; then
     fi
     rm -f "$CONST_VALUES_LIST"
 else
-    echo "⚠️  ${OBJECTS_DIR}/${APP_NAME}.SwiftFileList not found; skipping App Intents metadata." >&2
+    echo "⚠️  ${APP_NAME}.SwiftFileList not found under ${DERIVED_DATA}; skipping App Intents metadata." >&2
 fi
 
 # Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib,

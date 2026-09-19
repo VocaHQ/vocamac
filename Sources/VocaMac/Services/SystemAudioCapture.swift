@@ -27,8 +27,16 @@ final class SystemAudioAccumulator: @unchecked Sendable {
     /// samples land in them, while growing on demand would briefly hold two
     /// copies of a recording that reaches hundreds of megabytes.
     func reset(sampleRate: Double) {
-        var samples: [Float] = []
-        samples.reserveCapacity(Self.sampleLimit(sampleRate: sampleRate, seconds: maximumDurationSeconds))
+        // Built and returned from a closure so the reservation survives: a
+        // `var` here is captured by reference by `withLock`'s @Sendable
+        // closure (an error in Swift 6), and copying it into a `let` instead
+        // would leave two references, so the first append would copy the
+        // buffer and throw the reserved capacity away.
+        let samples: [Float] = {
+            var reserved: [Float] = []
+            reserved.reserveCapacity(Self.sampleLimit(sampleRate: sampleRate, seconds: maximumDurationSeconds))
+            return reserved
+        }()
         state.withLock { $0 = State(samples: samples, sampleRate: sampleRate) }
     }
 

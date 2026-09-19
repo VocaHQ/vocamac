@@ -316,7 +316,8 @@ final class ModelManager {
         case .medium:
             return "openai_whisper-medium"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
-             .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash:
+             .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
+             .qwen3Asr06B:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
         }

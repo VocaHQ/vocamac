@@ -21,6 +21,8 @@ struct SherpaModelSpec: Sendable {
         case nemoCtc(model: String)
         /// NVIDIA Canary (encoder + decoder, with a fixed language set)
         case canary(encoder: String, decoder: String, supportedLanguages: Set<String>)
+        /// Qwen3-ASR (audio frontend + encoder + autoregressive decoder)
+        case qwen3Asr(convFrontend: String, encoder: String, decoder: String, tokenizer: String)
     }
 
     /// The catalog entry this spec belongs to
@@ -54,7 +56,7 @@ struct SherpaModelSpec: Sendable {
     var bindsLanguageAtLoadTime: Bool {
         switch kind {
         case .senseVoice, .canary: return true
-        case .moonshine, .nemoCtc: return false
+        case .moonshine, .nemoCtc, .qwen3Asr: return false
         }
     }
 
@@ -71,7 +73,7 @@ struct SherpaModelSpec: Sendable {
         case .moonshine:  return 8
         case .senseVoice: return 8
         case .nemoCtc:    return 20
-        case .canary:     return 20
+        case .canary, .qwen3Asr: return 20
         }
     }
 
@@ -85,6 +87,15 @@ struct SherpaModelSpec: Sendable {
             return [tokensFile, model]
         case .canary(let encoder, let decoder, _):
             return [tokensFile, encoder, decoder]
+        case .qwen3Asr(let convFrontend, let encoder, let decoder, let tokenizer):
+            return [
+                convFrontend,
+                encoder,
+                decoder,
+                tokenizer + "/tokenizer_config.json",
+                tokenizer + "/merges.txt",
+                tokenizer + "/vocab.json",
+            ]
         }
     }
 }
@@ -154,6 +165,17 @@ enum SherpaModelCatalog {
                 encoder: "encoder.int8.onnx",
                 decoder: "decoder.int8.onnx",
                 supportedLanguages: ["en", "es", "de", "fr"]
+            )
+        ),
+        spec(
+            .qwen3Asr06B,
+            directory: "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25",
+            sha256: "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96",
+            kind: .qwen3Asr(
+                convFrontend: "conv_frontend.onnx",
+                encoder: "encoder.int8.onnx",
+                decoder: "decoder.int8.onnx",
+                tokenizer: "tokenizer"
             )
         ),
     ]

@@ -3,7 +3,8 @@
 //
 // Transcription via sherpa-onnx (ONNX Runtime, CPU-only). Serves the
 // specialized community models: Moonshine v2 (English), SenseVoice
-// (Chinese/Asian), GigaAM (Russian), and Canary (European languages).
+// (Chinese/Asian), GigaAM (Russian), Canary (European languages), and Qwen3
+// ASR (multilingual).
 //
 // Uses the sherpa-onnx C API directly for recognizer lifecycle and decoding
 // so failures surface as thrown errors; the vendored config builders in
@@ -525,6 +526,19 @@ final class SherpaService: @unchecked Sendable {
                     decoder: path(decoder),
                     srcLang: canaryLanguage,
                     tgtLang: canaryLanguage
+                )
+            )
+        case .qwen3Asr(let convFrontend, let encoder, let decoder, let tokenizer):
+            modelConfig = sherpaOnnxOfflineModelConfig(
+                tokens: "",
+                numThreads: numThreads,
+                qwen3Asr: sherpaOnnxOfflineQwen3ASRModelConfig(
+                    convFrontend: path(convFrontend),
+                    encoder: path(encoder),
+                    decoder: path(decoder),
+                    tokenizer: path(tokenizer),
+                    maxTotalLen: 512,
+                    maxNewTokens: 256
                 )
             )
         }

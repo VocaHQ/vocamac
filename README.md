@@ -410,6 +410,7 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 | **SenseVoice** | ~240 MB | Chinese, Japanese, Korean, Cantonese, English |
 | **GigaAM v3** | ~270 MB | Russian, with punctuation |
 | **Canary 180M Flash** | ~320 MB | English, Spanish, German, French |
+| **Qwen3 ASR 0.6B** | ~973 MB | Accurate transcription across 30 languages and Chinese dialects |
 
 Recordings longer than a model's single-pass limit are split at natural pauses and decoded segment by segment, since these models — unlike Whisper and Parakeet — do not chunk internally.
 

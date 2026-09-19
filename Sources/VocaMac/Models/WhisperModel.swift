@@ -39,6 +39,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case senseVoiceSmall              = "sense-voice-small"
     case gigaamV3                     = "gigaam-v3-russian"
     case canary180mFlash              = "canary-180m-flash"
+    case qwen3Asr06B                  = "qwen3-asr-0.6b"
 
     var id: String { rawValue }
 
@@ -49,7 +50,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
             return .parakeet
         case .appleSpeech:
             return .appleSpeech
-        case .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash:
+        case .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
+             .qwen3Asr06B:
             return .sherpaOnnx
         default:
             return .whisperKit
@@ -119,6 +121,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .senseVoiceSmall,
         .gigaamV3,
         .canary180mFlash,
+        .qwen3Asr06B,
     ]
 
     /// Whether this model is kept only for compatibility or explicit support.
@@ -150,6 +153,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .senseVoiceSmall:           return "SenseVoice (Chinese +4)"
         case .gigaamV3:                  return "GigaAM v3 (Russian)"
         case .canary180mFlash:           return "Canary 180M (EN/ES/DE/FR)"
+        case .qwen3Asr06B:               return "Qwen3 ASR 0.6B (30 Languages)"
         }
     }
 
@@ -177,6 +181,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .senseVoiceSmall:           return 240_000_000
         case .gigaamV3:                  return 270_000_000
         case .canary180mFlash:           return 320_000_000
+        case .qwen3Asr06B:               return 973_000_000
         }
     }
 
@@ -212,6 +217,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .senseVoiceSmall:           return 1.5
         case .gigaamV3:                  return 1.5
         case .canary180mFlash:           return 1.5
+        case .qwen3Asr06B:               return 2.0
         }
     }
 
@@ -239,6 +245,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .senseVoiceSmall:           return 3
         case .gigaamV3:                  return 3
         case .canary180mFlash:           return 4
+        case .qwen3Asr06B:               return 4
         }
     }
 
@@ -266,6 +273,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .senseVoiceSmall:           return "Great"
         case .gigaamV3:                  return "Great"
         case .canary180mFlash:           return "Great"
+        case .qwen3Asr06B:               return "Excellent"
         }
     }
 }

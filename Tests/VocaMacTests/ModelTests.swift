@@ -179,7 +179,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 21)
+        XCTAssertEqual(ModelSize.allCases.count, 22)
     }
 
     func testRawValues() {
@@ -204,6 +204,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.senseVoiceSmall.rawValue, "sense-voice-small")
         XCTAssertEqual(ModelSize.gigaamV3.rawValue, "gigaam-v3-russian")
         XCTAssertEqual(ModelSize.canary180mFlash.rawValue, "canary-180m-flash")
+        XCTAssertEqual(ModelSize.qwen3Asr06B.rawValue, "qwen3-asr-0.6b")
     }
 
     func testStandardCatalogExcludesLegacyMedium() {
@@ -220,6 +221,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertTrue(ModelSize.standardCatalog.contains(.senseVoiceSmall))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.gigaamV3))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.canary180mFlash))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.qwen3Asr06B))
     }
 
     func testEngineAssignment() {
@@ -232,6 +234,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.senseVoiceSmall.engine, .sherpaOnnx)
         XCTAssertEqual(ModelSize.gigaamV3.engine, .sherpaOnnx)
         XCTAssertEqual(ModelSize.canary180mFlash.engine, .sherpaOnnx)
+        XCTAssertEqual(ModelSize.qwen3Asr06B.engine, .sherpaOnnx)
 
         // Everything else is a WhisperKit model.
         let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit }
@@ -281,6 +284,7 @@ final class TranscriptionRouterTests: XCTestCase {
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "sense-voice-small"), .sherpaOnnx)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "gigaam-v3-russian"), .sherpaOnnx)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "canary-180m-flash"), .sherpaOnnx)
+        XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "qwen3-asr-0.6b"), .sherpaOnnx)
     }
 }
 
@@ -307,8 +311,27 @@ final class SherpaModelCatalogTests: XCTestCase {
             XCTAssertTrue(spec.archiveURL.lastPathComponent.hasSuffix(".tar.bz2"))
             XCTAssertEqual(spec.archiveURL.lastPathComponent, spec.directoryName + ".tar.bz2")
             XCTAssertFalse(spec.requiredFiles.isEmpty)
-            XCTAssertTrue(spec.requiredFiles.contains(spec.tokensFile))
+            if case .qwen3Asr = spec.kind {
+                XCTAssertFalse(spec.requiredFiles.contains(spec.tokensFile))
+            } else {
+                XCTAssertTrue(spec.requiredFiles.contains(spec.tokensFile))
+            }
         }
+    }
+
+    func testQwen3UsesPinnedInt8ArtifactAndCompleteTokenizer() throws {
+        let spec = try XCTUnwrap(SherpaModelCatalog.spec(for: .qwen3Asr06B))
+        XCTAssertEqual(
+            spec.archiveURL.lastPathComponent,
+            "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"
+        )
+        XCTAssertEqual(
+            spec.sha256,
+            "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96"
+        )
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/tokenizer_config.json"))
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/merges.txt"))
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/vocab.json"))
     }
 }
 

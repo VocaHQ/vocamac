@@ -196,6 +196,8 @@ extension ModelSize {
             return .usefulSensors
         case .senseVoiceSmall:
             return .alibaba
+        case .qwen3Asr06B:
+            return .qwen
         case .gigaamV3:
             return .sber
         }

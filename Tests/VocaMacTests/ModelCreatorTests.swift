@@ -52,6 +52,7 @@ final class ModelCreatorTests: XCTestCase {
         XCTAssertEqual(ModelSize.canary180mFlash.creator, .nvidia)
         XCTAssertEqual(ModelSize.appleSpeech.creator, .apple)
         XCTAssertEqual(ModelSize.senseVoiceSmall.creator, .alibaba)
+        XCTAssertEqual(ModelSize.qwen3Asr06B.creator, .qwen)
         XCTAssertEqual(CleanupModelKind.ministral3_3b_q4_k_m.creator, .mistral)
         XCTAssertEqual(CleanupModelKind.qwen25_0_5b_q4_k_m.creator, .qwen)
     }

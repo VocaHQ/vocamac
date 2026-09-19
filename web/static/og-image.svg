@@ -85,9 +85,9 @@
   <text class="display" x="640" y="290" font-size="20" fill="#14231c">Ready to dictate</text>
   <text class="body" x="640" y="314" font-size="14" fill="#58625c">Hold Right Option to record</text>
 
-  <rect x="1014" y="270" width="90" height="27" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
-  <circle cx="1030" cy="283.5" r="3.5" fill="#0f6b57"/>
-  <text class="mono" x="1043" y="288" font-size="11" letter-spacing="0.8" fill="#0b493d">LOCAL</text>
+  <rect x="974" y="270" width="130" height="27" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <circle cx="990" cy="283.5" r="3.5" fill="#0f6b57"/>
+  <text class="mono" x="1003" y="288" font-size="11" letter-spacing="0.8" fill="#0b493d">ON-DEVICE</text>
 
   <!-- Audio meter: 42 bars, varied amplitude, same green as the site. -->
   <g fill="#0f6b57">

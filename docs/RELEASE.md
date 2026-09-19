@@ -26,7 +26,8 @@ Pre-release versions use suffixes: `v0.1.0-alpha`, `v0.1.0-beta.1`
 2. **Verify CI passes** on the latest `main` commit
 3. **Update version number** in all locations:
    - `scripts/build.sh` — both `CFBundleVersion` and `CFBundleShortVersionString` in the Info.plist template
-   - `web/layouts/index.html` — `softwareVersion` in JSON-LD schema and hero version badge (two occurrences)
+   - `web/data/product.toml` — the whole `[stable]` block: `version`, `tag`, `status`, `released`, `releaseURL`, and the `Verified:` comment at the top. Hugo renders the JSON-LD `softwareVersion` and the hero badge from these, so nothing in `web/layouts/` needs editing.
+   - `README.md` — the platform table row for macOS (status and version)
    - _(No Swift change needed — the About tab reads the version from `Info.plist` via `appVersionDisplay` in `SettingsView.swift`.)_
    - `homebrew/Casks/vocamac.rb` — version and sha256 (if doing a manual tap update)
    - **Do NOT** create a `docs/RELEASE_NOTES_vX.Y.Z.md` file — release notes live out-of-tree (see [Release Notes (out-of-tree)](#release-notes-out-of-tree) below)
@@ -101,7 +102,7 @@ Pre-release versions use suffixes: `v0.1.0-alpha`, `v0.1.0-beta.1`
 
 ### What goes in the version-bump PR
 
-The version-bump PR should only touch *code* files that carry the version string (`scripts/build.sh`, `web/layouts/index.html`). The **PR description** is where the changelog table lives — that gives reviewers the context they need without polluting the tree.
+The version-bump PR should only touch *code* files that carry the version string (`scripts/build.sh`, `web/data/product.toml`, `README.md`). The **PR description** is where the changelog table lives — that gives reviewers the context they need without polluting the tree.
 
 ### Suggested PR-description template
 
@@ -117,7 +118,8 @@ Prepares the **vX.Y.Z** patch/minor release.
 
 ### Files updated
 - `scripts/build.sh`
-- `web/layouts/index.html`
+- `web/data/product.toml`
+- `README.md`
 
 ### Release plan after merge
 - Tag `vX.Y.Z`, push tag → `release.yml` builds, signs, notarizes, drafts the release

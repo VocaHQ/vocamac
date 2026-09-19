@@ -69,7 +69,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build
-          key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             spm-debug-${{ runner.os }}-
 
@@ -97,7 +97,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build
-          key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             spm-release-${{ runner.os }}-
 
@@ -128,7 +128,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build
-          key: spm-xcode27-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          key: spm-xcode27-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             spm-xcode27-${{ runner.os }}-
 
@@ -189,7 +189,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .xcode-build/SourcePackages
-          key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             xcode-deps-${{ runner.os }}-
 

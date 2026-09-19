@@ -420,6 +420,16 @@ final class UpdateChecker: ObservableObject {
                 try? FileManager.default.removeItem(at: downloadedFile)
                 throw UpdateCheckerError.checksumMismatch
             }
+        } else {
+            // GitHub has published `digest` on release assets since 2025, so
+            // this should not happen. Refusing the update would strand users
+            // on an old build over a missing API field, and Gatekeeper still
+            // checks the notarized signature when the DMG is opened — but a
+            // skipped verification must at least be visible in diagnostics.
+            VocaLogger.warning(
+                .updateChecker,
+                "Release asset published no SHA-256 digest; installing without checksum verification"
+            )
         }
 
         // Move to final location

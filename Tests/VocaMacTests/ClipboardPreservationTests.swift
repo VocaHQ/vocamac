@@ -202,6 +202,50 @@ extension ClipboardPreservationTests {
         XCTAssertNotNil(board.data(forType: TextInjector.transientType), "restore must be transient")
     }
 
+    /// A failed pasteboard write happens *after* `clearContents`, so the
+    /// user's clipboard is already gone by the time we find out.
+    func testFailedClipboardWriteRestoresTheClipboardAndReportsFailure() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let reported = expectation(description: "failed write reported")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: { XCTFail("Must not paste what was never copied") },
+            frontmostPIDProvider: { 123 },
+            clipboardWriteOverride: { _, pasteboard in
+                pasteboard.clearContents()
+                return false
+            }
+        )
+        injector.onFailure = { _ in reported.fulfill() }
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [reported], timeout: 1)
+        await drainInjectionQueue()
+        XCTAssertEqual(board.string(forType: .string), "original")
+    }
+
+    func testFailedClipboardWriteWithoutPreservationStillReportsFailure() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        let reported = expectation(description: "failed write reported")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: { XCTFail("Must not paste what was never copied") },
+            frontmostPIDProvider: { 123 },
+            clipboardWriteOverride: { _, pasteboard in
+                pasteboard.clearContents()
+                return false
+            }
+        )
+        injector.onFailure = { _ in reported.fulfill() }
+        injector.inject(text: "dictation", preserveClipboard: false)
+        await fulfillment(of: [reported], timeout: 1)
+        await drainInjectionQueue()
+    }
+
     func testWithoutAccessibilityTheTranscriptIsCopiedAndReported() async {
         let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
         defer { board.releaseGlobally() }

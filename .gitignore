@@ -26,8 +26,9 @@ Sources/VocaMac/Resources/models/*.bin
 
 # Swift Package Manager
 Packages/
-Package.resolved
 .swiftpm/
+# Package.resolved is deliberately tracked: release builds resolve from a clean
+# checkout, so the lockfile is what makes a tagged build reproducible.
 
 # Built app bundle
 VocaMac.app/

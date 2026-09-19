@@ -324,6 +324,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>VocaMac connects to an AI model server you run yourself, such as Ollama or LM Studio, when you point it at one on your network.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
     <key>NSPrincipalClass</key>
@@ -340,9 +342,14 @@ if [ "$CODE_SIGN_IDENTITY" != "-" ]; then
     CODESIGN_OPTIONS="--options runtime"
 fi
 
-# Sign nested bundles in Contents/Resources/
-find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec \
-    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS {} \; 2>/dev/null || true
+# Sign nested bundles in Contents/Resources/.
+# Errors are not suppressed: an unsigned nested bundle builds fine and then
+# fails notarization or Gatekeeper on a user's Mac, long after the fact.
+# `find -exec` reports find's own status rather than codesign's, so loop.
+while IFS= read -r nested_bundle; do
+    echo "   Signing nested bundle: $(basename "$nested_bundle")"
+    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS "$nested_bundle"
+done < <(find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle")
 
 # Nested code must be signed before the app that contains it.
 codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \

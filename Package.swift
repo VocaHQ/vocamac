@@ -19,7 +19,9 @@ let package = Package(
         // Since 1.0 it ships inside the Argmax Open-Source SDK, which vendors
         // swift-transformers' Hub and Tokenizers into ArgmaxCore.
         // https://github.com/argmaxinc/argmax-oss-swift
-        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
+        // Held to 1.1.x. A bare `from:` accepts every future 1.x, so a release
+        // built from a clean checkout could silently pick up an untested minor.
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", .upToNextMinor(from: "1.1.0")),
         // FluidAudio — NVIDIA Parakeet TDT models as CoreML on the Neural Engine
         // https://github.com/FluidInference/FluidAudio
         // Held to 0.15.x: this is the version the engine is tested against, and

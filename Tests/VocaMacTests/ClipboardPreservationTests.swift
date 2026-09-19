@@ -214,10 +214,7 @@ extension ClipboardPreservationTests {
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: { XCTFail("Must not paste what was never copied") },
             frontmostPIDProvider: { 123 },
-            clipboardWriteOverride: { _, pasteboard in
-                pasteboard.clearContents()
-                return false
-            }
+            clipboardWriteOverride: { _, _ in false }
         )
         injector.onFailure = { _ in reported.fulfill() }
         injector.inject(text: "dictation", preserveClipboard: true)
@@ -235,15 +232,78 @@ extension ClipboardPreservationTests {
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: { XCTFail("Must not paste what was never copied") },
             frontmostPIDProvider: { 123 },
-            clipboardWriteOverride: { _, pasteboard in
-                pasteboard.clearContents()
-                return false
-            }
+            clipboardWriteOverride: { _, _ in false }
         )
         injector.onFailure = { _ in reported.fulfill() }
         injector.inject(text: "dictation", preserveClipboard: false)
         await fulfillment(of: [reported], timeout: 1)
         await drainInjectionQueue()
+    }
+
+    /// The usual reason the write fails is that another process claimed the
+    /// board in between. Its copy is newer than the snapshot, so putting the
+    /// snapshot back would bury what the user just copied.
+    func testFailedClipboardWriteKeepsNewerContentFromAnotherApp() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let reported = expectation(description: "failed write reported")
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: { XCTFail("Must not paste what was never copied") },
+            frontmostPIDProvider: { 123 },
+            clipboardWriteOverride: { _, pasteboard in
+                // Another app takes the cleared board before our write lands.
+                pasteboard.clearContents()
+                pasteboard.setString("newer from another app", forType: .string)
+                return false
+            }
+        )
+        injector.onFailure = { _ in reported.fulfill() }
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [reported], timeout: 1)
+        await drainInjectionQueue()
+        XCTAssertEqual(board.string(forType: .string), "newer from another app")
+    }
+
+    /// The retry after the pre-paste delay recaptures the snapshot first, so a
+    /// failure there must put back the clipboard that replaced the original,
+    /// not the original and not the transcript.
+    func testFailedRetryRestoresTheReplacementClipboard() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.setString("original", forType: .string)
+        let reported = expectation(description: "failed retry reported")
+        let writes = WriteCounter()
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true,
+            accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: { XCTFail("Must not paste what was never copied") },
+            frontmostPIDProvider: { 123 },
+            clipboardWriteOverride: { text, pasteboard in
+                guard writes.next() == 1 else { return false }
+                // The board was just cleared for us; land the transcript, then
+                // let another app replace it during the pre-paste delay.
+                pasteboard.setString(text, forType: .string)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                    pasteboard.clearContents()
+                    pasteboard.setString("replacement", forType: .string)
+                }
+                return true
+            }
+        )
+        var failures = 0
+        injector.onFailure = { _ in
+            failures += 1
+            reported.fulfill()
+        }
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [reported], timeout: 2)
+        await drainInjectionQueue()
+        XCTAssertEqual(board.string(forType: .string), "replacement")
+        XCTAssertEqual(writes.total, 2, "the retry must attempt a second write")
+        XCTAssertEqual(failures, 1, "the failure must be reported exactly once")
     }
 
     func testWithoutAccessibilityTheTranscriptIsCopiedAndReported() async {
@@ -264,5 +324,24 @@ extension ClipboardPreservationTests {
         await fulfillment(of: [reported], timeout: 1)
         XCTAssertEqual(board.string(forType: .string), "dictation")
         XCTAssertNotNil(board.data(forType: TextInjector.transientType))
+    }
+}
+
+/// Counts pasteboard write attempts for the retry regression test.
+private final class WriteCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
+    }
+
+    var total: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
     }
 }

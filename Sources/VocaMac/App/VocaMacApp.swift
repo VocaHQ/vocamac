@@ -181,8 +181,19 @@ final class UpdateWindowManager: ObservableObject {
 /// Manages the onboarding window
 @MainActor
 final class OnboardingWindowManager: ObservableObject {
+    /// Shared instance. Every caller lives in a closure created by
+    /// `VocaMacApp.init`, where a `@StateObject` is not yet installed on a
+    /// view: each access there builds a *new* manager that is released as soon
+    /// as the call returns. A per-App-struct manager therefore forgets its own
+    /// window the moment it is shown — nothing is left to bring an existing
+    /// window forward, and the close observer token dies with it, so the Dock
+    /// is never told the window went away.
+    static let shared = OnboardingWindowManager()
+
     private var onboardingWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
+
+    private init() {}
 
     func open(appState: AppState) {
         // If window already exists, just bring it to front
@@ -192,12 +203,6 @@ final class OnboardingWindowManager: ObservableObject {
             return
         }
 
-        // Create the onboarding view
-        let onboardingView = OnboardingView { [weak self] in
-            self?.onboardingWindow?.close()
-        }
-            .environmentObject(appState)
-
         // Create a new window
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 840, height: 650),
@@ -205,6 +210,15 @@ final class OnboardingWindowManager: ObservableObject {
             backing: .buffered,
             defer: false
         )
+
+        // Create the onboarding view. It closes this window directly rather
+        // than going back through the manager, so "Finish" and "Set up later"
+        // work regardless of who still holds a reference to the manager.
+        let onboardingView = OnboardingView { [weak window] in
+            window?.close()
+        }
+            .environmentObject(appState)
+
         window.contentMinSize = NSSize(width: 780, height: 600)
         window.title = "Welcome to VocaMac"
         window.styleMask.insert(.fullSizeContentView)
@@ -236,7 +250,6 @@ final class OnboardingWindowManager: ObservableObject {
                 DockVisibilityCoordinator.shared.windowDidClose()
             }
         }
-
     }
 }
 
@@ -247,7 +260,6 @@ struct VocaMacApp: App {
     @StateObject private var appState = AppState.production()
     @StateObject private var settingsManager = SettingsWindowManager()
     @StateObject private var updateWindowManager = UpdateWindowManager()
-    @StateObject private var onboardingManager = OnboardingWindowManager()
     @StateObject private var fileTranscriptionManager = FileTranscriptionWindowManager()
     @StateObject private var scratchpadManager = ScratchpadWindowManager()
     @StateObject private var meetingCaptureManager = MeetingCaptureWindowManager()
@@ -297,7 +309,7 @@ struct VocaMacApp: App {
             queue: .main
         ) { [self] _ in
             Task { @MainActor [self] in
-                self.onboardingManager.open(appState: self.appState)
+                OnboardingWindowManager.shared.open(appState: self.appState)
             }
         }
 
@@ -353,7 +365,7 @@ struct VocaMacApp: App {
         // Show onboarding on first launch
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
             if !self.appState.hasCompletedOnboarding {
-                self.onboardingManager.open(appState: self.appState)
+                OnboardingWindowManager.shared.open(appState: self.appState)
             }
         }
     }

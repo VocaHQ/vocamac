@@ -21,8 +21,9 @@ enum OnboardingModelGuidance {
     ) -> OnboardingModelRecommendation? {
         let candidates = candidateRecommendations(for: languageCode)
         let supported = Set(availableModels.lazy.filter(\.isSupported).map(\.size))
+        // The bundled Tiny is always the last candidate, so this already ends
+        // on it whenever nothing more capable is supported.
         return candidates.first { supported.contains($0.model) }
-            ?? candidates.first { $0.model == .tiny && supported.contains(.tiny) }
     }
 
     /// Candidate order follows explicit model language coverage. Whisper

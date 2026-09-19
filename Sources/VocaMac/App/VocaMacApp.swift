@@ -21,6 +21,14 @@ final class VocaApplicationDelegate: NSObject, NSApplicationDelegate {
 /// Manages the settings window for menu-bar-only apps
 @MainActor
 final class SettingsWindowManager: ObservableObject {
+    /// Shared instance. The deep-link observer in `VocaMacApp.init` reads
+    /// this manager before its `@StateObject` is installed on a view, and
+    /// every such access builds a new manager that is released as soon as
+    /// the call returns — so a link would open a second window instead of
+    /// focusing the open one, and the close observer token would die with
+    /// the manager, leaving the Dock icon behind.
+    static let shared = SettingsWindowManager()
+
     private var settingsWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
@@ -258,10 +266,10 @@ struct VocaMacApp: App {
     @MainActor private static var didInstallURLObserver = false
     @NSApplicationDelegateAdaptor(VocaApplicationDelegate.self) private var applicationDelegate
     @StateObject private var appState = AppState.production()
-    @StateObject private var settingsManager = SettingsWindowManager()
+    @StateObject private var settingsManager = SettingsWindowManager.shared
     @StateObject private var updateWindowManager = UpdateWindowManager()
-    @StateObject private var fileTranscriptionManager = FileTranscriptionWindowManager()
-    @StateObject private var scratchpadManager = ScratchpadWindowManager()
+    @StateObject private var fileTranscriptionManager = FileTranscriptionWindowManager.shared
+    @StateObject private var scratchpadManager = ScratchpadWindowManager.shared
     @StateObject private var meetingCaptureManager = MeetingCaptureWindowManager()
 
     var body: some Scene {

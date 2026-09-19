@@ -1148,7 +1148,7 @@ struct ModelSettingsTab: View {
     }
         .onChange(of: appState.selectedLanguage) {
             Task { @MainActor in
-                await appState.reloadModelForLanguageChangeIfNeeded()
+                await appState.languageDidChange()
             }
         }
     }

@@ -711,6 +711,8 @@ final class AppState: ObservableObject {
     private var onboardingRequestedModel: ModelSize?
     /// Non-nil only while onboarding itself owns the serialized engine load.
     private var onboardingLoadingRequestGeneration: UInt64?
+    /// The language whose change `languageDidChange()` has already reacted to.
+    private var handledLanguageChange: String?
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
     /// the intentional background handoff explicit for Dispatch's @Sendable API.
@@ -2630,6 +2632,7 @@ final class AppState: ObservableObject {
             return
         }
 
+        let previouslyActiveModel = currentModel?.size
         onboardingLoadingRequestGeneration = generation
         defer {
             if onboardingLoadingRequestGeneration == generation {
@@ -2639,12 +2642,27 @@ final class AppState: ObservableObject {
         await performLoadModel(model)
 
         guard generation == onboardingModelRequestGeneration else {
+            // Onboarding no longer owns the shared load; the restore below is
+            // not its work to cancel.
+            onboardingLoadingRequestGeneration = nil
+
             // The engine may have completed after cancellation even though
             // performLoadModel correctly declined to publish the stale model.
-            // Keep service and AppState readiness aligned until a replacement
-            // preparation (already queued for language changes) takes over.
+            // Keep service and AppState readiness aligned.
             await whisperService.unloadModel()
             clearActiveModelState()
+
+            // A language change queues a replacement preparation that will
+            // load the new recommendation. A plain Cancel does not, so put
+            // back the model the user was already dictating with rather than
+            // leaving the app with nothing loaded.
+            if !isPreparingOnboardingModel, let previouslyActiveModel {
+                VocaLogger.info(
+                    .appState,
+                    "Onboarding load cancelled — restoring \(previouslyActiveModel.displayName)"
+                )
+                await performLoadModel(previouslyActiveModel)
+            }
             return
         }
     }
@@ -2665,8 +2683,17 @@ final class AppState: ObservableObject {
         isPreparingOnboardingModel = false
     }
 
-    /// Apply a changed onboarding language and invalidate stale model work.
-    func onboardingLanguageDidChange() async {
+    /// Apply a changed transcription language and invalidate stale model work.
+    ///
+    /// Settings and the onboarding wizard both watch `selectedLanguage`, and
+    /// the wizard is launched from Settings, so a single change routinely
+    /// arrives twice. Handling it twice would cancel and restart the download
+    /// the first call just started, so later calls for the same language are
+    /// dropped.
+    func languageDidChange() async {
+        guard handledLanguageChange != selectedLanguage else { return }
+        handledLanguageChange = selectedLanguage
+
         let shouldPrepareUpdatedRecommendation = isPreparingOnboardingModel
         cancelOnboardingModelPreparation()
         if shouldPrepareUpdatedRecommendation {

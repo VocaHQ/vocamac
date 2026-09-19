@@ -6,6 +6,14 @@ import SwiftUI
 
 @MainActor
 final class ScratchpadWindowManager: ObservableObject {
+    /// Shared instance. The deep-link observer in `VocaMacApp.init` reads
+    /// this manager before its `@StateObject` is installed on a view, and
+    /// every such access builds a new manager that is released as soon as
+    /// the call returns — so a link would open a second window instead of
+    /// focusing the open one, and the close observer token would die with
+    /// the manager, leaving the Dock icon behind.
+    static let shared = ScratchpadWindowManager()
+
     private var panel: NSPanel?
     private var closeObserver: NSObjectProtocol?
 

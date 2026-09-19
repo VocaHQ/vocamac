@@ -525,7 +525,7 @@ struct ModelSetupStep: View {
         .padding(16)
         .onChange(of: appState.selectedLanguage) {
             Task { @MainActor in
-                await appState.onboardingLanguageDidChange()
+                await appState.languageDidChange()
             }
         }
     }
@@ -543,10 +543,14 @@ struct ModelSetupStep: View {
                 Text("\(Int(progress * 100))%")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                Button("Cancel") {
-                    appState.cancelOnboardingModelPreparation()
+                // Only onboarding's own download is ours to cancel; the same
+                // model may be downloading because Settings asked for it.
+                if appState.isPreparingOnboardingModel {
+                    Button("Cancel") {
+                        appState.cancelOnboardingModelPreparation()
+                    }
+                    .controlSize(.small)
                 }
-                .controlSize(.small)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Downloading \(model.size.displayName)")

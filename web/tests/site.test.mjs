@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { access, readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -174,6 +175,14 @@ test("keeps the site-audit copy and a11y fixes", async () => {
     index,
     /<span class="route-name">WhisperKit \/ CoreML<\/span>/,
   );
+  assert.match(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> on-device<\/span>/,
+  );
+  assert.doesNotMatch(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> local<\/span>/,
+  );
 
   const clipboard = await readFile(
     join(outputRoot, "features/clipboard-preservation/index.html"),
@@ -181,6 +190,10 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   );
   assert.match(clipboard, /On-device transcription after model download/);
   assert.doesNotMatch(clipboard, /Works offline/);
+
+  const enterprise = await readFile(join(outputRoot, "enterprise/index.html"), "utf8");
+  assert.doesNotMatch(enterprise, /aria-labelledby="content-title"/);
+  assert.doesNotMatch(enterprise, /id="content-title"/);
 
   for (const page of pages) {
     const rel = relative(outputRoot, page);
@@ -202,6 +215,15 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
   assert.match(ogSvg, /v1\.0\.0/);
   assert.doesNotMatch(ogSvg, /beta/i);
+  assert.match(ogSvg, /ON-DEVICE/);
+  assert.doesNotMatch(ogSvg, />LOCAL</);
+
+  // Regenerating web/static/og-image.png requires updating this digest.
+  const ogPng = await readFile(join(outputRoot, "og-image.png"));
+  assert.equal(
+    createHash("sha256").update(ogPng).digest("hex"),
+    "cbe50386dcf13de677e488ca8506561313dc43ea724c8ee246d84d90b5ebd15d",
+  );
 
   const languages = await readFile(join(outputRoot, "features/languages/index.html"), "utf8");
   assert.match(languages, /43 language hints/);

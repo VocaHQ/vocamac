@@ -235,7 +235,7 @@ final class AppState: ObservableObject {
 
     // MARK: - User Settings (persisted via UserDefaults)
 
-    @AppStorage("vocamac.hasCompletedOnboarding") var hasCompletedOnboarding: Bool = false
+    @AppStorage(PreferenceKey.onboardingCompleted) var hasCompletedOnboarding: Bool = false
     @AppStorage("vocamac.activationMode") var activationMode: ActivationMode = .pushToTalk
     @AppStorage("vocamac.hotKeyCode") var hotKeyCode: Int = 61  // Right Option
     @AppStorage("vocamac.hotKeyModifiers") var hotKeyModifiers: HotKeyModifiers = []
@@ -2919,6 +2919,19 @@ final class AppState: ObservableObject {
         }
         hasCompletedOnboarding = true
         VocaLogger.info(.appState, "Onboarding completed")
+    }
+
+    /// Repair completion state corrupted by the old manual "Set Up VocaMac"
+    /// action. A genuine first launch has no stored value; the old action was
+    /// the only production path that explicitly persisted `false`.
+    func repairLegacyOnboardingCompletionIfNeeded(defaults: UserDefaults = .standard) {
+        guard !hasCompletedOnboarding,
+              defaults.object(forKey: PreferenceKey.onboardingCompleted) != nil else {
+            return
+        }
+
+        hasCompletedOnboarding = true
+        VocaLogger.info(.appState, "Repaired onboarding completion state from the legacy setup action")
     }
 
     // MARK: - Snippets Management

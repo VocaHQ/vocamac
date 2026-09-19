@@ -12,9 +12,10 @@ import SwiftUI
 enum OnboardingStep: Int, CaseIterable, Identifiable {
     case welcome = 0
     case permissions = 1
-    case hotkeyConfig = 2
-    case quickTest = 3
-    case complete = 4
+    case modelSetup = 2
+    case hotkeyConfig = 3
+    case quickTest = 4
+    case complete = 5
 
     var id: Int { rawValue }
 
@@ -22,6 +23,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Speak freely. Write anywhere."
         case .permissions: return "Connect your voice to your Mac"
+        case .modelSetup: return "Tune VocaMac to your voice"
         case .hotkeyConfig: return "One shortcut. Your flow."
         case .quickTest: return "Try your first dictation"
         case .complete: return "Make it part of your day"
@@ -32,6 +34,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Welcome"
         case .permissions: return "Permissions"
+        case .modelSetup: return "Language & model"
         case .hotkeyConfig: return "Your shortcut"
         case .quickTest: return "Try it out"
         case .complete: return "Ready to go"
@@ -42,6 +45,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Private voice typing that feels at home on macOS."
         case .permissions: return "Three permissions, each with a clear purpose."
+        case .modelSetup: return "Tell us what you speak most; VocaMac will recommend a local model."
         case .hotkeyConfig: return "Choose the gesture that feels natural to you."
         case .quickTest: return "Record a sentence and see your words appear here."
         case .complete: return "VocaMac lives in your menu bar, ready when you need it."
@@ -59,6 +63,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @State private var currentStep: OnboardingStep = .welcome
+    let onFinished: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var practiceBusy = false
@@ -74,6 +79,7 @@ struct OnboardingView: View {
                         switch currentStep {
                         case .welcome: WelcomeStep()
                         case .permissions: PermissionsStep()
+                        case .modelSetup: ModelSetupStep()
                         case .hotkeyConfig: HotkeyConfigStep()
                         case .quickTest: QuickTestStep(isBusy: $practiceBusy)
                         case .complete: CompleteStep()
@@ -95,7 +101,7 @@ struct OnboardingView: View {
                         Button("Set up later", action: skipOnboarding)
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .help("Open setup again from the VocaMac menu (Set Up VocaMac…) whenever you're ready.")
+                            .help("You can adjust permissions, language, models, and shortcuts later in Settings.")
                     }
                     Spacer()
                     Button(action: currentStep == .complete ? completeOnboarding : goToNextStep) {
@@ -197,10 +203,12 @@ struct OnboardingView: View {
 
     private func skipOnboarding() {
         appState.completeOnboarding()
+        onFinished()
     }
 
     private func completeOnboarding() {
         appState.completeOnboarding()
+        onFinished()
     }
 }
 
@@ -317,7 +325,7 @@ struct PermissionsStep: View {
                         ForEach(gaps, id: \.self) { gap in
                             Text(gap)
                         }
-                        Text("You can continue now and enable these later in Settings, or from Set Up VocaMac… in the menu.")
+                        Text("You can continue now and enable these later in Settings.")
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption)
@@ -400,6 +408,170 @@ struct OnboardingPermissionRow: View {
         case .granted: return VocaDesign.accent
         case .denied: return .red
         case .notDetermined: return .secondary
+        }
+    }
+}
+
+// MARK: - Step 3: Language and Model
+
+struct ModelSetupStep: View {
+    @EnvironmentObject var appState: AppState
+    @State private var didRequestRecommendation = false
+
+    private var recommendation: OnboardingModelRecommendation? {
+        OnboardingModelGuidance.recommendation(
+            for: appState.selectedLanguage,
+            availableModels: appState.availableModels
+        )
+    }
+
+    private var recommendedModel: WhisperModelInfo? {
+        guard let recommendation else { return nil }
+        return appState.availableModels.first { $0.size == recommendation.model }
+    }
+
+    private var selectedLanguageName: String {
+        TranscriptionLanguage.catalog.first { $0.code == appState.selectedLanguage }?.displayName
+            ?? "your language"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Which language do you speak most?")
+                    .font(.headline)
+                Picker("Most-used language", selection: $appState.selectedLanguage) {
+                    Text("I switch between languages").tag(TranscriptionLanguage.auto.code)
+                    Divider()
+                    ForEach(TranscriptionLanguage.selectable) { language in
+                        Text(language.displayName).tag(language.code)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 300, alignment: .leading)
+
+                Text(appState.selectedLanguage == TranscriptionLanguage.auto.code
+                     ? "VocaMac will detect the language for each dictation."
+                     : "Pinning \(selectedLanguageName) helps recognition avoid guessing the wrong language.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vocaCard()
+
+            if let recommendation, let model = recommendedModel {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .font(.title3)
+                            .foregroundStyle(VocaDesign.accent)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Recommended for you")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(VocaDesign.accent)
+                            Text(recommendation.title)
+                                .font(.headline)
+                            Text(recommendation.explanation)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Label(model.size.displayName, systemImage: "waveform")
+                        Text("•")
+                        Text(model.size.fileSizeDescription)
+                        Text("•")
+                        Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    modelAction(for: model)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vocaCard()
+            } else {
+                Label("The bundled starter model will be used on this Mac.", systemImage: "checkmark.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .vocaCard()
+            }
+
+            Text("This step is optional. Downloads continue in the background, and the recommended model is loaded automatically when it is ready.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+        }
+        .padding(16)
+        .onChange(of: appState.selectedLanguage) {
+            Task { @MainActor in
+                await appState.reloadModelForLanguageChangeIfNeeded()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func modelAction(for model: WhisperModelInfo) -> some View {
+        if model.isActive {
+            Label("Ready to use", systemImage: "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(VocaDesign.success)
+        } else if let progress = model.downloadProgress {
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .frame(maxWidth: 180)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                Button("Cancel") {
+                    appState.modelManager.cancelDownload(for: model.size)
+                }
+                .controlSize(.small)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Downloading \(model.size.displayName)")
+            .accessibilityValue("\(Int(progress * 100)) percent")
+        } else if model.isLoading {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(model.loadingStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            HStack(spacing: 10) {
+                Button(model.isDownloaded ? "Use this model" : "Download & use") {
+                    startRecommendation(model.size)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(VocaDesign.accentSolid)
+
+                if didRequestRecommendation, let error = appState.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func startRecommendation(_ model: ModelSize) {
+        didRequestRecommendation = true
+        appState.errorMessage = nil
+        Task { @MainActor in
+            if !appState.modelManager.isModelDownloaded(model) {
+                await appState.downloadModel(model)
+            }
+            if appState.availableModels.first(where: { $0.size == model })?.isDownloaded == true {
+                await appState.loadModel(model)
+            }
         }
     }
 }
@@ -827,7 +999,7 @@ extension View {
 
 #if DEBUG
 #Preview {
-    OnboardingView()
+    OnboardingView(onFinished: {})
         .environmentObject(AppState.production())
 }
 #endif

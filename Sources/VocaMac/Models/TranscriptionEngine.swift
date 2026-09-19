@@ -9,6 +9,7 @@ import Foundation
 /// Preference keys shared between `AppState`'s `@AppStorage` properties and
 /// services that must read the same setting outside the view layer.
 enum PreferenceKey {
+    static let onboardingCompleted = "vocamac.hasCompletedOnboarding"
     static let selectedModelSize = "vocamac.selectedModelSize"
     static let selectedLanguage = "vocamac.selectedLanguage"
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"

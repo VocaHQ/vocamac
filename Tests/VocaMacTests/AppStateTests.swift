@@ -37,12 +37,13 @@ final class OnboardingStepTests: XCTestCase {
 
     func testOnboardingStepOrdering() {
         let steps = OnboardingStep.allCases
-        XCTAssertEqual(steps.count, 5)
+        XCTAssertEqual(steps.count, 6)
         XCTAssertEqual(steps[0], .welcome)
         XCTAssertEqual(steps[1], .permissions)
-        XCTAssertEqual(steps[2], .hotkeyConfig)
-        XCTAssertEqual(steps[3], .quickTest)
-        XCTAssertEqual(steps[4], .complete)
+        XCTAssertEqual(steps[2], .modelSetup)
+        XCTAssertEqual(steps[3], .hotkeyConfig)
+        XCTAssertEqual(steps[4], .quickTest)
+        XCTAssertEqual(steps[5], .complete)
     }
 
     func testOnboardingStepTitles() {
@@ -236,11 +237,31 @@ final class AppStateOnboardingTests: XCTestCase {
 
     @MainActor
     func testOnboardingFlagPersistence() {
-        UserDefaults.standard.set(true, forKey: "vocamac.hasCompletedOnboarding")
+        UserDefaults.standard.set(true, forKey: PreferenceKey.onboardingCompleted)
 
         let (appState, _) = AppState.makeTestState()
 
         XCTAssertTrue(appState.hasCompletedOnboarding)
+    }
+
+    @MainActor
+    func testLegacyExplicitFalseCompletionIsRepaired() {
+        UserDefaults.standard.set(false, forKey: PreferenceKey.onboardingCompleted)
+        let (appState, _) = AppState.makeTestState()
+
+        appState.repairLegacyOnboardingCompletionIfNeeded()
+
+        XCTAssertTrue(appState.hasCompletedOnboarding)
+    }
+
+    @MainActor
+    func testMissingCompletionKeyStillMeansFirstLaunch() {
+        let (appState, _) = AppState.makeTestState()
+
+        appState.repairLegacyOnboardingCompletionIfNeeded()
+
+        XCTAssertFalse(appState.hasCompletedOnboarding)
+        XCTAssertNil(UserDefaults.standard.object(forKey: PreferenceKey.onboardingCompleted))
     }
 
     @MainActor

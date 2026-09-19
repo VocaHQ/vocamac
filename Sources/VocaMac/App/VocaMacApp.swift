@@ -183,9 +183,8 @@ final class UpdateWindowManager: ObservableObject {
 final class OnboardingWindowManager: ObservableObject {
     private var onboardingWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
-    var onCompletion: (() -> Void)?
 
-    func open(appState: AppState, force: Bool = false) {
+    func open(appState: AppState) {
         // If window already exists, just bring it to front
         if let window = onboardingWindow, window.isVisible {
             window.makeKeyAndOrderFront(nil)
@@ -193,14 +192,10 @@ final class OnboardingWindowManager: ObservableObject {
             return
         }
 
-        // When manually re-triggered, reset completion flag so the
-        // monitor doesn't immediately close the window
-        if force {
-            appState.hasCompletedOnboarding = false
-        }
-
         // Create the onboarding view
-        let onboardingView = OnboardingView()
+        let onboardingView = OnboardingView { [weak self] in
+            self?.onboardingWindow?.close()
+        }
             .environmentObject(appState)
 
         // Create a new window
@@ -242,23 +237,6 @@ final class OnboardingWindowManager: ObservableObject {
             }
         }
 
-        // Monitor app state for onboarding completion on main thread
-        DispatchQueue.main.async {
-            self.monitorOnboardingCompletion(appState: appState)
-        }
-    }
-
-    private func monitorOnboardingCompletion(appState: AppState) {
-        Task {
-            while self.onboardingWindow?.isVisible == true {
-                await MainActor.run {
-                    if appState.hasCompletedOnboarding {
-                        self.onboardingWindow?.close()
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 100_000_000)  // Check every 100ms
-            }
-        }
     }
 }
 
@@ -302,6 +280,7 @@ struct VocaMacApp: App {
     @MainActor init() {
         // Ensure only one instance of VocaMac is running
         Self.ensureSingleInstance()
+        appState.repairLegacyOnboardingCompletionIfNeeded()
 
         // For .app bundles, Dock hiding is handled by LSUIElement=true in Info.plist.
         // For direct binary execution, we set it programmatically.
@@ -309,14 +288,16 @@ struct VocaMacApp: App {
             NSApp?.setActivationPolicy(.accessory)
         }
 
-        // Listen for "Set Up VocaMac…" requests from Settings / Menu Bar
+        // Listen for setup requests from Settings. Reopening setup must not
+        // clear the durable completion flag: closing a refresher window should
+        // never make onboarding appear again after the next login.
         NotificationCenter.default.addObserver(
             forName: .showOnboarding,
             object: nil,
             queue: .main
         ) { [self] _ in
             Task { @MainActor [self] in
-                self.onboardingManager.open(appState: self.appState, force: true)
+                self.onboardingManager.open(appState: self.appState)
             }
         }
 

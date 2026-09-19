@@ -511,7 +511,7 @@ struct ModelSetupStep: View {
         .padding(16)
         .onChange(of: appState.selectedLanguage) {
             Task { @MainActor in
-                await appState.reloadModelForLanguageChangeIfNeeded()
+                await appState.onboardingLanguageDidChange()
             }
         }
     }
@@ -530,7 +530,7 @@ struct ModelSetupStep: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 Button("Cancel") {
-                    appState.modelManager.cancelDownload(for: model.size)
+                    appState.cancelOnboardingModelPreparation()
                 }
                 .controlSize(.small)
             }
@@ -547,10 +547,14 @@ struct ModelSetupStep: View {
         } else {
             HStack(spacing: 10) {
                 Button(model.isDownloaded ? "Use this model" : "Download & use") {
-                    startRecommendation(model.size)
+                    didRequestRecommendation = true
+                    Task { @MainActor in
+                        await appState.prepareOnboardingRecommendedModel()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(VocaDesign.accentSolid)
+                .disabled(appState.isPreparingOnboardingModel)
 
                 if didRequestRecommendation, let error = appState.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -558,19 +562,6 @@ struct ModelSetupStep: View {
                         .foregroundStyle(.orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-            }
-        }
-    }
-
-    private func startRecommendation(_ model: ModelSize) {
-        didRequestRecommendation = true
-        appState.errorMessage = nil
-        Task { @MainActor in
-            if !appState.modelManager.isModelDownloaded(model) {
-                await appState.downloadModel(model)
-            }
-            if appState.availableModels.first(where: { $0.size == model })?.isDownloaded == true {
-                await appState.loadModel(model)
             }
         }
     }

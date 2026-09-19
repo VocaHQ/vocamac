@@ -221,6 +221,9 @@ final class AppState: ObservableObject {
     /// All available models and their statuses
     @Published var availableModels: [WhisperModelInfo] = []
 
+    /// Whether onboarding is downloading or loading its current recommendation.
+    @Published private(set) var isPreparingOnboardingModel = false
+
     // Permissions are managed by PermissionManager.
     // These computed properties maintain backward compatibility for views.
     var micPermission: PermissionStatus { permissionManager.micPermission }
@@ -702,6 +705,10 @@ final class AppState: ObservableObject {
     /// actions can otherwise start several downloads or model-management
     /// operations before they reach those lower-level services.
     private let modelOperationSerializer = LoadSerializer()
+
+    /// Invalidates an onboarding recommendation when its language or user intent changes.
+    private var onboardingModelRequestGeneration: UInt64 = 0
+    private var onboardingRequestedModel: ModelSize?
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
     /// the intentional background handoff explicit for Dispatch's @Sendable API.
@@ -2560,6 +2567,87 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Language changed to \(selectedLanguage) — reloading \(size.displayName)")
         await loadModel(size)
+    }
+
+    /// Download and load the model currently recommended by onboarding.
+    ///
+    /// The recommendation is resolved and revalidated here so a language
+    /// change during a download cannot activate the previous language's model.
+    func prepareOnboardingRecommendedModel() async {
+        guard let recommendation = OnboardingModelGuidance.recommendation(
+            for: selectedLanguage,
+            availableModels: availableModels
+        ) else {
+            return
+        }
+
+        onboardingModelRequestGeneration &+= 1
+        let generation = onboardingModelRequestGeneration
+        let model = recommendation.model
+        onboardingRequestedModel = model
+        isPreparingOnboardingModel = true
+        errorMessage = nil
+
+        _ = try? await modelOperationSerializer.run { [self] in
+            await performOnboardingModelPreparation(model, generation: generation)
+        }
+    }
+
+    /// Perform onboarding's model operation while holding the shared model lock.
+    private func performOnboardingModelPreparation(
+        _ model: ModelSize,
+        generation: UInt64
+    ) async {
+        defer {
+            if generation == onboardingModelRequestGeneration {
+                onboardingRequestedModel = nil
+                isPreparingOnboardingModel = false
+            }
+        }
+
+        guard generation == onboardingModelRequestGeneration else { return }
+        if !modelManager.isModelDownloaded(model) {
+            await performDownloadModel(model)
+        }
+
+        guard generation == onboardingModelRequestGeneration,
+              onboardingRequestedModel == model,
+              OnboardingModelGuidance.recommendation(
+                for: selectedLanguage,
+                availableModels: availableModels
+              )?.model == model,
+              modelManager.isModelDownloaded(model) else {
+            return
+        }
+
+        await performLoadModel(model)
+    }
+
+    /// Invalidate onboarding's recommendation and stop its download, if any.
+    func cancelOnboardingModelPreparation() {
+        let wasPreparingModel = onboardingRequestedModel != nil
+        onboardingModelRequestGeneration &+= 1
+        if let onboardingRequestedModel {
+            modelManager.cancelDownload(for: onboardingRequestedModel)
+        }
+        if wasPreparingModel {
+            // Also prevents an engine load that just finished from publishing
+            // the superseded model as active.
+            loadGeneration &+= 1
+        }
+        onboardingRequestedModel = nil
+        isPreparingOnboardingModel = false
+    }
+
+    /// Apply a changed onboarding language and invalidate stale model work.
+    func onboardingLanguageDidChange() async {
+        let shouldPrepareUpdatedRecommendation = isPreparingOnboardingModel
+        cancelOnboardingModelPreparation()
+        if shouldPrepareUpdatedRecommendation {
+            await prepareOnboardingRecommendedModel()
+            return
+        }
+        await reloadModelForLanguageChangeIfNeeded()
     }
 
     /// Say near the caret why a dictation produced nothing. The menu bar

@@ -750,4 +750,29 @@ final class AppStateModelLoadingTests: XCTestCase {
         // Whisper takes the language per transcription — no reload needed.
         XCTAssertEqual(mocks.whisperService.loadRequests.count, loadsAfterInitial)
     }
+
+    @MainActor
+    func testOnboardingLanguageChangeDoesNotLoadStaleRecommendation() async throws {
+        let modelManager = MockModelManager()
+        modelManager.downloadDelayNanoseconds = 100_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager)
+        appState.selectedLanguage = "en"
+
+        let englishPreparation = Task { @MainActor in
+            await appState.prepareOnboardingRecommendedModel()
+        }
+        for _ in 0..<100 where modelManager.downloadRequests.isEmpty {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertEqual(modelManager.downloadRequests.first, .parakeetTdtCtc110m)
+
+        appState.selectedLanguage = "ru"
+        await appState.onboardingLanguageDidChange()
+        await englishPreparation.value
+
+        XCTAssertEqual(modelManager.downloadRequests, [.parakeetTdtCtc110m, .gigaamV3])
+        XCTAssertEqual(modelManager.cancelledDownloads, [.parakeetTdtCtc110m])
+        XCTAssertEqual(mocks.whisperService.loadRequests.map(\.name), ["gigaam-v3-russian"])
+        XCTAssertEqual(appState.currentModel?.size, .gigaamV3)
+    }
 }

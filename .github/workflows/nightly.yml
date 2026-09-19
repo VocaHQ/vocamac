@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -148,10 +148,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
@@ -306,23 +306,6 @@ jobs:
             FAIL=1
           fi
 
-          # Verify the critical WhisperKit tokenizer fallback resources.
-          # xcodebuild bundles have the structure: <bundle>/Contents/Resources/<file>
-          HUB="VocaMac.app/Contents/Resources/swift-transformers_Hub.bundle"
-          if [ ! -d "$HUB" ]; then
-            echo "❌ swift-transformers_Hub.bundle missing!"
-            FAIL=1
-          else
-            for f in gpt2_tokenizer_config.json t5_tokenizer_config.json; do
-              # Search recursively — xcodebuild places resources in Contents/Resources/
-              if find "$HUB" -name "$f" -print -quit | grep -q .; then
-                echo "✅ $f present in swift-transformers_Hub.bundle"
-              else
-                echo "❌ Missing $f in swift-transformers_Hub.bundle"
-                FAIL=1
-              fi
-            done
-          fi
 
           # Verify the binary uses the xcodebuild accessor (contains resourceURL)
           if strings VocaMac.app/Contents/MacOS/VocaMac | grep -q 'resourceURL'; then

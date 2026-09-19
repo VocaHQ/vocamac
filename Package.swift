@@ -15,16 +15,18 @@ let package = Package(
         )
     ],
     dependencies: [
-        // WhisperKit — local, on-device speech-to-text powered by CoreML
-        // https://github.com/argmaxinc/WhisperKit
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.4"),
+        // WhisperKit — local, on-device speech-to-text powered by CoreML.
+        // Since 1.0 it ships inside the Argmax Open-Source SDK, which vendors
+        // swift-transformers' Hub and Tokenizers into ArgmaxCore.
+        // https://github.com/argmaxinc/argmax-oss-swift
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.1.0"),
         // FluidAudio — NVIDIA Parakeet TDT models as CoreML on the Neural Engine
         // https://github.com/FluidInference/FluidAudio
         // Held to 0.15.x: this is the version the engine is tested against, and
         // the APIs used here (AsrManager.loadModels, throwing TdtDecoderState,
         // the transcribe language hint) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.5")),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.7")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
         // Pin the release and its matching binary xcframework for reproducible builds.
@@ -59,7 +61,7 @@ let package = Package(
             name: "VocaMac",
             dependencies: [
                 "VocaMacObjC",
-                .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx"),
                 .product(name: "LLM", package: "LLM.swift"),

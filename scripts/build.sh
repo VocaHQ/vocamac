@@ -195,8 +195,10 @@ cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
 # which resolves to Contents/Resources/ for .app bundles. This is the correct
 # and codesign-compatible location.
 #
-# Clean up any stale bundles at the app root from previous builds.
+# Clean up stale bundles from previous builds, both at the app root and in
+# Contents/Resources/, so bundles from removed dependencies don't linger.
 find "${APP_DIR}" -maxdepth 1 -name "*.bundle" ! -name "Contents" -exec rm -rf {} + 2>/dev/null || true
+find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec rm -rf {} + 2>/dev/null || true
 
 find "${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}" -maxdepth 1 -name "*.bundle" | while read -r bundle; do
     bundle_name="$(basename "$bundle")"

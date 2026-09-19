@@ -20,10 +20,10 @@ jobs:
       web: ${{ steps.filter.outputs.web }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Check paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -63,10 +63,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift') }}
@@ -91,10 +91,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift') }}
@@ -121,11 +121,11 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache SPM dependencies
         id: spm-cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-xcode27-${{ runner.os }}-${{ hashFiles('Package.swift') }}
@@ -183,10 +183,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Cache Xcode build
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .xcode-build/SourcePackages
           key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift') }}
@@ -217,12 +217,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Hugo
         uses: peaceiris/actions-hugo@v3
         with:
-          hugo-version: '0.165.0'
+          hugo-version: '0.166.0'
           extended: true
 
       - name: Build and test website

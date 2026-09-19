@@ -13,7 +13,7 @@ Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device en
 
 | Engine | Library / API | Runtime |
 |--------|---------------|---------|
-| Whisper | [WhisperKit](https://github.com/argmaxinc/WhisperKit) | OpenAI Whisper, CoreML |
+| Whisper | [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) | OpenAI Whisper, CoreML |
 | Parakeet | [FluidAudio](https://github.com/FluidInference/FluidAudio) | NVIDIA Parakeet TDT, CoreML on the Neural Engine |
 | Apple Speech | SpeechAnalyzer / SpeechTranscriber | macOS 26+, system-managed assets |
 | Specialized ONNX | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Moonshine, SenseVoice, GigaAM, Canary; CPU-only |
@@ -27,7 +27,7 @@ The marketing site is Hugo in `web/`, deployed to GitHub Pages at [vocamac.com](
 | Minimum OS | macOS 14 Sonoma; **Apple Silicon only** (`arm64`) |
 | Build | Swift Package Manager; `.app` bundles via `scripts/build.sh` (`xcodebuild`) |
 | CI | GitHub Actions (`.github/workflows/ci.yml`): app on `macos-15` + Xcode 26, plus a non-blocking macOS 27 + Xcode 27 test job; site on Ubuntu |
-| Website | Hugo 0.165.0 extended; deploy via `.github/workflows/deploy-website.yml` |
+| Website | Hugo 0.166.0 extended; deploy via `.github/workflows/deploy-website.yml` |
 
 ---
 
@@ -194,8 +194,8 @@ Version-bump changelog tables go in the **PR description**, not a tracked file. 
 
 | Dependency | Purpose | Pin |
 |------------|---------|-----|
-| [WhisperKit](https://github.com/argmaxinc/WhisperKit) | Whisper CoreML | `from: "0.9.4"` |
-| [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.5")` (pre-1.0) |
+| [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (Argmax OSS SDK) | Whisper CoreML | `from: "1.1.0"` |
+| [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.7")` (pre-1.0) |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | exact `1.13.8` (matching xcframework) |
 | [LLM.swift](https://github.com/eastriverlee/LLM.swift) | GGUF cleanup (llama.cpp) | exact `3.0.3` (vendors a pinned llama.cpp xcframework) |
 

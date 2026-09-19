@@ -33,7 +33,7 @@ jobs:
     steps:
       # ── Setup ─────────────────────────────────────────────────────────────
       - name: React to comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             await github.rest.reactions.createForIssueComment({
@@ -45,7 +45,7 @@ jobs:
 
       - name: Get PR branch info
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const pr = await github.rest.pulls.get({
@@ -73,7 +73,7 @@ jobs:
           fi
 
       - name: Post "build started" comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -87,12 +87,12 @@ jobs:
             });
 
       - name: Checkout PR branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ steps.pr.outputs.ref }}
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
@@ -212,22 +212,6 @@ jobs:
             FAIL=1
           fi
 
-          # Verify the critical WhisperKit tokenizer fallback resources.
-          # xcodebuild bundles have the structure: <bundle>/Contents/Resources/<file>
-          HUB="VocaMac.app/Contents/Resources/swift-transformers_Hub.bundle"
-          if [ ! -d "$HUB" ]; then
-            echo "❌ swift-transformers_Hub.bundle missing!"
-            FAIL=1
-          else
-            for f in gpt2_tokenizer_config.json t5_tokenizer_config.json; do
-              if find "$HUB" -name "$f" -print -quit | grep -q .; then
-                echo "✅ $f present in swift-transformers_Hub.bundle"
-              else
-                echo "❌ Missing $f in swift-transformers_Hub.bundle"
-                FAIL=1
-              fi
-            done
-          fi
 
           # Verify the binary uses the xcodebuild accessor (contains resourceURL)
           if strings VocaMac.app/Contents/MacOS/VocaMac | grep -q 'resourceURL'; then
@@ -270,7 +254,7 @@ jobs:
           retention-days: 14
 
       - name: Post download comment on PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
@@ -318,7 +302,7 @@ jobs:
       # ── Failure notification ────────────────────────────────────────────────
       - name: Post failure comment
         if: failure()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;

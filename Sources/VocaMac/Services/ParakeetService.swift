@@ -152,7 +152,10 @@ final class ParakeetService: @unchecked Sendable {
         let startTime = CFAbsoluteTimeGetCurrent()
 
         do {
-            var decoderState = try TdtDecoderState()
+            // Size the LSTM state to the loaded model: TDT-CTC 110M has one
+            // decoder layer, v2/v3 have two. The default of 2 makes 110M fail
+            // every decode with a (2 x 1 x 640) vs (1 x 1 x 640) shape mismatch.
+            var decoderState = try TdtDecoderState(decoderLayers: await manager.decoderLayerCount)
             let languageHint = language.flatMap { Language(rawValue: $0) }
             let result = try await manager.transcribe(
                 audioData,

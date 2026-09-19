@@ -125,7 +125,7 @@ VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and
 
 ### Why the Whisper engine uses WhisperKit
 
-The Whisper path uses [WhisperKit](https://github.com/argmaxinc/WhisperKit) instead of raw whisper.cpp because:
+The Whisper path uses [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) instead of raw whisper.cpp because:
 
 | | WhisperKit | whisper.cpp |
 |---|-----------|-------------|
@@ -601,7 +601,7 @@ Each platform uses native technologies for the best possible integration, while 
 
 ## 🤝 Related Projects
 
-- [WhisperKit](https://github.com/argmaxinc/WhisperKit) - Swift native on-device speech recognition
+- [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) - Swift native on-device speech recognition
 - [VocaLinux](https://github.com/VocaHQ/vocalinux) - Voice-to-text for Linux
 - [OpenAI Whisper](https://github.com/openai/whisper) - Original Whisper model
 

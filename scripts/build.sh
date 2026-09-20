@@ -342,11 +342,29 @@ if [ "$CODE_SIGN_IDENTITY" != "-" ]; then
     CODESIGN_OPTIONS="--options runtime"
 fi
 
-# Sign nested bundles in Contents/Resources/.
-# Errors are not suppressed: an unsigned nested bundle builds fine and then
-# fails notarization or Gatekeeper on a user's Mac, long after the fact.
-# `find -exec` reports find's own status rather than codesign's, so loop.
+# Sign nested bundles in Contents/Resources/ that carry code.
+#
+# SPM's `Bundle.module` payloads (VocaMac_VocaMac.bundle,
+# FluidAudio_FluidAudio.bundle) hold only resources: no CFBundleExecutable and
+# no Mach-O anywhere inside. They need no signature of their own — the app's
+# signature seals them as data in _CodeSignature/CodeResources, which is how
+# every shipped release has been notarized. codesign rejects them outright
+# ("unsealed contents present in the bundle root") because SPM leaves a stray
+# Info.plist beside Contents/, so attempting it can only ever fail.
+#
+# Real nested code is a different matter, and its failures are NOT suppressed:
+# an unsigned one builds fine and then fails notarization or Gatekeeper on a
+# user's Mac, long after the fact. (`find -exec` reports find's own status
+# rather than codesign's, which is why this is a loop.)
 while IFS= read -r nested_bundle; do
+    # Counted in a substitution rather than an `if ! ... | grep -q` pipeline:
+    # under `pipefail` a partial `find` failure would make that read as "no
+    # code here" and silently skip a bundle that does carry some.
+    nested_macho_count="$(find "$nested_bundle" -type f -exec file {} + 2>/dev/null | grep -c "Mach-O" || true)"
+    if [ "$nested_macho_count" -eq 0 ]; then
+        echo "   Skipping resource-only bundle: $(basename "$nested_bundle")"
+        continue
+    fi
     echo "   Signing nested bundle: $(basename "$nested_bundle")"
     codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS "$nested_bundle"
 done < <(find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle")

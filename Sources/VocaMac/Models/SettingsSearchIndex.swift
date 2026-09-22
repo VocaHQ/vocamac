@@ -105,6 +105,13 @@ enum SettingsSearchIndex {
             keywords: ["numbers", "digits", "numerals", "output"]
         ),
         SettingsSearchEntry(
+            id: "number-symbols",
+            page: .dictation,
+            title: "Use Symbols and Ordinals",
+            subtitle: "“fifty percent” becomes “50%”",
+            keywords: ["percent", "currency", "dollar", "ordinal", "date", "minus", "symbols"]
+        ),
+        SettingsSearchEntry(
             id: "spoken-emoji",
             page: .dictation,
             title: "Spoken Emoji",

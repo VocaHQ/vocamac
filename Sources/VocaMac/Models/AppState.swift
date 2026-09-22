@@ -271,6 +271,10 @@ final class AppState: ObservableObject {
     /// "twenty three" → "23". Off by default: talking about numbers in prose
     /// often wants the words.
     @AppStorage(PreferenceKey.numbersAsDigits) var numbersAsDigits: Bool = false
+    /// "fifty percent" → "50%", "June twenty second" → "June 22". Only applies
+    /// with `numbersAsDigits`; off by default, because "$5" and "21st" are a
+    /// house style, not a transcription.
+    @AppStorage(PreferenceKey.numberSymbols) var numberSymbols: Bool = false
     /// "crying emoji" → 😭. Off by default, so talking *about* an emoji never
     /// rewrites the sentence until the user opts in.
     @AppStorage(PreferenceKey.spokenEmoji) var spokenEmoji: Bool = false
@@ -520,7 +524,7 @@ final class AppState: ObservableObject {
             cleanupLevel: transcriptCleanupLevel,
             language: RewriteValidation.detectedLanguage(text), autoCapitalize: autoCapitalize,
             trailingSpace: appendTrailingSpace, preview: true,
-            numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
+            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
         )
     }
 
@@ -2170,7 +2174,7 @@ final class AppState: ObservableObject {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
                     dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage),
-                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
+                    numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
                 )
                 guard generation == recordingGeneration, !Task.isCancelled else {
                     if let historyID { historyStore.markCancelled(historyID) }
@@ -3201,7 +3205,7 @@ final class AppState: ObservableObject {
             // Like an engine that reports no language: the pipeline judges it.
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
             trailingSpace: false, preview: true,
-            numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
+            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
         )
         return CleanupTryResult(
             input: text, text: output.text, summary: output.summary,
@@ -3546,7 +3550,7 @@ extension AppState {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace,
                     dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage),
-                    numbersAsDigits: numbersAsDigits, spokenEmoji: spokenEmoji
+                    numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
                 )
             }
             historyStore.recordRetry(

@@ -495,19 +495,43 @@ travels through the snippet mask, so neither sentence case nor cleanup alters it
 
 ### Spoken emoji and numbers
 
-Two Dictation switches, both off by default and never applied to the Raw style:
-`vocamac.spokenEmoji` ("crying emoji" → 😭) and `vocamac.numbersAsDigits`
-("twenty three" → 23). `SpokenEmoji` and `SpokenNumbers` are ports of the
-VocaPhone implementations and follow the same rules; the phrase table
-`Resources/Emoji/suggestions.tsv` is copied verbatim from VocaPhone's
-`assets/keyboard/emoji/suggestions.tsv`, which VocaPhone generates from Unicode
-emoji names and CLDR annotations (Unicode License v3). Update it by copying the
-file again rather than editing it, so both apps map a phrase to the same glyph.
+Three Dictation switches, all off by default and never applied to the Raw
+style: `vocamac.spokenEmoji` ("crying emoji" → 😭), `vocamac.numbersAsDigits`
+("twenty three" → 23), and `vocamac.numberSymbols`, which only applies with
+digits on ("fifty percent" → 50%, "five dollars and fifty cents" → $5.50,
+"minus five" → -5, "the twenty first" → the 21st, "June twenty second" → June
+22). `SpokenEmoji` and `SpokenNumbers` are ports of the VocaPhone
+implementations. The phrase table `Resources/Emoji/suggestions.tsv` is copied
+verbatim from VocaPhone's `assets/keyboard/emoji/suggestions.tsv`, which
+VocaPhone generates from Unicode emoji names and CLDR annotations (Unicode
+License v3). Update it by copying the file again rather than editing it.
+`Resources/Emoji/spoken-aliases.tsv` is laid over it for the way people say an
+emoji when CLDR names it differently ("fingers crossed", "blue heart", "US
+flag"), and replaces the few generated entries that are wrong for speech
+("salute" is 🫡). Mirror both files in VocaPhone.
 
-Emoji names must stand on their own: "great news, party emoji" converts, but
-"great news party emoji" does not, because the whole run of words before
-"emoji" has to be one name. Numbers said one after another ("one two three")
-and a lone "one" without a unit stay as words.
+The shared cases in `Tests/VocaMacTests/Fixtures/spoken-numbers.tsv` and
+`spoken-emoji.tsv` are the contract for both apps, and
+`spoken-forms-plain.txt` lists dictation that must come back unchanged.
+
+Emoji: the longest name before "emoji" (or "emoticon") wins, and the prose
+before it stays: "great news party emoji" becomes "great news 🎉". A match is
+declined when a determiner or subject comes right before it ("send a fire
+emoji", "I love you emoji"), when a word that belongs to emoji names does
+("face with heart eyes", "blue car"), and when the trigger is a noun
+mid-clause ("check emoji support"). "three fire emojis", "fire emoji times
+three" and "fire fire fire emoji" repeat the glyph, up to 10; "thumbs up dark
+skin tone emoji" applies the skin tone to glyphs that take one.
+
+Numbers: a run converts only when it reads as one number, and numbers from
+10,000 up are grouped ("12,500"); a round million or more keeps its scale word
+("2.5 million"). A lone "one" stays a word unless a unit follows it or another
+number is paired with it ("one or two" → "1 or 2"). Idioms keep their words
+("high five", "cloud nine", "one sec"). Three shapes need context: digit
+strings convert after a cue ("my number is", "code", "room") or with an inner
+"oh" ("four oh four" → 404); years after "in", "since" or "year" ("in nineteen
+ninety nine" → 1999); times before am or pm ("seven thirty pm" → 7:30 pm).
+"two and a half" is 2.5; "three quarters" stays words.
 
 One deliberate difference from VocaPhone: "second" after "twenty"–"ninety",
 "hundred", or a scale word stays an ordinal when no duration can be meant —

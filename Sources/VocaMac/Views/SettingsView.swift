@@ -387,6 +387,13 @@ struct DictationSettingsPage: View {
                 )
                 Divider()
                 SettingsToggleRow(
+                    title: "Use symbols and ordinals",
+                    detail: "“fifty percent” becomes “50%”, “five dollars” “$5”, and “June twenty second” “June 22”.",
+                    isOn: $appState.numberSymbols
+                )
+                .disabled(!appState.numbersAsDigits)
+                Divider()
+                SettingsToggleRow(
                     title: "Spoken emoji",
                     detail: "Say “party emoji” to type 🎉.",
                     isOn: $appState.spokenEmoji

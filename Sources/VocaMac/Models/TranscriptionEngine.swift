@@ -15,6 +15,7 @@ enum PreferenceKey {
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"
     static let autoCapitalize = "vocamac.autoCapitalize"
     static let numbersAsDigits = "vocamac.numbersAsDigits"
+    static let numberSymbols = "vocamac.numberSymbols"
     static let spokenEmoji = "vocamac.spokenEmoji"
     static let autoPauseEnabled = "vocamac.autoPause.enabled"
     static let autoPauseApps = "vocamac.autoPause.apps"

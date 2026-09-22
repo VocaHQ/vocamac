@@ -38,7 +38,7 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("twenty five hundred"), "2500")
         XCTAssertEqual(converted("two thousand five hundred"), "2500")
         XCTAssertEqual(converted("one hundred"), "100")
-        XCTAssertEqual(converted("two million three thousand five hundred"), "2003500")
+        XCTAssertEqual(converted("two million three thousand five hundred"), "2,003,500")
     }
 
     func testDecimalsAreReadOutDigitByDigit() {
@@ -195,7 +195,7 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("one hundred five hundred"), "100 500")
         XCTAssertEqual(converted("two hundred nineteen hundred"), "200 1900")
         // One hundreds group per scale still composes.
-        XCTAssertEqual(converted("two hundred thousand three hundred"), "200300")
+        XCTAssertEqual(converted("two hundred thousand three hundred"), "200,300")
         XCTAssertEqual(converted("two hundred and three"), "203")
     }
 
@@ -210,9 +210,12 @@ final class SpokenNumbersTests: XCTestCase {
             + "nine hundred ninety nine million "
             + "nine hundred ninety nine thousand "
             + "nine hundred ninety nine"
-        XCTAssertEqual(converted(largest), "999999999999")
+        XCTAssertEqual(converted(largest), "999,999,999,999")
         XCTAssertEqual(SpokenNumbers.maximum, 999_999_999_999)
-        XCTAssertEqual(converted("one trillion"), "one trillion")
+        // A round trillion keeps its scale word; one past the maximum in
+        // full does not convert.
+        XCTAssertEqual(converted("one trillion"), "1 trillion")
+        XCTAssertEqual(converted("one trillion five"), "one trillion five")
     }
 
     // MARK: - Everything else passes through

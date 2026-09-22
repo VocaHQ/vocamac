@@ -28,6 +28,7 @@ struct DictationOutputPipeline {
         preview: Bool = false,
         dictionary: DictionaryContext? = nil,
         numbersAsDigits: Bool = false,
+        numberSymbols: Bool = false,
         spokenEmoji: Bool = false
     ) async -> DictationOutputResult {
         // The glyph a spoken emoji left at the very end of the utterance, if
@@ -119,7 +120,7 @@ struct DictationOutputPipeline {
         // neither drop nor re-spell what was converted.
         let converted = Self.convertSpokenForms(
             snippets.expandMasked(in: input, using: snippetList + protectedTerms),
-            emoji: spokenEmoji, digits: numbersAsDigits, language: language
+            emoji: spokenEmoji, digits: numbersAsDigits, symbols: numberSymbols, language: language
         )
         let masked = converted.masked
         closingGlyph = converted.closingGlyph
@@ -324,7 +325,8 @@ struct DictationOutputPipeline {
     /// Code and Terminal utterances shorter than this are treated as commands.
     static let minimumTechnicalWords = 4
 
-    /// Applies spoken emoji, then digits, to snippet-masked text.
+    /// Applies spoken emoji, then digits, to snippet-masked text. `symbols`
+    /// only matters with `digits`: "50%", "$5", "June 22".
     ///
     /// Emoji first, because the table's keys are words: digit conversion would
     /// otherwise rewrite a descriptor ("two hearts") before it is looked up.
@@ -335,7 +337,7 @@ struct DictationOutputPipeline {
     ///
     /// - Returns: The converted mask, and the glyph when one ends the text.
     static func convertSpokenForms(
-        _ masked: MaskedText, emoji: Bool, digits: Bool, language: String?
+        _ masked: MaskedText, emoji: Bool, digits: Bool, symbols: Bool = false, language: String?
     ) -> (masked: MaskedText, closingGlyph: String?) {
         var text = masked.text
         var replacements = masked.replacements
@@ -349,7 +351,7 @@ struct DictationOutputPipeline {
             }
         }
         if digits {
-            text = SpokenNumbers.digits(in: text)
+            text = SpokenNumbers.digits(in: text, symbols: symbols)
         }
         var closingGlyph: String?
         if let last = text.last(where: { !$0.isWhitespace }),
@@ -399,7 +401,7 @@ struct RewriteProtectedText: Sendable {
         var prefix = "VOCAKEEP"
         while source.contains(prefix) { prefix += "X" }
         self.prefix = prefix
-        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?"#
+        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|(?:[$€£₹]|(?<![\w-])-)?\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?"#
         var ranges = RewriteValidation.matches(pattern, in: source)
         // Named entities are data too, but they stay readable: the model keeps
         // a real name far more reliably than a token, and restoreValidated

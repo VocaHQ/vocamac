@@ -27,12 +27,27 @@ final class SpokenEmojiTests: XCTestCase {
         XCTAssertEqual(glyphs("shrug emoji"), "🤷")
     }
 
-    /// The whole span before the trigger has to be the key; a leftover prefix
-    /// means decline.
-    func testProseBeforeADescriptorIsNotConsumed() {
-        XCTAssertEqual(glyphs("I'm so sad crying emoji"), "I'm so sad crying emoji")
-        XCTAssertEqual(glyphs("nice work thumbs up emoji"), "nice work thumbs up emoji")
+    /// Speech models rarely put a comma where the speaker paused, so the
+    /// longest key before the trigger converts and the prose before it stays.
+    func testProseBeforeADescriptorStaysProse() {
+        XCTAssertEqual(glyphs("I'm so sad crying emoji"), "I'm so sad 😭")
+        XCTAssertEqual(glyphs("nice work thumbs up emoji"), "nice work 👍")
         XCTAssertEqual(glyphs("I'm so sad, crying emoji"), "I'm so sad, 😭")
+    }
+
+    /// ...but only at the end of a clause: mid-sentence, "emoji" is a noun.
+    func testATriggerMidClauseIsANoun() {
+        XCTAssertEqual(glyphs("can you check emoji support"), "can you check emoji support")
+        XCTAssertEqual(glyphs("can you check emoji support in Safari?"), "can you check emoji support in Safari?")
+        XCTAssertEqual(glyphs("check emoji support"), "✅ support")
+    }
+
+    /// A determiner or a subject right before the descriptor means the
+    /// speaker is talking about the emoji.
+    func testTalkingAboutAnEmojiKeepsTheWords() {
+        for phrase in ["send a fire emoji", "I love the fire emoji", "what's the crying emoji", "I love you emoji"] {
+            XCTAssertEqual(glyphs(phrase), phrase)
+        }
     }
 
     func testSpokenPhrasingsResolve() {
@@ -56,7 +71,7 @@ final class SpokenEmojiTests: XCTestCase {
         XCTAssertEqual(glyphs("fire emoji, then home"), "🔥, then home")
         XCTAssertEqual(
             glyphs("I'm sad, crying emoji, but fire emoji, then home"),
-            "I'm sad, 😭, but fire emoji, then home"
+            "I'm sad, 😭, but 🔥, then home"
         )
         XCTAssertEqual(
             glyphs("I'm sad, crying emoji. Fire emoji, then home"),
@@ -81,7 +96,7 @@ final class SpokenEmojiTests: XCTestCase {
         XCTAssertEqual(glyphs("heart on fire emoji"), "❤️‍🔥")
         XCTAssertEqual(glyphs("couple with heart emoji"), "💑")
 
-        for phrase in ["I love you emoji", "see no evil emoji", "person running emoji"] {
+        for phrase in ["I love you emoji", "face with heart eyes emoji", "person running emoji"] {
             XCTAssertEqual(glyphs(phrase), phrase)
         }
     }

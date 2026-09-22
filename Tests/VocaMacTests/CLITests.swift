@@ -350,7 +350,7 @@ final class CLITests: XCTestCase {
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
-        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small]
         let headless = HeadlessTranscriber(

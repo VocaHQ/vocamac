@@ -21,14 +21,14 @@ final class CompiledModelRecordTests: XCTestCase {
 
     func testANewModelHasNotLoaded() throws {
         let defaults = try makeDefaults()
-        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
         XCTAssertFalse(record.hasLoaded(.vocaHinglish))
     }
 
     func testRecordedLoadHoldsForTheSameBuild() throws {
         let defaults = try makeDefaults()
-        CompiledModelRecord(defaults: defaults, osBuild: "27A1").recordLoad(.vocaHinglish)
-        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true }).recordLoad(.vocaHinglish)
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
         XCTAssertTrue(record.hasLoaded(.vocaHinglish))
         XCTAssertFalse(record.hasLoaded(.small))
     }
@@ -36,13 +36,13 @@ final class CompiledModelRecordTests: XCTestCase {
     func testAMacOSUpdateCountsAsAFirstLoadAgain() throws {
         let defaults = try makeDefaults()
         // CoreML recompiles after a macOS update.
-        CompiledModelRecord(defaults: defaults, osBuild: "27A1").recordLoad(.vocaHinglish)
-        XCTAssertFalse(CompiledModelRecord(defaults: defaults, osBuild: "27A2").hasLoaded(.vocaHinglish))
+        CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true }).recordLoad(.vocaHinglish)
+        XCTAssertFalse(CompiledModelRecord(defaults: defaults, osBuild: "27A2", compileCacheExists: { true }).hasLoaded(.vocaHinglish))
     }
 
     func testForgettingAModelMakesItsNextLoadAFirstLoad() throws {
         let defaults = try makeDefaults()
-        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
         record.recordLoad(.vocaHinglish)
         record.recordLoad(.small)
         record.forget(.vocaHinglish)
@@ -50,17 +50,29 @@ final class CompiledModelRecordTests: XCTestCase {
         XCTAssertTrue(record.hasLoaded(.small))
     }
 
-    func testRecordsForDifferentModelsDoNotOverwriteEachOther() throws {
-        // The app and the headless CLI keep separate record values; a write
-        // from one must not discard what the other recorded.
+    func testEachModelIsStoredUnderItsOwnKey() throws {
+        // Separate keys let the app and the headless CLI record different
+        // models at once; one shared value would lose the other's write.
         let defaults = try makeDefaults()
-        let app = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
-        let cli = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
-        app.recordLoad(.vocaHinglish)
-        cli.recordLoad(.small)
-        app.forget(.tiny)
-        XCTAssertTrue(app.hasLoaded(.vocaHinglish))
-        XCTAssertTrue(app.hasLoaded(.small))
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
+        record.recordLoad(.vocaHinglish)
+        record.recordLoad(.small)
+        XCTAssertEqual(defaults.string(forKey: PreferenceKey.compiledModelBuildPrefix + "voca-hinglish"), "27A1")
+        XCTAssertEqual(defaults.string(forKey: PreferenceKey.compiledModelBuildPrefix + "small"), "27A1")
+    }
+
+    func testAnEmptiedCompileCacheMakesEveryLoadAFirstLoad() throws {
+        let defaults = try makeDefaults()
+        CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
+            .recordLoad(.vocaHinglish)
+        let purged = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { false })
+        XCTAssertFalse(purged.hasLoaded(.vocaHinglish))
+    }
+
+    func testCurrentOSBuildIsABuildNumber() {
+        let build = CompiledModelRecord.currentOSBuild
+        XCTAssertFalse(build.isEmpty)
+        XCTAssertFalse(build.contains(" "), build)
     }
 
     func testFirstCoreMLLoadExplainsTheWait() {

@@ -2983,6 +2983,9 @@ final class AppState: ObservableObject {
             // Small delay to let the final progress (1.0) callback settle on MainActor
             try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
 
+            // Fresh files compile again on their first load.
+            CompiledModelRecord().forget(size)
+
             // Refresh all model statuses to ensure previously downloaded models are preserved
             refreshModelStatuses()
             VocaLogger.info(.appState, "Download complete for \(size.displayName), isDownloaded=\(modelManager.isModelDownloaded(size))")

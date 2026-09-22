@@ -44,7 +44,7 @@ final class CLIEntrypoint {
             },
             // CoreML caches compiles per app, so a CLI load spares the app a
             // compile only when the CLI runs as the app's own binary.
-            compiledModels: Bundle.main.bundleIdentifier == "com.vocamac.app"
+            compiledModels: Bundle.main.bundleIdentifier == AppCLIPreferencesReader.applicationDomain
                 ? CompiledModelRecord()
                 : nil
         )

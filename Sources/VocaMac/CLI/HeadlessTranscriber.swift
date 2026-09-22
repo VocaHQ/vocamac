@@ -13,7 +13,7 @@ protocol CLIPreferencesReading {
 
 /// Reads the VocaMac application preference domain without mutating it.
 struct AppCLIPreferencesReader: CLIPreferencesReading {
-    private static let applicationDomain = "com.vocamac.app"
+    static let applicationDomain = "com.vocamac.app"
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults? = nil) {

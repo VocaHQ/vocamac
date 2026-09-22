@@ -1032,16 +1032,15 @@ struct ModelSettingsTab: View {
                     }
                 }
 
-                SpokenLanguagesCard(languages: spokenLanguagesBinding)
-
-                if let current = appState.availableModels.first(where: { $0.isActive || $0.isLoading }) {
-                    CurrentModelCard(
-                        model: current,
-                        spokenLanguages: spoken,
-                        systemLanguages: appState.appleSpeechLanguages,
-                        onShowSuggestions: { scope = .forYou }
-                    )
-                }
+                ModelPickerHeader(
+                    languages: spokenLanguagesBinding,
+                    current: appState.availableModels.first { $0.isActive || $0.isLoading },
+                    systemLanguages: appState.appleSpeechLanguages,
+                    onShowSuggestions: {
+                        scope = .forYou
+                        modelSearch = ""
+                    }
+                )
 
                 VStack(alignment: .leading, spacing: 10) {
                     // Search moves under the tabs when the window is narrow.
@@ -1310,6 +1309,35 @@ struct ModelRow: View {
         return "Doesn't understand \(SpokenLanguages.list(fit.missing))"
     }
 
+    @ViewBuilder
+    private var ratings: some View {
+        ModelRating(
+            title: "Accuracy",
+            value: model.size.accuracyScore,
+            accessibilityValue: model.size.qualityDescription
+        )
+        .help("Accuracy: \(model.size.qualityDescription)")
+        ModelRating(
+            title: "Speed",
+            value: model.size.speedScore,
+            accessibilityValue: "\(speedRating) of 5"
+        )
+        .help("Speed: \(speedRating) of 5")
+    }
+
+    private var factsText: some View {
+        Text(facts)
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .help(ModelLanguageBadge.tooltip(for: model.size, systemLanguages: systemLanguages)
+                  + "\n~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use")
+    }
+
+    /// Speed as whole dots out of five, for help and VoiceOver.
+    private var speedRating: Int {
+        max(1, Int((model.size.speedScore * 5).rounded()))
+    }
+
     /// Languages, translation, and size, in one plain line.
     private var facts: String {
         var parts = [ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages)]
@@ -1348,11 +1376,20 @@ struct ModelRow: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(facts)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .help(ModelLanguageBadge.tooltip(for: model.size, systemLanguages: systemLanguages)
-                          + "\n~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use")
+                // Facts drop to their own line rather than wrap mid-list.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 12) {
+                        ratings
+                        factsText
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 12) { ratings }
+                        factsText
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .padding(.top, 1)
 
                 if let missing = missingLanguagesNote {
                     Label(missing, systemImage: "exclamationmark.triangle.fill")
@@ -1362,30 +1399,19 @@ struct ModelRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            // Same column on every row, so models compare at a glance.
-            VStack(alignment: .leading, spacing: 5) {
-                ModelScoreBar(
-                    title: "Accuracy",
-                    value: model.size.accuracyScore,
-                    accessibilityValue: model.size.qualityDescription
-                )
-                .help("Accuracy: \(model.size.qualityDescription)")
-                ModelScoreBar(
-                    title: "Speed",
-                    value: model.size.speedScore,
-                    accessibilityValue: "\(max(1, 6 - model.size.relativeSpeed)) of 5"
-                )
-                .help("Speed: \(max(1, 6 - model.size.relativeSpeed)) of 5")
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .frame(width: 104, alignment: .leading)
-
             action
                 .frame(width: 116, alignment: .trailing)
         }
         .padding(.vertical, 10)
-        .padding(.horizontal, 4)
+        .padding(.horizontal, 10)
+        .background {
+            // The model in use stands out where it ranks, instead of being
+            // listed a second time somewhere else.
+            if model.isActive {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(VocaDesign.accent.opacity(0.08))
+            }
+        }
         .alert("Use Experimental Model?", isPresented: $showForceDownloadAlert) {
             Button("Cancel", role: .cancel) {}
             Button(model.isDownloaded ? "Use Anyway" : "Download & Use", role: .destructive) {

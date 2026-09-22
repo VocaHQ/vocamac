@@ -97,9 +97,16 @@ extension ModelSize {
         }
     }
 
-    /// Speed on a 0–1 scale, from `relativeSpeed` (1 is fastest).
+    /// Speed on a 0.1–1 scale, from `relativeSpeed` (1 is fastest, 16 the
+    /// slowest in the catalog).
+    ///
+    /// Spread across the whole range: the old "6 minus speed" rating put
+    /// every model from 5 to 16 at the same floor, so a 3 GB Large v3
+    /// ranked as fast as a 600 MB compact build.
     var speedScore: Double {
-        Double(max(1, 6 - relativeSpeed)) / 5
+        let slowest = 16.0
+        let position = (Double(min(max(relativeSpeed, 1), Int(slowest))) - 1) / (slowest - 1)
+        return 1 - position * 0.9
     }
 
     /// A one-line description for the model picker.

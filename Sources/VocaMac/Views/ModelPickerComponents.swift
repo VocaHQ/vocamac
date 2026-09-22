@@ -8,46 +8,124 @@ import SwiftUI
 
 // MARK: - Spoken Languages
 
-/// The languages the user dictates in, as removable chips with an add button.
-struct SpokenLanguagesCard: View {
+// MARK: - Header
+
+/// The top of the picker: what the user speaks, and what dictation uses now.
+/// One card, so the catalog below reads as the only list of choices.
+struct ModelPickerHeader: View {
     @Binding var languages: [String]
-    @State private var isAdding = false
+    let current: WhisperModelInfo?
+    let systemLanguages: Set<String>?
+    let onShowSuggestions: () -> Void
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text("I speak")
-                .font(.headline)
-                .accessibilityAddTraits(.isHeader)
-
-            FlowLayout(spacing: 6) {
-                ForEach(languages, id: \.self) { code in
-                    SpokenLanguageChip(name: SpokenLanguages.displayName(for: code)) {
-                        languages.removeAll { $0 == code }
-                    }
-                }
-
-                Button {
-                    isAdding = true
-                } label: {
-                    Label(languages.isEmpty ? "Add Your Languages" : "Add", systemImage: "plus")
-                        .font(.callout)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .overlay(Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
-                        .foregroundStyle(.secondary)
-                        .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .help("Add a language you dictate in")
-                .popover(isPresented: $isAdding, arrowEdge: .bottom) {
-                    SpokenLanguagePicker(chosen: languages) { code in
-                        languages.append(code)
-                    }
+        VStack(alignment: .leading, spacing: 12) {
+            ModelPickerHeaderRow(title: "I speak") {
+                SpokenLanguagesField(languages: $languages)
+            }
+            if let current {
+                Divider()
+                ModelPickerHeaderRow(title: "Using") {
+                    CurrentModelSummary(
+                        model: current,
+                        spokenLanguages: languages,
+                        systemLanguages: systemLanguages,
+                        onShowSuggestions: onShowSuggestions
+                    )
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .vocaCard()
+    }
+}
+
+/// A header row: a fixed-width label, then its content.
+struct ModelPickerHeaderRow<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 56, alignment: .leading)
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// Spoken languages as removable chips with an add button.
+struct SpokenLanguagesField: View {
+    @Binding var languages: [String]
+    @State private var isAdding = false
+
+    var body: some View {
+        FlowLayout(spacing: 6) {
+            ForEach(languages, id: \.self) { code in
+                SpokenLanguageChip(name: SpokenLanguages.displayName(for: code)) {
+                    languages.removeAll { $0 == code }
+                }
+            }
+
+            Button {
+                isAdding = true
+            } label: {
+                Label(languages.isEmpty ? "Add Your Languages" : "Add", systemImage: "plus")
+                    .font(.callout)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .overlay(Capsule().strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                    .foregroundStyle(.secondary)
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .help("Add a language you dictate in")
+            .popover(isPresented: $isAdding, arrowEdge: .bottom) {
+                SpokenLanguagePicker(chosen: languages) { code in
+                    languages.append(code)
+                }
+            }
+        }
+    }
+}
+
+/// One line naming the current model, with a warning when it misses a
+/// language the user speaks.
+struct CurrentModelSummary: View {
+    let model: WhisperModelInfo
+    let spokenLanguages: [String]
+    let systemLanguages: Set<String>?
+    let onShowSuggestions: () -> Void
+
+    private var missing: [String] {
+        ModelPickerCatalog.fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages).missing
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(model.size.displayName)
+                .font(.callout.weight(.medium))
+            if model.isLoading {
+                Text(model.loadingStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if missing.isEmpty {
+                Text(ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                Label("Doesn't understand \(SpokenLanguages.list(missing))",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                Button("Find a Better Fit", action: onShowSuggestions)
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+        }
     }
 }
 
@@ -178,59 +256,6 @@ struct ModelSearchField: View {
     }
 }
 
-// MARK: - Current Model
-
-/// The model dictation uses right now, apart from the catalog, so the list
-/// below reads as choices rather than a mix of choices and state.
-struct CurrentModelCard: View {
-    let model: WhisperModelInfo
-    let spokenLanguages: [String]
-    let systemLanguages: Set<String>?
-    let onShowSuggestions: () -> Void
-
-    private var missing: [String] {
-        ModelPickerCatalog.fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages).missing
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            ModelCreatorMark(creator: model.size.creator, size: 32, isActive: model.isActive)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(model.isActive ? "In use" : "Switching to")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(VocaDesign.accent)
-                Text(model.size.displayName)
-                    .font(.headline)
-                if missing.isEmpty {
-                    Text(ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages)
-                         + " · " + model.size.pickerSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Label("Doesn't understand \(SpokenLanguages.list(missing)). Pick a model from For You.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            if model.isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            } else if !missing.isEmpty {
-                Button("See Models", action: onShowSuggestions)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vocaCard()
-    }
-}
-
 // MARK: - Row Badges
 
 /// How a model's language coverage is described.
@@ -279,27 +304,43 @@ struct ModelTag: View {
     }
 }
 
-/// A labelled horizontal meter for accuracy or speed.
-struct ModelScoreBar: View {
+/// A labelled five-dot rating for accuracy or speed, in half-dot steps.
+struct ModelRating: View {
     let title: String
     /// 0–1
     let value: Double
     let accessibilityValue: String
 
+    /// Filled dots, rounded to the nearest half.
+    private var filled: Double {
+        (min(max(value, 0), 1) * 10).rounded() / 2
+    }
+
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             Text(title)
-                .frame(width: 50, alignment: .leading)
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.primary.opacity(0.1))
-                Capsule()
-                    .fill(VocaDesign.accent)
-                    .frame(width: 36 * min(max(value, 0), 1))
+            HStack(spacing: 2) {
+                ForEach(0..<5, id: \.self) { index in
+                    dot(fill: min(max(filled - Double(index), 0), 1))
+                }
             }
-            .frame(width: 36, height: 4)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(title)
         .accessibilityValue(accessibilityValue)
+    }
+
+    private func dot(fill: Double) -> some View {
+        Circle()
+            .fill(Color.primary.opacity(0.15))
+            .overlay(alignment: .leading) {
+                GeometryReader { proxy in
+                    Rectangle()
+                        .fill(VocaDesign.accent)
+                        .frame(width: proxy.size.width * fill)
+                }
+                .clipShape(Circle())
+            }
+            .frame(width: 6, height: 6)
     }
 }

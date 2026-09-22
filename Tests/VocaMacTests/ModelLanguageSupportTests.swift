@@ -46,6 +46,19 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertLessThan(ModelSize.parakeetV3.accuracyScore, ModelSize.largeV3Latest.accuracyScore)
     }
 
+    func testSpeedScoreSeparatesSlowModels() {
+        XCTAssertEqual(ModelSize.tiny.speedScore, 1, accuracy: 0.001)
+        XCTAssertGreaterThan(ModelSize.largeV3LatestCompact.speedScore, ModelSize.largeV3Latest.speedScore)
+        XCTAssertGreaterThan(ModelSize.largeV3Latest.speedScore, ModelSize.largeV3.speedScore)
+        XCTAssertEqual(ModelSize.largeV3.speedScore, 0.1, accuracy: 0.001)
+    }
+
+    func testLargeSlowModelsRankBelowCompactOnes() {
+        let models = [info(.largeV3), info(.qwen3Asr06B), info(.largeV3LatestCompact)]
+        let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["hi"])
+        XCTAssertEqual(forYou, [.largeV3LatestCompact, .qwen3Asr06B, .largeV3])
+    }
+
     func testCoverageMatchesModelLanguages() {
         XCTAssertEqual(ModelSize.small.languageCoverage, .broad)
         XCTAssertEqual(ModelSize.parakeetV2.languageCoverage, .only(["en"]))

@@ -49,7 +49,7 @@ extension ModelSize {
         // Distil-Whisper was distilled on English speech only.
         case .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return .only(["en"])
-        case .hindi2HinglishApex:
+        case .vocaHinglish:
             return .only(["hi"])
         case .parakeetV3:
             return .only(Self.parakeetV3Languages)
@@ -117,7 +117,7 @@ extension ModelSize {
         case .largeV3:                   return "The original Whisper Large v3. Large and slow."
         case .largeV3Turbo:              return "Whisper Large v3 Turbo."
         case .medium:                    return "Kept for older settings."
-        case .hindi2HinglishApex:        return "Writes spoken Hindi in Roman script (Hinglish)."
+        case .vocaHinglish:        return "Writes spoken Hindi in Roman script (Hinglish)."
         case .parakeetV3:                return "Very fast on the Neural Engine, with 25 European languages."
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."
@@ -146,19 +146,26 @@ struct ModelLanguageFit: Equatable {
     var coversAny: Bool { !covered.isEmpty }
 }
 
-// MARK: - ModelPickerSections
+// MARK: - ModelPickerScope
 
-/// The model picker's catalog, split into the lists it shows.
-struct ModelPickerSections: Equatable {
+/// Which slice of the catalog the model picker lists.
+enum ModelPickerScope: String, CaseIterable, Identifiable {
+    /// Models that understand every language the user speaks.
+    case forYou
     /// Models on disk, in use, loading, or downloading.
-    var installed: [ModelSize] = []
+    case downloaded
+    /// The whole catalog.
+    case all
 
-    /// Models that cover every spoken language, best first.
-    var suggested: [ModelSize] = []
+    var id: String { rawValue }
 
-    /// Everything else: models covering only some spoken languages first,
-    /// then models covering none.
-    var other: [ModelSize] = []
+    var title: String {
+        switch self {
+        case .forYou:     return "For You"
+        case .downloaded: return "Downloaded"
+        case .all:        return "All Models"
+        }
+    }
 }
 
 // MARK: - ModelPickerCatalog
@@ -199,7 +206,7 @@ enum ModelPickerCatalog {
     }
 
     /// Whether a model matches free-text search by name, creator, engine,
-    /// or a language it covers.
+    /// a language it covers, or "translate".
     static func matches(
         _ size: ModelSize,
         search: String,
@@ -207,6 +214,10 @@ enum ModelPickerCatalog {
     ) -> Bool {
         let needle = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !needle.isEmpty else { return true }
+
+        if size.translatesToEnglish, "translates".hasPrefix(needle) || needle.hasPrefix("translat") {
+            return true
+        }
 
         let fields = [size.displayName, size.creator.displayName, size.engine.displayName, size.pickerSummary]
         if fields.contains(where: { $0.lowercased().contains(needle) }) { return true }
@@ -220,79 +231,51 @@ enum ModelPickerCatalog {
         return languageCodes.contains { fit(of: size, for: [$0], systemLanguages: systemLanguages).coversAll }
     }
 
-    /// Split the catalog into the picker's lists.
+    /// The models a scope lists, best fit first.
+    ///
+    /// Downloaded models keep their place in the ranking rather than moving
+    /// to the top, so the order always means "how well this fits you", and
+    /// each row's button says whether it still needs downloading.
     ///
     /// - Parameters:
+    ///   - scope: Which slice of the catalog to list.
     ///   - models: The catalog with its runtime state.
-    ///   - spokenLanguages: ISO codes the person speaks. Empty means every
-    ///     model is a candidate.
+    ///   - spokenLanguages: ISO codes the user speaks. Empty means every
+    ///     model fits.
     ///   - search: Free text; empty matches everything.
-    ///   - translationOnly: Keep only models that translate to English.
     ///   - recommended: This Mac's recommended model, listed first.
     ///   - systemLanguages: Apple Speech's languages, when known.
-    static func sections(
-        models: [WhisperModelInfo],
+    static func models(
+        in scope: ModelPickerScope,
+        from models: [WhisperModelInfo],
         spokenLanguages: [String],
         search: String = "",
-        translationOnly: Bool = false,
         recommended: ModelSize? = nil,
         systemLanguages: Set<String>? = nil
-    ) -> ModelPickerSections {
+    ) -> [ModelSize] {
+        let fitOf = { (size: ModelSize) in
+            fit(of: size, for: spokenLanguages, systemLanguages: systemLanguages)
+        }
         let visible = models.filter { model in
-            (!translationOnly || model.size.translatesToEnglish)
-                && matches(model.size, search: search, systemLanguages: systemLanguages)
-        }
-
-        var sections = ModelPickerSections()
-        var suggested: [WhisperModelInfo] = []
-        var partial: [WhisperModelInfo] = []
-        var unrelated: [WhisperModelInfo] = []
-
-        for model in visible {
-            if isInstalled(model) {
-                sections.installed.append(model.size)
-                continue
-            }
-            let fit = fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages)
-            if fit.coversAll {
-                suggested.append(model)
-            } else if fit.coversAny {
-                partial.append(model)
-            } else {
-                unrelated.append(model)
+            guard matches(model.size, search: search, systemLanguages: systemLanguages) else { return false }
+            switch scope {
+            case .forYou:     return fitOf(model.size).coversAll
+            case .downloaded: return isInstalled(model)
+            case .all:        return true
             }
         }
 
-        let active = visible.first(where: \.isActive)?.size
-        sections.installed.sort { lhs, rhs in
-            if (lhs == active) != (rhs == active) { return lhs == active }
-            let lhsFit = fit(of: lhs, for: spokenLanguages, systemLanguages: systemLanguages)
-            let rhsFit = fit(of: rhs, for: spokenLanguages, systemLanguages: systemLanguages)
-            if lhsFit.coversAll != rhsFit.coversAll { return lhsFit.coversAll }
-            return rank(lhs) > rank(rhs)
+        // Fit tiers only matter where models that miss a language are listed.
+        let tier = { (size: ModelSize) -> Int in
+            guard scope != .forYou else { return 0 }
+            let fit = fitOf(size)
+            return fit.coversAll ? 0 : fit.coversAny ? 1 : 2
         }
-
-        sections.suggested = ordered(suggested, recommended: recommended)
-        sections.other = ordered(partial, recommended: recommended)
-            + ordered(unrelated, recommended: recommended)
-        return sections
-    }
-
-    /// Whether a model belongs under "Your models".
-    static func isInstalled(_ model: WhisperModelInfo) -> Bool {
-        model.isDownloaded || model.isActive || model.isLoading || model.downloadProgress != nil
-    }
-
-    /// Accuracy counts twice as much as speed: a fast model that mishears
-    /// costs more time than a slower one that does not.
-    static func rank(_ size: ModelSize) -> Double {
-        size.accuracyScore * 2 + size.speedScore
-    }
-
-    /// This Mac's recommendation first, experimental models last, and the
-    /// rest by rank, then by size.
-    private static func ordered(_ models: [WhisperModelInfo], recommended: ModelSize?) -> [ModelSize] {
-        models.sorted { lhs, rhs in
+        return visible.sorted { lhs, rhs in
+            if scope == .downloaded, lhs.isActive != rhs.isActive { return lhs.isActive }
+            let lhsTier = tier(lhs.size)
+            let rhsTier = tier(rhs.size)
+            if lhsTier != rhsTier { return lhsTier < rhsTier }
             let lhsRecommended = lhs.isSupported && lhs.size == recommended
             let rhsRecommended = rhs.isSupported && rhs.size == recommended
             if lhsRecommended != rhsRecommended { return lhsRecommended }
@@ -303,6 +286,17 @@ enum ModelPickerCatalog {
             return lhs.size.fileSizeBytes < rhs.size.fileSizeBytes
         }
         .map(\.size)
+    }
+
+    /// Whether a model belongs under Downloaded.
+    static func isInstalled(_ model: WhisperModelInfo) -> Bool {
+        model.isDownloaded || model.isActive || model.isLoading || model.downloadProgress != nil
+    }
+
+    /// Accuracy counts twice as much as speed: a fast model that mishears
+    /// costs more time than a slower one that does not.
+    static func rank(_ size: ModelSize) -> Double {
+        size.accuracyScore * 2 + size.speedScore
     }
 }
 

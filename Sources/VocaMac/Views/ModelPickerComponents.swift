@@ -14,18 +14,10 @@ struct SpokenLanguagesCard: View {
     @State private var isAdding = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Languages You Speak")
-                    .font(.headline)
-                    .accessibilityAddTraits(.isHeader)
-                Text(languages.isEmpty
-                     ? "Add the languages you dictate in to see which models understand them. Showing every model."
-                     : "Models are matched to these languages, best fit first.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text("I speak")
+                .font(.headline)
+                .accessibilityAddTraits(.isHeader)
 
             FlowLayout(spacing: 6) {
                 ForEach(languages, id: \.self) { code in
@@ -37,7 +29,7 @@ struct SpokenLanguagesCard: View {
                 Button {
                     isAdding = true
                 } label: {
-                    Label(languages.isEmpty ? "Add Language" : "Add", systemImage: "plus")
+                    Label(languages.isEmpty ? "Add Your Languages" : "Add", systemImage: "plus")
                         .font(.callout)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
@@ -46,7 +38,7 @@ struct SpokenLanguagesCard: View {
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
-                .help("Add a language you speak")
+                .help("Add a language you dictate in")
                 .popover(isPresented: $isAdding, arrowEdge: .bottom) {
                     SpokenLanguagePicker(chosen: languages) { code in
                         languages.append(code)
@@ -155,76 +147,113 @@ struct SpokenLanguagePicker: View {
     }
 }
 
-// MARK: - Filter Row
+// MARK: - Search
 
-/// Free-text search over the catalog plus a translation filter.
-struct ModelFilterBar: View {
+/// Free-text search over the catalog.
+struct ModelSearchField: View {
     @Binding var search: String
-    @Binding var translationOnly: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search models, makers, or languages", text: $search)
-                    .textFieldStyle(.plain)
-                if !search.isEmpty {
-                    Button {
-                        search = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
-                    .accessibilityLabel("Clear search")
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search models or languages", text: $search)
+                .textFieldStyle(.plain)
+            if !search.isEmpty {
+                Button {
+                    search = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(VocaDesign.line))
+    }
+}
+
+// MARK: - Current Model
+
+/// The model dictation uses right now, apart from the catalog, so the list
+/// below reads as choices rather than a mix of choices and state.
+struct CurrentModelCard: View {
+    let model: WhisperModelInfo
+    let spokenLanguages: [String]
+    let systemLanguages: Set<String>?
+    let onShowSuggestions: () -> Void
+
+    private var missing: [String] {
+        ModelPickerCatalog.fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages).missing
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            ModelCreatorMark(creator: model.size.creator, size: 32, isActive: model.isActive)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.isActive ? "In use" : "Switching to")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(VocaDesign.accent)
+                Text(model.size.displayName)
+                    .font(.headline)
+                if missing.isEmpty {
+                    Text(ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages)
+                         + " · " + model.size.pickerSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Label("Doesn't understand \(SpokenLanguages.list(missing)). Pick a model from For You.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(VocaDesign.line))
 
-            Toggle(isOn: $translationOnly) {
-                Label("Translates to English", systemImage: "character.bubble")
+            Spacer(minLength: 8)
+
+            if model.isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            } else if !missing.isEmpty {
+                Button("See Models", action: onShowSuggestions)
             }
-            .toggleStyle(.button)
-            .help("Show only models that can translate your speech into English")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vocaCard()
     }
 }
 
 // MARK: - Row Badges
 
-/// Which languages a model covers, with the full list on hover.
-struct ModelLanguageBadge: View {
-    let size: ModelSize
-    let systemLanguages: Set<String>?
+/// How a model's language coverage is described.
+enum ModelLanguageBadge {
 
-    private var codes: [String]? {
+    private static func names(for size: ModelSize, systemLanguages: Set<String>?) -> [String]? {
         ModelPickerCatalog.languageCodes(for: size, systemLanguages: systemLanguages)
             .map { $0.map(SpokenLanguages.displayName(for:)).sorted() }
     }
 
-    private var label: String {
-        guard let codes else { return "99 languages" }
-        return codes.count == 1 ? codes[0] : "\(codes.count) languages"
+    /// "English", "25 languages", or "99 languages".
+    static func label(for size: ModelSize, systemLanguages: Set<String>?) -> String {
+        guard let names = names(for: size, systemLanguages: systemLanguages) else { return "99 languages" }
+        return names.count == 1 ? "\(names[0]) only" : "\(names.count) languages"
     }
 
-    private var tooltip: String {
-        guard let codes else {
-            return "Whisper understands 99 languages, including every language VocaMac lists."
+    /// The full language list, for hover help.
+    static func tooltip(for size: ModelSize, systemLanguages: Set<String>?) -> String {
+        guard let names = names(for: size, systemLanguages: systemLanguages) else {
+            return "Understands 99 languages, including every language VocaMac lists."
         }
-        let names = codes.joined(separator: ", ")
-        return size.languageCoverage == .system
-            ? "macOS supports these languages on this Mac: \(names)"
-            : names
-    }
-
-    var body: some View {
-        ModelTag(text: label, systemImage: "globe")
-            .help(tooltip)
+        let list = names.joined(separator: ", ")
+        return size.languageCoverage == .system ? "macOS supports: \(list)" : "Understands: \(list)"
     }
 }
 
@@ -258,8 +287,9 @@ struct ModelScoreBar: View {
     let accessibilityValue: String
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Text(title)
+                .frame(width: 50, alignment: .leading)
             ZStack(alignment: .leading) {
                 Capsule().fill(Color.primary.opacity(0.1))
                 Capsule()

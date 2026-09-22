@@ -70,7 +70,7 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertFalse(ModelSize.largeV3Latest.translatesToEnglish)
         XCTAssertFalse(ModelSize.largeV3LatestTurboCompact.translatesToEnglish)
         XCTAssertFalse(ModelSize.distilLargeV3Compact.translatesToEnglish)
-        XCTAssertFalse(ModelSize.hindi2HinglishApex.translatesToEnglish)
+        XCTAssertFalse(ModelSize.vocaHinglish.translatesToEnglish)
         XCTAssertFalse(ModelSize.parakeetV3.translatesToEnglish)
     }
 
@@ -118,9 +118,9 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertFalse(ModelPickerCatalog.matches(.parakeetV2, search: "hi"))
     }
 
-    // MARK: - Sections
+    // MARK: - Scopes
 
-    func testSectionsSplitInstalledSuggestedAndOther() {
+    func testForYouListsOnlyModelsCoveringEveryLanguage() {
         let models = [
             info(.tiny, downloaded: true, active: true),
             info(.parakeetV2),
@@ -128,26 +128,46 @@ final class ModelLanguageSupportTests: XCTestCase {
             info(.small),
             info(.gigaamV3),
         ]
-        let sections = ModelPickerCatalog.sections(models: models, spokenLanguages: ["en", "hi"])
-        XCTAssertEqual(sections.installed, [.tiny])
-        XCTAssertEqual(Set(sections.suggested), [.qwen3Asr06B, .small])
-        // Partial coverage (English only) sorts ahead of no coverage.
-        XCTAssertEqual(sections.other, [.parakeetV2, .gigaamV3])
+        let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["en", "hi"])
+        XCTAssertEqual(Set(forYou), [.tiny, .qwen3Asr06B, .small])
     }
 
-    func testDownloadingModelCountsAsInstalled() {
-        var downloading = info(.parakeetV2)
+    func testDownloadedModelsKeepTheirRankInForYou() {
+        // A downloaded Tiny must not jump ahead of better models it has
+        // not earned a place above.
+        let models = [
+            info(.tiny, downloaded: true, active: true),
+            info(.largeV3LatestCompact),
+        ]
+        let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["hi"])
+        XCTAssertEqual(forYou, [.largeV3LatestCompact, .tiny])
+    }
+
+    func testDownloadedScopeListsInstalledModelsActiveFirst() {
+        var downloading = info(.gigaamV3)
         downloading.downloadProgress = 0.3
-        let sections = ModelPickerCatalog.sections(models: [downloading], spokenLanguages: ["en"])
-        XCTAssertEqual(sections.installed, [.parakeetV2])
-        XCTAssertTrue(sections.suggested.isEmpty)
+        let models = [
+            info(.small, downloaded: true),
+            info(.parakeetV2, downloaded: true, active: true),
+            info(.qwen3Asr06B),
+            downloading,
+        ]
+        let downloaded = ModelPickerCatalog.models(in: .downloaded, from: models, spokenLanguages: ["hi"])
+        XCTAssertEqual(downloaded.first, .parakeetV2)
+        XCTAssertEqual(Set(downloaded), [.parakeetV2, .small, .gigaamV3])
     }
 
-    func testEmptySpokenLanguagesSuggestsEverything() {
+    func testAllScopeOrdersByFitThenRank() {
+        let models = [info(.gigaamV3), info(.parakeetV2), info(.small)]
+        let all = ModelPickerCatalog.models(in: .all, from: models, spokenLanguages: ["en", "hi"])
+        // Full coverage, then partial (English only), then none.
+        XCTAssertEqual(all, [.small, .parakeetV2, .gigaamV3])
+    }
+
+    func testEmptySpokenLanguagesPutsEveryModelInForYou() {
         let models = [info(.parakeetV2), info(.gigaamV3), info(.small)]
-        let sections = ModelPickerCatalog.sections(models: models, spokenLanguages: [])
-        XCTAssertEqual(Set(sections.suggested), [.parakeetV2, .gigaamV3, .small])
-        XCTAssertTrue(sections.other.isEmpty)
+        let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: [])
+        XCTAssertEqual(Set(forYou), [.parakeetV2, .gigaamV3, .small])
     }
 
     func testRecommendedModelLeadsAndExperimentalTrails() {
@@ -156,43 +176,34 @@ final class ModelLanguageSupportTests: XCTestCase {
             info(.tiny),
             info(.parakeetTdtCtc110m),
         ]
-        let sections = ModelPickerCatalog.sections(
-            models: models, spokenLanguages: ["en"], recommended: .tiny
+        let forYou = ModelPickerCatalog.models(
+            in: .forYou, from: models, spokenLanguages: ["en"], recommended: .tiny
         )
-        XCTAssertEqual(sections.suggested, [.tiny, .parakeetTdtCtc110m, .parakeetV2])
+        XCTAssertEqual(forYou, [.tiny, .parakeetTdtCtc110m, .parakeetV2])
     }
 
-    func testSuggestedOrderPrefersAccuracyOverSpeed() {
-        let models = [info(.tiny), info(.largeV3LatestCompact)]
-        let sections = ModelPickerCatalog.sections(models: models, spokenLanguages: ["hi"])
-        XCTAssertEqual(sections.suggested, [.largeV3LatestCompact, .tiny])
-    }
-
-    func testActiveModelLeadsInstalled() {
-        let models = [
-            info(.small, downloaded: true),
-            info(.parakeetV2, downloaded: true, active: true),
-        ]
-        let sections = ModelPickerCatalog.sections(models: models, spokenLanguages: ["hi"])
-        XCTAssertEqual(sections.installed, [.parakeetV2, .small])
-    }
-
-    func testTranslationFilterAndSearchApplyToEverySection() {
+    func testSearchNarrowsEveryScope() {
         let models = [
             info(.small, downloaded: true),
             info(.parakeetV3, downloaded: true),
             info(.tiny),
             info(.largeV3Latest),
         ]
-        let translating = ModelPickerCatalog.sections(
-            models: models, spokenLanguages: ["en"], translationOnly: true
+        XCTAssertEqual(
+            ModelPickerCatalog.models(in: .downloaded, from: models, spokenLanguages: ["en"], search: "parakeet"),
+            [.parakeetV3]
         )
-        XCTAssertEqual(translating.installed, [.small])
-        XCTAssertEqual(translating.suggested, [.tiny])
+        XCTAssertEqual(
+            Set(ModelPickerCatalog.models(in: .all, from: models, spokenLanguages: ["en"], search: "translate")),
+            [.small, .tiny]
+        )
+    }
 
-        let searched = ModelPickerCatalog.sections(models: models, spokenLanguages: ["en"], search: "parakeet")
-        XCTAssertEqual(searched.installed, [.parakeetV3])
-        XCTAssertTrue(searched.suggested.isEmpty)
+    func testLanguageLabels() {
+        XCTAssertEqual(ModelLanguageBadge.label(for: .small, systemLanguages: nil), "99 languages")
+        XCTAssertEqual(ModelLanguageBadge.label(for: .parakeetV2, systemLanguages: nil), "English only")
+        XCTAssertEqual(ModelLanguageBadge.label(for: .parakeetV3, systemLanguages: nil), "25 languages")
+        XCTAssertEqual(ModelLanguageBadge.label(for: .appleSpeech, systemLanguages: ["en", "fr"]), "2 languages")
     }
 
     // MARK: - Spoken Languages

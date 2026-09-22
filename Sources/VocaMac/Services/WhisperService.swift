@@ -406,7 +406,7 @@ final class WhisperService: @unchecked Sendable {
     /// Map a model name string to our ModelSize enum
     func modelSizeFromName(_ name: String) -> ModelSize {
         let lowered = name.lowercased()
-        if lowered.contains("hinglish") { return .hindi2HinglishApex }
+        if lowered.contains("hinglish") { return .vocaHinglish }
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }
         if lowered.contains("distil") && lowered.contains("turbo") { return .distilLargeV3TurboCompact }

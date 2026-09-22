@@ -462,6 +462,23 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Cursor")
     }
 
+    func testStyleRowNamesTheAppEvenWithoutARule() {
+        // The menu bar says "Style in Discord" for an app on the default
+        // style too, and follows the user to the next app.
+        let (appState, mocks) = AppState.makeTestState()
+        appState.writingStyleEnabled = true
+        let discord = RunningAppSnapshot(displayName: "Discord", bundleIdentifier: "com.hnc.Discord", processName: "Discord")
+        mocks.frontmostAppResolver.frontmostApp = discord
+
+        appState.refreshActiveWritingStyle()
+        XCTAssertEqual(appState.activeWritingTargetName, "Discord")
+        XCTAssertNil(appState.activeWritingStyle.matchedAppName)
+
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        appState.refreshActiveWritingStyle()
+        XCTAssertEqual(appState.activeWritingTargetName, "Cursor")
+    }
+
     func testBindFrontmostAppUsesTheLastActiveAppWhenVocaMacIsInFront() {
         let (appState, mocks) = AppState.makeTestState()
         mocks.frontmostAppResolver.frontmostApp = nil

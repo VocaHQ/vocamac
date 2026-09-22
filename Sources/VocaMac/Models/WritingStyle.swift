@@ -237,22 +237,38 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// One plain-language line on what the style is for and what it does.
     var shortDescription: String {
         switch self {
         case .plain:
-            return "No additional shaping. Follows the global Dictation settings."
+            return "Your words as transcribed, with nothing extra changed."
         case .code:
-            return "Filenames, paths, and identifiers. No sentence case, no trailing period, no trailing space."
+            return "For code editors. Spoken filenames and names become code, with no capital letter or period added."
         case .terminal:
-            return "Like Code, tuned for shells: nothing is appended that would end up in your history."
+            return "For the command line. Like Code, and never adds anything that would end up in a command."
         case .chat:
-            return "Sentence case, no forced punctuation, no code shaping."
+            return "For messaging apps. Starts sentences with a capital letter and doesn't force a period."
         case .slack:
-            return "Chat plus Slack's *bold* markup and bullet lists."
+            return "Like Chat, plus Slack formatting when you say “bold” or “bullet”."
         case .email:
-            return "Plain-text sentences ending in a period. Enable Markdown explicitly if your editor supports it."
+            return "Complete sentences that end with a period, without a leading “um”."
         case .notes:
-            return "Markdown documents: **bold**, bullets, and filename shaping."
+            return "For note apps. Say “bold” or “bullet” to format in Markdown."
+        }
+    }
+
+    /// A phrase that shows off what this style changes. Settings runs it
+    /// through the real engine, so the example it shows can never drift from
+    /// what the style actually does.
+    var exampleSentence: String {
+        switch self {
+        case .plain:    return "so this is a normal sentence"
+        case .code:     return "open config dot json"
+        case .terminal: return "cd src slash components"
+        case .chat:     return "see you at five"
+        case .slack:    return "bold ship this today"
+        case .email:    return "um thanks for the update"
+        case .notes:    return "bold buy milk today"
         }
     }
 

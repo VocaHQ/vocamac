@@ -1,8 +1,8 @@
 // WritingStylesSettingsTab.swift
 // VocaMac
 //
-// Settings page for per-app writing styles: the master toggle, the default
-// style, the app rule list, a per-app rule editor, and a live preview.
+// Settings page for per-app writing styles: the master toggle, the style for
+// everywhere else, the app list, tone, a per-app editor, and a live preview.
 
 import SwiftUI
 import AppKit
@@ -29,75 +29,56 @@ struct WritingStylesSettingsTab: View {
 
     var body: some View {
         VocaSettingsPageContent {
-            VocaSettingsGroup("Match Each App") {
+            VocaSettingsGroup(
+                "Writing Styles",
+                subtitle: "Make your dictation fit the app you're typing in."
+            ) {
                 SettingsToggleRow(
-                    title: "Use app-aware writing",
-                    detail: "Formats text for the app it's typed into.",
+                    title: "Format text for each app",
+                    detail: "Code editors get config.json, chat apps get casual sentences, and email gets full sentences with a period.",
                     isOn: $appState.writingStyleEnabled
                 )
-                .help("Paths in editors, safe shell text in terminals, and natural sentences in chat and email.")
 
                 Divider()
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Default format")
-                        Text(appState.writingStyleDefault.shortDescription)
+                StylePickerRow(
+                    title: "Everywhere else",
+                    detail: "The style for apps you haven't set up below.",
+                    selection: $appState.writingStyleDefault
+                )
+                .disabled(!appState.writingStyleEnabled)
+            }
+
+            VocaSettingsGroup(
+                "Your Apps",
+                subtitle: "Give an app its own style. Apps not listed here use \(appState.writingStyleDefault.displayName)."
+            ) {
+                if appState.writingStyleBindings.isEmpty {
+                    // Rules are never created without being asked for, so this
+                    // is what every user sees first. Offer the one-click setup
+                    // up front instead of making them find it in a menu.
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No apps set up yet.")
+                            .foregroundStyle(.secondary)
+                        Button {
+                            Task { await addSuggestions() }
+                        } label: {
+                            Label("Set Up My Apps", systemImage: "wand.and.stars")
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isDiscoveringApps)
+                        Text("Finds the code editors, terminals, and chat and email apps on this Mac and picks a style for each. You can change any of them.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 16)
-                    Picker("Default format", selection: $appState.writingStyleDefault) {
-                        ForEach(WritingStyle.allCases) { style in
-                            Label(style.displayName, systemImage: style.systemImage).tag(style)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 170)
-                }
-                .disabled(!appState.writingStyleEnabled)
-                .help("Used for apps without a rule.")
-
-                Divider()
-
-                SettingsToggleRow(
-                    title: "Formal and Casual wording",
-                    detail: "Rephrases English dictation on this Mac.",
-                    isOn: $appState.writingRewriteEnabled
-                )
-                .disabled(!appState.writingStyleEnabled)
-                .help("Keeps names, facts, requests, and technical text intact. Unsafe edits fall back to your original wording.")
-
-                // Only worth a row once rewording is on.
-                if appState.writingRewriteEnabled {
-                    HStack {
-                        Text("Default wording")
-                        Spacer(minLength: 16)
-                        Picker("Default wording", selection: $appState.writingIntent) {
-                            ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
-                        }
-                        .labelsHidden()
-                        .frame(width: 170)
-                    }
-                    .disabled(!appState.writingStyleEnabled)
-                    .help(appState.writingIntent.description)
-                }
-
-                rewriteAvailabilityNotice
-            }
-
-            VocaSettingsGroup("App Rules") {
-                if appState.writingStyleBindings.isEmpty {
-                    // Rules are never created without being asked for, so this
-                    // empty state is what every user sees first; the Add App
-                    // menu right below it is the way out.
-                    Text("No app rules yet. Every app uses the default format.")
-                        .foregroundStyle(.secondary)
                 } else {
                     ForEach(appState.writingStyleBindings) { binding in
                         AppStyleBindingRow(
                             binding: binding,
+                            onStyleChange: { style in
+                                update(binding) { $0.style = style; $0.ruleOverrides = nil }
+                            },
                             onEdit: { editingBinding = binding },
                             onToggle: { isEnabled in
                                 update(binding) { $0.isEnabled = isEnabled }
@@ -123,8 +104,8 @@ struct WritingStylesSettingsTab: View {
                         }
                         .disabled(isDiscoveringApps)
                         Divider()
-                        Button("Running App…") { showingAppPicker = true }
-                        Button("Installed App…") { chooseInstalledApp() }
+                        Button("An App That's Open…") { showingAppPicker = true }
+                        Button("Choose From Applications Folder…") { chooseInstalledApp() }
                     }
                     .fixedSize()
 
@@ -138,13 +119,13 @@ struct WritingStylesSettingsTab: View {
                     Spacer()
 
                     Menu {
-                        Button("Export Rules…") { exportRules() }
+                        Button("Export App List…") { exportRules() }
                             .disabled(appState.writingStyleBindings.isEmpty)
-                        Button("Import Rules…") { importRules() }
+                        Button("Import App List…") { importRules() }
                         Divider()
-                        Button("Remove All Rules", role: .destructive) {
+                        Button("Remove All Apps", role: .destructive) {
                             appState.removeAllWritingStyleBindings()
-                            suggestionNotice = "Removed every app rule. All apps use the default style."
+                            suggestionNotice = "Removed every app. All apps now use \(appState.writingStyleDefault.displayName)."
                         }
                         .disabled(appState.writingStyleBindings.isEmpty)
                     } label: {
@@ -153,7 +134,7 @@ struct WritingStylesSettingsTab: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("Import, export, or remove rules")
+                    .help("Import, export, or remove your app list")
                 }
 
                 if let suggestionNotice {
@@ -165,19 +146,54 @@ struct WritingStylesSettingsTab: View {
             .disabled(!appState.writingStyleEnabled)
             .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
+            VocaSettingsGroup(
+                "Tone",
+                subtitle: "Optional. Rewords English dictation with the on-device Smart Cleanup model."
+            ) {
+                SettingsToggleRow(
+                    title: "Reword to sound Formal or Casual",
+                    detail: "Names, facts, and code stay the same. If a rewrite looks unsafe, your original words are used.",
+                    isOn: $appState.writingRewriteEnabled
+                )
+
+                // Only worth a row once rewording is on.
+                if appState.writingRewriteEnabled {
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Tone everywhere else")
+                            Text(appState.writingIntent.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 16)
+                        Picker("Tone everywhere else", selection: $appState.writingIntent) {
+                            ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        .labelsHidden()
+                        .frame(width: 170)
+                    }
+                }
+
+                rewriteAvailabilityNotice
+            }
+            .disabled(!appState.writingStyleEnabled)
+            .opacity(appState.writingStyleEnabled ? 1 : 0.45)
+
             WebsiteRulesSettings()
                 .disabled(!appState.writingStyleEnabled)
                 .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
-            VocaSettingsGroup("Preview") {
+            VocaSettingsGroup("Try It", subtitle: "Type what you'd say and see what gets typed.") {
                 Picker("Style", selection: previewTarget) {
-                    Section("Presets") {
+                    Section("Styles") {
                         ForEach(WritingStyle.allCases) { style in
                             Text(style.displayName).tag(PreviewTarget.preset(style))
                         }
                     }
                     if !appState.writingStyleBindings.isEmpty {
-                        Section("Your App Rules") {
+                        Section("Your Apps") {
                             ForEach(appState.writingStyleBindings) { binding in
                                 Text("\(binding.displayName) — \(binding.style.displayName)")
                                     .tag(PreviewTarget.binding(binding.id))
@@ -186,7 +202,7 @@ struct WritingStylesSettingsTab: View {
                     }
                 }
 
-                TextField("Sample phrase", text: $previewSample, axis: .vertical)
+                TextField("You say", text: $previewSample, axis: .vertical)
                     .lineLimit(1...3)
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -199,13 +215,15 @@ struct WritingStylesSettingsTab: View {
                     }
                 }
 
-                LabeledContent("Formatting preview") {
+                LabeledContent("VocaMac types") {
                     Text(previewResult.isEmpty ? "—" : previewResult)
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
+                // The full pipeline (cleanup, tone, numbers, emoji) can run the
+                // local model, so it stays behind an explicit button.
                 WritingProfilePreview(sample: previewSample)
             }
         }
@@ -222,6 +240,7 @@ struct WritingStylesSettingsTab: View {
             } onCancel: {
                 showingAppPicker = false
             }
+            .environmentObject(appState)
         }
         .sheet(item: $editingBinding) { binding in
             WritingStyleRuleEditor(binding: binding) { updated in
@@ -230,6 +249,7 @@ struct WritingStylesSettingsTab: View {
             } onCancel: {
                 editingBinding = nil
             }
+            .environmentObject(appState)
         }
     }
 
@@ -239,11 +259,11 @@ struct WritingStylesSettingsTab: View {
     private var rewriteAvailabilityNotice: some View {
         if appState.writingRewriteEnabled {
             if !appState.transcriptCleanupEnabled {
-                Label("Formal and Casual are ready to configure, but need Smart Cleanup enabled before they can run.", systemImage: "info.circle")
+                Label("Turn on Smart Cleanup in the Cleanup page to use Formal or Casual.", systemImage: "info.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
-                Label("Download the selected model in Cleanup before Formal or Casual wording can run.", systemImage: "arrow.down.circle")
+                Label("Download the Smart Cleanup model in the Cleanup page to use Formal or Casual.", systemImage: "arrow.down.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -321,7 +341,7 @@ struct WritingStylesSettingsTab: View {
             ?? AppStyleBinding.from(snapshot: snapshot, style: .plain)
         bindings.append(binding)
         appState.writingStyleBindings = bindings
-        suggestionNotice = "Added a rule for \(name)."
+        suggestionNotice = "Added \(name)."
         // Open the editor straight away: the panel could not ask which style
         // the app should use, and Plain is the safe fallback for unknown apps.
         editingBinding = binding
@@ -329,7 +349,7 @@ struct WritingStylesSettingsTab: View {
 
     private func exportRules() {
         let panel = NSSavePanel()
-        panel.title = "Export Writing Style Rules"
+        panel.title = "Export App List"
         panel.nameFieldStringValue = "vocamac-writing-styles.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -337,7 +357,7 @@ struct WritingStylesSettingsTab: View {
         let json = WritingStyleBindingStore(bindings: appState.writingStyleBindings).encodedJSON()
         do {
             try json.write(to: url, atomically: true, encoding: .utf8)
-            suggestionNotice = "Exported \(appState.writingStyleBindings.count) rule(s)."
+            suggestionNotice = "Exported \(appState.writingStyleBindings.count) app(s)."
         } catch {
             suggestionNotice = "Could not write that file: \(error.localizedDescription)"
         }
@@ -345,7 +365,7 @@ struct WritingStylesSettingsTab: View {
 
     private func importRules() {
         let panel = NSOpenPanel()
-        panel.title = "Import Writing Style Rules"
+        panel.title = "Import App List"
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -356,7 +376,7 @@ struct WritingStylesSettingsTab: View {
         }
         let imported = WritingStyleBindingStore.decode(json: json).bindings
         guard !imported.isEmpty else {
-            suggestionNotice = "No readable rules in that file."
+            suggestionNotice = "No apps found in that file."
             return
         }
 
@@ -367,7 +387,7 @@ struct WritingStylesSettingsTab: View {
             bindings.removeAll { $0.id == rule.id }
         }
         appState.writingStyleBindings = bindings + imported
-        suggestionNotice = "Imported \(imported.count) rule(s)."
+        suggestionNotice = "Imported \(imported.count) app(s)."
     }
 
     /// Discovery is a few dozen LaunchServices lookups, so it runs off the main
@@ -380,82 +400,187 @@ struct WritingStylesSettingsTab: View {
 
         let added = await appState.addSuggestedWritingStyles()
         suggestionNotice = added == 0
-            ? "No new suggestions — every supported app you have installed already has a rule."
-            : "Added \(added) rule\(added == 1 ? "" : "s") for apps installed on this Mac."
+            ? "Nothing new to add. Every app VocaMac recognizes on this Mac is already listed."
+            : "Added \(added) app\(added == 1 ? "" : "s"). Change any style from the list."
     }
 }
 
-// MARK: - Rule row
+// MARK: - Style picker
+
+/// A style menu with a caption that says what the chosen style is for and
+/// shows it working on a real example.
+private struct StylePickerRow: View {
+    let title: String
+    let detail: String
+    @Binding var selection: WritingStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 16)
+                Picker(title, selection: $selection) {
+                    ForEach(WritingStyle.allCases) { style in
+                        Label(style.displayName, systemImage: style.systemImage).tag(style)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 170)
+            }
+            WritingStyleExample(style: selection)
+        }
+    }
+}
+
+/// "What it's for" plus a before/after line, run through the real engine.
+struct WritingStyleExample: View {
+    @EnvironmentObject var appState: AppState
+    let style: WritingStyle
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(style.shortDescription)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("You say “\(style.exampleSentence)”")
+                    .foregroundStyle(.secondary)
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.tertiary)
+                Text(appState.writingStylePreview(style.exampleSentence, style: style))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+            .font(.caption)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.08)))
+    }
+}
+
+// MARK: - App row
 
 private struct AppStyleBindingRow: View {
     let binding: AppStyleBinding
+    let onStyleChange: (WritingStyle) -> Void
     let onEdit: () -> Void
     let onToggle: (Bool) -> Void
     let onRemove: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
+            AppIconView(bundleIdentifier: binding.bundleIdentifier)
+                .opacity(binding.isEnabled ? 1 : 0.4)
+
             VStack(alignment: .leading, spacing: 2) {
                 Text(binding.displayName)
-                if let subtitle = binding.bundleIdentifier ?? binding.processName {
-                    Text(subtitle)
+                    .foregroundStyle(binding.isEnabled ? .primary : .secondary)
+                if let status {
+                    Text(status)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                 }
             }
 
             Spacer()
 
-            if binding.hasCustomRules {
-                Text("Custom")
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.secondary.opacity(0.15)))
-            }
-
-            VStack(alignment: .trailing, spacing: 2) {
-                Label(binding.style.displayName, systemImage: binding.style.systemImage)
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-                if binding.cleanup == .raw {
-                    Text("Raw")
-                        .font(.caption2)
-                } else if binding.intent != .preserve, binding.style.supportsWording {
-                    Text(binding.intent.displayName)
-                        .font(.caption2)
+            // The common change — which style this app uses — happens right
+            // here, without opening a sheet.
+            Picker("Style for \(binding.displayName)", selection: Binding(
+                get: { binding.style },
+                set: onStyleChange
+            )) {
+                ForEach(WritingStyle.allCases) { style in
+                    Label(style.displayName, systemImage: style.systemImage).tag(style)
                 }
             }
-            .foregroundStyle(.secondary)
+            .labelsHidden()
+            .frame(width: 130)
+            .disabled(!binding.isEnabled)
 
-            Toggle("", isOn: Binding(get: { binding.isEnabled }, set: onToggle))
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .help(binding.isEnabled ? "Rule is active" : "Rule is paused")
-
-            Button(action: onEdit) {
-                Image(systemName: "slider.horizontal.3")
+            Menu {
+                Button("Customize…", action: onEdit)
+                Button(binding.isEnabled ? "Pause" : "Resume") { onToggle(!binding.isEnabled) }
+                Divider()
+                Button("Remove", role: .destructive, action: onRemove)
+            } label: {
+                Image(systemName: "ellipsis.circle")
             }
-            .buttonStyle(.borderless)
-            .help("Edit rules for \(binding.displayName)")
-
-            Button(role: .destructive, action: onRemove) {
-                Image(systemName: "minus.circle.fill")
-            }
-            .buttonStyle(.borderless)
-            .help("Remove rule")
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("More options for \(binding.displayName)")
         }
+    }
+
+    /// One short line on anything unusual about this app's setup.
+    private var status: String? {
+        var parts: [String] = []
+        if !binding.isEnabled { parts.append("Paused, uses the default style") }
+        if binding.cleanup == .raw {
+            parts.append("Exactly as transcribed")
+        } else if binding.intent != .preserve, binding.style.supportsWording {
+            parts.append("\(binding.intent.displayName) tone")
+        }
+        if binding.hasCustomRules
+            || binding.cleanup == .off
+            || binding.cleanupLevel != nil
+            || binding.cleanupPrompt != nil {
+            parts.append("Customized")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+}
+
+/// The app's own icon, so a row is recognizable before it is read.
+private struct AppIconView: View {
+    let bundleIdentifier: String?
+
+    var body: some View {
+        Group {
+            if let icon {
+                Image(nsImage: icon).resizable()
+            } else {
+                Image(systemName: "app.dashed")
+                    .resizable()
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 22, height: 22)
+    }
+
+    /// Icons are cached: Settings re-renders on every AppState change, and
+    /// each lookup is a LaunchServices round trip.
+    @MainActor private static var cache: [String: NSImage] = [:]
+
+    private var icon: NSImage? {
+        guard let bundleIdentifier else { return nil }
+        if let cached = Self.cache[bundleIdentifier] { return cached }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            return nil
+        }
+        let image = NSWorkspace.shared.icon(forFile: url.path)
+        Self.cache[bundleIdentifier] = image
+        return image
     }
 }
 
 // MARK: - App picker
 
-/// Picker sheet listing running apps, with the style to bind them to.
+/// Picker sheet listing running apps, with the style to use for them.
 struct WritingStyleAppPickerSheet: View {
     let onPick: (RunningAppSnapshot, WritingStyle, WritingIntent) -> Void
     let onCancel: () -> Void
 
+    @EnvironmentObject var appState: AppState
     @State private var apps: [RunningAppSnapshot] = []
     @State private var style: WritingStyle = .plain
     @State private var intent: WritingIntent = .preserve
@@ -469,8 +594,11 @@ struct WritingStyleAppPickerSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Choose Running App")
+            Text("Add an App That's Open")
                 .font(.headline)
+
+            Text("1. Choose a style")
+                .font(.subheadline.weight(.semibold))
 
             Picker("Style", selection: $style) {
                 ForEach(WritingStyle.allCases) { option in
@@ -483,22 +611,21 @@ struct WritingStyleAppPickerSheet: View {
                 }
             }
 
-            Text(style.shortDescription)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            WritingStyleExample(style: style)
 
-            Picker("Wording", selection: $intent) {
-                ForEach(WritingIntent.allCases) { option in
-                    Text(option.displayName).tag(option)
+            // Tone does nothing unless rewording is on, so don't ask.
+            if appState.writingRewriteEnabled {
+                Picker("Tone", selection: $intent) {
+                    ForEach(WritingIntent.allCases) { option in
+                        Text(option.displayName).tag(option)
+                    }
                 }
+                .disabled(!style.supportsWording)
+                .help(style.supportsWording ? intent.description : "Code and Terminal always keep your exact words.")
             }
-            .disabled(!style.supportsWording)
 
-            Text(style.supportsWording
-                 ? intent.description
-                 : "Code and Terminal keep your wording. With Smart Cleanup on, the model can only remove filler such as “um”, “like,”, and repeated words; commands and technical text stay exact.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Text("2. Click the app")
+                .font(.subheadline.weight(.semibold))
 
             TextField("Search", text: $search)
                 .textFieldStyle(.roundedBorder)
@@ -507,20 +634,16 @@ struct WritingStyleAppPickerSheet: View {
                 Button {
                     onPick(snapshot, style, intent)
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 8) {
+                        AppIconView(bundleIdentifier: snapshot.bundleIdentifier)
                         Text(snapshot.displayName)
-                        if let bundle = snapshot.bundleIdentifier {
-                            Text(bundle)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            .frame(minHeight: 240)
+            .frame(minHeight: 220)
 
             HStack {
                 Spacer()
@@ -529,7 +652,7 @@ struct WritingStyleAppPickerSheet: View {
             }
         }
         .padding()
-        .frame(width: 440, height: 540)
+        .frame(width: 460, height: 600)
         .onAppear {
             apps = AppIdentityMatching.workspaceRunningApps()
                 .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -539,8 +662,9 @@ struct WritingStyleAppPickerSheet: View {
 
 // MARK: - Rule editor
 
-/// Per-app override sheet. Starts from the preset's rules; saving with no
-/// changes clears the override so the app tracks future preset improvements.
+/// Per-app sheet. The style and tone are all most people change; everything
+/// else sits under Advanced. Saving with no rule changes clears the override
+/// so the app tracks future preset improvements.
 struct WritingStyleRuleEditor: View {
     let binding: AppStyleBinding
     let onSave: (AppStyleBinding) -> Void
@@ -552,6 +676,7 @@ struct WritingStyleRuleEditor: View {
     @State private var cleanup: WritingCleanupPolicy
     @State private var cleanupLevel: CleanupLevel?
     @State private var cleanupPrompt: String
+    @State private var showsAdvanced: Bool
 
     init(
         binding: AppStyleBinding,
@@ -567,92 +692,49 @@ struct WritingStyleRuleEditor: View {
         _cleanup = State(initialValue: binding.cleanup)
         _cleanupLevel = State(initialValue: binding.cleanupLevel)
         _cleanupPrompt = State(initialValue: binding.cleanupPrompt ?? "")
+        // Open Advanced only when something in it was already changed, so
+        // the user can see why this app behaves differently.
+        _showsAdvanced = State(initialValue: binding.hasCustomRules
+            || binding.cleanup != .inherit
+            || binding.cleanupLevel != nil
+            || binding.cleanupPrompt != nil)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(binding.displayName)
-                .font(.headline)
-                .padding([.horizontal, .top])
+            HStack(spacing: 8) {
+                AppIconView(bundleIdentifier: binding.bundleIdentifier)
+                Text(binding.displayName)
+                    .font(.headline)
+            }
+            .padding([.horizontal, .top])
 
             Form {
-                Section("Style") {
-                    Picker("Preset", selection: $style) {
+                Section {
+                    Picker("Style", selection: $style) {
                         ForEach(WritingStyle.allCases) { option in
-                            Text(option.displayName).tag(option)
+                            Label(option.displayName, systemImage: option.systemImage).tag(option)
                         }
                     }
                     .onChange(of: style) { _, newValue in
                         rules = newValue.defaultRules
                     }
 
-                    Text(style.shortDescription)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                    WritingStyleExample(style: style)
 
-                Section("Wording and Punctuation") {
-                    Picker("Wording", selection: $intent) {
+                    Picker("Tone", selection: $intent) {
                         ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
                     }
                     .disabled(!style.supportsWording || cleanup != .inherit)
-                    Picker("Processing", selection: $cleanup) {
-                        ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Cleanup level", selection: $cleanupLevel) {
-                        Text("Use global setting").tag(Optional<CleanupLevel>.none)
-                        ForEach(CleanupLevel.allCases) { level in
-                            Text(level.displayName).tag(Optional(level))
-                        }
-                    }
-                    .disabled(cleanup != .inherit)
-                    Text(profileExplanation)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("Capitalization", selection: $rules.capitalization) {
-                        ForEach(CapitalizationPolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Sentence ending", selection: $rules.terminalPunctuation) {
-                        ForEach(TerminalPunctuationPolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Trailing space", selection: $rules.trailingSpace) {
-                        ForEach(TrailingSpacePolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Leading filler words", selection: $rules.filler) {
-                        ForEach(FillerPolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                }
-
-                Section("Custom Cleanup Prompt") {
-                    TextEditor(text: $cleanupPrompt)
-                        .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 90)
-                    Text("Leave blank to use the global prompt. This prompt applies only when dictating into this app.")
+                    Text(toneExplanation)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("Code and Paths") {
-                    Toggle("Spoken filenames and commands", isOn: tierBinding(.tierA))
-                    Text("Turns \"config dot json\" into config.json and honors \"open paren\" / \"close paren\". Safe in prose. Say \"literally\" before a word — \"literally dot json\" — to keep it spoken.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle("Spoken paths and identifiers", isOn: tierBinding(.tierB))
-                    Text("Also joins \"src slash utils\" and \"max underscore retries\". More aggressive — best in editors and terminals.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Toggle("Multi-word filenames and paths", isOn: $rules.pathStitching)
-                    Toggle("Case commands (camel case, snake case)", isOn: $rules.caseCommands)
-                }
-
-                Section("Markup") {
-                    Picker("Emphasis", selection: $rules.emphasisDialect) {
-                        ForEach(EmphasisDialect.allCases) { Text($0.displayName).tag($0) }
+                Section {
+                    DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
+                        advancedOptions
                     }
-                    Toggle("Bullet lists", isOn: $rules.listMarkers)
-                    Toggle("\"New line\" and \"new paragraph\"", isOn: $rules.newlineCommands)
                 }
             }
             .formStyle(.grouped)
@@ -660,7 +742,12 @@ struct WritingStyleRuleEditor: View {
             Divider()
 
             HStack {
-                Button("Reset to Preset") { rules = style.defaultRules }
+                Button("Reset to Style Defaults") {
+                    rules = style.defaultRules
+                    cleanup = .inherit
+                    cleanupLevel = nil
+                    cleanupPrompt = ""
+                }
                 Spacer()
                 Button("Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
@@ -670,6 +757,63 @@ struct WritingStyleRuleEditor: View {
             .padding()
         }
         .frame(width: 500, height: 620)
+    }
+
+    @ViewBuilder
+    private var advancedOptions: some View {
+        Picker("AI cleanup", selection: $cleanup) {
+            ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
+        }
+        Picker("Cleanup level", selection: $cleanupLevel) {
+            Text("Same as Cleanup page").tag(Optional<CleanupLevel>.none)
+            ForEach(CleanupLevel.allCases) { level in
+                Text(level.displayName).tag(Optional(level))
+            }
+        }
+        .disabled(cleanup != .inherit)
+        Text(cleanupExplanation)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+        Picker("Capital letters", selection: $rules.capitalization) {
+            ForEach(CapitalizationPolicy.allCases) { Text($0.displayName).tag($0) }
+        }
+        Picker("End of sentence", selection: $rules.terminalPunctuation) {
+            ForEach(TerminalPunctuationPolicy.allCases) { Text($0.displayName).tag($0) }
+        }
+        Picker("Space after text", selection: $rules.trailingSpace) {
+            ForEach(TrailingSpacePolicy.allCases) { Text($0.displayName).tag($0) }
+        }
+        Picker("“Um” at the start", selection: $rules.filler) {
+            ForEach(FillerPolicy.allCases) { Text($0.displayName).tag($0) }
+        }
+
+        Toggle("Spoken filenames", isOn: tierBinding(.tierA))
+        Text("“config dot json” becomes config.json. Say “literally” first to keep a word as spoken.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        Toggle("Spoken paths and names", isOn: tierBinding(.tierB))
+        Text("“src slash utils” becomes src/utils. Best in code editors and terminals.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        Toggle("Join multi-word filenames and paths", isOn: $rules.pathStitching)
+        Toggle("“camel case” and “snake case”", isOn: $rules.caseCommands)
+
+        Picker("“Bold” and “italic”", selection: $rules.emphasisDialect) {
+            ForEach(EmphasisDialect.allCases) { Text($0.displayName).tag($0) }
+        }
+        Toggle("“Bullet” starts a list item", isOn: $rules.listMarkers)
+        Toggle("“New line” and “new paragraph”", isOn: $rules.newlineCommands)
+
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Custom cleanup instructions")
+            TextEditor(text: $cleanupPrompt)
+                .font(.system(.caption, design: .monospaced))
+                .frame(minHeight: 70)
+            Text("Leave blank to use the instructions from the Cleanup page.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
     private func tierBinding(_ tier: SpokenSymbolTiers) -> Binding<Bool> {
@@ -699,17 +843,26 @@ struct WritingStyleRuleEditor: View {
         onSave(updated)
     }
 
-    private var profileExplanation: String {
+    private var toneExplanation: String {
         if !style.supportsWording {
-            return "Code and Terminal keep your wording and exact formatting. With Smart Cleanup on, the model only removes filler; it never rewrites a command."
+            return "Code and Terminal always keep your exact words."
         }
+        if cleanup != .inherit {
+            return "Tone needs AI cleanup, which is off for this app under Advanced."
+        }
+        return intent.description + " Needs “Reword to sound Formal or Casual” and Smart Cleanup."
+    }
+
+    private var cleanupExplanation: String {
         switch cleanup {
         case .raw:
-            return "Raw transcription bypasses cleanup, snippets, and every formatting rule."
+            return "Types exactly what was heard: no cleanup, snippets, or formatting."
         case .off:
-            return "Formatting only keeps your wording as spoken and does not use the local model."
+            return "Applies the style's formatting but never runs the AI model."
         case .inherit:
-            return intent.description + " Formal and Casual require the Writing Styles switch and Smart Cleanup model."
+            return style.supportsWording
+                ? "Follows the Cleanup page."
+                : "Follows the Cleanup page, but only removes filler words. Commands stay exact."
         }
     }
 }
@@ -723,7 +876,7 @@ private struct WritingProfilePreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(running ? "Trying profile…" : "Try full profile") {
+            Button(running ? "Trying…" : "Try With All My Settings") {
                 running = true
                 Task { @MainActor in
                     result = await appState.previewWritingProfile(sample)

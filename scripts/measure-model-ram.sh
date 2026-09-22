@@ -16,9 +16,12 @@
 # macOS keeps moving pages between the free, inactive, active and compressed
 # queues, so they drift by hundreds of MB either way while a model loads.
 #
-# By default the CoreML compile cache is deleted first, so the run includes
+# By default the run starts without the CoreML compile cache, so it includes
 # the one-time first-load compile. That is the number the pre-load memory
-# gate has to allow for. Pass --warm to keep the cache.
+# gate has to allow for. The app shares that cache, so it is moved aside and
+# put back when the run ends; otherwise the app would recompile every model
+# on its next load (Voca Hinglish: about 5 minutes on an M1 Pro). Pass --warm
+# to use the cache as it is.
 #
 # The model must already be downloaded; the CLI never downloads.
 #
@@ -44,10 +47,23 @@ RUN="cold"
 
 VOCAMAC="${VOCAMAC:-/Applications/VocaMac.app/Contents/MacOS/VocaMac}"
 COMPILE_CACHE="$HOME/Library/Caches/com.vocamac.app/com.apple.e5rt.e5bundlecache"
-WORK_DIR="$(mktemp -d)"
-trap 'kill "${SAMPLER_PID:-}" 2>/dev/null || true; rm -rf "$WORK_DIR"' EXIT
+WORK_DIR="$(mktemp -d "$HOME/Library/Caches/vocamac-measure.XXXXXX")"
+CACHE_BACKUP="$WORK_DIR/e5bundlecache"
 
-[[ "$RUN" == "cold" ]] && rm -rf "$COMPILE_CACHE"
+cleanup() {
+    kill "${SAMPLER_PID:-}" 2>/dev/null || true
+    if [[ -d "$CACHE_BACKUP" ]]; then
+        rm -rf "$COMPILE_CACHE"
+        mv "$CACHE_BACKUP" "$COMPILE_CACHE"
+    fi
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
+
+# Same volume as the cache, so moving it aside is a rename, not a copy.
+if [[ "$RUN" == "cold" && -d "$COMPILE_CACHE" ]]; then
+    mv "$COMPILE_CACHE" "$CACHE_BACKUP"
+fi
 
 # Combined footprint of the Neural Engine's system processes, in bytes.
 ane_footprint() {

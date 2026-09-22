@@ -42,6 +42,9 @@ final class ParakeetService: @unchecked Sendable {
     /// Which Parakeet variant is currently loaded
     private var loadedSize: ModelSize?
 
+    /// Dictionary vocabulary boost; loads its CTC model on first use.
+    private let vocabularyBoost = ParakeetVocabularyBoost()
+
     /// Whether a model is currently loaded and ready
     var isModelLoaded: Bool { asrManager != nil }
 
@@ -88,6 +91,8 @@ final class ParakeetService: @unchecked Sendable {
 
             self.asrManager = manager
             self.loadedSize = size
+            // Warm the vocabulary boost model, if downloaded, in the background.
+            await vocabularyBoost.prepare()
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             VocaLogger.info(.parakeetService, "Parakeet model loaded in \(String(format: "%.2f", elapsed))s")
@@ -106,6 +111,7 @@ final class ParakeetService: @unchecked Sendable {
     func unloadModelAndWait() async {
         guard let manager = takeManager() else { return }
         await manager.cleanup()
+        await vocabularyBoost.unload()
         VocaLogger.info(.parakeetService, "Parakeet model unloaded")
     }
 
@@ -113,7 +119,10 @@ final class ParakeetService: @unchecked Sendable {
     /// Used on teardown paths where there is nothing to race with.
     func unloadModel() {
         guard let manager = takeManager() else { return }
-        Task { await manager.cleanup() }
+        Task { [vocabularyBoost] in
+            await manager.cleanup()
+            await vocabularyBoost.unload()
+        }
         VocaLogger.info(.parakeetService, "Parakeet model unloaded")
     }
 
@@ -132,11 +141,13 @@ final class ParakeetService: @unchecked Sendable {
     ///   - audioData: Array of Float32 PCM samples at 16kHz mono
     ///   - language: ISO 639-1 language code used as a script hint for the
     ///     multilingual v3 model, or nil/unknown for automatic detection.
-    ///     Parakeet does not support translation or custom vocabulary — those
-    ///     options are ignored.
+    ///     Parakeet does not support translation.
+    ///   - vocabulary: Dictionary terms (comma/newline separated). Boosted
+    ///     with the CTC model when it is downloaded; ignored otherwise.
     func transcribe(
         audioData: [Float],
-        language: String? = nil
+        language: String? = nil,
+        vocabulary: String = ""
     ) async throws -> VocaTranscription {
         guard let manager = asrManager, let size = loadedSize else {
             throw ParakeetError.modelNotLoaded
@@ -163,8 +174,15 @@ final class ParakeetService: @unchecked Sendable {
                 language: languageHint
             )
 
+            var text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let boostTerms = RecognitionHints.boostTerms(from: vocabulary)
+            if !text.isEmpty, !boostTerms.isEmpty,
+               let boosted = await vocabularyBoost.boost(
+                   text: text, tokenTimings: result.tokenTimings, audio: audioData, terms: boostTerms
+               ) {
+                text = boosted.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-            let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
             VocaLogger.info(.parakeetService, "Parakeet transcription completed in \(String(format: "%.2f", elapsed))s")
             VocaLogger.info(.parakeetService, "Result: \(text.count) characters")

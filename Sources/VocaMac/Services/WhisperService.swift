@@ -373,10 +373,7 @@ final class WhisperService: @unchecked Sendable {
     /// Parse a raw vocabulary string into individual terms. Terms are separated
     /// by newlines or commas; surrounding whitespace and blank entries are dropped.
     static func vocabularyTerms(from vocabulary: String) -> [String] {
-        vocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        RecognitionHints.vocabularyTerms(from: vocabulary)
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {
@@ -404,7 +401,7 @@ final class WhisperService: @unchecked Sendable {
     }
 
     /// Map a model name string to our ModelSize enum
-    private func modelSizeFromName(_ name: String) -> ModelSize {
+    func modelSizeFromName(_ name: String) -> ModelSize {
         let lowered = name.lowercased()
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }

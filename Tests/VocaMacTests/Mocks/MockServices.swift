@@ -926,7 +926,7 @@ enum TestWords {
     static let common: Set<String> = [
         "the", "a", "an", "and", "i", "to", "is", "it", "in", "on", "of", "for", "with", "my", "me",
         "open", "file", "hello", "world", "cloud", "there", "their", "big", "large", "meet", "at",
-        "send", "email", "call", "please", "user", "id", "service", "super", "base", "post", "apple",
+        "send", "email", "call", "please", "user", "id", "kaiser", "service", "super", "base", "post", "apple",
         "notes", "mail", "check", "this", "that", "we", "should", "use", "set", "value", "ask",
         "about", "project", "today", "tomorrow", "update", "code", "run", "tests", "get", "hub",
     ]

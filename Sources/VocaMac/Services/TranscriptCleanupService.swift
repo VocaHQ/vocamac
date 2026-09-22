@@ -471,6 +471,25 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             return
         }
 
+        // A hybrid attention/recurrent model breaks LLM.swift's cache reuse
+        // (empty output after the first call, an abort on reset), so its
+        // architecture is checked before llama.cpp ever sees the file.
+        do {
+            let architecture = try GGUFMetadata.read(fileAt: path).architecture
+            guard GGUFMetadata.isCleanupArchitectureAllowed(architecture ?? "") else {
+                let message = "\(descriptor.displayName) uses an unsupported model architecture (\(architecture ?? "unknown"))."
+                modelState = .error(message)
+                VocaLogger.error(.transcriptCleanup, message)
+                return
+            }
+            if let architecture, !GGUFMetadata.measuredCleanupArchitectures.contains(architecture) {
+                VocaLogger.warning(.transcriptCleanup, "Cleanup architecture \(architecture) has not been measured with VocaMac")
+            }
+        } catch {
+            // The download was checksummed; let llama.cpp have the final say.
+            VocaLogger.warning(.transcriptCleanup, "Could not read the GGUF header of \(descriptor.displayName): \(error)")
+        }
+
         // Refuse a known-too-large load before llama.cpp maps the weights and
         // pushes the machine into swap, matching the speech-model gate.
         guard modelFitsInMemory(descriptor) else {

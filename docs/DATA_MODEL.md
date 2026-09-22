@@ -326,7 +326,7 @@ struct UserSettings {
     var mouseTriggerButton: Int = 0            // CGEvent button number; 0 = off, 2 middle, 3 back, 4 forward
 
     // Personal dictionary
-    var customVocabulary: String = ""          // terms, newline-separated; also the Whisper prompt
+    var customVocabulary: String = ""          // terms, newline-separated; also the recognition hint (Whisper, Parakeet, Apple Speech)
     var wordReplacements: [WordReplacement] = []          // JSON in UserDefaults
     var dictionarySuggestions: [CorrectionSuggestion] = [] // JSON in UserDefaults
     var learnCorrectionsMode: LearnCorrectionsMode = .suggest
@@ -484,8 +484,10 @@ order:
 2. **Vocabulary terms.** Letters are matched ignoring case, spaces, and
    punctuation, over up to four spoken words. On top of that, a conservative
    fuzzy match fixes terms of 5 or more letters: edit distance ≤ 1 (≤ 2 for 9
-   or more letters), same first sound. It never applies when every word in the
-   match is ordinary vocabulary according to the spell checker (English only).
+   or more letters, one more when both have the same Soundex code), same first
+   sound. It never applies when every word in the match is ordinary vocabulary
+   according to the spell checker (English only). A term with `&` also matches
+   its spoken form ("R and D" → `R&D`).
 3. **Screen terms.** Letter match only, never fuzzy. Several words are joined
    into a camelCase, snake_case, or kebab-case identifier only for the Code and
    Terminal formats.

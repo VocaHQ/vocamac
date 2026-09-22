@@ -242,6 +242,11 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.activationMode") var activationMode: ActivationMode = .pushToTalk
     @AppStorage("vocamac.hotKeyCode") var hotKeyCode: Int = 61  // Right Option
     @AppStorage("vocamac.hotKeyModifiers") var hotKeyModifiers: HotKeyModifiers = []
+
+    /// Whether the hotkey is a regular key (⌥Space) rather than a lone
+    /// modifier (Right Option). Only keyed hotkeys are hidden by Secure
+    /// Event Input.
+    var hotKeyIsKeyed: Bool { !KeyCodeReference.isModifierKeyCode(hotKeyCode) }
     @AppStorage("vocamac.doubleTapThreshold") var doubleTapThreshold: Double = 0.4
     @AppStorage("vocamac.silenceThreshold") var silenceThreshold: Double = 0.01
     @AppStorage("vocamac.silenceDuration") var silenceDuration: Double = SilenceDetectionSettings.defaultDuration
@@ -312,6 +317,8 @@ final class AppState: ObservableObject {
     @AppStorage(PreferenceKey.learnCorrectionsMode) var learnCorrectionsMode: LearnCorrectionsMode = .defaultMode
     @AppStorage(PreferenceKey.useScreenContext) var useScreenContext: Bool = true
     @AppStorage(PreferenceKey.externalMicWhenLidClosed) var externalMicWhenLidClosed: Bool = false
+    /// Trim silence with voice activity detection before batch decodes.
+    @AppStorage(PreferenceKey.skipSilence) var skipSilence: Bool = true
 
     var cleanupEndpoint: CleanupEndpointConfiguration {
         get { CleanupEndpointConfiguration.decode(cleanupEndpointJSON) }
@@ -393,6 +400,10 @@ final class AppState: ObservableObject {
     /// Set when the last recording could not use the pinned microphone.
     /// Cleared when a recording starts on the requested device.
     @Published var inputDeviceFallbackNotice: String?
+
+    /// Secure Event Input is on (a password field or Terminal's Secure
+    /// Keyboard Entry), so keyed shortcuts run through a fallback.
+    @Published private(set) var isSecureInputActive = false
 
     /// True while the audio engine is negotiating its input route. Bluetooth
     /// headsets can take seconds to switch to their microphone, and a stop
@@ -597,6 +608,10 @@ final class AppState: ObservableObject {
 
     /// Corrections noticed in dictated text, waiting for the user to accept.
     @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
+
+    /// Parakeet's optional vocabulary boost model.
+    @Published private(set) var vocabularyBoostStatus: VocabularyBoostStatus =
+        TranscriptionRouter.isVocabularyBoostDownloaded ? .ready : .notDownloaded
 
     /// History entry whose audio is being transcribed again, if any.
     @Published private(set) var retryingHistoryEntryID: UUID?
@@ -1064,6 +1079,12 @@ final class AppState: ObservableObject {
         }
 
         // Setup hotkey callbacks
+        if let manager = hotKeyManager as? HotKeyManager {
+            manager.onSecureInputChange = { [weak self] active in
+                self?.isSecureInputActive = active
+            }
+        }
+
         hotKeyManager.onRecordingStart = { [weak self] in
             PerformanceTrace.event("HotKeyStart")
             Task { @MainActor in
@@ -1889,7 +1910,7 @@ final class AppState: ObservableObject {
         }
         let session = whisperService.startStreaming(
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
-            vocabulary: customVocabulary,
+            vocabulary: recognitionHintVocabulary,
             onPartial: partialHandler
         )
         // Only promise live words when an engine will actually send them:
@@ -2091,7 +2112,7 @@ final class AppState: ObservableObject {
             let contextTerms = await Self.awaitContextTerms(contextTask)
             let capturedDocumentURL = await Self.awaitDocumentURL(documentURLTask)
             let recognitionVocabulary = Self.recognitionVocabulary(
-                customVocabulary, contextTerms: contextTerms
+                customVocabulary, replacementTargets: replacementTargets, contextTerms: contextTerms
             )
             let result: VocaTranscription
             let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
@@ -3411,7 +3432,7 @@ final class AppState: ObservableObject {
             audioData: loaded.samples,
             language: language,
             translate: translationEnabled,
-            vocabulary: customVocabulary
+            vocabulary: recognitionHintVocabulary
         )
         statsManager.recordTranscription(result)
         lastTranscription = result
@@ -3446,7 +3467,7 @@ final class AppState: ObservableObject {
             audioData: samples,
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             translate: translationEnabled,
-            vocabulary: customVocabulary
+            vocabulary: recognitionHintVocabulary
         )
         try Task.checkCancellation()
         statsManager.recordTranscription(result)
@@ -3536,7 +3557,7 @@ extension AppState {
                 audioData: samples,
                 language: selectedLanguage == "auto" ? nil : selectedLanguage,
                 translate: translationEnabled,
-                vocabulary: customVocabulary
+                vocabulary: recognitionHintVocabulary
             )
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             var output: DictationOutputResult?
@@ -3998,10 +4019,50 @@ extension AppState {
 
     // MARK: Dictionary
 
+    /// Replacement targets offered to engines as recognition hints.
+    private var replacementTargets: [String] {
+        wordReplacements.filter(\.isValid).map(\.replacement)
+    }
+
+    /// Vocabulary and replacement targets as a recognition hint, for decodes
+    /// with no screen context (live sessions, files, history retries).
+    var recognitionHintVocabulary: String {
+        Self.recognitionVocabulary(customVocabulary, replacementTargets: replacementTargets, contextTerms: [])
+    }
+
+    // MARK: - Vocabulary Boost
+
+    /// Download Parakeet's vocabulary boost model.
+    func downloadVocabularyBoost() {
+        guard vocabularyBoostStatus != .downloading else { return }
+        vocabularyBoostStatus = .downloading
+        Task { @MainActor [weak self] in
+            do {
+                try await TranscriptionRouter.downloadVocabularyBoost()
+                self?.vocabularyBoostStatus = .ready
+                VocaLogger.info(.appState, "Parakeet vocabulary boost downloaded")
+            } catch {
+                VocaLogger.error(.appState, "Vocabulary boost download failed: \(error.localizedDescription)")
+                self?.vocabularyBoostStatus = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Delete Parakeet's vocabulary boost model.
+    func removeVocabularyBoost() {
+        do {
+            try TranscriptionRouter.removeVocabularyBoost()
+            vocabularyBoostStatus = .notDownloaded
+        } catch {
+            VocaLogger.error(.appState, "Could not remove vocabulary boost: \(error.localizedDescription)")
+            vocabularyBoostStatus = .failed(error.localizedDescription)
+        }
+    }
+
     /// Vocabulary terms, one per entry. Stored in `customVocabulary` so the
     /// Whisper recognition hint keeps working.
     var vocabularyTerms: [String] {
-        WhisperService.vocabularyTerms(from: customVocabulary)
+        RecognitionHints.vocabularyTerms(from: customVocabulary)
     }
 
     func setVocabularyTerms(_ terms: [String]) {
@@ -4198,8 +4259,22 @@ extension AppState {
     /// small budget ahead of it: a page full of identifiers is what gets cut,
     /// never the user's words. A long glossary also makes Whisper more likely
     /// to echo it back as a transcript.
-    static func recognitionVocabulary(_ vocabulary: String, contextTerms: [String]) -> String {
-        let userTerms = WhisperService.vocabularyTerms(from: vocabulary)
+    static func recognitionVocabulary(
+        _ vocabulary: String,
+        replacementTargets: [String] = [],
+        contextTerms: [String]
+    ) -> String {
+        // Replacement targets ("GitHub" for "get hub") are words the user
+        // wants heard, so they join the vocabulary ahead of the user's terms.
+        var userTerms = RecognitionHints.vocabularyTerms(from: vocabulary)
+        let listed = Set(userTerms.map { $0.lowercased() })
+        var targetSeen = Set<String>()
+        let targets = replacementTargets.filter {
+            RecognitionHints.isHintableReplacement($0)
+                && !listed.contains($0.lowercased())
+                && targetSeen.insert($0.lowercased()).inserted
+        }
+        userTerms = targets + userTerms
         let known = Set(userTerms.map { $0.lowercased() })
         let characterBudget = max(0, recognitionPromptCharacterBudget - userTerms.joined(separator: ", ").count)
         var screenTerms: [String] = []

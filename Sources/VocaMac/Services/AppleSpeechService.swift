@@ -115,20 +115,28 @@ final class AppleSpeechService: @unchecked Sendable {
     /// - Parameters:
     ///   - audioData: Array of Float32 PCM samples at 16kHz mono
     ///   - language: ISO 639-1 language code, or nil to use the system locale.
-    ///     Translation and custom vocabulary are not supported by this engine.
+    ///     Translation is not supported by this engine.
+    ///   - vocabulary: Dictionary terms (comma/newline separated) handed to
+    ///     the analyzer as contextual strings.
     func transcribe(
         audioData: [Float],
-        language: String? = nil
+        language: String? = nil,
+        vocabulary: String = ""
     ) async throws -> VocaTranscription {
         guard !audioData.isEmpty else { throw AppleSpeechError.emptyAudio }
         let cursor = AudioChunkCursor(audioData)
         return try await transcribe(
-            chunks: AsyncThrowingStream(unfolding: { await cursor.next() }), language: language
+            chunks: AsyncThrowingStream(unfolding: { await cursor.next() }),
+            language: language, vocabulary: vocabulary
         )
     }
 
     /// Own one prepared analyzer for one utterance. Finished sessions are never reused.
-    func transcribe(chunks: AsyncThrowingStream<[Float], Error>, language: String?) async throws -> VocaTranscription {
+    func transcribe(
+        chunks: AsyncThrowingStream<[Float], Error>,
+        language: String?,
+        vocabulary: String = ""
+    ) async throws -> VocaTranscription {
         #if compiler(>=6.2)
         guard #available(macOS 26.0, *) else { throw AppleSpeechError.unsupportedSystem }
         guard isPrepared else { throw AppleSpeechError.modelNotLoaded }
@@ -145,7 +153,8 @@ final class AppleSpeechService: @unchecked Sendable {
         }
         do {
             try Task.checkCancellation()
-            let (text, count) = try await session.transcribe(chunks)
+            let hints = RecognitionHints.contextualStrings(from: vocabulary)
+            let (text, count) = try await session.transcribe(chunks, contextualStrings: hints)
             return VocaTranscription(
                 text: text, duration: CFAbsoluteTimeGetCurrent() - start,
                 detectedLanguage: language ?? locale.language.languageCode?.identifier ?? "auto",
@@ -246,9 +255,13 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
         self.format = format
     }
 
-    func transcribe(_ chunks: AsyncThrowingStream<[Float], Error>) async throws -> (String, Int) {
+    func transcribe(
+        _ chunks: AsyncThrowingStream<[Float], Error>,
+        contextualStrings: [String]
+    ) async throws -> (String, Int) {
         guard !started else { throw AppleSpeechError.modelNotLoaded }
         started = true
+        await applyContext(contextualStrings)
         let collector = Task { [transcriber] in
             var pieces: [String] = []
             for try await result in transcriber.results where result.isFinal {
@@ -278,6 +291,23 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
     }
 
     func cancel() async { await analyzer.cancelAndFinishNow() }
+
+    /// Bias recognition toward the Dictionary before any audio arrives.
+    ///
+    /// Set per utterance rather than at prepare time: sessions are prepared
+    /// ahead of recording, before the vocabulary for this dictation is known.
+    /// A hint is never worth a failed dictation, so errors only log.
+    private func applyContext(_ contextualStrings: [String]) async {
+        guard !contextualStrings.isEmpty else { return }
+        let context = AnalysisContext()
+        context.contextualStrings[.general] = contextualStrings
+        do {
+            try await analyzer.setContext(context)
+            VocaLogger.debug(.appleSpeechService, "Apple Speech context set with \(contextualStrings.count) term(s)")
+        } catch {
+            VocaLogger.warning(.appleSpeechService, "Apple Speech ignored vocabulary context: \(error.localizedDescription)")
+        }
+    }
 }
 
 /// Lazily convert only the next chunk requested by SpeechAnalyzer. The converter
@@ -368,6 +398,9 @@ private final class SpeechConverterInput: @unchecked Sendable {
 
 /// Availability-erased session storage keeps the macOS 14 executable loadable.
 private protocol PreparedSpeechSession: Sendable {
-    func transcribe(_ chunks: AsyncThrowingStream<[Float], Error>) async throws -> (String, Int)
+    func transcribe(
+        _ chunks: AsyncThrowingStream<[Float], Error>,
+        contextualStrings: [String]
+    ) async throws -> (String, Int)
     func cancel() async
 }

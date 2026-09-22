@@ -115,6 +115,24 @@ final class HotKeyManager {
     /// Whether the mouse trigger button's press was consumed.
     private var isMouseButtonHeld = false
 
+    // MARK: - Secure Input Fallback
+
+    /// Watches Secure Event Input, which silences key events in the tap.
+    private let secureInputMonitor = SecureInputMonitor()
+
+    /// Keyed bindings registered through Carbon while Secure Event Input is on.
+    private let carbonFallback = CarbonHotKeyRegistry()
+
+    /// When the fallback last pressed the activation key, so the tap does not
+    /// treat the same press as a second key-down if it sees it too.
+    private var lastFallbackActivationPress: CFAbsoluteTime = 0
+
+    private enum FallbackID {
+        static let activation: UInt32 = 1
+        static let cancel: UInt32 = 2
+        static let shortcutBase: UInt32 = 100
+    }
+
     // MARK: - Callbacks
 
     /// Called when recording should start
@@ -132,6 +150,12 @@ final class HotKeyManager {
 
     /// Called when Escape is pressed while the cancel key is armed.
     var onCancel: (() -> Void)?
+
+    /// Called on the main thread when Secure Event Input turns on or off.
+    var onSecureInputChange: ((Bool) -> Void)?
+
+    /// Whether Secure Event Input is on, as last seen.
+    var isSecureInputActive: Bool { secureInputMonitor.isEnabled }
 
     // MARK: - Accessibility Permission
 
@@ -223,6 +247,7 @@ final class HotKeyManager {
 
         isListening = true
         VocaLogger.info(.hotKeyManager, "Event tap created successfully. Listening for keyCode \(keyCode) in \(mode.rawValue) mode")
+        startSecureInputFallback()
     }
 
     /// Stop listening for global hotkey events
@@ -251,6 +276,7 @@ final class HotKeyManager {
         tapRunLoop = nil
         runLoopSource = nil
         isListening = false
+        stopSecureInputFallback()
         withState {
             isKeyHeld = false
             isToggled = false
@@ -311,16 +337,19 @@ final class HotKeyManager {
             if let timeout = safetyTimeout { self.safetyTimeoutSeconds = timeout }
             if let modifiers = modifiers { self.requiredModifiers = modifiers }
         }
+        refreshSecureInputFallback()
     }
 
     /// Replace the extra shortcuts. An action missing from the map is off.
     func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo]) {
         withState { self.shortcuts = shortcuts }
+        refreshSecureInputFallback()
     }
 
     /// Arm or disarm Escape as the cancel key.
     func setCancelKeyArmed(_ armed: Bool) {
         withState { isCancelKeyArmed = armed }
+        refreshSecureInputFallback()
     }
 
     /// Use a mouse button as the hotkey (0 turns it off).
@@ -329,6 +358,102 @@ final class HotKeyManager {
             mouseTriggerButton = button
             isMouseButtonHeld = false
         }
+    }
+
+    // MARK: - Secure Input Fallback
+
+    private func startSecureInputFallback() {
+        DispatchQueue.main.async { [self] in
+            secureInputMonitor.onChange = { [weak self] enabled in
+                self?.refreshSecureInputFallback()
+                self?.onSecureInputChange?(enabled)
+            }
+            carbonFallback.onPress = { [weak self] id in self?.handleFallbackPress(id) }
+            carbonFallback.onRelease = { [weak self] id in self?.handleFallbackRelease(id) }
+            secureInputMonitor.start()
+        }
+    }
+
+    private func stopSecureInputFallback() {
+        DispatchQueue.main.async { [self] in
+            secureInputMonitor.stop()
+            carbonFallback.unregisterAll()
+        }
+    }
+
+    /// Register the keyed bindings with Carbon while Secure Event Input is
+    /// on, and remove them when it is off.
+    private func refreshSecureInputFallback() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.refreshSecureInputFallback() }
+            return
+        }
+        guard isListening, secureInputMonitor.isEnabled else {
+            carbonFallback.unregisterAll()
+            return
+        }
+        carbonFallback.register(withState { fallbackCombos() })
+    }
+
+    /// Keyed bindings the tap cannot see under Secure Event Input. Must be
+    /// called with `stateLock` held.
+    private func fallbackCombos() -> [UInt32: HotKeyCombo] {
+        var combos: [UInt32: HotKeyCombo] = [:]
+        let activation = HotKeyCombo(keyCode: targetKeyCode, modifiers: requiredModifiers)
+        if !KeyCodeReference.isModifierKeyCode(targetKeyCode) {
+            combos[FallbackID.activation] = activation
+        }
+        // Escape is only claimed while a dictation can be cancelled, since a
+        // Carbon hot key takes it from every app.
+        if isCancelKeyArmed {
+            combos[FallbackID.cancel] = HotKeyCombo(keyCode: KeyCodeReference.escapeKeyCode, modifiers: [])
+        }
+        for (index, action) in HotKeyShortcutAction.allCases.enumerated() {
+            guard let combo = shortcuts[action], combo != activation else { continue }
+            combos[FallbackID.shortcutBase + UInt32(index)] = combo
+        }
+        return combos
+    }
+
+    private func handleFallbackPress(_ id: UInt32) {
+        switch id {
+        case FallbackID.activation:
+            withState {
+                guard !isBaseKeyHeld else { return }
+                isBaseKeyHeld = true
+                lastFallbackActivationPress = CFAbsoluteTimeGetCurrent()
+                handleKeyDown()
+            }
+        case FallbackID.cancel:
+            guard withState({ isCancelKeyArmed }) else { return }
+            onCancel?()
+        default:
+            guard let action = fallbackAction(for: id) else { return }
+            onShortcut?(action)
+        }
+    }
+
+    private func handleFallbackRelease(_ id: UInt32) {
+        switch id {
+        case FallbackID.activation:
+            withState {
+                guard isBaseKeyHeld else { return }
+                isBaseKeyHeld = false
+                handleKeyUp()
+            }
+        case FallbackID.cancel:
+            break
+        default:
+            guard let action = fallbackAction(for: id) else { return }
+            onShortcutReleased?(action)
+        }
+    }
+
+    private func fallbackAction(for id: UInt32) -> HotKeyShortcutAction? {
+        guard id >= FallbackID.shortcutBase else { return nil }
+        let index = Int(id - FallbackID.shortcutBase)
+        let actions = HotKeyShortcutAction.allCases
+        return actions.indices.contains(index) ? actions[actions.index(actions.startIndex, offsetBy: index)] : nil
     }
 
     // MARK: - Event Tap Callback
@@ -575,6 +700,8 @@ final class HotKeyManager {
                 return isBaseKeyHeld
             }
             guard modifiersMatch(event.flags) else { return false }
+            // The Carbon fallback already handled this press.
+            if isBaseKeyHeld, CFAbsoluteTimeGetCurrent() - lastFallbackActivationPress < 0.3 { return true }
             isBaseKeyHeld = true
             handleKeyDown()
         } else {

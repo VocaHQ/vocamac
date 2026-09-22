@@ -333,6 +333,13 @@ enum SettingsSearchIndex {
             keywords: ["external", "microphone", "lid", "closed", "clamshell", "dock"]
         ),
         SettingsSearchEntry(
+            id: "skip-silence",
+            page: .audio,
+            title: "Skip Silence Before Transcribing",
+            subtitle: "Cut quiet stretches so the model only hears speech",
+            keywords: ["vad", "voice activity", "silence", "trim", "hallucination"]
+        ),
+        SettingsSearchEntry(
             id: "silence",
             page: .audio,
             title: "Silence Detection",

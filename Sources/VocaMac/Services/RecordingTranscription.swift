@@ -131,9 +131,13 @@ enum IncrementalAudioTranscriber {
         updateEverySamples: Int = 32_000,
         partialWindowSamples: Int = defaultPartialWindowSamples,
         transcribe: @escaping @Sendable ([Float]) async throws -> VocaTranscription,
+        transcribeFinal: (@Sendable ([Float]) async throws -> VocaTranscription)? = nil,
         onPartial: (@Sendable (String) -> Void)?
     ) async throws -> VocaTranscription {
         let buffer = Buffer()
+        // Partials favour speed; the final decode may do extra work (such as
+        // a vocabulary boost) that a preview nobody keeps does not earn.
+        let transcribeFinal = transcribeFinal ?? transcribe
         return try await withThrowingTaskGroup(of: VocaTranscription?.self) { group in
             group.addTask {
                 for try await chunk in chunks {
@@ -151,7 +155,7 @@ enum IncrementalAudioTranscriber {
                     let status = await buffer.status()
                     if status.ended {
                         guard status.count > 0 else { throw RecordingTranscription.StreamError.incomplete }
-                        return try await transcribe(await buffer.all())
+                        return try await transcribeFinal(await buffer.all())
                     }
                     if let onPartial, status.count - lastDecodedCount >= updateEverySamples {
                         lastDecodedCount = status.count

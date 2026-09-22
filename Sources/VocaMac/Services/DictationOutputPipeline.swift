@@ -57,13 +57,31 @@ struct DictationOutputPipeline {
         // per-app "Formatting only" keeps wording as spoken. English only:
         // "um" is a word in German ("um 5 Uhr").
         var removedHesitations = false
-        if profile.cleanup == .inherit, effectiveLevel.removesHesitations, isEnglishText {
-            (input, removedHesitations) = WritingStyleEngine.removeHesitations(
-                input, prose: profile.format.supportsWording
-            )
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+            if isEnglishText {
+                (input, removedHesitations) = WritingStyleEngine.removeHesitations(
+                    input, prose: profile.format.supportsWording
+                )
+            } else {
+                // Other languages lose only sounds that are a word nowhere
+                // ("uhm", "hmm"), plus their own when the language is known.
+                (input, removedHesitations) = WritingStyleEngine.removeOtherLanguageHesitations(
+                    input, language: Self.knownLanguage(language), prose: profile.format.supportsWording
+                )
+            }
         }
         if removedHesitations, input.isEmpty {
             return result("", "Only “um” or “uh” was heard — nothing typed")
+        }
+
+        // "I I I think" → "I think". Single letters in any language; in
+        // English also fragments that are not words ("wh wh wh where").
+        var collapsedStutters = 0
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+            let isKnownWord: (String) -> Bool = isEnglishText
+                ? (dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") })
+                : { _ in true }
+            (input, collapsedStutters) = WritingStyleEngine.collapseStutters(input, isKnownWord: isKnownWord)
         }
 
         // "can you ple please", "we supp are supporting": a word cut off and
@@ -99,6 +117,7 @@ struct DictationOutputPipeline {
                 notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
             }
             if removedHesitations { notes.append("“um”/“uh” removed") }
+            if collapsedStutters > 0 { notes.append("stutter collapsed") }
             if removedCutOffWords > 0 {
                 notes.append(removedCutOffWords == 1 ? "cut-off word removed" : "\(removedCutOffWords) cut-off words removed")
             }

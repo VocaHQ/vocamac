@@ -260,7 +260,7 @@ struct AboutTab: View {
     }
 
     private var buildChannelLabel: String {
-        appVersionDisplay.contains("nightly") ? "Nightly" : "Beta"
+        appVersionDisplay.contains("nightly") ? "Nightly" : "Stable"
     }
 
     private var updateStatusText: String {

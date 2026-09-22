@@ -457,7 +457,7 @@ enum SettingsSearchIndex {
             page: .about,
             title: "About",
             subtitle: "This app, the Voca family, and how to reach us",
-            keywords: ["about", "vocamac", "beta"]
+            keywords: ["about", "vocamac", "version"]
         ),
         SettingsSearchEntry(
             id: "model-credits",

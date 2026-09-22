@@ -188,6 +188,21 @@ final class SpokenFormsPipelineTests: XCTestCase {
         XCTAssertEqual(result.text, "It costs $5, down -5%")
     }
 
+    /// "million" and "pm" travel inside the number's token, so a model that
+    /// drops the word after it cannot change the amount or the time.
+    func testTheScaleWordAndMeridiemCrossTheModelWithTheirNumber() async throws {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { text in
+            text.replacingOccurrences(of: " million", with: "").replacingOccurrences(of: " pm", with: "")
+        }
+        let result = await process("we raised two point five million at seven thirty pm", cleaner: cleaner)
+        XCTAssertEqual(result.text, "We raised 2.5 million at 7:30 pm")
+        let seen = try XCTUnwrap(cleaner.lastCleanedText)
+        XCTAssertFalse(seen.contains("million"))
+        XCTAssertFalse(seen.contains("pm"))
+        XCTAssertEqual(RewriteValidation.substrings("VOCAKEEP[0-9]+END", in: seen).count, 2)
+    }
+
     func testRepeatedGlyphsAndTheClosingFullStop() async {
         let result = await process("we shipped it three party emojis.", enabled: false)
         XCTAssertEqual(result.text, "We shipped it 🎉🎉🎉")

@@ -401,7 +401,10 @@ struct RewriteProtectedText: Sendable {
         var prefix = "VOCAKEEP"
         while source.contains(prefix) { prefix += "X" }
         self.prefix = prefix
-        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|(?:[$€£₹]|(?<![\w-])-)?\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?"#
+        // A number keeps the word that sets its size or its time of day in
+        // the same token: a model that dropped "million" from "2.5 million"
+        // or "pm" from "7:30 pm" would change what was said.
+        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|(?:[$€£₹]|(?<![\w-])-)?\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?(?: (?:million|billion|trillion)\b| [AaPp]\.?[Mm]\.?(?![A-Za-z]))?"#
         var ranges = RewriteValidation.matches(pattern, in: source)
         // Named entities are data too, but they stay readable: the model keeps
         // a real name far more reliably than a token, and restoreValidated

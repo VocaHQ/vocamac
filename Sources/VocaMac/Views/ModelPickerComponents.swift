@@ -1,12 +1,11 @@
 // ModelPickerComponents.swift
 // VocaMac
 //
-// Pieces of the language-led speech model picker: the spoken-language bar,
-// the search and filter row, and the badges each model row shows.
+// Pieces of the language-led speech model picker: the header with the
+// spoken languages and the model in use, the search field, and the labels
+// and ratings each model row shows.
 
 import SwiftUI
-
-// MARK: - Spoken Languages
 
 // MARK: - Header
 
@@ -25,7 +24,7 @@ struct ModelPickerHeader: View {
             }
             if let current {
                 Divider()
-                ModelPickerHeaderRow(title: "Using") {
+                ModelPickerHeaderRow(title: current.isLoading ? "Loading" : "Using") {
                     CurrentModelSummary(
                         model: current,
                         spokenLanguages: languages,
@@ -50,7 +49,7 @@ struct ModelPickerHeaderRow<Content: View>: View {
             Text(title)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: 56, alignment: .leading)
+                .frame(width: 64, alignment: .leading)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -219,8 +218,11 @@ struct SpokenLanguagePicker: View {
         search = ""
     }
 
+    /// Return adds the top match, but only for a search: with the box
+    /// empty the top row is just the alphabet's first language.
     private func addFirstMatch() {
-        guard let first = candidates.first else { return }
+        guard !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let first = candidates.first else { return }
         add(first.code)
     }
 }
@@ -266,7 +268,7 @@ enum ModelLanguageBadge {
             .map { $0.map(SpokenLanguages.displayName(for:)).sorted() }
     }
 
-    /// "English", "25 languages", or "99 languages".
+    /// "English only", "25 languages", or "99 languages".
     static func label(for size: ModelSize, systemLanguages: Set<String>?) -> String {
         guard let names = names(for: size, systemLanguages: systemLanguages) else { return "99 languages" }
         return names.count == 1 ? "\(names[0]) only" : "\(names.count) languages"

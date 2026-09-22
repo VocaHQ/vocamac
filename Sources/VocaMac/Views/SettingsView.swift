@@ -1034,7 +1034,10 @@ struct ModelSettingsTab: View {
 
                 ModelPickerHeader(
                     languages: spokenLanguagesBinding,
-                    current: appState.availableModels.first { $0.isActive || $0.isLoading },
+                    // A model mid-load is where dictation is heading, so it
+                    // wins over the one it replaces.
+                    current: appState.availableModels.first(where: \.isLoading)
+                        ?? appState.availableModels.first(where: \.isActive),
                     systemLanguages: appState.appleSpeechLanguages,
                     onShowSuggestions: {
                         scope = .forYou

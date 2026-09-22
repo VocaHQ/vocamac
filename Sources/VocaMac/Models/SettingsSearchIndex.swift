@@ -105,6 +105,13 @@ enum SettingsSearchIndex {
             keywords: ["numbers", "digits", "numerals", "output"]
         ),
         SettingsSearchEntry(
+            id: "number-symbols",
+            page: .dictation,
+            title: "Use Symbols and Ordinals",
+            subtitle: "“fifty percent” becomes “50%”",
+            keywords: ["percent", "currency", "dollar", "ordinal", "date", "minus", "symbols"]
+        ),
+        SettingsSearchEntry(
             id: "spoken-emoji",
             page: .dictation,
             title: "Spoken Emoji",
@@ -252,6 +259,13 @@ enum SettingsSearchIndex {
             keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download"]
         ),
         SettingsSearchEntry(
+            id: "spoken-languages",
+            page: .speechModel,
+            title: "Languages You Speak",
+            subtitle: "Find models for your languages",
+            keywords: ["language", "languages", "multilingual", "bilingual", "filter", "hindi", "spanish"]
+        ),
+        SettingsSearchEntry(
             id: "language",
             page: .speechModel,
             title: "Transcription Language",
@@ -324,6 +338,13 @@ enum SettingsSearchIndex {
             title: "External Microphone with Lid Closed",
             subtitle: "Automatically use a non-built-in input in clamshell mode",
             keywords: ["external", "microphone", "lid", "closed", "clamshell", "dock"]
+        ),
+        SettingsSearchEntry(
+            id: "skip-silence",
+            page: .audio,
+            title: "Skip Silence Before Transcribing",
+            subtitle: "Cut quiet stretches so the model only hears speech",
+            keywords: ["vad", "voice activity", "silence", "trim", "hallucination"]
         ),
         SettingsSearchEntry(
             id: "silence",

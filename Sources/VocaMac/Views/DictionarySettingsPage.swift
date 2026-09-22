@@ -36,7 +36,11 @@ struct DictionarySettingsPage: View {
                     Button("Add", action: addTerm)
                         .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .help("Matches ignore case and spaces (“voca mac” → VocaMac) and fix close misspellings. Whisper models also use these as a recognition hint.")
+                .help("Matches ignore case and spaces (“voca mac” → VocaMac) and fix close misspellings with every model. Whisper, Parakeet, and Apple Speech also listen for these words.")
+                if showsVocabularyBoost {
+                    Divider()
+                    VocabularyBoostRow()
+                }
             }
 
             VocaSettingsGroup("Replacements", subtitle: "Words a model gets wrong, and what to type instead.") {
@@ -88,6 +92,12 @@ struct DictionarySettingsPage: View {
         }
     }
 
+    /// Parakeet needs a separate model to listen for vocabulary.
+    private var showsVocabularyBoost: Bool {
+        ModelSize(rawValue: appState.selectedModelSize)?.engine == .parakeet
+            && (!appState.vocabularyTerms.isEmpty || appState.vocabularyBoostStatus == .ready)
+    }
+
     private func addTerm() {
         appState.addVocabularyTerm(newTerm)
         newTerm = ""
@@ -97,6 +107,43 @@ struct DictionarySettingsPage: View {
         appState.addWordReplacement(heard: newHeard, replacement: newReplacement)
         newHeard = ""
         newReplacement = ""
+    }
+}
+
+/// Download or remove Parakeet's vocabulary boost model.
+struct VocabularyBoostRow: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Vocabulary boost for Parakeet")
+                Text(detail)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 16)
+            switch appState.vocabularyBoostStatus {
+            case .notDownloaded, .failed:
+                Button("Download (98 MB)") { appState.downloadVocabularyBoost() }
+                    .controlSize(.small)
+            case .downloading:
+                ProgressView().controlSize(.small)
+            case .ready:
+                Button("Remove") { appState.removeVocabularyBoost() }
+                    .controlSize(.small)
+            }
+        }
+        .help("A small second model checks the audio for your vocabulary and fixes words Parakeet heard far off (“in video” → NVIDIA). It adds a short pass after each dictation.")
+    }
+
+    private var detail: String {
+        switch appState.vocabularyBoostStatus {
+        case .notDownloaded: return "Helps Parakeet hear your words, not just spell them."
+        case .downloading: return "Downloading…"
+        case .ready: return "On. Parakeet listens for your vocabulary."
+        case .failed(let message): return "Download failed: \(message)"
+        }
     }
 }
 

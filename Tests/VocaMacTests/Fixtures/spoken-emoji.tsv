@@ -1,0 +1,133 @@
+# Spoken emoji cases, shared with VocaPhone. Columns: input, expected, why.
+# "\n" is an escape. Expected == input means every word must survive.
+
+# Descriptors
+crying emoji	😭	single word
+thumbs up emoji	👍	two words
+thumbs-up emoji	👍	hyphenated
+Thumbs Up Emoji	👍	title case
+fire EMOJI	🔥	shouted trigger
+fire emojis	🔥	plural trigger without a count
+fire emoticon	🔥	"emoticon" trigger
+smiley emoticon	😃	"emoticon" trigger
+fire-emoji	🔥	hyphen before the trigger
+loudly crying emoji	😭	full CLDR name
+smiling face with heart eyes emoji	😍	full name with a stop word
+face with tears of joy emoji	😂	full name
+pile of poo emoji	💩	full name
+100 emoji	💯	digits
+100% emoji	💯	percent sign
+one hundred percent emoji	💯	spelled out
+a hundred emoji	💯	"a hundred"
+heart emoji	❤️	common single word
+red heart emoji	❤️	CLDR name
+broken heart emoji	💔	modifier inside the key
+two hearts emoji	💕	a count that is part of the name
+heart eyes emoji	😍	spoken name
+tears of joy emoji	😂	stop word inside the name
+laughing emoji	😂	spoken name
+lol emoji	😂	slang key
+rofl emoji	🤣	slang key
+wink emoji	😉	spoken name
+kiss emoji	😘	spoken name
+eye roll emoji	🙄	spoken name
+facepalm emoji	🤦	single word
+face palm emoji	🤦	two words
+shrug emoji	🤷	spoken name
+skull emoji	💀	spoken name
+party emoji	🎉	spoken name
+clapping hands emoji	👏	CLDR name
+folded hands emoji	🙏	CLDR name
+praying hands emoji	🙏	spoken name
+check mark emoji	✅	two words
+rocket emoji	🚀	object
+thinking emoji	🤔	spoken name
+mind blown emoji	🤯	spoken name
+pleading face emoji	🥺	CLDR name
+see no evil monkey emoji	🙈	CLDR name
+flag of india emoji	🇮🇳	CLDR name
+southkorea emoji	🇰🇷	country
+# Spoken aliases
+blue heart emoji	💙	alias
+fingers crossed emoji	🤞	alias
+high five emoji	✋	alias
+green check emoji	✅	alias
+red x emoji	❌	alias
+question mark emoji	❓	alias
+sweat smile emoji	😅	alias
+see no evil emoji	🙈	alias
+US flag emoji	🇺🇸	alias
+indian flag emoji	🇮🇳	alias
+pride flag emoji	🏳️‍🌈	alias
+checkered flag emoji	🏁	alias
+crying laughing emoji	😂	alias
+salute emoji	🫡	speech over CLDR
+peace emoji	✌️	speech over CLDR
+hugging emoji	🤗	speech over CLDR
+smiley face emoji	😃	matches "smiley"
+vulcan salute emoji	🖖	the CLDR name still works
+# Prose before the descriptor
+so sad crying emoji	so sad 😭	no comma needed
+Great job thumbs up emoji	Great job 👍	no comma needed
+see you soon wave emoji	see you soon 👋	no comma needed
+love you heart emoji	love you ❤️	object before the descriptor
+I'm so sad, crying emoji	I'm so sad, 😭	comma
+okay, heart emoji	okay, ❤️	comma
+crying emoji and fire emoji	😭 and 🔥	conjunction between two
+so sad crying emoji fire emoji	so sad 😭 🔥	another trigger follows
+# Not a request for a glyph
+send a fire emoji	send a fire emoji	determiner: talking about it
+I love the fire emoji	I love the fire emoji	determiner
+use the heart emoji here	use the heart emoji here	determiner
+what's the crying emoji	what's the crying emoji	determiner
+my favorite fire emoji	my favorite fire emoji	determiner
+I love you emoji	I love you emoji	subject pronoun: a verb phrase
+can you check emoji support	can you check emoji support	"emoji" as a noun mid-clause
+we should fix emoji rendering	we should fix emoji rendering	"emoji" as a noun mid-clause
+the emoji	the emoji	no descriptor
+Send me the emoji.	Send me the emoji.	no descriptor
+emoji keyboard	emoji keyboard	no descriptor
+emoji	emoji	trigger alone
+emoji emoji	emoji emoji	trigger is not a descriptor
+fire emoji's	fire emoji's	possessive
+korea emoji	korea emoji	blocked: DPRK flag
+# Longer names are never split
+face with heart eyes emoji	face with heart eyes emoji	"with" before a shorter match
+smiling blue heart emoji	smiling 💙	alias wins over the shorter key
+purple car emoji	purple car emoji	color before a shorter match
+person running emoji	person running emoji	no such key
+3 crying emoji	3 crying emoji	a count needs a plural trigger
+two thumbs up emoji	two thumbs up emoji	a count needs a plural trigger
+# Counts
+three fire emojis	🔥🔥🔥	count before a plural trigger
+3 fire emojis	🔥🔥🔥	digit count
+two thumbs up emojis	👍👍	count before a multi-word name
+fire emoji times three	🔥🔥🔥	count after
+fire emoji x3	🔥🔥🔥	count after
+fire emoji x 2	🔥🔥	count after with a space
+great party, three party emojis	great party, 🎉🎉🎉	count after punctuation
+a hundred fire emojis	a hundred fire emojis	count past the maximum
+fire emoji times twenty	🔥 times twenty	count past the maximum
+# Skin tones
+thumbs up dark skin tone emoji	👍🏿	tone after
+dark skin tone thumbs up emoji	👍🏿	tone before
+waving hand medium-light skin tone emoji	👋🏼	hyphenated tone
+thumbs up medium skin tone emoji	👍🏽	medium
+peace medium dark skin tone emoji	✌🏾	presentation selector replaced
+fire dark skin tone emoji	fire dark skin tone emoji	a glyph that takes no tone
+# Punctuation
+party emoji!	🎉!	exclamation after
+Crying emoji. That was rough.	😭. That was rough.	full stop before more text
+thumbs up emoji.	👍	closing full stop goes
+Thanks! Thumbs up emoji.	Thanks! 👍	closing full stop goes
+great job, thumbs up emoji!	great job, 👍!	exclamation stays
+Crying emoji is how I feel.	😭 is how I feel.	mid-sentence full stop stays
+Crying emoji, crying emoji, crying emoji.	😭 😭 😭	a run collapses
+fire emoji,fire emoji	🔥 🔥	no space after the comma
+fire emoji, then home	🔥, then home	prose after keeps its comma
+crying emoji.com	crying emoji.com	a hostname
+# Other scripts
+मैं बहुत उदास हूँ crying emoji	मैं बहुत उदास हूँ 😭	sentence in another script
+Can you check emoji support in Safari?	Can you check emoji support in Safari?	"emoji" as a noun before later punctuation
+fire fire fire emoji	🔥🔥🔥	the name said again is a count
+so good crying crying emoji	so good 😭😭	repeat after prose

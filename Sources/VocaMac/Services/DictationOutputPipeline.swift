@@ -28,6 +28,7 @@ struct DictationOutputPipeline {
         preview: Bool = false,
         dictionary: DictionaryContext? = nil,
         numbersAsDigits: Bool = false,
+        numberSymbols: Bool = false,
         spokenEmoji: Bool = false
     ) async -> DictationOutputResult {
         // The glyph a spoken emoji left at the very end of the utterance, if
@@ -56,13 +57,31 @@ struct DictationOutputPipeline {
         // per-app "Formatting only" keeps wording as spoken. English only:
         // "um" is a word in German ("um 5 Uhr").
         var removedHesitations = false
-        if profile.cleanup == .inherit, effectiveLevel.removesHesitations, isEnglishText {
-            (input, removedHesitations) = WritingStyleEngine.removeHesitations(
-                input, prose: profile.format.supportsWording
-            )
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+            if isEnglishText {
+                (input, removedHesitations) = WritingStyleEngine.removeHesitations(
+                    input, prose: profile.format.supportsWording
+                )
+            } else {
+                // Other languages lose only sounds that are a word nowhere
+                // ("uhm", "hmm"), plus their own when the language is known.
+                (input, removedHesitations) = WritingStyleEngine.removeOtherLanguageHesitations(
+                    input, language: Self.knownLanguage(language), prose: profile.format.supportsWording
+                )
+            }
         }
         if removedHesitations, input.isEmpty {
             return result("", "Only “um” or “uh” was heard — nothing typed")
+        }
+
+        // "I I I think" → "I think". Single letters in any language; in
+        // English also fragments that are not words ("wh wh wh where").
+        var collapsedStutters = 0
+        if profile.cleanup == .inherit, effectiveLevel.removesHesitations {
+            let isKnownWord: (String) -> Bool = isEnglishText
+                ? (dictionary?.isKnownWord ?? { SpellingOracle.shared.isKnownWord($0, language: "en") })
+                : { _ in true }
+            (input, collapsedStutters) = WritingStyleEngine.collapseStutters(input, isKnownWord: isKnownWord)
         }
 
         // "can you ple please", "we supp are supporting": a word cut off and
@@ -98,6 +117,7 @@ struct DictationOutputPipeline {
                 notes.append(resolvedCorrections == 1 ? "spoken correction applied" : "\(resolvedCorrections) spoken corrections applied")
             }
             if removedHesitations { notes.append("“um”/“uh” removed") }
+            if collapsedStutters > 0 { notes.append("stutter collapsed") }
             if removedCutOffWords > 0 {
                 notes.append(removedCutOffWords == 1 ? "cut-off word removed" : "\(removedCutOffWords) cut-off words removed")
             }
@@ -119,7 +139,7 @@ struct DictationOutputPipeline {
         // neither drop nor re-spell what was converted.
         let converted = Self.convertSpokenForms(
             snippets.expandMasked(in: input, using: snippetList + protectedTerms),
-            emoji: spokenEmoji, digits: numbersAsDigits, language: language
+            emoji: spokenEmoji, digits: numbersAsDigits, symbols: numberSymbols, language: language
         )
         let masked = converted.masked
         closingGlyph = converted.closingGlyph
@@ -145,6 +165,12 @@ struct DictationOutputPipeline {
         }
         guard effectiveLevel != .none else {
             return result(fallback, "Cleanup level None — formatting only")
+        }
+        // The local cleanup models read romanized Hindi as broken English:
+        // they reordered words, added emphasis, and changed "ho gae" to
+        // "hoge". Voca Hinglish already punctuates, so its text is kept.
+        if Self.isRomanized(language) {
+            return result(fallback, noting("Romanized text kept as written — cleanup models reword it"))
         }
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
 
@@ -324,7 +350,8 @@ struct DictationOutputPipeline {
     /// Code and Terminal utterances shorter than this are treated as commands.
     static let minimumTechnicalWords = 4
 
-    /// Applies spoken emoji, then digits, to snippet-masked text.
+    /// Applies spoken emoji, then digits, to snippet-masked text. `symbols`
+    /// only matters with `digits`: "50%", "$5", "June 22".
     ///
     /// Emoji first, because the table's keys are words: digit conversion would
     /// otherwise rewrite a descriptor ("two hearts") before it is looked up.
@@ -335,7 +362,7 @@ struct DictationOutputPipeline {
     ///
     /// - Returns: The converted mask, and the glyph when one ends the text.
     static func convertSpokenForms(
-        _ masked: MaskedText, emoji: Bool, digits: Bool, language: String?
+        _ masked: MaskedText, emoji: Bool, digits: Bool, symbols: Bool = false, language: String?
     ) -> (masked: MaskedText, closingGlyph: String?) {
         var text = masked.text
         var replacements = masked.replacements
@@ -349,7 +376,7 @@ struct DictationOutputPipeline {
             }
         }
         if digits {
-            text = SpokenNumbers.digits(in: text)
+            text = SpokenNumbers.digits(in: text, symbols: symbols)
         }
         var closingGlyph: String?
         if let last = text.last(where: { !$0.isWhitespace }),
@@ -367,6 +394,13 @@ struct DictationOutputPipeline {
         let body = text[..<end]
         guard body.hasSuffix(glyph + ".") else { return text }
         return String(body.dropLast()) + text[end...]
+    }
+
+    /// Whether a language tag names a language written in Latin letters it
+    /// isn't usually written in, such as "hi-Latn" for romanized Hindi.
+    nonisolated static func isRomanized(_ language: String?) -> Bool {
+        guard let language else { return false }
+        return language.lowercased().split(separator: "-").dropFirst().contains("latn")
     }
 
     static func isEnglish(_ language: String?) -> Bool {
@@ -399,7 +433,10 @@ struct RewriteProtectedText: Sendable {
         var prefix = "VOCAKEEP"
         while source.contains(prefix) { prefix += "X" }
         self.prefix = prefix
-        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?"#
+        // A number keeps the word that sets its size or its time of day in
+        // the same token: a model that dropped "million" from "2.5 million"
+        // or "pm" from "7:30 pm" would change what was said.
+        let pattern = #"[\uE000-\uF8FF]|https?://[^\s]+|[\w.+-]+@[\w.-]+\.[\p{L}]{2,}|(?:[\w~.-]+/)+[\w./-]*|\b[\w-]+\.[A-Za-z][\w.-]*\b|\b\w+_\w+\b|\b[a-z]+[A-Z]\w*\b|`[^`]+`|(?:[$€£₹]|(?<![\w-])-)?\b\d+(?:[.,:/-]\d+)*(?:%|[a-zA-Z]+)?(?: (?:million|billion|trillion)\b| [AaPp]\.?[Mm]\.?(?![A-Za-z]))?"#
         var ranges = RewriteValidation.matches(pattern, in: source)
         // Named entities are data too, but they stay readable: the model keeps
         // a real name far more reliably than a token, and restoreValidated

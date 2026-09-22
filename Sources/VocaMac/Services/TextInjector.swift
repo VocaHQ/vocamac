@@ -12,13 +12,25 @@ final class TextInjector {
 
     // MARK: - Constants
 
-    /// Delay after simulating Cmd+V before restoring the clipboard.
+    /// Delay after simulating Cmd+V before restoring the clipboard, when
+    /// the transcript was written as plain data and no read can be observed.
     ///
     /// The posted key event is delivered asynchronously to the target app.
     /// A 50 ms delay occasionally restored the old clipboard before a busy
     /// target application had consumed the paste event, causing Cmd+V to
     /// paste the user's old clipboard instead of the transcription.
     private let clipboardRestoreDelay: Double = 0.15
+
+    /// Longest wait for the target app to read a promised transcript before
+    /// the clipboard is restored anyway (the paste went nowhere).
+    private let pasteReceiptTimeout: Double = 2.0
+
+    /// Wait used when something read the promise before Cmd+V was posted: the
+    /// pasteboard keeps that copy, so the target's own read is invisible.
+    private let unobservedPasteDelay: Double = 0.5
+
+    /// Time left after the target's read for it to finish with the data.
+    private let pasteReceiptSettle: Double = 0.05
 
     /// Delay before simulating the Cmd+V keystroke, giving the
     /// pasteboard a moment to settle after we write to it.
@@ -313,10 +325,13 @@ final class TextInjector {
     /// value mutation. Limiting scope to single-line fields makes AX injection
     /// reliable for apps like Raycast while letting terminal/editor traffic
     /// fall through to the clipboard+Cmd+V path that has always worked there.
+    /// Fields in those roles that report their selected text as not settable
+    /// fall through as well.
     ///
-    /// - Returns: `true` if the text was successfully written via the AX API;
-    ///            `false` if the focused element is unreachable, has an
-    ///            unsupported role, or the write was rejected.
+    /// - Returns: `.inserted` if the text was written via the AX API;
+    ///            `.unavailable` if the focused element is unreachable, has an
+    ///            unsupported role, cannot take the write, or rejected it;
+    ///            `.uncertain` if the write timed out and may still land.
     @discardableResult
     private func injectViaAccessibility(text: String, targetPID: pid_t?) -> AccessibilityInsertion {
         let systemWide = AXUIElementCreateSystemWide()
@@ -343,7 +358,7 @@ final class TextInjector {
         let element = focusedRef as! AXUIElement
         var elementPID: pid_t = 0
         guard AXUIElementGetPid(element, &elementPID) == .success,
-              elementPID == targetPID else { return .unavailable }
+              elementPID == targetPID || Self.isLauncherPanelOwner(elementPID) else { return .unavailable }
         AXUIElementSetMessagingTimeout(element, 0.1)
         // swiftlint:enable force_cast
 
@@ -357,6 +372,16 @@ final class TextInjector {
         let supportedRoles: Set<String> = ["AXTextField", "AXSearchField", "AXComboBox"]
         guard supportedRoles.contains(role) else {
             VocaLogger.debug(.textInjector, "AX: skipping role '\(role)' — not a single-line input field")
+            return .unavailable
+        }
+
+        // Messages' compose field is an AXTextField that reports its selected
+        // text as not settable and silently drops a write to it. Write only
+        // where the field says it will take one; the rest go through Cmd+V.
+        var isSettable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &isSettable) == .success,
+              isSettable.boolValue else {
+            VocaLogger.debug(.textInjector, "AX: selected text not settable (role: \(role)) — using Cmd+V")
             return .unavailable
         }
 
@@ -375,6 +400,19 @@ final class TextInjector {
 
         VocaLogger.debug(.textInjector, "AX: kAXSelectedTextAttribute write failed (\(setResult.rawValue)) — element may be read-only")
         return setResult == .cannotComplete ? .uncertain : .unavailable
+    }
+
+    /// Whether the focused field belongs to a menu bar app's panel, such as
+    /// the search bar of Raycast, Tinycast or Spotlight.
+    ///
+    /// Those panels take keyboard focus without becoming the frontmost app,
+    /// so their field is never owned by the paste target. Cmd+V would go to
+    /// the panel as well, but launchers often swallow it, so the field is
+    /// written directly. VocaMac's own panels are left out.
+    private static func isLauncherPanelOwner(_ pid: pid_t) -> Bool {
+        guard pid != ProcessInfo.processInfo.processIdentifier,
+              let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.activationPolicy != .regular
     }
 
     // MARK: - Strategy 2: Clipboard + Cmd+V
@@ -410,7 +448,11 @@ final class TextInjector {
                     VocaLogger.warning(.textInjector, "Could not put the transcript on the clipboard; insertion abandoned")
                     onFailure?("The transcript could not be copied, so nothing was pasted. It's available in VocaMac.")
                 }
-                if case .failed(let generation) = writeTranscribedText(request.text, to: pasteboard) {
+                // Preserving the clipboard means restoring it after the paste.
+                // Promise the text instead of writing it, so the target's read
+                // says when the paste has landed and the restore can follow.
+                var receipt = request.preserveClipboard ? PasteReceipt(text: request.text) : nil
+                if case .failed(let generation) = writeTranscribedText(request.text, to: pasteboard, receipt: receipt) {
                     abandonAfterFailedWrite(clearedGeneration: generation)
                     return
                 }
@@ -421,7 +463,8 @@ final class TextInjector {
                     // back the clipboard that replaced the original, not the
                     // original itself.
                     snapshot = request.preserveClipboard ? try await captureStableSnapshot(pasteboard) : nil
-                    if case .failed(let generation) = writeTranscribedText(request.text, to: pasteboard) {
+                    receipt = request.preserveClipboard ? PasteReceipt(text: request.text) : nil
+                    if case .failed(let generation) = writeTranscribedText(request.text, to: pasteboard, receipt: receipt) {
                         abandonAfterFailedWrite(clearedGeneration: generation)
                         return
                     }
@@ -436,10 +479,11 @@ final class TextInjector {
                     reportPasteTargetMismatch(queued: request.targetPID, current: pidBeforePaste)
                     return
                 }
+                receipt?.markPastePosted()
                 simulatePaste()
                 PerformanceTrace.event("PasteEventPosted")
                 // Keep the clipboard stable until the target has consumed the event.
-                try await Task.sleep(nanoseconds: UInt64(clipboardRestoreDelay * 1_000_000_000))
+                try await waitForPaste(receipt, changeCount: expectedChangeCount)
                 if request.preserveClipboard, pasteboard.changeCount == expectedChangeCount {
                     if let snapshot { restoreSnapshot(snapshot, to: pasteboard) }
                     else { pasteboard.clearContents() }
@@ -488,10 +532,47 @@ final class TextInjector {
         throw SnapshotError.changed
     }
 
+    /// Wait until the target app has read the transcript, then a moment more.
+    ///
+    /// Only a read after Cmd+V counts: a read before it is an eager clipboard
+    /// manager reacting to the write. The pasteboard cannot say who read, so
+    /// a clipboard manager reading just after Cmd+V looks like the target.
+    /// A receipt therefore only ever extends the wait: the clipboard is never
+    /// restored sooner than the fixed delay used without one.
+    @MainActor
+    private func waitForPaste(_ receipt: PasteReceipt?, changeCount: Int) async throws {
+        guard let receipt else {
+            try await Task.sleep(nanoseconds: UInt64(clipboardRestoreDelay * 1_000_000_000))
+            return
+        }
+        let start = ProcessInfo.processInfo.systemUptime
+        let limit = receipt.wasReadBeforePaste ? unobservedPasteDelay : pasteReceiptTimeout
+        while ProcessInfo.processInfo.systemUptime - start < limit {
+            if receipt.wasReadAfterPaste {
+                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                let wait = max(pasteReceiptSettle, clipboardRestoreDelay - elapsed)
+                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+                PerformanceTrace.event("PasteReceipt")
+                return
+            }
+            // Someone else took the board; the restore will be skipped.
+            if pasteboard.changeCount != changeCount { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        VocaLogger.debug(.textInjector, "No paste receipt within \(limit)s; restoring the clipboard")
+    }
+
     /// Write one transcription to the pasteboard, clearing it first, and
     /// report whether the write landed.
+    ///
+    /// With a `receipt`, the text is promised rather than written: the
+    /// pasteboard asks the receipt for it on the first read.
     @discardableResult
-    private func writeTranscribedText(_ text: String, to pasteboard: NSPasteboard) -> ClipboardWrite {
+    private func writeTranscribedText(
+        _ text: String,
+        to pasteboard: NSPasteboard,
+        receipt: PasteReceipt? = nil
+    ) -> ClipboardWrite {
         // `clearContents()` returns the change count it just established, so
         // take it from there rather than re-reading: another process can write
         // between the two calls, and a failure handler needs to know whether
@@ -501,11 +582,46 @@ final class TextInjector {
             return clipboardWriteOverride(text, pasteboard) ? .written : .failed(generation: clearedGeneration)
         }
         let item = NSPasteboardItem()
-        let didSetText = item.setString(text, forType: .string)
+        let didSetText = receipt.map { item.setDataProvider($0, forTypes: [.string]) }
+            ?? item.setString(text, forType: .string)
         item.setData(Data(), forType: Self.transientType)
         let didWrite = didSetText && pasteboard.writeObjects([item])
         VocaLogger.debug(.textInjector, "Set clipboard: \(text.count) characters")
         return didWrite ? .written : .failed(generation: clearedGeneration)
+    }
+
+    /// Supplies a promised transcript and records when it was read: the
+    /// pasteboard calls back on the first read, which is the paste landing.
+    /// AppKit calls back on whichever thread asked for the data, so the
+    /// state is behind a lock.
+    final class PasteReceipt: NSObject, NSPasteboardItemDataProvider, @unchecked Sendable {
+        private let text: String
+        private let lock = NSLock()
+        private var pastePosted = false
+        private var readBeforePaste = false
+        private var readAfterPaste = false
+
+        init(text: String) {
+            self.text = text
+        }
+
+        var wasReadBeforePaste: Bool { lock.withLock { readBeforePaste } }
+        var wasReadAfterPaste: Bool { lock.withLock { readAfterPaste } }
+
+        func markPastePosted() {
+            lock.withLock { pastePosted = true }
+        }
+
+        func pasteboard(
+            _ pasteboard: NSPasteboard?,
+            item: NSPasteboardItem,
+            provideDataForType type: NSPasteboard.PasteboardType
+        ) {
+            item.setString(text, forType: .string)
+            lock.withLock {
+                if pastePosted { readAfterPaste = true } else { readBeforePaste = true }
+            }
+        }
     }
 
     /// Marks VocaMac's own clipboard writes for clipboard managers

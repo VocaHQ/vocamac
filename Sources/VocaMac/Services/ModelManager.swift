@@ -55,8 +55,12 @@ final class ModelManager {
 
     // MARK: - Properties
 
-    /// HuggingFace repository for WhisperKit CoreML models
-    private let modelRepo = "argmaxinc/whisperkit-coreml"
+    /// HuggingFace repository for Argmax's WhisperKit CoreML models
+    private static let argmaxModelRepo = "argmaxinc/whisperkit-coreml"
+
+    /// HuggingFace repository for community fine-tunes converted to
+    /// WhisperKit CoreML, which Argmax does not publish.
+    static let communityModelRepo = "VocaHQ/whisperkit-coreml"
     private let bundledModelsDirectory = "BundledModels/whisperkit-coreml"
     private let requiredTokenizerFiles = ["tokenizer.json", "tokenizer_config.json"]
     private let requiredModelDirectories = [
@@ -91,7 +95,16 @@ final class ModelManager {
     }
 
     private func installedModelDirectory(for size: ModelSize) -> URL {
-        modelStorageBase.appendingPathComponent(whisperKitModelName(for: size), isDirectory: true)
+        modelStorageBase(forRepo: whisperKitRepo(for: size))
+            .appendingPathComponent(whisperKitModelName(for: size), isDirectory: true)
+    }
+
+    /// HuggingFace repository WhisperKit downloads this model from.
+    func whisperKitRepo(for size: ModelSize) -> String {
+        switch size {
+        case .vocaHinglish:       return Self.communityModelRepo
+        default:                  return Self.argmaxModelRepo
+        }
     }
 
     private func hasRequiredModelAssets(at directory: URL) -> Bool {
@@ -248,10 +261,10 @@ final class ModelManager {
 
     /// Actual directory where WhisperKit stores downloaded model files.
     /// WhisperKit nests models under: downloadBase/models/<repo>/
-    private var modelStorageBase: URL {
+    private func modelStorageBase(forRepo repo: String) -> URL {
         downloadBase
             .appendingPathComponent("models")
-            .appendingPathComponent(modelRepo)
+            .appendingPathComponent(repo)
     }
 
     // MARK: - Model Discovery
@@ -315,6 +328,8 @@ final class ModelManager {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
+        case .vocaHinglish:
+            return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B:
@@ -376,7 +391,9 @@ final class ModelManager {
         switch size.engine {
         case .whisperKit:
             let rec = WhisperKit.recommendedModels()
-            let modelName = whisperKitModelName(for: size)
+            // Fine-tunes are not in WhisperKit's device list; they run
+            // wherever the model they were tuned from does.
+            let modelName = whisperKitModelName(for: size.whisperKitBaseModel ?? size)
 
             if rec.disabled.contains(modelName) {
                 return false
@@ -822,7 +839,10 @@ final class ModelManager {
             // WhisperKit handles downloading from HuggingFace automatically
             // when we initialize with a model name. We create a temporary
             // instance just to trigger the download.
-            let config = WhisperKitConfig(model: whisperKitModelName(for: size))
+            let config = WhisperKitConfig(
+                model: whisperKitModelName(for: size),
+                modelRepo: whisperKitRepo(for: size)
+            )
             config.downloadBase = downloadBase
             config.prewarm = false
             config.load = false  // Don't load into memory, just download
@@ -897,7 +917,7 @@ final class ModelManager {
         let modelDir: URL
         switch size.engine {
         case .whisperKit:
-            modelDir = modelStorageBase.appendingPathComponent(whisperKitModelName(for: size))
+            modelDir = installedModelDirectory(for: size)
         case .parakeet:
             guard let version = parakeetVersion(for: size) else {
                 throw ModelManagerError.modelNotAvailable(modelIdentifier(for: size))
@@ -925,7 +945,8 @@ final class ModelManager {
     /// Directories that hold downloaded model files, across all engines.
     private var modelStorageDirectories: [URL] {
         [
-            modelStorageBase,
+            modelStorageBase(forRepo: Self.argmaxModelRepo),
+            modelStorageBase(forRepo: Self.communityModelRepo),
             parakeetDirectory(for: .v3),
             parakeetDirectory(for: .v2),
             parakeetDirectory(for: .tdtCtc110m),

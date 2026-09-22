@@ -44,7 +44,7 @@
 - **⌨️ More Ways to Dictate** - Press Escape to cancel. A separate hands-free shortcut starts and stops dictation without holding a key. A middle or side mouse button works like the hotkey. Sessions can run up to 20 minutes.
 - **🪄 Command Mode** - Select text in any app — including Electron apps like Discord and Slack — press a configurable shortcut (or hold it), and speak an instruction such as “make this shorter” or “translate to Spanish.” Edits run on Apple Intelligence (macOS 26), a local model (Qwen 2.5 1.5B, Ministral 3 3B, Qwen 3 4B, or Qwen 2.5 7B), or your cleanup endpoint, whether or not Smart Cleanup is on. A local Command Mode model can also run Smart Cleanup, so one model stays loaded for both. Escape cancels, the original stays in the menu bar to copy back, and the selection is left untouched if the result or the replacement fails validation.
 - **📖 Personal Dictionary** - Vocabulary and replacements work with every speech engine (“voca mac” → VocaMac, “get hub” → GitHub). VocaMac suggests words you corrected after dictating, and can spell names and code identifiers the way they appear on screen. All of this happens on your Mac.
-- **😊 Spoken Emoji and Numbers (optional)** - Say “party emoji” to type 🎉, and “twenty three” or “six pm” to type 23 and 6 pm. Both are off by default, use the same rules as VocaPhone, and survive Smart Cleanup unchanged.
+- **😊 Spoken Emoji and Numbers (optional)** - Say “party emoji” to type 🎉 (or “three fire emojis” for 🔥🔥🔥), and “twenty three”, “seven thirty pm” or “my number is nine eight seven…” to type 23, 7:30 pm and 987…. An optional extra writes “50%”, “$5.50” and “June 22”. All off by default, and they survive Smart Cleanup unchanged.
 - **🧠 Engine and Model Choice** - Choose the local speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible options for your Apple Silicon Mac.
 - **⚡ Native Apple Acceleration** - CoreML + Metal + Neural Engine acceleration on Apple Silicon. No manual setup.
 - **📊 Live Visual Feedback** - Menu bar and overlay show audio level and partial words while Whisper or Parakeet is decoding; only the complete recording produces the final transcript.
@@ -385,7 +385,7 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 
 ### Whisper — widest language coverage
 
-OpenAI Whisper models via WhisperKit's CoreML format. The only engine that supports **translation to English** and **custom vocabulary**. The app auto-detects your hardware and recommends a variant.
+OpenAI Whisper models via WhisperKit's CoreML format. The only engine that supports **translation to English**. Dictionary vocabulary is a recognition hint for Whisper, Apple Speech, and (with the optional vocabulary boost download) Parakeet; every engine gets the spelling fixes after transcription. The app auto-detects your hardware and recommends a variant.
 
 | Model | Parameters | Size | Speed | Quality | Best For |
 |-------|-----------|------|-------|---------|----------|
@@ -394,6 +394,9 @@ OpenAI Whisper models via WhisperKit's CoreML format. The only engine that suppo
 | **Small** | 244M | ~1.5 GB | ⚡⚡⚡ | Great | 16GB+ Apple Silicon |
 | **Medium** | 769M | ~2.5 GB | ⚡⚡ | Excellent | 24GB+ for high accuracy |
 | **Large v3** | 1550M | ~4.8 GB | ⚡ | Best | Maximum accuracy |
+| **Voca Hinglish** | 809M | ~0.8 GB | ⚡⚡⚡ | Best for Hindi | Hindi speech written in Roman script ([Oriserve's Hindi2Hinglish Apex](https://huggingface.co/Oriserve/Whisper-Hindi2Hinglish-Apex) fine-tune of Large v3 Turbo, 8-bit compressed and [hosted by VocaHQ](https://huggingface.co/VocaHQ/whisperkit-coreml)) |
+
+Voca Hinglish always decodes as English, which is how it was trained to write romanized Hindi, so it ignores the language setting.
 
 ### Apple Speech — managed by macOS (macOS 26+)
 

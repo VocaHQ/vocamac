@@ -5,6 +5,7 @@
 // Uses CoreML with Metal/Neural Engine acceleration on Apple Silicon.
 
 import Foundation
+import NaturalLanguage
 import WhisperKit
 
 // MARK: - WhisperError
@@ -186,6 +187,9 @@ final class WhisperService: @unchecked Sendable {
             throw WhisperError.emptyAudio
         }
 
+        // A fine-tune trained on one decoder language ignores the setting.
+        let language = modelSizeFromName(loadedModelName ?? "tiny").pinnedLanguage ?? language
+
         let audioLengthSeconds = Double(audioData.count) / 16000.0
         VocaLogger.info(.whisperService, "Transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
 
@@ -237,12 +241,54 @@ final class WhisperService: @unchecked Sendable {
                 fullText = Self.filterHallucinationTokens(rawText)
             }
 
+            // Whisper can lock onto a phrase and repeat it to the token limit,
+            // most often on short clips with a vocabulary prompt. Try once
+            // without the prompt, then cut any loop that remains to one copy.
+            if options.promptTokens != nil,
+               TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Prompted transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying without custom vocabulary"
+                )
+                var unprompted = options
+                unprompted.promptTokens = nil
+                unprompted.usePrefillPrompt = language != nil
+                // The looped text still holds the phrase, and collapsing it
+                // below recovers it; only a real answer replaces it.
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: unprompted)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if Self.isUsableRetry(retriedText) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                    } else {
+                        VocaLogger.warning(.whisperService, "Unprompted retry was empty; keeping the first transcription")
+                    }
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Unprompted retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
+            }
+            if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                let collapsed = TranscriptRepetition.collapsingLoops(in: fullText, audioSeconds: audioLengthSeconds)
+                VocaLogger.warning(
+                    .whisperService,
+                    "Transcription repeated itself; kept one copy (\(fullText.count) → \(collapsed.count) characters)"
+                )
+                fullText = collapsed
+            }
+
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-            // Get detected language from first result
-            let detectedLanguage = results.first?.language ?? language ?? "en"
-
             let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
+
+            // Get detected language from first result
+            let decodedLanguage = results.first?.language ?? language ?? "en"
+            let detectedLanguage = Self.reportedLanguage(for: fullText, model: modelUsed, decoded: decodedLanguage)
 
             VocaLogger.info(.whisperService, "Transcription completed in \(String(format: "%.2f", elapsed))s")
             VocaLogger.info(.whisperService, "Result: \(fullText.count) characters")
@@ -373,10 +419,34 @@ final class WhisperService: @unchecked Sendable {
     /// Parse a raw vocabulary string into individual terms. Terms are separated
     /// by newlines or commas; surrounding whitespace and blank entries are dropped.
     static func vocabularyTerms(from vocabulary: String) -> [String] {
-        vocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        RecognitionHints.vocabularyTerms(from: vocabulary)
+    }
+
+    /// The language to report for a transcript.
+    ///
+    /// A model that writes a language in Latin letters under a pinned decoder
+    /// language (Voca Hinglish: Hindi, decoded as English) reports that
+    /// language with a Latin script tag, "hi-Latn", unless the text is
+    /// plainly English. Cleanup then treats it as the language it is rather
+    /// than as English to correct.
+    static func reportedLanguage(for text: String, model: ModelSize, decoded: String) -> String {
+        guard let romanized = model.romanizedLanguage else { return decoded }
+        return isConfidentlyEnglish(text) ? "en" : "\(romanized)-Latn"
+    }
+
+    /// Whether the language recognizer is at least 60% sure `text` is
+    /// English. Romanized Hindi never gets there (it reads as Indonesian or
+    /// Vietnamese at low confidence), while English sentences, including
+    /// ones with a Hindi word or two, score 0.7 and up.
+    static func isConfidentlyEnglish(_ text: String) -> Bool {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return (recognizer.languageHypotheses(withMaximum: 3)[.english] ?? 0) >= 0.6
+    }
+
+    /// Whether a retry's text can replace the transcription it retried.
+    static func isUsableRetry(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {
@@ -404,8 +474,9 @@ final class WhisperService: @unchecked Sendable {
     }
 
     /// Map a model name string to our ModelSize enum
-    private func modelSizeFromName(_ name: String) -> ModelSize {
+    func modelSizeFromName(_ name: String) -> ModelSize {
         let lowered = name.lowercased()
+        if lowered.contains("hinglish") { return .vocaHinglish }
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }
         if lowered.contains("distil") && lowered.contains("turbo") { return .distilLargeV3TurboCompact }

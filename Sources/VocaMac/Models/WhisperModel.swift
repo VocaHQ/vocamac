@@ -24,6 +24,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case largeV3                      = "large-v3"
     case largeV3Turbo                 = "large-v3_turbo"
     case medium                       = "medium"
+    case vocaHinglish                 = "voca-hinglish"
 
     // Parakeet (FluidAudio)
     case parakeetV3                   = "parakeet-tdt-0.6b-v3"
@@ -98,6 +99,41 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         SherpaModelCatalog.spec(for: self)?.bindsLanguageAtLoadTime ?? false
     }
 
+    /// The WhisperKit model a fine-tune was trained from, whose device
+    /// support it shares.
+    var whisperKitBaseModel: ModelSize? {
+        switch self {
+        case .vocaHinglish:       return .largeV3LatestCompact
+        default:                  return nil
+        }
+    }
+
+    /// The decoder language a fine-tuned model was trained on, used in place
+    /// of the user's language setting.
+    ///
+    /// Voca Hinglish writes romanized Hindi only when decoded as English;
+    /// asked for Hindi, or left to detect, it falls back to Devanagari or
+    /// translates.
+    var pinnedLanguage: String? {
+        switch self {
+        case .vocaHinglish:       return "en"
+        default:                  return nil
+        }
+    }
+
+    /// The language a fine-tune writes in Latin letters under its pinned
+    /// decoder language.
+    ///
+    /// Voca Hinglish decodes as English but writes spoken Hindi romanized.
+    /// Reported as English, that text got English cleanup: Hindi words were
+    /// "corrected" to English spellings and reworded.
+    var romanizedLanguage: String? {
+        switch self {
+        case .vocaHinglish:       return "hi"
+        default:                  return nil
+        }
+    }
+
     /// Models shown by default in the app's Mac-focused model picker.
     ///
     /// `medium` remains a legacy value for stored preferences and explicit
@@ -115,6 +151,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .distilLargeV3TurboCompact,
         .largeV3LatestCompact,
         .largeV3Latest,
+        .vocaHinglish,
         .appleSpeech,
         .moonshineTiny,
         .moonshineBase,
@@ -144,6 +181,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return "Large v3"
         case .largeV3Turbo:              return "Large v3 Turbo"
         case .medium:                    return "Medium (Legacy)"
+        case .vocaHinglish:              return "Voca Hinglish"
         case .parakeetV3:                return "Parakeet v3 (Multilingual)"
         case .parakeetV2:                return "Parakeet v2 (English)"
         case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
@@ -172,6 +210,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 3_100_000_000
         case .largeV3Turbo:              return 954_000_000
         case .medium:                    return 1_500_000_000
+        case .vocaHinglish:              return 824_000_000
         case .parakeetV3:                return 700_000_000
         case .parakeetV2:                return 1_200_000_000
         case .parakeetTdtCtc110m:        return 220_000_000
@@ -208,6 +247,11 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 10.0
         case .largeV3Turbo:              return 6.0
         case .medium:                    return 5.0
+        // Measured with the CLI on Apple Silicon (a Whisper Turbo decoder,
+        // 8-bit): 1.0 GB peak resident on the first load while CoreML
+        // compiles for the Neural Engine, then about 0.3 GB. The 5 GB it
+        // inherited from its base model blocked loads on 8 GB Macs.
+        case .vocaHinglish:              return 1.5
         case .parakeetV3:                return 2.0
         case .parakeetV2:                return 2.5
         case .parakeetTdtCtc110m:        return 1.0
@@ -236,6 +280,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 16
         case .largeV3Turbo:              return 10
         case .medium:                    return 8
+        case .vocaHinglish:              return 8
         case .parakeetV3:                return 1
         case .parakeetV2:                return 1
         case .parakeetTdtCtc110m:        return 1
@@ -264,6 +309,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return "Best"
         case .largeV3Turbo:              return "Best"
         case .medium:                    return "Legacy"
+        case .vocaHinglish:              return "Best for Hindi"
         case .parakeetV3:                return "Excellent"
         case .parakeetV2:                return "Excellent"
         case .parakeetTdtCtc110m:        return "Great"

@@ -16,8 +16,19 @@ final class TranscriptionRouter: @unchecked Sendable {
     private let appleSpeech = AppleSpeechService()
     private let sherpa = SherpaService()
 
+    /// Trims silence before batch decodes; see `SpeechActivityTrimmer`.
+    private let voiceActivity = VoiceActivityDetector()
+
     /// Engine that owns the currently loaded model.
     private(set) var activeEngine: TranscriptionEngine = .whisperKit
+
+    /// Decodes in a row that failed on the loaded model; see
+    /// `isModelFailure(_:)`.
+    private var consecutiveFailures = 0
+
+    /// Failures in a row after which the model is unloaded, so the next
+    /// dictation loads a fresh copy instead of failing the same way.
+    static let failuresBeforeReload = 2
 
     /// Shared queue for loads and transcriptions so a hotkey cannot decode
     /// against an engine that a concurrent load just unloaded.
@@ -29,11 +40,28 @@ final class TranscriptionRouter: @unchecked Sendable {
     /// changing that preference.
     private let languagePreferenceProvider: () -> String?
 
-    init(languagePreferenceProvider: @escaping () -> String? = {
-        let stored = UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
-        return stored == "auto" ? nil : stored
-    }) {
+    /// Whether batch decodes skip silence first (Settings → Audio).
+    private let skipSilenceProvider: () -> Bool
+
+    init(
+        languagePreferenceProvider: @escaping () -> String? = {
+            let stored = UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
+            return stored == "auto" ? nil : stored
+        },
+        skipSilenceProvider: @escaping () -> Bool = {
+            UserDefaults.standard.object(forKey: PreferenceKey.skipSilence) as? Bool ?? true
+        }
+    ) {
         self.languagePreferenceProvider = languagePreferenceProvider
+        self.skipSilenceProvider = skipSilenceProvider
+    }
+
+    // MARK: - Engine Capabilities
+
+    /// Languages Apple Speech supports on this Mac, or nil when it can't
+    /// run here or the system reports none.
+    static func appleSpeechLanguageCodes() async -> Set<String>? {
+        await AppleSpeechService.supportedLanguageCodes()
     }
 
     // MARK: - Engine Resolution
@@ -59,6 +87,16 @@ final class TranscriptionRouter: @unchecked Sendable {
         case .parakeet:    return parakeet.loadedModelName
         case .appleSpeech: return appleSpeech.loadedModelName
         case .sherpaOnnx:  return sherpa.loadedModelName
+        }
+    }
+
+    /// Catalog entry of the loaded model, for results the router makes itself.
+    private var loadedModelSize: ModelSize {
+        switch activeEngine {
+        case .whisperKit:
+            return whisper.modelSizeFromName(whisper.loadedModelName ?? "tiny")
+        default:
+            return loadedModelName.flatMap(ModelSize.init(rawValue:)) ?? .tiny
         }
     }
 
@@ -133,6 +171,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         }
 
         activeEngine = engine
+        if skipSilenceProvider() {
+            await voiceActivity.prepare()
+        }
     }
 
     /// The transcription language the user selected, or nil for auto-detect.
@@ -159,7 +200,7 @@ extension TranscriptionRouter: SpeechTranscribing {
                 guard activeEngine == expectedEngine else { throw RecordingTranscription.StreamError.incomplete }
                 switch expectedEngine {
                 case .appleSpeech:
-                    return try await appleSpeech.transcribe(chunks: chunks, language: language)
+                    return try await appleSpeech.transcribe(chunks: chunks, language: language, vocabulary: vocabulary)
                 case .whisperKit:
                     return try await IncrementalAudioTranscriber.run(
                         chunks: chunks,
@@ -176,6 +217,9 @@ extension TranscriptionRouter: SpeechTranscribing {
                         chunks: chunks,
                         transcribe: { [parakeet] samples in
                             try await parakeet.transcribe(audioData: samples, language: language)
+                        },
+                        transcribeFinal: { [parakeet] samples in
+                            try await parakeet.transcribe(audioData: samples, language: language, vocabulary: vocabulary)
                         },
                         onPartial: onPartial
                     )
@@ -194,23 +238,118 @@ extension TranscriptionRouter: SpeechTranscribing {
     ) async throws -> VocaTranscription {
         let interval = PerformanceTrace.begin("TranscriptionQueueAndDecode")
         defer { PerformanceTrace.end(interval) }
+        guard let audioData = await audioWithoutSilence(audioData) else {
+            VocaLogger.info(.general, "No speech detected; skipping the decode")
+            return VocaTranscription(
+                text: "", duration: 0, detectedLanguage: language ?? "auto",
+                audioLengthSeconds: Double(audioData.count) / 16_000, modelUsed: loadedModelSize
+            )
+        }
         return try await operationSerializer.run { [self] in
-            switch activeEngine {
-            case .whisperKit:
-                return try await whisper.transcribe(
-                    audioData: audioData,
-                    language: language,
-                    translate: translate,
-                    vocabulary: vocabulary
-                )
-            case .parakeet:
-                return try await parakeet.transcribe(audioData: audioData, language: language)
-            case .appleSpeech:
-                return try await appleSpeech.transcribe(audioData: audioData, language: language)
-            case .sherpaOnnx:
-                return try await sherpa.transcribe(audioData: audioData, language: language)
+            do {
+                let result = try await decode(audioData: audioData, language: language, translate: translate, vocabulary: vocabulary)
+                consecutiveFailures = 0
+                return result
+            } catch {
+                guard Self.isModelFailure(error) else { throw error }
+                consecutiveFailures += 1
+                if consecutiveFailures >= Self.failuresBeforeReload {
+                    VocaLogger.error(
+                        .general,
+                        "\(consecutiveFailures) decodes failed on \(loadedModelName ?? "the model"); unloading so the next dictation reloads it"
+                    )
+                    consecutiveFailures = 0
+                    await unloadAllEngines()
+                }
+                throw error
             }
         }
+    }
+
+    private func decode(
+        audioData: [Float],
+        language: String?,
+        translate: Bool,
+        vocabulary: String
+    ) async throws -> VocaTranscription {
+        switch activeEngine {
+        case .whisperKit:
+            return try await whisper.transcribe(
+                audioData: audioData,
+                language: language,
+                translate: translate,
+                vocabulary: vocabulary
+            )
+        case .parakeet:
+            return try await parakeet.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)
+        case .appleSpeech:
+            return try await appleSpeech.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)
+        case .sherpaOnnx:
+            return try await sherpa.transcribe(audioData: audioData, language: language)
+        }
+    }
+
+    /// Whether a failed decode says the loaded model may be in a bad state.
+    ///
+    /// A model that fails this way twice in a row is dropped and reloaded on
+    /// the next dictation. Cancellation, missing audio, and "not loaded" say
+    /// nothing about the model, so they never count.
+    static func isModelFailure(_ error: Error) -> Bool {
+        if error is CancellationError { return false }
+        switch error {
+        case WhisperError.modelNotLoaded, WhisperError.emptyAudio,
+             ParakeetError.modelNotLoaded, ParakeetError.emptyAudio,
+             AppleSpeechError.modelNotLoaded, AppleSpeechError.emptyAudio,
+             SherpaError.modelNotLoaded, SherpaError.emptyAudio:
+            return false
+        default:
+            return true
+        }
+    }
+
+    // MARK: - Vocabulary Boost
+
+    /// Whether Parakeet's vocabulary boost model is on disk.
+    static var isVocabularyBoostDownloaded: Bool { ParakeetVocabularyBoost.isModelDownloaded }
+
+    /// Download Parakeet's vocabulary boost model (~98 MB).
+    static func downloadVocabularyBoost() async throws {
+        try await ParakeetVocabularyBoost.downloadModel()
+    }
+
+    /// Delete Parakeet's vocabulary boost model, turning the boost off.
+    static func removeVocabularyBoost() throws {
+        try ParakeetVocabularyBoost.removeModel()
+    }
+
+    // MARK: - Silence
+
+    /// The recording with silence trimmed, or nil when nothing was said.
+    /// Returns the recording unchanged when trimming is off or unavailable.
+    private func audioWithoutSilence(_ audioData: [Float]) async -> [Float]? {
+        guard skipSilenceProvider() else { return audioData }
+        let interval = PerformanceTrace.begin("VoiceActivityTrim")
+        defer { PerformanceTrace.end(interval) }
+        switch await voiceActivity.decision(for: audioData) {
+        case .keep:
+            return audioData
+        case .trim(let ranges):
+            let trimmed = SpeechActivityTrimmer.apply(ranges, to: audioData)
+            VocaLogger.debug(.general, "Skipped silence: \(audioData.count) → \(trimmed.count) samples")
+            return trimmed
+        case .noSpeech:
+            return nil
+        }
+    }
+
+    /// Must run inside `operationSerializer`.
+    private func unloadAllEngines() async {
+        whisper.unloadModel()
+        await parakeet.unloadModelAndWait()
+        await appleSpeech.unloadModel()
+        sherpa.unloadModel()
+        await voiceActivity.unload()
+        consecutiveFailures = 0
     }
 
     /// Clear preferences retired engine code left behind. Owned here so
@@ -226,10 +365,7 @@ extension TranscriptionRouter: SpeechTranscribing {
     func unloadModel() async {
         do {
             try await operationSerializer.run(cancellable: false) { [self] in
-                whisper.unloadModel()
-                await parakeet.unloadModelAndWait()
-                await appleSpeech.unloadModel()
-                sherpa.unloadModel()
+                await unloadAllEngines()
             }
         } catch {
             // Unload paths do not throw today; keep the queue resilient if that changes.

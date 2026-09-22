@@ -15,6 +15,7 @@ enum PreferenceKey {
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"
     static let autoCapitalize = "vocamac.autoCapitalize"
     static let numbersAsDigits = "vocamac.numbersAsDigits"
+    static let numberSymbols = "vocamac.numberSymbols"
     static let spokenEmoji = "vocamac.spokenEmoji"
     static let autoPauseEnabled = "vocamac.autoPause.enabled"
     static let autoPauseApps = "vocamac.autoPause.apps"
@@ -51,6 +52,8 @@ enum PreferenceKey {
     static let useScreenContext = "vocamac.dictionary.screenContext"
     static let websiteStyleBindings = "vocamac.writingStyle.websiteBindings"
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
+    static let skipSilence = "vocamac.audio.skipSilence"
+    static let spokenLanguages = "vocamac.spokenLanguages"
 }
 
 /// The on-device inference engine backing a model in the catalog.

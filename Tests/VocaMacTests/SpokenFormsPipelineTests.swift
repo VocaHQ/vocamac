@@ -14,7 +14,7 @@ final class SpokenFormsPipelineTests: XCTestCase {
         _ input: String, cleaner: MockTranscriptCleanup? = nil,
         format: WritingStyle = .plain, intent: WritingIntent = .preserve,
         cleanup: WritingCleanupPolicy = .inherit, enabled: Bool = true,
-        snippets: [Snippet] = [], digits: Bool = true, emoji: Bool = true
+        snippets: [Snippet] = [], digits: Bool = true, symbols: Bool = false, emoji: Bool = true
     ) async -> DictationOutputResult {
         await DictationOutputPipeline(cleaner: cleaner ?? MockTranscriptCleanup(), snippets: SnippetExpander()).process(
             input,
@@ -22,7 +22,7 @@ final class SpokenFormsPipelineTests: XCTestCase {
             snippetList: snippets, cleanupEnabled: enabled, rewritingEnabled: true,
             model: .defaultKind, customPrompt: "", cleanupLevel: .medium,
             language: "en", autoCapitalize: true, trailingSpace: false,
-            numbersAsDigits: digits, spokenEmoji: emoji
+            numbersAsDigits: digits, numberSymbols: symbols, spokenEmoji: emoji
         )
     }
 
@@ -145,6 +145,72 @@ final class SpokenFormsPipelineTests: XCTestCase {
     func testTechnicalStylesConvertToo() async {
         let result = await process("sleep five", format: .terminal)
         XCTAssertEqual(result.text, "sleep 5")
+    }
+
+    // MARK: - Symbols, grouping, times
+
+    func testSymbolsAreOffUnlessAsked() async {
+        let result = await process("fifty percent off for five dollars", enabled: false)
+        XCTAssertEqual(result.text, "50 percent off for 5 dollars")
+    }
+
+    func testSymbolsOnlyApplyWithDigits() async {
+        let result = await process("fifty percent off", enabled: false, digits: false, symbols: true)
+        XCTAssertEqual(result.text, "Fifty percent off")
+    }
+
+    func testSymbolsConvertThroughThePipeline() async {
+        let result = await process(
+            "fifty percent off, five dollars and fifty cents, minus five degrees on June twenty second",
+            enabled: false, symbols: true
+        )
+        XCTAssertEqual(result.text, "50% off, $5.50, -5 degrees on June 22")
+    }
+
+    /// Formatting must not read the separator, colon or slash as punctuation
+    /// to space out.
+    func testFormattingLeavesWrittenNumbersAlone() async {
+        let result = await process(
+            "we have twelve thousand five hundred users at seven thirty pm, open twenty four seven",
+            enabled: false
+        )
+        XCTAssertEqual(result.text, "We have 12,500 users at 7:30 pm, open 24/7")
+    }
+
+    func testAModelThatDropsASymbolIsNotTaken() async {
+        let cleaner = MockTranscriptCleanup()
+        // Keeps the digits but loses the signs around them.
+        cleaner.cleanHandler = { text in
+            RewriteValidation.matches("VOCAKEEP[0-9]+END", in: text).reversed()
+                .reduce(text as NSString) { $0.replacingCharacters(in: $1, with: "5") as NSString } as String
+        }
+        let result = await process("it costs five dollars, down minus five percent", cleaner: cleaner, symbols: true)
+        XCTAssertEqual(result.text, "It costs $5, down -5%")
+    }
+
+    /// "million" and "pm" travel inside the number's token, so a model that
+    /// drops the word after it cannot change the amount or the time.
+    func testTheScaleWordAndMeridiemCrossTheModelWithTheirNumber() async throws {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { text in
+            text.replacingOccurrences(of: " million", with: "").replacingOccurrences(of: " pm", with: "")
+        }
+        let result = await process("we raised two point five million at seven thirty pm", cleaner: cleaner)
+        XCTAssertEqual(result.text, "We raised 2.5 million at 7:30 pm")
+        let seen = try XCTUnwrap(cleaner.lastCleanedText)
+        XCTAssertFalse(seen.contains("million"))
+        XCTAssertFalse(seen.contains("pm"))
+        XCTAssertEqual(RewriteValidation.substrings("VOCAKEEP[0-9]+END", in: seen).count, 2)
+    }
+
+    func testRepeatedGlyphsAndTheClosingFullStop() async {
+        let result = await process("we shipped it three party emojis.", enabled: false)
+        XCTAssertEqual(result.text, "We shipped it 🎉🎉🎉")
+    }
+
+    func testProseBeforeADescriptorNeedsNoComma() async {
+        let result = await process("so proud of you thumbs up emoji", enabled: false)
+        XCTAssertEqual(result.text, "So proud of you 👍")
     }
 
     func testDroppingTheFullStopOnlyTouchesTheVeryEnd() {

@@ -458,6 +458,8 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
+        case .vocaHinglish:
+            return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B:
@@ -926,7 +928,7 @@ enum TestWords {
     static let common: Set<String> = [
         "the", "a", "an", "and", "i", "to", "is", "it", "in", "on", "of", "for", "with", "my", "me",
         "open", "file", "hello", "world", "cloud", "there", "their", "big", "large", "meet", "at",
-        "send", "email", "call", "please", "user", "id", "service", "super", "base", "post", "apple",
+        "send", "email", "call", "please", "user", "id", "kaiser", "service", "super", "base", "post", "apple",
         "notes", "mail", "check", "this", "that", "we", "should", "use", "set", "value", "ask",
         "about", "project", "today", "tomorrow", "update", "code", "run", "tests", "get", "hub",
     ]

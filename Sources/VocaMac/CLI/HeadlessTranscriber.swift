@@ -45,30 +45,38 @@ final class HeadlessTranscriber {
     private let preferences: CLIPreferencesReading
     private let audioLoader: AudioFileLoading
     private let transcriberFactory: TranscriberFactory
+    private let compiledModels: CompiledModelRecord?
 
+    /// - Parameter compiledModels: Where to record a successful load, so the
+    ///   app's memory gate knows CoreML has compiled the model. `nil` records
+    ///   nothing.
     init(
         modelManager: ModelManaging,
         preferences: CLIPreferencesReading,
         audioLoader: AudioFileLoading,
-        transcriberFactory: @escaping TranscriberFactory
+        transcriberFactory: @escaping TranscriberFactory,
+        compiledModels: CompiledModelRecord? = nil
     ) {
         self.modelManager = modelManager
         self.preferences = preferences
         self.audioLoader = audioLoader
         self.transcriberFactory = transcriberFactory
+        self.compiledModels = compiledModels
     }
 
     convenience init(
         modelManager: ModelManaging,
         preferences: CLIPreferencesReading,
         audioLoader: AudioFileLoading,
-        transcriber: SpeechTranscribing
+        transcriber: SpeechTranscribing,
+        compiledModels: CompiledModelRecord? = nil
     ) {
         self.init(
             modelManager: modelManager,
             preferences: preferences,
             audioLoader: audioLoader,
-            transcriberFactory: { _ in transcriber }
+            transcriberFactory: { _ in transcriber },
+            compiledModels: compiledModels
         )
     }
 
@@ -89,6 +97,7 @@ final class HeadlessTranscriber {
 
         do {
             try await transcriber.loadModel(name: modelIdentifier, folder: modelFolder)
+            compiledModels?.recordLoad(model)
             // Only model and language follow app prefs (see README); translate
             // and custom vocabulary are intentionally always off headlessly.
             let result = try await transcriber.transcribe(

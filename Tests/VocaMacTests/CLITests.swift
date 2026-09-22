@@ -345,6 +345,34 @@ final class CLITests: XCTestCase {
         }
     }
 
+    func testHeadlessTranscriptionRecordsTheLoad() async throws {
+        let suiteName = "CLITests.compiledModels"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small]
+        let headless = HeadlessTranscriber(
+            modelManager: modelManager,
+            preferences: MockCLIPreferences(
+                selectedModelIdentifier: ModelSize.small.rawValue,
+                selectedLanguageIdentifier: "auto"
+            ),
+            audioLoader: MockAudioFileLoader(),
+            transcriber: MockWhisperService(),
+            compiledModels: record
+        )
+
+        _ = try await headless.transcribe(
+            fileURL: URL(fileURLWithPath: "/mock/audio.wav"),
+            modelOverride: nil,
+            languageOverride: nil
+        )
+
+        XCTAssertTrue(record.hasLoaded(.small))
+    }
+
     // MARK: - Helpers
 
     private func makeDependencies(selectedModel: ModelSize) -> TestDependencies {

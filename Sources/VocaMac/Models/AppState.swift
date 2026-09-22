@@ -2557,6 +2557,9 @@ final class AppState: ObservableObject {
                     }
                 }
             }
+            // CoreML has cached the compile even if a newer load supersedes
+            // this one, so record it before any early return.
+            CompiledModelRecord().recordLoad(targetSize)
 
             // A newer loadModel started while we were waiting; leave UI to it.
             guard generation == loadGeneration else {
@@ -2582,7 +2585,6 @@ final class AppState: ObservableObject {
             lastModelUnloadReason = nil
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
-            CompiledModelRecord().recordLoad(targetSize)
             VocaLogger.info(.appState, "Model ready: \(targetSize.displayName)")
         } catch {
             // A newer load superseded this one; do not restore over it.
@@ -2894,6 +2896,7 @@ final class AppState: ObservableObject {
                 : nil
             let restoreName = previousName ?? modelManager.modelIdentifier(for: previousSize)
             try await whisperService.loadModel(name: restoreName, folder: folderURL)
+            CompiledModelRecord().recordLoad(previousSize)
             markModelActive(previousSize)
             VocaLogger.info(.appState, "Restored previous model: \(previousSize.displayName)")
         } catch {

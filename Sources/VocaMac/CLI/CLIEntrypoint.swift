@@ -41,7 +41,12 @@ final class CLIEntrypoint {
             audioLoader: AudioFileLoader(),
             transcriberFactory: { language in
                 TranscriptionRouter(languagePreferenceProvider: { language })
-            }
+            },
+            // CoreML caches compiles per app, so a CLI load spares the app a
+            // compile only when the CLI runs as the app's own binary.
+            compiledModels: Bundle.main.bundleIdentifier == "com.vocamac.app"
+                ? CompiledModelRecord()
+                : nil
         )
         return CLIEntrypoint(
             headlessTranscriber: transcriber,

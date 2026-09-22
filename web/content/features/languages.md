@@ -1,7 +1,7 @@
 ---
 title: "Language support"
 subtitle: "Let Whisper detect a language or choose one of the languages exposed in VocaMac's stable settings picker."
-description: "VocaMac's stable Whisper path supports automatic detection and 37 selectable language hints, with all transcription running locally on your Mac."
+description: "VocaMac's stable Whisper path supports automatic detection and 43 selectable language hints, with all transcription running locally on your Mac."
 keywords: "multilingual dictation macOS, whisper language support, speech to text languages, auto detect language voice, multilingual voice typing mac"
 icon: "🌍"
 ---
@@ -10,7 +10,7 @@ icon: "🌍"
 
 ![VocaMac Settings showing language configuration](/screenshots/settings-models.png)
 
-VocaMac's stable Whisper path supports automatic detection plus 37 language hints in Settings: Arabic, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Spanish, Swedish, Tamil, Thai, Turkish, Ukrainian, and Vietnamese.
+VocaMac's stable Whisper path supports automatic detection plus 43 language hints in Settings: Arabic, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Latvian, Lithuanian, Macedonian, Malay, Maltese, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Slovenian, Spanish, Swedish, Tamil, Thai, Turkish, Ukrainian, and Vietnamese.
 
 The underlying Whisper model was trained on more languages than VocaMac exposes as manual settings. The website describes the picker users can actually use, not a larger training-data figure.
 

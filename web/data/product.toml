@@ -1,23 +1,23 @@
 # Centralized VocaMac product facts.
 #
 # Status and OS floor follow VocaHQ/vocahq PRODUCT.md (verified 2026-08-14):
-# Beta, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
-# Version/artifact figures were verified against the tagged v0.10.0 release.
+# Stable, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
+# Version/artifact figures were verified against the tagged v1.0.0 release.
 # Re-verify this file before publishing a website change.
 #
-# Verified: 2026-09-17 against v0.10.0 and its tagged release assets.
+# Verified: TBD-RELEASE-DATE against v1.0.0 and its tagged release assets.
 
 [stable]
-version = "0.10.0"
-tag = "v0.10.0"
-status = "Beta"
-released = "2026-09-17"
-releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v0.10.0"
+version = "1.0.0"
+tag = "v1.0.0"
+status = "Stable"
+released = "TBD-RELEASE-DATE"
+releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v1.0.0"
 releasesURL = "https://github.com/VocaHQ/vocamac/releases"
 latestURL = "https://github.com/VocaHQ/vocamac/releases/latest"
-dmg = "VocaMac-0.10.0-arm64.dmg"
-dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v0.10.0/VocaMac-0.10.0-arm64.dmg"
-dmgSize = "116 MB"
+dmg = "VocaMac-1.0.0-arm64.dmg"
+dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v1.0.0/VocaMac-1.0.0-arm64.dmg"
+dmgSize = "TBD-DMG-SIZE"
 
 [requirements]
 os = "macOS 14 Sonoma or later"
@@ -27,13 +27,13 @@ archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
 permissions = ["Microphone", "Accessibility", "Input Monitoring"]
 
-# Languages that can actually be pinned in Settings in v0.10.0, verified against
+# Languages that can actually be pinned in Settings in v1.0.0, verified against
 # TranscriptionLanguage.selectable in TranscriptionLanguage.swift.
 # The Whisper model is trained on ~99 languages, but only these are selectable,
 # so the site must not claim "99+ languages".
 [languages]
-count = 37
-list = "Arabic, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Malay, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Spanish, Swedish, Tamil, Thai, Turkish, Ukrainian, and Vietnamese"
+count = 43
+list = "Arabic, Bengali, Bulgarian, Catalan, Chinese, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hebrew, Hindi, Hungarian, Indonesian, Italian, Japanese, Korean, Latvian, Lithuanian, Macedonian, Malay, Maltese, Norwegian, Persian, Polish, Portuguese, Romanian, Russian, Serbian, Slovak, Slovenian, Spanish, Swedish, Tamil, Thai, Turkish, Ukrainian, and Vietnamese"
 autoDetect = true
 
 [engine]
@@ -43,7 +43,7 @@ runtime = "CoreML"
 modelRepo = "argmaxinc/whisperkit-coreml"
 modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
 
-# The WhisperKit model picker shown in Settings in v0.10.0 (ModelSize.standardCatalog).
+# The WhisperKit model picker shown in Settings in v1.0.0 (ModelSize.standardCatalog).
 # size/ram are the values the app itself reports.
 [[models]]
 id = "tiny"
@@ -109,7 +109,15 @@ ram = "10 GB"
 quality = "Best"
 note = "Highest accuracy. Wants a 16 GB Mac and patience."
 
-# Additional engines and models in v0.10.0. Sizes and notes follow the shipped
+[[models]]
+id = "voca-hinglish"
+name = "Voca Hinglish"
+size = "824 MB"
+ram = "1.5 GB"
+quality = "Best for Hindi"
+note = "Writes Hindi speech in Roman script (Hinglish). Fine-tuned from Oriserve's Whisper Hindi2Hinglish Apex."
+
+# Additional engines and models in v1.0.0. Sizes and notes follow the shipped
 # catalogs in WhisperModel.swift and SherpaModelCatalog.swift.
 [[releaseModels]]
 id = "parakeet-v3"
@@ -173,6 +181,13 @@ name = "Canary 180M Flash"
 engine = "sherpa-onnx"
 size = "320 MB"
 note = "CPU-only. English, Spanish, German, French."
+
+[[releaseModels]]
+id = "qwen3-asr-0.6b"
+name = "Qwen3 ASR 0.6B"
+engine = "sherpa-onnx"
+size = "973 MB"
+note = "CPU-only. 30 languages, including Hindi, Arabic, and Thai."
 
 [links]
 repo = "https://github.com/VocaHQ/vocamac"

@@ -946,26 +946,13 @@ struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var languageSearch = ""
     @State private var isLanguageSectionExpanded = false
-    @State private var expandedEngines: Set<TranscriptionEngine> = []
+    @State private var modelSearch = ""
+    @State private var translationOnly = false
+    @State private var isOtherExpanded = false
+    @State private var isMoreSuggestedExpanded = false
 
-    /// Rows that stay visible without expanding: anything on disk, in use,
-    /// in flight, or recommended for this Mac.
-    private func isProminent(_ model: WhisperModelInfo) -> Bool {
-        if model.isDownloaded || model.isActive || model.isLoading || model.downloadProgress != nil {
-            return true
-        }
-        guard model.isSupported, let recommended = appState.deviceRecommendedModel else { return false }
-        return appState.modelManager.modelSize(from: recommended) == model.size
-    }
-
-    private func expansionBinding(for engine: TranscriptionEngine) -> Binding<Bool> {
-        Binding(
-            get: { expandedEngines.contains(engine) },
-            set: { isExpanded in
-                if isExpanded { expandedEngines.insert(engine) } else { expandedEngines.remove(engine) }
-            }
-        )
-    }
+    /// Suggested models listed before the rest collapse.
+    private static let suggestedShown = 5
 
     /// When true, show language / translation / vocabulary below the catalog.
     var showsLanguageHints: Bool = false
@@ -974,34 +961,47 @@ struct ModelSettingsTab: View {
         self.showsLanguageHints = showsLanguageHints
     }
 
-    /// Catalog entries grouped by engine, preserving catalog order within
-    /// each group. Engines with no available models are omitted.
-    private var modelsByEngine: [(engine: TranscriptionEngine, models: [WhisperModelInfo])] {
-        TranscriptionEngine.allCases.compactMap { engine in
-            let models = appState.availableModels.filter { $0.size.engine == engine }
-            return models.isEmpty ? nil : (engine: engine, models: models)
-        }
+    private var spokenLanguagesBinding: Binding<[String]> {
+        Binding(
+            get: { appState.spokenLanguages },
+            set: { appState.spokenLanguages = $0 }
+        )
+    }
+
+    private var recommendedModel: ModelSize? {
+        appState.deviceRecommendedModel.flatMap { appState.modelManager.modelSize(from: $0) }
+    }
+
+    private var sections: ModelPickerSections {
+        ModelPickerCatalog.sections(
+            models: appState.availableModels,
+            spokenLanguages: appState.spokenLanguages,
+            search: modelSearch,
+            translationOnly: translationOnly,
+            recommended: recommendedModel,
+            systemLanguages: appState.appleSpeechLanguages
+        )
     }
 
     private var filteredLanguages: [TranscriptionLanguage] {
         TranscriptionLanguage.filtered(search: languageSearch)
     }
 
-    private var activeEngine: TranscriptionEngine? {
-        appState.currentModel?.size.engine
-            ?? ModelSize(rawValue: appState.selectedModelSize)?.engine
+    private var activeModel: ModelSize? {
+        appState.currentModel?.size ?? ModelSize(rawValue: appState.selectedModelSize)
     }
 
-    private func engineIconName(_ engine: TranscriptionEngine) -> String {
-        switch engine {
-        case .parakeet:    return "bolt.fill"
-        case .whisperKit:  return "globe"
-        case .appleSpeech: return "apple.logo"
-        case .sherpaOnnx:  return "puzzlepiece.extension"
-        }
+    private var activeEngine: TranscriptionEngine? {
+        activeModel?.engine
+    }
+
+    private var isFiltering: Bool {
+        translationOnly || !modelSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
+        let sections = sections
+        let spoken = appState.spokenLanguages
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Download and delete failures set only the message, not the
@@ -1033,42 +1033,67 @@ struct ModelSettingsTab: View {
                     }
                 }
 
-                // Model list, grouped by engine. Each engine shows what you
-                // have (and what's recommended); the rest of the catalog
-                // waits behind one row instead of twenty download buttons.
-                ForEach(modelsByEngine, id: \.engine) { group in
-                    // Hiding one or two rows behind a disclosure costs more
-                    // than it saves, so only collapse a real list.
-                    let collapses = group.models.filter { !isProminent($0) }.count >= 3
-                    let shown = collapses ? group.models.filter(isProminent) : group.models
-                    let more = collapses ? group.models.filter { !isProminent($0) } : []
-                    VocaSettingsGroup(
-                        group.engine.displayName,
-                        systemImage: engineIconName(group.engine),
-                        subtitle: group.engine.summary
-                    ) {
-                        ForEach(shown) { model in
-                            ModelRow(model: model, appState: appState)
-                            if model.id != shown.last?.id || !more.isEmpty {
-                                Divider()
-                            }
-                        }
+                SpokenLanguagesCard(languages: spokenLanguagesBinding)
 
-                        if !more.isEmpty {
-                            DisclosureGroup(isExpanded: expansionBinding(for: group.engine)) {
-                                ForEach(more) { model in
-                                    ModelRow(model: model, appState: appState)
-                                    if model.id != more.last?.id {
-                                        Divider()
-                                    }
-                                }
+                ModelFilterBar(search: $modelSearch, translationOnly: $translationOnly)
+
+                // What's already here comes first, then what fits the
+                // languages the user speaks. Everything else waits behind
+                // one row instead of twenty download buttons.
+                if !sections.installed.isEmpty {
+                    VocaSettingsGroup(
+                        "Your Models",
+                        subtitle: "Downloaded to this Mac or built into macOS."
+                    ) {
+                        modelRows(sections.installed, spoken: spoken)
+                    }
+                }
+
+                VocaSettingsGroup(
+                    suggestedTitle(spoken: spoken),
+                    subtitle: suggestedSubtitle(spoken: spoken)
+                ) {
+                    if sections.suggested.isEmpty {
+                        Text(isFiltering
+                             ? "No other models match your filters."
+                             : "You already have every model that fits.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
+                    } else {
+                        // English alone matches most of the catalog, so the
+                        // best few lead and the rest wait behind a row.
+                        let collapses = !isFiltering && sections.suggested.count > Self.suggestedShown + 1
+                        let lead = collapses ? Array(sections.suggested.prefix(Self.suggestedShown)) : sections.suggested
+                        let rest = collapses ? Array(sections.suggested.dropFirst(Self.suggestedShown)) : []
+                        modelRows(lead, spoken: spoken)
+                        if !rest.isEmpty {
+                            Divider()
+                            DisclosureGroup(isExpanded: $isMoreSuggestedExpanded) {
+                                modelRows(rest, spoken: spoken)
                             } label: {
-                                Text(shown.isEmpty
-                                     ? "Show \(more.count) \(more.count == 1 ? "model" : "models")"
-                                     : "\(more.count) more \(more.count == 1 ? "model" : "models")")
+                                Text("\(rest.count) more \(rest.count == 1 ? "model" : "models")")
                             }
                             .disclosureGroupStyle(VocaDisclosureGroupStyle())
                         }
+                    }
+                }
+
+                if !sections.other.isEmpty {
+                    VocaSettingsGroup(
+                        "Other Models",
+                        subtitle: "These don't understand every language you speak."
+                    ) {
+                        // A search is an explicit ask, so show its hits.
+                        DisclosureGroup(isExpanded: Binding(
+                            get: { isOtherExpanded || isFiltering },
+                            set: { isOtherExpanded = $0 }
+                        )) {
+                            modelRows(sections.other, spoken: spoken)
+                        } label: {
+                            Text("Show \(sections.other.count) \(sections.other.count == 1 ? "model" : "models")")
+                        }
+                        .disclosureGroupStyle(VocaDisclosureGroupStyle())
                     }
                 }
 
@@ -1083,6 +1108,37 @@ struct ModelSettingsTab: View {
                 }
             }
             .padding()
+        }
+        .task {
+            await appState.refreshAppleSpeechLanguages()
+        }
+    }
+
+    @ViewBuilder
+    private func modelRows(_ sizes: [ModelSize], spoken: [String]) -> some View {
+        let models = sizes.compactMap { size in appState.availableModels.first { $0.size == size } }
+        ForEach(models) { model in
+            ModelRow(
+                model: model,
+                appState: appState,
+                spokenLanguages: spoken,
+                systemLanguages: appState.appleSpeechLanguages
+            )
+            if model.id != models.last?.id {
+                Divider()
+            }
+        }
+    }
+
+    private func suggestedTitle(spoken: [String]) -> String {
+        spoken.isEmpty ? "Available Models" : "For \(SpokenLanguages.list(spoken))"
+    }
+
+    private func suggestedSubtitle(spoken: [String]) -> String? {
+        switch spoken.count {
+        case 0:  return "Best fit first."
+        case 1:  return "Models that understand \(SpokenLanguages.list(spoken)), best fit first."
+        default: return "Models that understand all of these, best fit first."
         }
     }
 
@@ -1125,16 +1181,17 @@ struct ModelSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            if activeEngine?.supportsTranslation == true {
+            // Kept visible while on, so a model that can't translate never
+            // hides a switch the user needs to turn off.
+            if activeModel?.translatesToEnglish == true || appState.translationEnabled {
                 Divider()
 
                 Toggle("Enable translation", isOn: $appState.translationEnabled)
 
-                Text(appState.translationEnabled
-                     ? "Speech is translated to the selected language (or English if set to Auto-detect)."
-                     : "Speech is transcribed as spoken. The language setting is only a recognition hint.")
+                Text(translationCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             Divider()
@@ -1158,6 +1215,16 @@ struct ModelSettingsTab: View {
                 await appState.languageDidChange()
             }
         }
+    }
+
+    private var translationCaption: String {
+        guard appState.translationEnabled else {
+            return "Speech is transcribed as spoken. The language setting is only a recognition hint."
+        }
+        if let activeModel, !activeModel.translatesToEnglish {
+            return "\(activeModel.displayName) wasn't trained to translate, so speech comes out as spoken. Whisper Tiny, Base, and Small translate to English."
+        }
+        return "Speech is translated to the selected language (or English if set to Auto-detect)."
     }
 }
 
@@ -1187,6 +1254,10 @@ struct SystemInfoPill: View {
 struct ModelRow: View {
     let model: WhisperModelInfo
     @ObservedObject var appState: AppState
+    /// Languages the user speaks; a row that misses one says so.
+    var spokenLanguages: [String] = []
+    /// Apple Speech's languages on this Mac, when known.
+    var systemLanguages: Set<String>?
     @State private var showForceDownloadAlert = false
     @State private var showDeleteAlert = false
 
@@ -1196,6 +1267,13 @@ struct ModelRow: View {
     private var canDelete: Bool {
         model.isDownloaded && !model.isActive && !model.size.isSystemManaged
             && !model.isLoading && model.downloadProgress == nil
+    }
+
+    /// "Doesn't understand Hindi" when the model misses a language the user speaks.
+    private var missingLanguagesNote: String? {
+        let fit = ModelPickerCatalog.fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages)
+        guard !fit.coversAll else { return nil }
+        return "Doesn't understand \(SpokenLanguages.list(fit.missing))"
     }
 
     var body: some View {
@@ -1236,19 +1314,48 @@ struct ModelRow: View {
                     }
                 }
 
-                HStack(spacing: 4) {
-                    Text(model.size.creator.displayName)
-                    Text("•")
-                    Text(model.size.fileSizeDescription)
-                    Text("•")
-                    Text(model.size.qualityDescription)
-                    Text("•")
-                    Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
-                    Text("•")
-                    Label("Speed \(max(1, 6 - model.size.relativeSpeed))/5", systemImage: "bolt")
+                Text(model.size.pickerSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 6) {
+                    ModelLanguageBadge(size: model.size, systemLanguages: systemLanguages)
+                    if model.size.translatesToEnglish {
+                        ModelTag(text: "Translates", systemImage: "character.bubble", tint: VocaDesign.accent)
+                            .help("Can translate speech in other languages into English")
+                    }
+                    ModelScoreBar(
+                        title: "Accuracy",
+                        value: model.size.accuracyScore,
+                        accessibilityValue: model.size.qualityDescription
+                    )
+                    .help("Accuracy: \(model.size.qualityDescription)")
+                    ModelScoreBar(
+                        title: "Speed",
+                        value: model.size.speedScore,
+                        accessibilityValue: "\(max(1, 6 - model.size.relativeSpeed)) of 5"
+                    )
+                    .help("Speed: \(max(1, 6 - model.size.relativeSpeed)) of 5")
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+
+                HStack(spacing: 4) {
+                    Text("\(model.size.creator.displayName) · \(model.size.engine.displayName)")
+                    Text("•")
+                    Text(model.size.fileSizeDescription)
+                    Text("•")
+                    Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+                if let missing = missingLanguagesNote {
+                    Label(missing, systemImage: "exclamationmark.triangle")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
             }
 
             Spacer()

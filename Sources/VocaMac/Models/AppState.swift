@@ -236,6 +236,9 @@ final class AppState: ObservableObject {
     /// WhisperKit's recommended model for this device
     @Published var deviceRecommendedModel: String?
 
+    /// Apple Speech's languages on this Mac, once the system has been asked.
+    @Published var appleSpeechLanguages: Set<String>?
+
     // MARK: - User Settings (persisted via UserDefaults)
 
     @AppStorage(PreferenceKey.onboardingCompleted) var hasCompletedOnboarding: Bool = false
@@ -258,6 +261,9 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @AppStorage(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
     @AppStorage(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
+    /// Languages the user dictates in, which steer the model picker. Nil
+    /// until they choose, so the picker can start from a guess.
+    @AppStorage(PreferenceKey.spokenLanguages) var spokenLanguagesStorage: String?
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
     @AppStorage("vocamac.preserveClipboard") var preserveClipboard: Bool = true
     @AppStorage("vocamac.soundEffectsEnabled") var soundEffectsEnabled: Bool = true
@@ -2617,6 +2623,22 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Language changed to \(selectedLanguage) — reloading \(size.displayName)")
         await loadModel(size)
+    }
+
+    // MARK: - Spoken Languages
+
+    /// The languages the user dictates in: their saved choice, or a guess
+    /// from the pinned transcription language and the Mac's languages.
+    var spokenLanguages: [String] {
+        get { SpokenLanguages.resolve(stored: spokenLanguagesStorage, selectedLanguage: selectedLanguage) }
+        set { spokenLanguagesStorage = SpokenLanguages.encode(newValue) }
+    }
+
+    /// Ask the system which languages Apple Speech covers, once per launch.
+    func refreshAppleSpeechLanguages() async {
+        guard appleSpeechLanguages == nil,
+              availableModels.contains(where: { $0.size == .appleSpeech }) else { return }
+        appleSpeechLanguages = await AppleSpeechService.supportedLanguageCodes()
     }
 
     /// Download and load the model currently recommended by onboarding.

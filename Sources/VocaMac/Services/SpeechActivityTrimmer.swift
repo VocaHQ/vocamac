@@ -153,6 +153,8 @@ actor VoiceActivityDetector {
 
     private var manager: VadManager?
     private var isLoading = false
+    /// Bumped by `unload()`, so a load that finishes afterwards is dropped.
+    private var generation = 0
 
     /// FluidAudio's cache for the Silero model.
     static var modelDirectory: URL {
@@ -167,24 +169,30 @@ actor VoiceActivityDetector {
         // An interrupted download leaves a bundle CoreML crashes on rather
         // than rejecting; remove it so FluidAudio downloads it again.
         CoreMLModelCache.removeIfIncomplete(Self.modelDirectory)
+        let generation = generation
         Task {
             do {
                 let manager = try await VadManager(config: VadConfig(defaultThreshold: Self.speechThreshold))
-                self.finishLoading(manager)
+                self.finishLoading(manager, generation: generation)
             } catch {
                 VocaLogger.warning(.general, "Voice activity detection unavailable: \(error.localizedDescription)")
-                self.finishLoading(nil)
+                self.finishLoading(nil, generation: generation)
             }
         }
     }
 
-    private func finishLoading(_ manager: VadManager?) {
+    private func finishLoading(_ manager: VadManager?, generation: Int) {
+        guard generation == self.generation else { return }
         isLoading = false
         self.manager = manager
     }
 
+    var isLoaded: Bool { manager != nil }
+
     /// Release the model with the speech engine; the next decode reloads it.
     func unload() {
+        generation &+= 1
+        isLoading = false
         manager = nil
     }
 

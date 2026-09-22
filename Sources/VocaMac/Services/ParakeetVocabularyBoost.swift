@@ -34,6 +34,9 @@ actor ParakeetVocabularyBoost {
 
     private var models: CtcModels?
     private var isLoadingModels = false
+    /// Bumped by `unload()`, so a load that finishes afterwards is dropped
+    /// instead of reinstalling the model behind the engine's back.
+    private var generation = 0
     private var session: VocabularyBoostingSession?
     private var sessionTerms: [String] = []
 
@@ -66,28 +69,35 @@ actor ParakeetVocabularyBoost {
     func prepare() {
         guard models == nil, !isLoadingModels, Self.isModelDownloaded else { return }
         isLoadingModels = true
+        let generation = generation
         Task {
             let start = CFAbsoluteTimeGetCurrent()
             do {
                 let models = try await CtcModels.load(from: Self.modelDirectory, variant: Self.variant)
-                self.finishLoading(models)
+                guard self.finishLoading(models, generation: generation) else { return }
                 VocaLogger.info(
                     .parakeetService,
                     "Vocabulary boost model loaded in \(String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start))s"
                 )
             } catch {
-                self.finishLoading(nil)
+                self.finishLoading(nil, generation: generation)
                 VocaLogger.warning(.parakeetService, "Vocabulary boost unavailable: \(error.localizedDescription)")
             }
         }
     }
 
-    private func finishLoading(_ models: CtcModels?) {
+    /// Install a finished load. Returns false when `unload()` ran meanwhile.
+    @discardableResult
+    private func finishLoading(_ models: CtcModels?, generation: Int) -> Bool {
+        guard generation == self.generation else { return false }
         isLoadingModels = false
         self.models = models
+        return true
     }
 
     func unload() {
+        generation &+= 1
+        isLoadingModels = false
         session = nil
         sessionTerms = []
         models = nil
@@ -107,6 +117,11 @@ actor ParakeetVocabularyBoost {
         terms: [String]
     ) async -> String? {
         guard !terms.isEmpty, let tokenTimings, !tokenTimings.isEmpty else { return nil }
+        // Removed from Settings while Parakeet stays loaded: turn off now.
+        guard Self.isModelDownloaded else {
+            if models != nil || isLoadingModels { unload() }
+            return nil
+        }
         guard let session = await session(for: terms) else {
             prepare()
             return nil

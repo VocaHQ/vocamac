@@ -107,6 +107,20 @@ final class SpeechActivityTrimmerTests: XCTestCase {
         let silent = await detector.decision(for: silence + silence)
         XCTAssertEqual(silent, .noSpeech)
     }
+
+    /// A load still running when the engine unloads must not reinstall the
+    /// model afterwards.
+    func testUnloadDuringLoadKeepsTheModelOut() async throws {
+        guard CoreMLModelCache.isComplete(VoiceActivityDetector.modelDirectory) else {
+            throw XCTSkip("Silero VAD is not cached on this machine")
+        }
+        let detector = VoiceActivityDetector()
+        await detector.prepare()
+        await detector.unload()
+        try await Task.sleep(nanoseconds: 2_000_000_000)
+        let loaded = await detector.isLoaded
+        XCTAssertFalse(loaded)
+    }
 }
 
 final class CoreMLModelCacheTests: XCTestCase {

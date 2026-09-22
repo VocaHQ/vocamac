@@ -509,8 +509,10 @@ final class TextInjector {
     /// Wait until the target app has read the transcript, then a moment more.
     ///
     /// Only a read after Cmd+V counts: a read before it is an eager clipboard
-    /// manager reacting to the write. Without a receipt to watch, fall back
-    /// to a fixed delay.
+    /// manager reacting to the write. The pasteboard cannot say who read, so
+    /// a clipboard manager reading just after Cmd+V looks like the target.
+    /// A receipt therefore only ever extends the wait: the clipboard is never
+    /// restored sooner than the fixed delay used without one.
     @MainActor
     private func waitForPaste(_ receipt: PasteReceipt?, changeCount: Int) async throws {
         guard let receipt else {
@@ -521,7 +523,9 @@ final class TextInjector {
         let limit = receipt.wasReadBeforePaste ? unobservedPasteDelay : pasteReceiptTimeout
         while ProcessInfo.processInfo.systemUptime - start < limit {
             if receipt.wasReadAfterPaste {
-                try await Task.sleep(nanoseconds: UInt64(pasteReceiptSettle * 1_000_000_000))
+                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                let wait = max(pasteReceiptSettle, clipboardRestoreDelay - elapsed)
+                try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                 PerformanceTrace.event("PasteReceipt")
                 return
             }

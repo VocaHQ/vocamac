@@ -58,6 +58,31 @@ final class ClipboardPreservationTests: XCTestCase {
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
     }
 
+    /// A clipboard manager can read the promise right after Cmd+V, before a
+    /// busy target does. That read must not restore sooner than the fixed
+    /// delay used before receipts existed.
+    func testEarlyReadDoesNotRestoreBeforeTheFixedDelay() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setString("original", forType: .string)
+        var stillTranscriptAfter100ms: String?
+        let checked = expectation(description: "checked mid-wait")
+        let injector = TextInjector(pasteboard: board, accessibilityTrustedOverride: true,
+                                    accessibilityInjectionOverride: { _ in false }, pasteActionOverride: {
+            _ = board.string(forType: .string) // an eager reader, not the target
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                stillTranscriptAfter100ms = board.string(forType: .string)
+                checked.fulfill()
+            }
+        }, frontmostPIDProvider: { 123 })
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await fulfillment(of: [checked], timeout: 2)
+        await drainInjectionQueue()
+        XCTAssertEqual(stillTranscriptAfter100ms, "dictation")
+        XCTAssertEqual(board.string(forType: .string), "original")
+    }
+
     func testClipboardIsRestoredEvenWhenNothingReadsThePaste() async {
         let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
         defer { board.releaseGlobally() }

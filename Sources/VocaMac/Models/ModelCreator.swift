@@ -22,6 +22,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
     case mistral
     case usefulSensors
     case sber
+    case oriserve
 
     var id: String { rawValue }
 
@@ -36,6 +37,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .mistral: return "Mistral AI"
         case .usefulSensors: return "Useful Sensors"
         case .sber: return "SberDevices"
+        case .oriserve: return "Oriserve"
         }
     }
 
@@ -51,6 +53,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .mistral: return "Ministral 3"
         case .usefulSensors: return "Moonshine"
         case .sber: return "GigaAM"
+        case .oriserve: return "Whisper Hindi2Hinglish"
         }
     }
 
@@ -66,6 +69,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .mistral: return URL(string: "https://huggingface.co/mistralai")!
         case .usefulSensors: return URL(string: "https://github.com/usefulsensors/moonshine")!
         case .sber: return URL(string: "https://github.com/salute-developers/GigaAM")!
+        case .oriserve: return URL(string: "https://huggingface.co/Oriserve")!
         }
     }
 
@@ -79,7 +83,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .alibaba: return "alibaba"
         case .qwen: return "qwen"
         case .mistral: return "mistral"
-        case .usefulSensors, .sber: return nil
+        case .usefulSensors, .sber, .oriserve: return nil
         }
     }
 
@@ -102,7 +106,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .alibaba: return "9ecd942970e4616933c9e1c014f58ad31ea4c1775efefc4f41b55ea166f443ee"
         case .qwen: return "dcb3ba2f2b55ccbacbade0ca0bf98921fbaf8a07848972974b4a9bf8077376cf"
         case .mistral: return "a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629"
-        case .usefulSensors, .sber: return nil
+        case .usefulSensors, .sber, .oriserve: return nil
         }
     }
 
@@ -200,6 +204,8 @@ extension ModelSize {
             return .qwen
         case .gigaamV3:
             return .sber
+        case .hindi2HinglishApex:
+            return .oriserve
         }
     }
 }

@@ -24,6 +24,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case largeV3                      = "large-v3"
     case largeV3Turbo                 = "large-v3_turbo"
     case medium                       = "medium"
+    case hindi2HinglishApex           = "hindi2hinglish-apex"
 
     // Parakeet (FluidAudio)
     case parakeetV3                   = "parakeet-tdt-0.6b-v3"
@@ -98,6 +99,28 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         SherpaModelCatalog.spec(for: self)?.bindsLanguageAtLoadTime ?? false
     }
 
+    /// The WhisperKit model a fine-tune was trained from, whose device
+    /// support it shares.
+    var whisperKitBaseModel: ModelSize? {
+        switch self {
+        case .hindi2HinglishApex: return .largeV3LatestCompact
+        default:                  return nil
+        }
+    }
+
+    /// The decoder language a fine-tuned model was trained on, used in place
+    /// of the user's language setting.
+    ///
+    /// Hindi2Hinglish writes romanized Hindi only when decoded as English;
+    /// asked for Hindi, or left to detect, it falls back to Devanagari or
+    /// translates.
+    var pinnedLanguage: String? {
+        switch self {
+        case .hindi2HinglishApex: return "en"
+        default:                  return nil
+        }
+    }
+
     /// Models shown by default in the app's Mac-focused model picker.
     ///
     /// `medium` remains a legacy value for stored preferences and explicit
@@ -115,6 +138,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .distilLargeV3TurboCompact,
         .largeV3LatestCompact,
         .largeV3Latest,
+        .hindi2HinglishApex,
         .appleSpeech,
         .moonshineTiny,
         .moonshineBase,
@@ -144,6 +168,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return "Large v3"
         case .largeV3Turbo:              return "Large v3 Turbo"
         case .medium:                    return "Medium (Legacy)"
+        case .hindi2HinglishApex:        return "Hindi → Hinglish (Apex)"
         case .parakeetV3:                return "Parakeet v3 (Multilingual)"
         case .parakeetV2:                return "Parakeet v2 (English)"
         case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
@@ -172,6 +197,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 3_100_000_000
         case .largeV3Turbo:              return 954_000_000
         case .medium:                    return 1_500_000_000
+        case .hindi2HinglishApex:        return 824_000_000
         case .parakeetV3:                return 700_000_000
         case .parakeetV2:                return 1_200_000_000
         case .parakeetTdtCtc110m:        return 220_000_000
@@ -208,6 +234,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 10.0
         case .largeV3Turbo:              return 6.0
         case .medium:                    return 5.0
+        case .hindi2HinglishApex:        return 5.0
         case .parakeetV3:                return 2.0
         case .parakeetV2:                return 2.5
         case .parakeetTdtCtc110m:        return 1.0
@@ -236,6 +263,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 16
         case .largeV3Turbo:              return 10
         case .medium:                    return 8
+        case .hindi2HinglishApex:        return 8
         case .parakeetV3:                return 1
         case .parakeetV2:                return 1
         case .parakeetTdtCtc110m:        return 1
@@ -264,6 +292,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return "Best"
         case .largeV3Turbo:              return "Best"
         case .medium:                    return "Legacy"
+        case .hindi2HinglishApex:        return "Best for Hindi"
         case .parakeetV3:                return "Excellent"
         case .parakeetV2:                return "Excellent"
         case .parakeetTdtCtc110m:        return "Great"

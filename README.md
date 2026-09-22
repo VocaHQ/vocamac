@@ -394,6 +394,9 @@ OpenAI Whisper models via WhisperKit's CoreML format. The only engine that suppo
 | **Small** | 244M | ~1.5 GB | ⚡⚡⚡ | Great | 16GB+ Apple Silicon |
 | **Medium** | 769M | ~2.5 GB | ⚡⚡ | Excellent | 24GB+ for high accuracy |
 | **Large v3** | 1550M | ~4.8 GB | ⚡ | Best | Maximum accuracy |
+| **Hindi → Hinglish (Apex)** | 809M | ~0.8 GB | ⚡⚡⚡ | Best for Hindi | Hindi speech written in Roman script ([Oriserve](https://huggingface.co/Oriserve/Whisper-Hindi2Hinglish-Apex) fine-tune of Large v3 Turbo, 8-bit compressed) |
+
+Hindi → Hinglish always decodes as English, which is how it was trained to write romanized Hindi, so it ignores the language setting.
 
 ### Apple Speech — managed by macOS (macOS 26+)
 

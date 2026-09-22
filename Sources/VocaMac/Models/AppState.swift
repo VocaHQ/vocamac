@@ -4062,7 +4062,7 @@ extension AppState {
     /// Vocabulary terms, one per entry. Stored in `customVocabulary` so the
     /// Whisper recognition hint keeps working.
     var vocabularyTerms: [String] {
-        WhisperService.vocabularyTerms(from: customVocabulary)
+        RecognitionHints.vocabularyTerms(from: customVocabulary)
     }
 
     func setVocabularyTerms(_ terms: [String]) {
@@ -4266,7 +4266,7 @@ extension AppState {
     ) -> String {
         // Replacement targets ("GitHub" for "get hub") are words the user
         // wants heard, so they join the vocabulary ahead of the user's terms.
-        var userTerms = WhisperService.vocabularyTerms(from: vocabulary)
+        var userTerms = RecognitionHints.vocabularyTerms(from: vocabulary)
         let listed = Set(userTerms.map { $0.lowercased() })
         var targetSeen = Set<String>()
         let targets = replacementTargets.filter {

@@ -117,9 +117,14 @@ final class SpeechActivityTrimmerTests: XCTestCase {
         let detector = VoiceActivityDetector()
         await detector.prepare()
         await detector.unload()
+        // The retired load is still running, so no second one starts.
+        let stillLoading = await detector.isLoadInFlight
+        XCTAssertTrue(stillLoading)
         try await Task.sleep(nanoseconds: 2_000_000_000)
         let loaded = await detector.isLoaded
+        let loading = await detector.isLoadInFlight
         XCTAssertFalse(loaded)
+        XCTAssertFalse(loading)
     }
 }
 

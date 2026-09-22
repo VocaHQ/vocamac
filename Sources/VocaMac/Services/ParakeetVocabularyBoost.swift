@@ -86,18 +86,19 @@ actor ParakeetVocabularyBoost {
         }
     }
 
-    /// Install a finished load. Returns false when `unload()` ran meanwhile.
+    /// Install a finished load. Returns false when `unload()` ran meanwhile;
+    /// the load still ends here, so a new one can start only after it, and
+    /// two copies of the model are never compiling or resident at once.
     @discardableResult
     private func finishLoading(_ models: CtcModels?, generation: Int) -> Bool {
-        guard generation == self.generation else { return false }
         isLoadingModels = false
+        guard generation == self.generation else { return false }
         self.models = models
         return true
     }
 
     func unload() {
         generation &+= 1
-        isLoadingModels = false
         session = nil
         sessionTerms = []
         models = nil
@@ -119,7 +120,7 @@ actor ParakeetVocabularyBoost {
         guard !terms.isEmpty, let tokenTimings, !tokenTimings.isEmpty else { return nil }
         // Removed from Settings while Parakeet stays loaded: turn off now.
         guard Self.isModelDownloaded else {
-            if models != nil || isLoadingModels { unload() }
+            if models != nil { unload() }
             return nil
         }
         guard let session = await session(for: terms) else {

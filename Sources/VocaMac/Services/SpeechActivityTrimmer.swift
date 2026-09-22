@@ -181,18 +181,20 @@ actor VoiceActivityDetector {
         }
     }
 
+    /// A load that `unload()` retired still clears the in-flight flag, so
+    /// the next load starts only after it and two never overlap.
     private func finishLoading(_ manager: VadManager?, generation: Int) {
-        guard generation == self.generation else { return }
         isLoading = false
+        guard generation == self.generation else { return }
         self.manager = manager
     }
 
     var isLoaded: Bool { manager != nil }
+    var isLoadInFlight: Bool { isLoading }
 
     /// Release the model with the speech engine; the next decode reloads it.
     func unload() {
         generation &+= 1
-        isLoading = false
         manager = nil
     }
 

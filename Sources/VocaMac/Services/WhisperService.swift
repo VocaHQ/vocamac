@@ -373,10 +373,7 @@ final class WhisperService: @unchecked Sendable {
     /// Parse a raw vocabulary string into individual terms. Terms are separated
     /// by newlines or commas; surrounding whitespace and blank entries are dropped.
     static func vocabularyTerms(from vocabulary: String) -> [String] {
-        vocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        RecognitionHints.vocabularyTerms(from: vocabulary)
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {

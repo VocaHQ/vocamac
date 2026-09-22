@@ -31,10 +31,20 @@ enum RecognitionHints {
         "where", "which", "while", "will", "with", "would", "your",
     ]
 
+    /// Parse a raw vocabulary string into individual terms. Terms are
+    /// separated by newlines or commas; surrounding whitespace and blank
+    /// entries are dropped.
+    static func vocabularyTerms(from vocabulary: String) -> [String] {
+        vocabulary
+            .split(whereSeparator: { $0 == "\n" || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
     /// Terms in a comma/newline vocabulary string, first spelling wins.
     static func terms(from vocabulary: String) -> [String] {
         var seen = Set<String>()
-        return WhisperService.vocabularyTerms(from: vocabulary)
+        return vocabularyTerms(from: vocabulary)
             .filter { seen.insert($0.lowercased()).inserted }
     }
 

@@ -314,8 +314,18 @@ struct ModelRating: View {
     let accessibilityValue: String
 
     /// Filled dots, rounded to the nearest half.
-    private var filled: Double {
+    private var filled: Double { Self.dots(for: value) }
+
+    /// The dots a 0–1 score fills, to the nearest half.
+    static func dots(for value: Double) -> Double {
         (min(max(value, 0), 1) * 10).rounded() / 2
+    }
+
+    /// The same rating in words, for help and VoiceOver: "3.5 of 5".
+    static func describe(_ value: Double) -> String {
+        let dots = dots(for: value)
+        let number = dots == dots.rounded() ? String(Int(dots)) : String(format: "%.1f", dots)
+        return "\(number) of 5"
     }
 
     var body: some View {

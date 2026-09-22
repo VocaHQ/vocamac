@@ -1317,15 +1317,15 @@ struct ModelRow: View {
         ModelRating(
             title: "Accuracy",
             value: model.size.accuracyScore,
-            accessibilityValue: model.size.qualityDescription
+            accessibilityValue: accuracyRating
         )
-        .help("Accuracy: \(model.size.qualityDescription)")
+        .help("Accuracy: \(accuracyRating)")
         ModelRating(
             title: "Speed",
             value: model.size.speedScore,
-            accessibilityValue: "\(speedRating) of 5"
+            accessibilityValue: speedRating
         )
-        .help("Speed: \(speedRating) of 5")
+        .help("Speed: \(speedRating)")
     }
 
     private var factsText: some View {
@@ -1336,9 +1336,14 @@ struct ModelRow: View {
                   + "\n~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use")
     }
 
-    /// Speed as whole dots out of five, for help and VoiceOver.
-    private var speedRating: Int {
-        max(1, Int((model.size.speedScore * 5).rounded()))
+    /// Accuracy as its label and the dots the row shows: "Great, 3.5 of 5".
+    private var accuracyRating: String {
+        "\(model.size.qualityDescription), \(ModelRating.describe(model.size.accuracyScore))"
+    }
+
+    /// Speed as the dots the row shows, for help and VoiceOver.
+    private var speedRating: String {
+        ModelRating.describe(model.size.speedScore)
     }
 
     /// Languages, translation, and size, in one plain line.

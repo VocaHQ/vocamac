@@ -53,6 +53,13 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertEqual(ModelSize.largeV3.speedScore, 0.1, accuracy: 0.001)
     }
 
+    func testRatingWordsMatchTheDotsShown() {
+        XCTAssertEqual(ModelRating.dots(for: ModelSize.largeV3.speedScore), 0.5)
+        XCTAssertEqual(ModelRating.describe(ModelSize.largeV3.speedScore), "0.5 of 5")
+        XCTAssertEqual(ModelRating.describe(ModelSize.tiny.speedScore), "5 of 5")
+        XCTAssertEqual(ModelRating.describe(0.7), "3.5 of 5")
+    }
+
     func testLargeSlowModelsRankBelowCompactOnes() {
         let models = [info(.largeV3), info(.qwen3Asr06B), info(.largeV3LatestCompact)]
         let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["hi"])

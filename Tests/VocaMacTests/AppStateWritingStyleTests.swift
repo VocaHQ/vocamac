@@ -462,6 +462,22 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Cursor")
     }
 
+    func testRebindingToTheSameStyleKeepsCustomRules() {
+        let (appState, mocks) = AppState.makeTestState()
+        var custom = WritingStyle.code.defaultRules
+        custom.caseCommands = false
+        appState.writingStyleBindings = [
+            AppStyleBinding.from(snapshot: cursor, style: .code).with { $0.ruleOverrides = custom }
+        ]
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        appState.bindFrontmostApp(to: .code)
+        XCTAssertEqual(appState.writingStyleBindings.first?.ruleOverrides, custom)
+
+        appState.bindFrontmostApp(to: .chat)
+        XCTAssertNil(appState.writingStyleBindings.first?.ruleOverrides)
+    }
+
     func testStyleRowNamesTheAppEvenWithoutARule() {
         // The menu bar says "Style in Discord" for an app on the default
         // style too, and follows the user to the next app.
@@ -614,5 +630,13 @@ final class AppStateWritingStyleTests: XCTestCase {
 
         XCTAssertEqual(appState.activeWritingStyle.style, .code)
         XCTAssertEqual(appState.activeWritingStyle.matchedAppName, "Cursor")
+    }
+}
+
+private extension AppStyleBinding {
+    func with(_ mutate: (inout AppStyleBinding) -> Void) -> AppStyleBinding {
+        var copy = self
+        mutate(&copy)
+        return copy
     }
 }

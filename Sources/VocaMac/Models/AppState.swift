@@ -1528,6 +1528,11 @@ final class AppState: ObservableObject {
         binding.cleanup = existing?.cleanup ?? .inherit
         binding.cleanupLevel = existing?.cleanupLevel
         binding.cleanupPrompt = existing?.cleanupPrompt
+        // Re-picking the style an app already has must not wipe its custom
+        // rules; a different style brings its own rules.
+        if existing?.style == style {
+            binding.ruleOverrides = existing?.ruleOverrides
+        }
         bindings.append(binding)
         writingStyleBindings = bindings
         VocaLogger.info(.appState, "Bound \(target.displayName) to writing style '\(style.rawValue)'")

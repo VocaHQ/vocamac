@@ -148,7 +148,7 @@ struct WritingStylesSettingsTab: View {
 
             VocaSettingsGroup(
                 "Tone",
-                subtitle: "Optional. Rewords English dictation with the on-device Smart Cleanup model."
+                subtitle: "Optional. Rewords English dictation with the model you chose in Smart Cleanup."
             ) {
                 SettingsToggleRow(
                     title: "Reword to sound Formal or Casual",
@@ -223,7 +223,7 @@ struct WritingStylesSettingsTab: View {
                 }
 
                 // The full pipeline (cleanup, tone, numbers, emoji) can run the
-                // local model, so it stays behind an explicit button.
+                // cleanup model, so it stays behind an explicit button.
                 WritingProfilePreview(sample: previewSample)
             }
         }
@@ -263,7 +263,7 @@ struct WritingStylesSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
-                Label("Download the Smart Cleanup model in the Cleanup page to use Formal or Casual.", systemImage: "arrow.down.circle")
+                Label("Finish setting up the Smart Cleanup model in the Cleanup page to use Formal or Casual.", systemImage: "arrow.down.circle")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -475,6 +475,10 @@ private struct AppStyleBindingRow: View {
     let onToggle: (Bool) -> Void
     let onRemove: () -> Void
 
+    /// A style picked for an app with custom rules, held until the user
+    /// confirms: each style has its own rules, so switching resets them.
+    @State private var pendingStyle: WritingStyle?
+
     var body: some View {
         HStack(spacing: 10) {
             AppIconView(bundleIdentifier: binding.bundleIdentifier)
@@ -496,7 +500,14 @@ private struct AppStyleBindingRow: View {
             // here, without opening a sheet.
             Picker("Style for \(binding.displayName)", selection: Binding(
                 get: { binding.style },
-                set: onStyleChange
+                set: { style in
+                    guard style != binding.style else { return }
+                    if binding.hasCustomRules {
+                        pendingStyle = style
+                    } else {
+                        onStyleChange(style)
+                    }
+                }
             )) {
                 ForEach(WritingStyle.allCases) { style in
                     Label(style.displayName, systemImage: style.systemImage).tag(style)
@@ -518,6 +529,22 @@ private struct AppStyleBindingRow: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("More options for \(binding.displayName)")
+        }
+        .confirmationDialog(
+            "Switch \(binding.displayName) to \(pendingStyle?.displayName ?? "")?",
+            isPresented: Binding(
+                get: { pendingStyle != nil },
+                set: { if !$0 { pendingStyle = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Switch and Reset Formatting", role: .destructive) {
+                if let pendingStyle { onStyleChange(pendingStyle) }
+                pendingStyle = nil
+            }
+            Button("Cancel", role: .cancel) { pendingStyle = nil }
+        } message: {
+            Text("\(binding.displayName) has customized formatting under Advanced. Switching styles replaces it with the new style's formatting. Tone and AI cleanup settings are kept.")
         }
     }
 

@@ -56,6 +56,14 @@ final class TranscriptionRouter: @unchecked Sendable {
         self.skipSilenceProvider = skipSilenceProvider
     }
 
+    // MARK: - Engine Capabilities
+
+    /// Languages Apple Speech supports on this Mac, or nil when it can't
+    /// run here or the system reports none.
+    static func appleSpeechLanguageCodes() async -> Set<String>? {
+        await AppleSpeechService.supportedLanguageCodes()
+    }
+
     // MARK: - Engine Resolution
 
     /// Resolve which engine owns a model identifier.

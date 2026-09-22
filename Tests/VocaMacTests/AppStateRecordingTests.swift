@@ -1126,3 +1126,45 @@ extension AppStateRecordingTests {
         XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
     }
 }
+
+// MARK: - Translation Capability
+
+@MainActor
+final class AppStateTranslationTests: XCTestCase {
+
+    private let keys = ["vocamac.translationEnabled", PreferenceKey.selectedModelSize]
+
+    override func setUp() {
+        super.setUp()
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+    }
+
+    override func tearDown() {
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        super.tearDown()
+    }
+
+    func testTranslationReachesAModelTrainedForIt() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.selectedModelSize = ModelSize.small.rawValue
+        appState.translationEnabled = true
+
+        _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
+
+        XCTAssertTrue(appState.translatesSpeech)
+        XCTAssertEqual(mocks.whisperService.lastTranslate, true)
+    }
+
+    func testTranslationIsNotRequestedFromAModelThatCannotTranslate() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        // Turned on with Small, then switched to Turbo.
+        appState.selectedModelSize = ModelSize.largeV3LatestTurboCompact.rawValue
+        appState.translationEnabled = true
+
+        _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
+
+        XCTAssertFalse(appState.translatesSpeech)
+        XCTAssertEqual(mocks.whisperService.lastTranslate, false)
+        XCTAssertTrue(appState.translationEnabled, "The setting itself is kept for the next model")
+    }
+}

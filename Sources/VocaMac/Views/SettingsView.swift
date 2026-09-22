@@ -1214,6 +1214,13 @@ struct ModelSettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if appState.translationEnabled, activeModel?.translatesToEnglish != true {
+                    Button("Show Models That Translate") {
+                        scope = .all
+                        modelSearch = "translate"
+                    }
+                }
             }
 
             Divider()
@@ -1244,7 +1251,7 @@ struct ModelSettingsTab: View {
             return "Speech is transcribed as spoken. The language setting is only a recognition hint."
         }
         if let activeModel, !activeModel.translatesToEnglish {
-            return "\(activeModel.displayName) wasn't trained to translate, so speech comes out as spoken. Whisper Tiny, Base, and Small translate to English."
+            return "\(activeModel.displayName) wasn't trained to translate, so VocaMac transcribes speech as spoken. Switch to a model that translates to use this."
         }
         return "Speech is translated to the selected language (or English if set to Auto-detect)."
     }

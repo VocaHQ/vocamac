@@ -166,6 +166,12 @@ struct DictationOutputPipeline {
         guard effectiveLevel != .none else {
             return result(fallback, "Cleanup level None — formatting only")
         }
+        // The local cleanup models read romanized Hindi as broken English:
+        // they reordered words, added emphasis, and changed "ho gae" to
+        // "hoge". Voca Hinglish already punctuates, so its text is kept.
+        if Self.isRomanized(language) {
+            return result(fallback, noting("Romanized text kept as written — cleanup models reword it"))
+        }
         guard !Task.isCancelled else { return result(fallback, "Processing cancelled") }
 
         // Resolve explicit commands before inference. Until structured command
@@ -388,6 +394,13 @@ struct DictationOutputPipeline {
         let body = text[..<end]
         guard body.hasSuffix(glyph + ".") else { return text }
         return String(body.dropLast()) + text[end...]
+    }
+
+    /// Whether a language tag names a language written in Latin letters it
+    /// isn't usually written in, such as "hi-Latn" for romanized Hindi.
+    nonisolated static func isRomanized(_ language: String?) -> Bool {
+        guard let language else { return false }
+        return language.lowercased().split(separator: "-").dropFirst().contains("latn")
     }
 
     static func isEnglish(_ language: String?) -> Bool {

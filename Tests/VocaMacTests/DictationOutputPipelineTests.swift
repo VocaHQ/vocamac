@@ -492,3 +492,25 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(state.nextWritingProfile?.cleanup, .inherit)
     }
 }
+
+// MARK: - Romanized Hindi
+
+extension DictationOutputPipelineTests {
+    func testRomanizedHindiSkipsTheCleanupModel() async {
+        let cleaner = MockTranscriptCleanup()
+        // What the model did to a real Voca Hinglish dictation.
+        cleaner.cleanHandler = { _ in "Aur, batao, kya aajkal pankha *kahan* hai? Kitne mukadme *hoge* us par?" }
+        let spoken = "Aur batao, pankha kahaan hai aajkal? Kitne mukdame ho gae us par?"
+
+        let result = await process(spoken, cleaner: cleaner, language: "hi-Latn", level: .high)
+
+        XCTAssertEqual(result.text, spoken)
+        XCTAssertEqual(cleaner.cleanCallCount, 0)
+        XCTAssertTrue(result.summary.contains("Romanized text kept as written"), result.summary)
+    }
+
+    func testRomanizedHindiStillLosesUniversalHesitations() async {
+        let result = await process("Umm haan thik hai.", cleaner: MockTranscriptCleanup(), language: "hi-Latn")
+        XCTAssertEqual(result.text, "Haan thik hai.")
+    }
+}

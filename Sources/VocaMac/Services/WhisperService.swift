@@ -5,6 +5,7 @@
 // Uses CoreML with Metal/Neural Engine acceleration on Apple Silicon.
 
 import Foundation
+import NaturalLanguage
 import WhisperKit
 
 // MARK: - WhisperError
@@ -240,12 +241,36 @@ final class WhisperService: @unchecked Sendable {
                 fullText = Self.filterHallucinationTokens(rawText)
             }
 
+            // Whisper can lock onto a phrase and repeat it to the token limit,
+            // most often on short clips with a vocabulary prompt. Try once
+            // without the prompt, then cut any loop that remains to one copy.
+            if options.promptTokens != nil, TranscriptRepetition.containsLoop(fullText) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Prompted transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying without custom vocabulary"
+                )
+                options.promptTokens = nil
+                options.usePrefillPrompt = language != nil
+                results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
+                rawText = results.map { $0.text }.joined(separator: " ")
+                fullText = Self.filterHallucinationTokens(rawText)
+            }
+            if TranscriptRepetition.containsLoop(fullText) {
+                let collapsed = TranscriptRepetition.collapsingLoops(in: fullText)
+                VocaLogger.warning(
+                    .whisperService,
+                    "Transcription repeated itself; kept one copy (\(fullText.count) → \(collapsed.count) characters)"
+                )
+                fullText = collapsed
+            }
+
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
-            // Get detected language from first result
-            let detectedLanguage = results.first?.language ?? language ?? "en"
-
             let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
+
+            // Get detected language from first result
+            let decodedLanguage = results.first?.language ?? language ?? "en"
+            let detectedLanguage = Self.reportedLanguage(for: fullText, model: modelUsed, decoded: decodedLanguage)
 
             VocaLogger.info(.whisperService, "Transcription completed in \(String(format: "%.2f", elapsed))s")
             VocaLogger.info(.whisperService, "Result: \(fullText.count) characters")
@@ -377,6 +402,28 @@ final class WhisperService: @unchecked Sendable {
     /// by newlines or commas; surrounding whitespace and blank entries are dropped.
     static func vocabularyTerms(from vocabulary: String) -> [String] {
         RecognitionHints.vocabularyTerms(from: vocabulary)
+    }
+
+    /// The language to report for a transcript.
+    ///
+    /// A model that writes a language in Latin letters under a pinned decoder
+    /// language (Voca Hinglish: Hindi, decoded as English) reports that
+    /// language with a Latin script tag, "hi-Latn", unless the text is
+    /// plainly English. Cleanup then treats it as the language it is rather
+    /// than as English to correct.
+    static func reportedLanguage(for text: String, model: ModelSize, decoded: String) -> String {
+        guard let romanized = model.romanizedLanguage else { return decoded }
+        return isConfidentlyEnglish(text) ? "en" : "\(romanized)-Latn"
+    }
+
+    /// Whether the language recognizer is at least 60% sure `text` is
+    /// English. Romanized Hindi never gets there (it reads as Indonesian or
+    /// Vietnamese at low confidence), while English sentences, including
+    /// ones with a Hindi word or two, score 0.7 and up.
+    static func isConfidentlyEnglish(_ text: String) -> Bool {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return (recognizer.languageHypotheses(withMaximum: 3)[.english] ?? 0) >= 0.6
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {

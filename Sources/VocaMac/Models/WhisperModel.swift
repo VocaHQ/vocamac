@@ -121,6 +121,19 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// The language a fine-tune writes in Latin letters under its pinned
+    /// decoder language.
+    ///
+    /// Voca Hinglish decodes as English but writes spoken Hindi romanized.
+    /// Reported as English, that text got English cleanup: Hindi words were
+    /// "corrected" to English spellings and reworded.
+    var romanizedLanguage: String? {
+        switch self {
+        case .vocaHinglish:       return "hi"
+        default:                  return nil
+        }
+    }
+
     /// Models shown by default in the app's Mac-focused model picker.
     ///
     /// `medium` remains a legacy value for stored preferences and explicit

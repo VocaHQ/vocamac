@@ -429,6 +429,9 @@ enum SpokenEmoji {
     /// The full stop a script closes a sentence with, falling back to what the
     /// text itself is written in when the engine reported no language.
     static func sentenceTerminator(language: String, text: String) -> String {
+        // Romanized text ("hi-Latn", from Voca Hinglish) ends sentences the
+        // Latin way, whatever its language.
+        if DictationOutputPipeline.isRomanized(language) { return "." }
         let code = language.lowercased().split(separator: "-").first.map(String.init) ?? ""
         switch code {
         case "ja", "zh", "yue": return "。"

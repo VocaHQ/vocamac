@@ -120,7 +120,9 @@ actor ParakeetVocabularyBoost {
         guard !terms.isEmpty, let tokenTimings, !tokenTimings.isEmpty else { return nil }
         // Removed from Settings while Parakeet stays loaded: turn off now.
         guard Self.isModelDownloaded else {
-            if models != nil { unload() }
+            // Also retire a load still in flight, so it cannot install the
+            // model after the download was removed.
+            if models != nil || isLoadingModels { unload() }
             return nil
         }
         guard let session = await session(for: terms) else {

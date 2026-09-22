@@ -32,7 +32,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/csukuangfj/onnxruntime-libs",
       "state" : {
-        "revision" : "2ece6a6d72b6667d69f33f05b417ebed079f226a",
+        "revision" : "8ebc5ebf92190903c274a7621ba4c96a732335ec",
         "version" : "1.28.2"
       }
     },

@@ -1386,18 +1386,18 @@ struct ModelRow: View {
 
                 // Facts drop to their own line rather than wrap mid-list.
                 ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: 16) {
                         ratings
                         factsText
                     }
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 12) { ratings }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 16) { ratings }
                         factsText
                     }
                 }
-                .font(.caption2)
+                .font(.caption)
                 .foregroundStyle(.secondary)
-                .padding(.top, 1)
+                .padding(.top, 2)
 
                 if let missing = missingLanguagesNote {
                     Label(missing, systemImage: "exclamationmark.triangle.fill")

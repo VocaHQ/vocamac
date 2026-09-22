@@ -71,6 +71,7 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertEqual(ModelSize.parakeetV2.languageCoverage, .only(["en"]))
         XCTAssertEqual(ModelSize.distilLargeV3Compact.languageCoverage, .only(["en"]))
         XCTAssertEqual(ModelSize.gigaamV3.languageCoverage, .only(["ru"]))
+        XCTAssertEqual(ModelSize.vocaHinglish.languageCoverage, .only(["hi", "en"]))
         XCTAssertEqual(ModelSize.canary180mFlash.languageCoverage, .only(["en", "es", "de", "fr"]))
         XCTAssertEqual(ModelSize.appleSpeech.languageCoverage, .system)
         XCTAssertEqual(ModelSize.parakeetV3Languages.count, 25)
@@ -95,6 +96,23 @@ final class ModelLanguageSupportTests: XCTestCase {
     }
 
     // MARK: - Fit
+
+    func testVocaHinglishFitsEnglishAndHindiSpeakers() {
+        let models = [info(.vocaHinglish), info(.parakeetV2)]
+        let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["en", "hi"])
+        XCTAssertEqual(forYou, [.vocaHinglish])
+        XCTAssertEqual(ModelLanguageBadge.label(for: .vocaHinglish, systemLanguages: nil), "2 languages")
+    }
+
+    func testVocaHinglishLoadsOnAnEightGigabyteMac() {
+        // 8 GB Mac with 3 GB free: the measured ~1 GB model must not be
+        // refused against the 5 GB it once inherited from its base model.
+        XCTAssertTrue(SystemInfo.canFitModelInMemory(
+            .vocaHinglish,
+            physicalMemoryGB: 8,
+            availableBytes: 3 * 1024 * 1024 * 1024
+        ))
+    }
 
     func testFitSplitsCoveredAndMissingInSpokenOrder() {
         let fit = ModelPickerCatalog.fit(of: .parakeetV2, for: ["hi", "en"])

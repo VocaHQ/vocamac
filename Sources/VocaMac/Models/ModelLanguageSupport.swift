@@ -49,8 +49,11 @@ extension ModelSize {
         // Distil-Whisper was distilled on English speech only.
         case .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return .only(["en"])
+        // Decoded as English (see `pinnedLanguage`): English comes out as
+        // English and Hindi as romanized Hinglish, so code-switched
+        // dictation stays in one script.
         case .vocaHinglish:
-            return .only(["hi"])
+            return .only(["hi", "en"])
         case .parakeetV3:
             return .only(Self.parakeetV3Languages)
         case .parakeetV2, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase:
@@ -124,7 +127,7 @@ extension ModelSize {
         case .largeV3:                   return "The original Whisper Large v3. Large and slow."
         case .largeV3Turbo:              return "Whisper Large v3 Turbo."
         case .medium:                    return "Kept for older settings."
-        case .vocaHinglish:        return "Writes spoken Hindi in Roman script (Hinglish)."
+        case .vocaHinglish:              return "Hindi and English, both written in Roman script (Hinglish)."
         case .parakeetV3:                return "Very fast on the Neural Engine, with 25 European languages."
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."

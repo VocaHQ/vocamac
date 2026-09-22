@@ -329,9 +329,11 @@ struct ModelRating: View {
     }
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 6) {
             Text(title)
-            HStack(spacing: 2) {
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            HStack(spacing: 3) {
                 ForEach(0..<5, id: \.self) { index in
                     dot(fill: min(max(filled - Double(index), 0), 1))
                 }
@@ -344,7 +346,7 @@ struct ModelRating: View {
 
     private func dot(fill: Double) -> some View {
         Circle()
-            .fill(Color.primary.opacity(0.15))
+            .fill(Color.primary.opacity(0.18))
             .overlay(alignment: .leading) {
                 GeometryReader { proxy in
                     Rectangle()
@@ -353,6 +355,6 @@ struct ModelRating: View {
                 }
                 .clipShape(Circle())
             }
-            .frame(width: 6, height: 6)
+            .frame(width: 9, height: 9)
     }
 }

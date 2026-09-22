@@ -35,12 +35,14 @@ enum TranscriptRepetition {
     /// The longest phrase, in words, that is checked for repetition.
     static let maximumUnitLength = 16
 
-    /// Copies a phrase of `unitLength` words needs before it counts as a loop.
+    /// Copies a phrase of `unitLength` words needs before it can be a loop.
     ///
     /// People repeat themselves on purpose ("no no no", "thank you, thank
-    /// you"), so short phrases need many copies. Loops run to the token
-    /// limit, usually a dozen copies or more, so the bar can sit well above
-    /// anything spoken.
+    /// you", "please leave now" four times), so a count alone is weak
+    /// evidence. A run this long is only a loop when the audio is too short
+    /// to have said it (see `maximumWordsPerSecond`), or when it has twice
+    /// as many copies. Loops run to the token limit, usually a dozen copies
+    /// or more.
     static func minimumCopies(unitLength: Int) -> Int {
         switch unitLength {
         case 1:  return 8
@@ -49,10 +51,21 @@ enum TranscriptRepetition {
         }
     }
 
+    /// Faster than anyone speaks: fast speech is about 4 words a second. The
+    /// loop that prompted this came to 75 words from 1.8 seconds of audio.
+    static let maximumWordsPerSecond = 6.0
+
     /// The first loop in `text`, if any.
-    static func loop(in text: String) -> Loop? {
+    ///
+    /// - Parameter audioSeconds: How long the recording was, when known.
+    ///   Text with more words than that audio could hold is runaway
+    ///   generation, so a shorter run of copies is enough to call it a loop.
+    static func loop(in text: String, audioSeconds: Double? = nil) -> Loop? {
         let words = tokens(in: text).map(\.normalized)
         guard words.count >= 4 else { return nil }
+        let isImplausiblyLong = audioSeconds.map { seconds in
+            seconds > 0 && Double(words.count) / seconds > maximumWordsPerSecond
+        } ?? false
 
         for start in words.indices {
             let longestUnit = min(maximumUnitLength, (words.count - start) / 2)
@@ -66,7 +79,8 @@ enum TranscriptRepetition {
                     copies += 1
                     next += unitLength
                 }
-                guard copies >= minimumCopies(unitLength: unitLength) else { continue }
+                let required = minimumCopies(unitLength: unitLength) * (isImplausiblyLong ? 1 : 2)
+                guard copies >= required else { continue }
                 // A copy the decoder cut off mid-phrase belongs to the loop.
                 var partial = 0
                 while next + partial < words.count, partial < unitLength - 1,
@@ -84,17 +98,17 @@ enum TranscriptRepetition {
         return nil
     }
 
-    static func containsLoop(_ text: String) -> Bool {
-        loop(in: text) != nil
+    static func containsLoop(_ text: String, audioSeconds: Double? = nil) -> Bool {
+        loop(in: text, audioSeconds: audioSeconds) != nil
     }
 
     /// `text` with every loop cut down to its first copy, keeping that copy's
     /// punctuation and anything said after the loop.
-    static func collapsingLoops(in text: String) -> String {
+    static func collapsingLoops(in text: String, audioSeconds: Double? = nil) -> String {
         var text = text
         // Each pass removes one loop; a transcript rarely holds more than one.
         for _ in 0..<8 {
-            guard let loop = loop(in: text) else { break }
+            guard let loop = loop(in: text, audioSeconds: audioSeconds) else { break }
             let words = tokens(in: text)
             let keepUntil = words[loop.start + loop.unitLength].range.lowerBound
             var kept = String(text[..<keepUntil])

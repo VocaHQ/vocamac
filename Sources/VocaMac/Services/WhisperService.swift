@@ -244,19 +244,37 @@ final class WhisperService: @unchecked Sendable {
             // Whisper can lock onto a phrase and repeat it to the token limit,
             // most often on short clips with a vocabulary prompt. Try once
             // without the prompt, then cut any loop that remains to one copy.
-            if options.promptTokens != nil, TranscriptRepetition.containsLoop(fullText) {
+            if options.promptTokens != nil,
+               TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
                 VocaLogger.warning(
                     .whisperService,
                     "Prompted transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying without custom vocabulary"
                 )
-                options.promptTokens = nil
-                options.usePrefillPrompt = language != nil
-                results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
-                rawText = results.map { $0.text }.joined(separator: " ")
-                fullText = Self.filterHallucinationTokens(rawText)
+                var unprompted = options
+                unprompted.promptTokens = nil
+                unprompted.usePrefillPrompt = language != nil
+                // The looped text still holds the phrase, and collapsing it
+                // below recovers it; only a real answer replaces it.
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: unprompted)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if Self.isUsableRetry(retriedText) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                    } else {
+                        VocaLogger.warning(.whisperService, "Unprompted retry was empty; keeping the first transcription")
+                    }
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Unprompted retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
             }
-            if TranscriptRepetition.containsLoop(fullText) {
-                let collapsed = TranscriptRepetition.collapsingLoops(in: fullText)
+            if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                let collapsed = TranscriptRepetition.collapsingLoops(in: fullText, audioSeconds: audioLengthSeconds)
                 VocaLogger.warning(
                     .whisperService,
                     "Transcription repeated itself; kept one copy (\(fullText.count) → \(collapsed.count) characters)"
@@ -424,6 +442,11 @@ final class WhisperService: @unchecked Sendable {
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(text)
         return (recognizer.languageHypotheses(withMaximum: 3)[.english] ?? 0) >= 0.6
+    }
+
+    /// Whether a retry's text can replace the transcription it retried.
+    static func isUsableRetry(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {

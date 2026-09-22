@@ -42,6 +42,31 @@ final class TranscriptRepetitionTests: XCTestCase {
         }
     }
 
+    func testDeliberateRepetitionThatFitsTheAudioIsKept() {
+        let text = String(repeating: "Please leave now. ", count: 4)
+        // 12 words in 4 seconds is ordinary speech.
+        XCTAssertNil(TranscriptRepetition.loop(in: text, audioSeconds: 4))
+        XCTAssertNil(TranscriptRepetition.loop(in: text))
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: text, audioSeconds: 4), text)
+    }
+
+    func testTextTooLongForItsAudioNeedsFewerCopies() {
+        let text = String(repeating: "Chalo. ", count: 9)
+        // Nine copies: short of a loop on count alone, but no one says nine
+        // words in half a second.
+        XCTAssertNil(TranscriptRepetition.loop(in: text))
+        XCTAssertNil(TranscriptRepetition.loop(in: text, audioSeconds: 3))
+        XCTAssertNotNil(TranscriptRepetition.loop(in: text, audioSeconds: 0.5))
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: text, audioSeconds: 0.5), "Chalo.")
+
+        let phrase = String(repeating: "Please leave now. ", count: 4)
+        XCTAssertNotNil(TranscriptRepetition.loop(in: phrase, audioSeconds: 1))
+    }
+
+    func testTheRealLoopIsCaughtAtItsRecordingLength() {
+        XCTAssertNotNil(TranscriptRepetition.loop(in: hinglishLoop, audioSeconds: 1.8))
+    }
+
     func testOrdinaryDictationIsNotALoop() {
         let text = "Aisa hai paaji bhai tumhaara. Batao bhai? Apna nahin dekh raha hai. Doosron ka itna dekh raha hai ki kya bataen?"
         XCTAssertNil(TranscriptRepetition.loop(in: text))
@@ -70,5 +95,13 @@ final class TranscriptRepetitionTests: XCTestCase {
     func testCollapseHandlesDevanagari() {
         let text = String(repeating: "मैं पूछ रहा हूँ। ", count: 12)
         XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: text), "मैं पूछ रहा हूँ।")
+    }
+
+    // MARK: - Retry
+
+    func testOnlyARetryWithTextReplacesTheFirstTranscription() {
+        XCTAssertTrue(WhisperService.isUsableRetry("Nahin main puchh raha hoon."))
+        XCTAssertFalse(WhisperService.isUsableRetry(""))
+        XCTAssertFalse(WhisperService.isUsableRetry("  \n "))
     }
 }

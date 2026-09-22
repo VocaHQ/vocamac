@@ -1500,6 +1500,7 @@ struct ModelRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+            .help(model.loadingStatus == ModelSize.firstLoadStatus ? ModelSize.firstLoadExplanation : "")
         } else if model.isActive {
             Label("In Use", systemImage: "checkmark.circle.fill")
                 .font(.callout.weight(.medium))

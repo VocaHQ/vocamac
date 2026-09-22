@@ -62,4 +62,27 @@ final class CompiledModelRecordTests: XCTestCase {
         XCTAssertTrue(app.hasLoaded(.vocaHinglish))
         XCTAssertTrue(app.hasLoaded(.small))
     }
+
+    func testFirstCoreMLLoadExplainsTheWait() {
+        XCTAssertEqual(
+            ModelSize.vocaHinglish.loadingStatus(forPhase: "Loading model…", isFirstLoad: true),
+            ModelSize.firstLoadStatus
+        )
+        XCTAssertEqual(
+            ModelSize.parakeetV3.loadingStatus(forPhase: "Preparing Parakeet…", isFirstLoad: true),
+            ModelSize.firstLoadStatus
+        )
+    }
+
+    func testLaterLoadsAndCPUModelsKeepTheEnginePhase() {
+        XCTAssertEqual(
+            ModelSize.vocaHinglish.loadingStatus(forPhase: "Loading model…", isFirstLoad: false),
+            "Loading model…"
+        )
+        // sherpa-onnx runs on the CPU; nothing is compiled.
+        XCTAssertEqual(
+            ModelSize.canary180mFlash.loadingStatus(forPhase: "Loading ONNX model…", isFirstLoad: true),
+            "Loading ONNX model…"
+        )
+    }
 }

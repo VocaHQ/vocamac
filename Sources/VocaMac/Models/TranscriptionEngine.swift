@@ -110,4 +110,10 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
         self == .whisperKit
     }
 
+    /// Whether CoreML compiles this engine's models for the Neural Engine on
+    /// their first load, which can take minutes.
+    var compilesForNeuralEngine: Bool {
+        self == .whisperKit || self == .parakeet
+    }
+
 }

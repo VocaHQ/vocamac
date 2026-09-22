@@ -264,6 +264,22 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         return max(ramRequiredGB, fit.estimateGB(fileSizeBytes: fileSizeBytes))
     }
 
+    /// Status shown while a model loads for the first time on this macOS
+    /// build and CoreML compiles it for the Neural Engine.
+    static let firstLoadStatus = "First load, can take minutes…"
+
+    /// Why a first load is slow, for help text.
+    static let firstLoadExplanation =
+        "macOS compiles a model for this Mac's Neural Engine the first time it loads, "
+        + "and again after a macOS update. That can take a few minutes; later loads take seconds."
+
+    /// The status for a loading phase. On a first load that compiles for the
+    /// Neural Engine, the engine's phase names ("Loading model…") hide a wait
+    /// of minutes, so the first-load status replaces them.
+    func loadingStatus(forPhase phase: String, isFirstLoad: Bool) -> String {
+        isFirstLoad && engine.compilesForNeuralEngine ? Self.firstLoadStatus : phase
+    }
+
     /// Whether the weights are palettized: the Compact builds and Voca
     /// Hinglish. The Neural Engine compiler expands them on the first load,
     /// which then needs far more memory than the file size suggests.

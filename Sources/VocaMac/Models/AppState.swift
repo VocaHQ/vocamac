@@ -2542,10 +2542,19 @@ final class AppState: ObservableObject {
             // cache instead of fetching its own copy. WhisperKit handles
             // tokenizer fetching itself — we don't pre-validate those files.
             let folderURL = modelManager.modelFolder(for: targetSize)
+            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
+            if isFirstLoad && targetSize.engine.compilesForNeuralEngine {
+                VocaLogger.info(
+                    .appState,
+                    "First load of \(targetSize.displayName) on this macOS build: compiling for the Neural Engine"
+                )
+            }
 
             // Update status: unpacking
             if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
-                availableModels[idx].loadingStatus = "Unpacking model…"
+                availableModels[idx].loadingStatus = targetSize.loadingStatus(
+                    forPhase: "Unpacking model…", isFirstLoad: isFirstLoad
+                )
             }
 
             // Load model with status callback
@@ -2553,7 +2562,9 @@ final class AppState: ObservableObject {
                 Task { @MainActor in
                     guard let self = self else { return }
                     if let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
-                        self.availableModels[idx].loadingStatus = phase
+                        self.availableModels[idx].loadingStatus = targetSize.loadingStatus(
+                            forPhase: phase, isFirstLoad: isFirstLoad
+                        )
                     }
                 }
             }

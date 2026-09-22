@@ -67,6 +67,21 @@ final class AppleSpeechService: @unchecked Sendable {
 
     var loadedModelName: String? { isPrepared ? ModelSize.appleSpeech.rawValue : nil }
 
+    /// Language codes SpeechTranscriber supports on this Mac, or nil when
+    /// the system has no SpeechAnalyzer or reports none.
+    static func supportedLanguageCodes() async -> Set<String>? {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            let locales = await SpeechTranscriber.supportedLocales
+            let codes = Set(locales.compactMap { $0.language.languageCode?.identifier })
+            // An empty answer is a failed query, not an engine with no
+            // languages; nil keeps the picker on its fallback list.
+            return codes.isEmpty ? nil : codes
+        }
+        #endif
+        return nil
+    }
+
     // MARK: - Model Management
 
     /// Prepare the system speech engine: resolves the locale to dictate in

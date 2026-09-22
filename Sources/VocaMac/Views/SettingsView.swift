@@ -946,26 +946,12 @@ struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var languageSearch = ""
     @State private var isLanguageSectionExpanded = false
-    @State private var expandedEngines: Set<TranscriptionEngine> = []
+    @State private var scope: ModelPickerScope = .forYou
+    @State private var modelSearch = ""
+    @State private var showsAllSuggestions = false
 
-    /// Rows that stay visible without expanding: anything on disk, in use,
-    /// in flight, or recommended for this Mac.
-    private func isProminent(_ model: WhisperModelInfo) -> Bool {
-        if model.isDownloaded || model.isActive || model.isLoading || model.downloadProgress != nil {
-            return true
-        }
-        guard model.isSupported, let recommended = appState.deviceRecommendedModel else { return false }
-        return appState.modelManager.modelSize(from: recommended) == model.size
-    }
-
-    private func expansionBinding(for engine: TranscriptionEngine) -> Binding<Bool> {
-        Binding(
-            get: { expandedEngines.contains(engine) },
-            set: { isExpanded in
-                if isExpanded { expandedEngines.insert(engine) } else { expandedEngines.remove(engine) }
-            }
-        )
-    }
+    /// For You rows listed before the rest wait behind "Show more".
+    private static let forYouShown = 5
 
     /// When true, show language / translation / vocabulary below the catalog.
     var showsLanguageHints: Bool = false
@@ -974,34 +960,47 @@ struct ModelSettingsTab: View {
         self.showsLanguageHints = showsLanguageHints
     }
 
-    /// Catalog entries grouped by engine, preserving catalog order within
-    /// each group. Engines with no available models are omitted.
-    private var modelsByEngine: [(engine: TranscriptionEngine, models: [WhisperModelInfo])] {
-        TranscriptionEngine.allCases.compactMap { engine in
-            let models = appState.availableModels.filter { $0.size.engine == engine }
-            return models.isEmpty ? nil : (engine: engine, models: models)
-        }
+    private var spokenLanguagesBinding: Binding<[String]> {
+        Binding(
+            get: { appState.spokenLanguages },
+            set: { appState.spokenLanguages = $0 }
+        )
+    }
+
+    private var recommendedModel: ModelSize? {
+        appState.deviceRecommendedModel.flatMap { appState.modelManager.modelSize(from: $0) }
+    }
+
+    private func models(in scope: ModelPickerScope, search: String = "") -> [ModelSize] {
+        ModelPickerCatalog.models(
+            in: scope,
+            from: appState.availableModels,
+            spokenLanguages: appState.spokenLanguages,
+            search: search,
+            recommended: recommendedModel,
+            systemLanguages: appState.appleSpeechLanguages
+        )
     }
 
     private var filteredLanguages: [TranscriptionLanguage] {
         TranscriptionLanguage.filtered(search: languageSearch)
     }
 
-    private var activeEngine: TranscriptionEngine? {
-        appState.currentModel?.size.engine
-            ?? ModelSize(rawValue: appState.selectedModelSize)?.engine
+    private var activeModel: ModelSize? {
+        appState.currentModel?.size ?? ModelSize(rawValue: appState.selectedModelSize)
     }
 
-    private func engineIconName(_ engine: TranscriptionEngine) -> String {
-        switch engine {
-        case .parakeet:    return "bolt.fill"
-        case .whisperKit:  return "globe"
-        case .appleSpeech: return "apple.logo"
-        case .sherpaOnnx:  return "puzzlepiece.extension"
-        }
+    private var activeEngine: TranscriptionEngine? {
+        activeModel?.engine
+    }
+
+    private var isSearching: Bool {
+        !modelSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
+        let spoken = appState.spokenLanguages
+        let listed = models(in: scope, search: modelSearch)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Download and delete failures set only the message, not the
@@ -1033,43 +1032,72 @@ struct ModelSettingsTab: View {
                     }
                 }
 
-                // Model list, grouped by engine. Each engine shows what you
-                // have (and what's recommended); the rest of the catalog
-                // waits behind one row instead of twenty download buttons.
-                ForEach(modelsByEngine, id: \.engine) { group in
-                    // Hiding one or two rows behind a disclosure costs more
-                    // than it saves, so only collapse a real list.
-                    let collapses = group.models.filter { !isProminent($0) }.count >= 3
-                    let shown = collapses ? group.models.filter(isProminent) : group.models
-                    let more = collapses ? group.models.filter { !isProminent($0) } : []
-                    VocaSettingsGroup(
-                        group.engine.displayName,
-                        systemImage: engineIconName(group.engine),
-                        subtitle: group.engine.summary
-                    ) {
-                        ForEach(shown) { model in
-                            ModelRow(model: model, appState: appState)
-                            if model.id != shown.last?.id || !more.isEmpty {
-                                Divider()
-                            }
-                        }
+                ModelPickerHeader(
+                    languages: spokenLanguagesBinding,
+                    // A model mid-load is where dictation is heading, so it
+                    // wins over the one it replaces.
+                    current: appState.availableModels.first(where: \.isLoading)
+                        ?? appState.availableModels.first(where: \.isActive),
+                    systemLanguages: appState.appleSpeechLanguages,
+                    onShowSuggestions: {
+                        scope = .forYou
+                        modelSearch = ""
+                    }
+                )
 
-                        if !more.isEmpty {
-                            DisclosureGroup(isExpanded: expansionBinding(for: group.engine)) {
-                                ForEach(more) { model in
-                                    ModelRow(model: model, appState: appState)
-                                    if model.id != more.last?.id {
-                                        Divider()
-                                    }
-                                }
-                            } label: {
-                                Text(shown.isEmpty
-                                     ? "Show \(more.count) \(more.count == 1 ? "model" : "models")"
-                                     : "\(more.count) more \(more.count == 1 ? "model" : "models")")
-                            }
-                            .disclosureGroupStyle(VocaDisclosureGroupStyle())
+                VStack(alignment: .leading, spacing: 10) {
+                    // Search moves under the tabs when the window is narrow.
+                    ViewThatFits(in: .horizontal) {
+                        HStack(spacing: 10) {
+                            scopePicker
+                            Spacer(minLength: 8)
+                            ModelSearchField(search: $modelSearch)
+                                .frame(minWidth: 160, maxWidth: 220)
+                        }
+                        VStack(alignment: .leading, spacing: 8) {
+                            scopePicker
+                            ModelSearchField(search: $modelSearch)
                         }
                     }
+
+                    Text(scopeCaption(spoken: spoken))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 4)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        if listed.isEmpty {
+                            Text(emptyMessage)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 8)
+                        } else {
+                            // English alone matches most of the catalog, so the
+                            // best few lead and the rest wait behind a row.
+                            let collapses = scope == .forYou && !isSearching && !showsAllSuggestions
+                                && listed.count > Self.forYouShown + 1
+                            let shown = collapses ? Array(listed.prefix(Self.forYouShown)) : listed
+                            modelRows(shown, spoken: spoken)
+                            if collapses {
+                                Divider()
+                                Button {
+                                    showsAllSuggestions = true
+                                } label: {
+                                    Text("Show \(listed.count - shown.count) more")
+                                        .font(.callout.weight(.medium))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(VocaDisclosureHeaderButtonStyle())
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            }
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .vocaCard()
                 }
 
                 Label("Models download from Hugging Face and stay on this Mac · \(appState.modelManager.diskUsageDescription()) used",
@@ -1083,6 +1111,58 @@ struct ModelSettingsTab: View {
                 }
             }
             .padding()
+        }
+        .task {
+            await appState.refreshAppleSpeechLanguages()
+        }
+    }
+
+    private var scopePicker: some View {
+        Picker("Show", selection: $scope) {
+            ForEach(ModelPickerScope.allCases) { scope in
+                Text("\(scope.title) (\(models(in: scope).count))").tag(scope)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .fixedSize()
+    }
+
+    @ViewBuilder
+    private func modelRows(_ sizes: [ModelSize], spoken: [String]) -> some View {
+        let models = sizes.compactMap { size in appState.availableModels.first { $0.size == size } }
+        ForEach(models) { model in
+            ModelRow(
+                model: model,
+                appState: appState,
+                spokenLanguages: spoken,
+                systemLanguages: appState.appleSpeechLanguages
+            )
+            if model.id != models.last?.id {
+                Divider()
+            }
+        }
+    }
+
+    private func scopeCaption(spoken: [String]) -> String {
+        switch scope {
+        case .forYou:
+            return spoken.isEmpty
+                ? "Every model, best first. Add your languages above to narrow the list."
+                : "Models that understand \(SpokenLanguages.list(spoken)), best first."
+        case .downloaded:
+            return "Models already on this Mac. Switching between them needs no download."
+        case .all:
+            return "The whole catalog, best fit for your languages first."
+        }
+    }
+
+    private var emptyMessage: String {
+        if isSearching { return "No models match “\(modelSearch)”." }
+        switch scope {
+        case .forYou:     return "No model understands all of these languages. Try removing one, or look in All Models."
+        case .downloaded: return "Nothing downloaded yet. Pick a model from For You."
+        case .all:        return "No models are available on this Mac."
         }
     }
 
@@ -1125,16 +1205,24 @@ struct ModelSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            if activeEngine?.supportsTranslation == true {
+            // Kept visible while on, so a model that can't translate never
+            // hides a switch the user needs to turn off.
+            if activeModel?.translatesToEnglish == true || appState.translationEnabled {
                 Divider()
 
                 Toggle("Enable translation", isOn: $appState.translationEnabled)
 
-                Text(appState.translationEnabled
-                     ? "Speech is translated to the selected language (or English if set to Auto-detect)."
-                     : "Speech is transcribed as spoken. The language setting is only a recognition hint.")
+                Text(translationCaption)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if appState.translationEnabled, activeModel?.translatesToEnglish != true {
+                    Button("Show Models That Translate") {
+                        scope = .all
+                        modelSearch = "translate"
+                    }
+                }
             }
 
             Divider()
@@ -1158,6 +1246,16 @@ struct ModelSettingsTab: View {
                 await appState.languageDidChange()
             }
         }
+    }
+
+    private var translationCaption: String {
+        guard appState.translationEnabled else {
+            return "Speech is transcribed as spoken. The language setting is only a recognition hint."
+        }
+        if let activeModel, !activeModel.translatesToEnglish {
+            return "\(activeModel.displayName) wasn't trained to translate, so VocaMac transcribes speech as spoken. Switch to a model that translates to use this."
+        }
+        return "Speech is translated to the selected language (or English if set to Auto-detect)."
     }
 }
 
@@ -1187,6 +1285,10 @@ struct SystemInfoPill: View {
 struct ModelRow: View {
     let model: WhisperModelInfo
     @ObservedObject var appState: AppState
+    /// Languages the user speaks; a row that misses one says so.
+    var spokenLanguages: [String] = []
+    /// Apple Speech's languages on this Mac, when known.
+    var systemLanguages: Set<String>?
     @State private var showForceDownloadAlert = false
     @State private var showDeleteAlert = false
 
@@ -1198,153 +1300,129 @@ struct ModelRow: View {
             && !model.isLoading && model.downloadProgress == nil
     }
 
+    private var isRecommended: Bool {
+        guard model.isSupported, let recommended = appState.deviceRecommendedModel else { return false }
+        return appState.modelManager.modelSize(from: recommended) == model.size
+    }
+
+    /// "Doesn't understand Hindi" when the model misses a language the user speaks.
+    private var missingLanguagesNote: String? {
+        let fit = ModelPickerCatalog.fit(of: model.size, for: spokenLanguages, systemLanguages: systemLanguages)
+        guard !fit.coversAll else { return nil }
+        return "Doesn't understand \(SpokenLanguages.list(fit.missing))"
+    }
+
+    @ViewBuilder
+    private var ratings: some View {
+        ModelRating(
+            title: "Accuracy",
+            value: model.size.accuracyScore,
+            accessibilityValue: accuracyRating
+        )
+        .help("Accuracy: \(accuracyRating)")
+        ModelRating(
+            title: "Speed",
+            value: model.size.speedScore,
+            accessibilityValue: speedRating
+        )
+        .help("Speed: \(speedRating)")
+    }
+
+    private var factsText: some View {
+        Text(facts)
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+            .help(ModelLanguageBadge.tooltip(for: model.size, systemLanguages: systemLanguages)
+                  + "\n~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use")
+    }
+
+    /// Accuracy as its label and the dots the row shows: "Great, 3.5 of 5".
+    private var accuracyRating: String {
+        "\(model.size.qualityDescription), \(ModelRating.describe(model.size.accuracyScore))"
+    }
+
+    /// Speed as the dots the row shows, for help and VoiceOver.
+    private var speedRating: String {
+        ModelRating.describe(model.size.speedScore)
+    }
+
+    /// Languages, translation, and size, in one plain line.
+    private var facts: String {
+        var parts = [ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages)]
+        if model.size.translatesToEnglish { parts.append("Translates to English") }
+        parts.append(model.size.fileSizeDescription)
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
-        HStack {
+        HStack(alignment: .center, spacing: 12) {
             // Who made it; the check marks the model in use.
             ModelCreatorMark(creator: model.size.creator, isActive: model.isActive)
-                .padding(.trailing, 4)
+                .help(model.size.creator.displayName)
 
-            // Model info
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(model.size.displayName)
-                        .font(.callout)
-                        .fontWeight(model.isActive ? .semibold : .regular)
-
-                    if model.isSupported,
-                       let recommended = appState.deviceRecommendedModel {
-                        if appState.modelManager.modelSize(from: recommended) == model.size {
-                            Text("Recommended")
-                                .font(.caption2)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(VocaDesign.accent.opacity(0.12))
-                                .foregroundStyle(VocaDesign.accent)
-                                .cornerRadius(4)
-                        }
+                        .font(.callout.weight(model.isActive ? .semibold : .medium))
+                    if model.isDownloaded && !model.isActive {
+                        ModelTag(
+                            text: model.size.isSystemManaged ? "Built In" : "Downloaded",
+                            systemImage: "checkmark"
+                        )
                     }
-
+                    if isRecommended {
+                        ModelTag(text: "Recommended", tint: VocaDesign.accent)
+                    }
                     if !model.isSupported {
-                        Text("Experimental")
-                            .font(.caption2)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 1)
-                            .background(.orange.opacity(0.2))
-                            .foregroundStyle(.orange)
-                            .cornerRadius(4)
+                        ModelTag(text: "Experimental", tint: .orange)
                             .help("WhisperKit hasn't verified this model on your chip family. It may fail to load, or it may run slower than tuned models.")
                     }
                 }
 
-                HStack(spacing: 4) {
-                    Text(model.size.creator.displayName)
-                    Text("•")
-                    Text(model.size.fileSizeDescription)
-                    Text("•")
-                    Text(model.size.qualityDescription)
-                    Text("•")
-                    Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
-                    Text("•")
-                    Label("Speed \(max(1, 6 - model.size.relativeSpeed))/5", systemImage: "bolt")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            }
-
-            Spacer()
-
-            // Download progress or loading indicator
-            if let progress = model.downloadProgress {
-                VStack(spacing: 2) {
-                    ProgressView(value: progress)
-                        .frame(width: 60)
-                        .controlSize(.small)
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption2)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Downloading \(model.size.displayName)")
-                .accessibilityValue("\(Int(progress * 100)) percent")
-
-                if progress < 1.0 {
-                    Button("Cancel") {
-                        appState.modelManager.cancelDownload(for: model.size)
-                    }
-                    .controlSize(.small)
-                    .accessibilityLabel("Cancel downloading \(model.size.displayName)")
-                }
-            } else if model.isLoading {
-                VStack(spacing: 2) {
-                    ProgressView()
-                        .frame(width: 60)
-                        .controlSize(.small)
-                    Text(model.loadingStatus)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Action button
-            if model.isActive {
-                Label("Active", systemImage: "checkmark")
+                Text(model.size.pickerSummary)
                     .font(.caption)
-                    .foregroundStyle(VocaDesign.success)
-            } else if !model.isSupported {
-                if model.isLoading || model.downloadProgress != nil {
-                    EmptyView()
-                } else if model.isDownloaded {
-                    Button("Load Anyway") {
-                        showForceDownloadAlert = true
-                    }
-                    .controlSize(.small)
                     .foregroundStyle(.secondary)
-                } else {
-                    Button("Try Anyway") {
-                        showForceDownloadAlert = true
-                    }
-                    .controlSize(.small)
-                    .foregroundStyle(.secondary)
-                }
-            } else if model.isLoading || model.downloadProgress != nil {
-                // Show nothing - progress indicator handles the feedback
-                EmptyView()
-            } else if model.isDownloaded {
-                Button("Load") {
-                    Task { @MainActor in await appState.loadModel(model.size) }
-                }
-                .controlSize(.small)
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button("Download & Load") {
-                    Task { @MainActor in
-                        await appState.downloadModel(model.size)
-                        if appState.availableModels.first(where: { $0.size == model.size })?.isDownloaded == true {
-                            await appState.loadModel(model.size)
-                        }
-                    }
-                }
-                .controlSize(.small)
-            }
+                    .fixedSize(horizontal: false, vertical: true)
 
-            if canDelete {
-                Button {
-                    showDeleteAlert = true
-                } label: {
-                    Image(systemName: "trash")
+                // Facts drop to their own line rather than wrap mid-list.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 16) {
+                        ratings
+                        factsText
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 16) { ratings }
+                        factsText
+                    }
                 }
-                .controlSize(.small)
-                .buttonStyle(.borderless)
+                .font(.caption)
                 .foregroundStyle(.secondary)
-                .help("Delete downloaded model")
+                .padding(.top, 2)
+
+                if let missing = missingLanguagesNote {
+                    Label(missing, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            action
+                .frame(width: 116, alignment: .trailing)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .background {
+            // The model in use stands out where it ranks, instead of being
+            // listed a second time somewhere else.
+            if model.isActive {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(VocaDesign.accent.opacity(0.08))
             }
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 4)
         .alert("Use Experimental Model?", isPresented: $showForceDownloadAlert) {
             Button("Cancel", role: .cancel) {}
-            Button(model.isDownloaded ? "Load Anyway" : "Download & Load", role: .destructive) {
+            Button(model.isDownloaded ? "Use Anyway" : "Download & Use", role: .destructive) {
                 Task { @MainActor in
                     if !model.isDownloaded {
                         await appState.downloadModel(model.size)
@@ -1364,6 +1442,92 @@ struct ModelRow: View {
             }
         } message: {
             Text("This removes the downloaded model file (\(model.size.fileSizeDescription)) from disk. You can download it again later.")
+        }
+    }
+
+    /// One control per state, so a row always says whether the model is in
+    /// use, ready on this Mac, or still to download.
+    @ViewBuilder
+    private var action: some View {
+        if let progress = model.downloadProgress {
+            HStack(spacing: 6) {
+                VStack(alignment: .trailing, spacing: 2) {
+                    ProgressView(value: progress)
+                        .frame(width: 60)
+                        .controlSize(.small)
+                    Text("Downloading \(Int(progress * 100))%")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Downloading \(model.size.displayName)")
+                .accessibilityValue("\(Int(progress * 100)) percent")
+
+                if progress < 1.0 {
+                    Button {
+                        appState.modelManager.cancelDownload(for: model.size)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Cancel download")
+                    .accessibilityLabel("Cancel downloading \(model.size.displayName)")
+                }
+            }
+        } else if model.isLoading {
+            VStack(alignment: .trailing, spacing: 2) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(model.loadingStatus)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } else if model.isActive {
+            Label("In Use", systemImage: "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(VocaDesign.success)
+        } else if model.isDownloaded {
+            HStack(spacing: 6) {
+                if canDelete {
+                    Button {
+                        showDeleteAlert = true
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .help("Delete from this Mac")
+                    .accessibilityLabel("Delete \(model.size.displayName)")
+                }
+                Button(model.isSupported ? "Use" : "Use Anyway") {
+                    if model.isSupported {
+                        Task { @MainActor in await appState.loadModel(model.size) }
+                    } else {
+                        showForceDownloadAlert = true
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .help(model.size.isSystemManaged ? "Built into macOS" : "Downloaded to this Mac")
+            }
+        } else {
+            Button {
+                if model.isSupported {
+                    Task { @MainActor in
+                        await appState.downloadModel(model.size)
+                        if appState.availableModels.first(where: { $0.size == model.size })?.isDownloaded == true {
+                            await appState.loadModel(model.size)
+                        }
+                    }
+                } else {
+                    showForceDownloadAlert = true
+                }
+            } label: {
+                Label(model.isSupported ? "Download" : "Try Anyway", systemImage: "arrow.down.circle")
+            }
+            .help("Download \(model.size.fileSizeDescription), then switch to it")
         }
     }
 }

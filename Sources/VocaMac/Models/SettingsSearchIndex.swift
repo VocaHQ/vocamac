@@ -259,6 +259,13 @@ enum SettingsSearchIndex {
             keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download"]
         ),
         SettingsSearchEntry(
+            id: "spoken-languages",
+            page: .speechModel,
+            title: "Languages You Speak",
+            subtitle: "Find models for your languages",
+            keywords: ["language", "languages", "multilingual", "bilingual", "filter", "hindi", "spanish"]
+        ),
+        SettingsSearchEntry(
             id: "language",
             page: .speechModel,
             title: "Transcription Language",

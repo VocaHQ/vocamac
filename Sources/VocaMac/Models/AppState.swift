@@ -236,6 +236,9 @@ final class AppState: ObservableObject {
     /// WhisperKit's recommended model for this device
     @Published var deviceRecommendedModel: String?
 
+    /// Apple Speech's languages on this Mac, once the system has been asked.
+    @Published var appleSpeechLanguages: Set<String>?
+
     // MARK: - User Settings (persisted via UserDefaults)
 
     @AppStorage(PreferenceKey.onboardingCompleted) var hasCompletedOnboarding: Bool = false
@@ -258,6 +261,9 @@ final class AppState: ObservableObject {
     @AppStorage("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @AppStorage(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
     @AppStorage(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
+    /// Languages the user dictates in, which steer the model picker. Nil
+    /// until they choose, so the picker can start from a guess.
+    @AppStorage(PreferenceKey.spokenLanguages) var spokenLanguagesStorage: String?
     @AppStorage("vocamac.launchAtLogin") var launchAtLogin: Bool = false
     @AppStorage("vocamac.preserveClipboard") var preserveClipboard: Bool = true
     @AppStorage("vocamac.soundEffectsEnabled") var soundEffectsEnabled: Bool = true
@@ -2117,7 +2123,7 @@ final class AppState: ObservableObject {
             let result: VocaTranscription
             let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
             let contextNeedsWhisperBatch = selectedEngine == .whisperKit
-                && (!contextTerms.isEmpty || translationEnabled)
+                && (!contextTerms.isEmpty || translatesSpeech)
             if let session, session.language == language, !contextNeedsWhisperBatch {
                 do {
                     result = try await session.finish(expectedSampleCount: audioData.count)
@@ -2128,14 +2134,14 @@ final class AppState: ObservableObject {
                     VocaLogger.warning(.appState, "Live transcription unavailable; decoding the complete recording")
                     result = try await whisperService.transcribe(
                         audioData: audioData, language: language,
-                        translate: translationEnabled, vocabulary: recognitionVocabulary
+                        translate: translatesSpeech, vocabulary: recognitionVocabulary
                     )
                 }
             } else {
                 session?.cancel()
                 result = try await whisperService.transcribe(
                     audioData: audioData, language: language,
-                    translate: translationEnabled, vocabulary: recognitionVocabulary
+                    translate: translatesSpeech, vocabulary: recognitionVocabulary
                 )
             }
 
@@ -2617,6 +2623,34 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Language changed to \(selectedLanguage) — reloading \(size.displayName)")
         await loadModel(size)
+    }
+
+    // MARK: - Spoken Languages
+
+    /// The languages the user dictates in: their saved choice, or a guess
+    /// from the pinned transcription language and the Mac's languages.
+    var spokenLanguages: [String] {
+        get { SpokenLanguages.resolve(stored: spokenLanguagesStorage, selectedLanguage: selectedLanguage) }
+        set { spokenLanguagesStorage = SpokenLanguages.encode(newValue) }
+    }
+
+    /// Ask the system which languages Apple Speech covers, once per launch.
+    func refreshAppleSpeechLanguages() async {
+        guard appleSpeechLanguages == nil,
+              availableModels.contains(where: { $0.size == .appleSpeech }) else { return }
+        appleSpeechLanguages = await TranscriptionRouter.appleSpeechLanguageCodes()
+    }
+
+    // MARK: - Translation
+
+    /// Whether dictation asks the model to translate: the setting is on and
+    /// the model was trained to. The setting survives a switch to a model
+    /// that can't (Whisper Turbo, Distil-Whisper), and asking one of those
+    /// for the translate task degrades its output instead of translating.
+    var translatesSpeech: Bool {
+        guard translationEnabled,
+              let model = currentModel?.size ?? ModelSize(rawValue: selectedModelSize) else { return false }
+        return model.translatesToEnglish
     }
 
     /// Download and load the model currently recommended by onboarding.
@@ -3431,7 +3465,7 @@ final class AppState: ObservableObject {
         let result = try await whisperService.transcribe(
             audioData: loaded.samples,
             language: language,
-            translate: translationEnabled,
+            translate: translatesSpeech,
             vocabulary: recognitionHintVocabulary
         )
         statsManager.recordTranscription(result)
@@ -3466,7 +3500,7 @@ final class AppState: ObservableObject {
         let result = try await whisperService.transcribe(
             audioData: samples,
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
-            translate: translationEnabled,
+            translate: translatesSpeech,
             vocabulary: recognitionHintVocabulary
         )
         try Task.checkCancellation()
@@ -3556,7 +3590,7 @@ extension AppState {
             let result = try await whisperService.transcribe(
                 audioData: samples,
                 language: selectedLanguage == "auto" ? nil : selectedLanguage,
-                translate: translationEnabled,
+                translate: translatesSpeech,
                 vocabulary: recognitionHintVocabulary
             )
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)

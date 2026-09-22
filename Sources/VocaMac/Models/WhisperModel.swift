@@ -247,7 +247,11 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3:                   return 10.0
         case .largeV3Turbo:              return 6.0
         case .medium:                    return 5.0
-        case .vocaHinglish:              return 5.0
+        // Measured with the CLI on Apple Silicon (a Whisper Turbo decoder,
+        // 8-bit): 1.0 GB peak resident on the first load while CoreML
+        // compiles for the Neural Engine, then about 0.3 GB. The 5 GB it
+        // inherited from its base model blocked loads on 8 GB Macs.
+        case .vocaHinglish:              return 1.5
         case .parakeetV3:                return 2.0
         case .parakeetV2:                return 2.5
         case .parakeetTdtCtc110m:        return 1.0

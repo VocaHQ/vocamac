@@ -49,4 +49,17 @@ final class CompiledModelRecordTests: XCTestCase {
         XCTAssertFalse(record.hasLoaded(.vocaHinglish))
         XCTAssertTrue(record.hasLoaded(.small))
     }
+
+    func testRecordsForDifferentModelsDoNotOverwriteEachOther() throws {
+        // The app and the headless CLI keep separate record values; a write
+        // from one must not discard what the other recorded.
+        let defaults = try makeDefaults()
+        let app = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        let cli = CompiledModelRecord(defaults: defaults, osBuild: "27A1")
+        app.recordLoad(.vocaHinglish)
+        cli.recordLoad(.small)
+        app.forget(.tiny)
+        XCTAssertTrue(app.hasLoaded(.vocaHinglish))
+        XCTAssertTrue(app.hasLoaded(.small))
+    }
 }

@@ -15,6 +15,9 @@ import Foundation
 /// in the Neural Engine compiler). CoreML caches the result and
 /// recompiles after a macOS update, so the memory gate asks this record
 /// whether the coming load will compile, keyed by OS build.
+///
+/// Each model has its own key, so the app and the headless CLI can record
+/// different models at the same time without one write discarding the other.
 struct CompiledModelRecord {
     private let defaults: UserDefaults
     private let osBuild: String
@@ -29,25 +32,21 @@ struct CompiledModelRecord {
 
     /// Whether `size` has loaded before on this macOS build.
     func hasLoaded(_ size: ModelSize) -> Bool {
-        builds[size.rawValue] == osBuild
+        defaults.string(forKey: key(for: size)) == osBuild
     }
 
     /// Record a successful load of `size`.
     func recordLoad(_ size: ModelSize) {
-        var updated = builds
-        updated[size.rawValue] = osBuild
-        defaults.set(updated, forKey: PreferenceKey.compiledModelBuilds)
+        defaults.set(osBuild, forKey: key(for: size))
     }
 
     /// Forget `size`, for when its files are deleted and a fresh copy may
     /// compile again.
     func forget(_ size: ModelSize) {
-        var updated = builds
-        updated[size.rawValue] = nil
-        defaults.set(updated, forKey: PreferenceKey.compiledModelBuilds)
+        defaults.removeObject(forKey: key(for: size))
     }
 
-    private var builds: [String: String] {
-        defaults.dictionary(forKey: PreferenceKey.compiledModelBuilds) as? [String: String] ?? [:]
+    private func key(for size: ModelSize) -> String {
+        PreferenceKey.compiledModelBuildPrefix + size.rawValue
     }
 }

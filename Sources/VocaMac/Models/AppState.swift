@@ -441,9 +441,12 @@ final class AppState: ObservableObject {
     @Published var autoPauseTriggerDisplayName: String?
 
     /// Style that would be used if the user dictated right now. Drives the
-    /// menu bar indicator; refreshed when the popover appears and after every
-    /// dictation, never on a timer.
+    /// menu bar indicator; refreshed when the popover appears, when another
+    /// app is activated, and after every dictation, never on a timer.
     @Published private(set) var activeWritingStyle: ResolvedWritingStyle = .plain
+    /// Name of the app `activeWritingStyle` was resolved for, whether or not
+    /// it has its own rule, so the menu bar can say which app it means.
+    @Published private(set) var activeWritingTargetName: String?
     @Published var nextWritingProfile: WritingProfile?
     @Published private(set) var lastOutput: DictationOutputResult?
     @Published private(set) var heldOutput: String?
@@ -831,6 +834,17 @@ final class AppState: ObservableObject {
             syncLaunchAtLogin()
         }
         setupServices()
+
+        // Keep the menu bar's style row on the app the user is actually in.
+        // The popover's onAppear alone left it showing the previous app, so
+        // resolve once per app switch as well. Event-driven, no polling.
+        if !skipSystemIntegration {
+            NSWorkspace.shared.notificationCenter
+                .publisher(for: NSWorkspace.didActivateApplicationNotification)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] _ in self?.refreshActiveWritingStyle() }
+                .store(in: &cancellables)
+        }
 
         // Forward updateChecker changes so SwiftUI views observing AppState
         // re-render when updateState changes (nested ObservableObject fix).
@@ -1485,7 +1499,9 @@ final class AppState: ObservableObject {
     /// bare frontmost app: opening the popover activates VocaMac, so by the
     /// time this runs the frontmost app usually *is* VocaMac.
     func refreshActiveWritingStyle() {
-        activeWritingStyle = resolveWritingStyle(for: frontmostAppResolver.styleTargetApp())
+        let target = frontmostAppResolver.styleTargetApp()
+        activeWritingStyle = resolveWritingStyle(for: target)
+        activeWritingTargetName = target?.displayName
     }
 
     /// The app a menu bar action should apply to: whatever is in front, or the
@@ -1512,6 +1528,11 @@ final class AppState: ObservableObject {
         binding.cleanup = existing?.cleanup ?? .inherit
         binding.cleanupLevel = existing?.cleanupLevel
         binding.cleanupPrompt = existing?.cleanupPrompt
+        // Re-picking the style an app already has must not wipe its custom
+        // rules; a different style brings its own rules.
+        if existing?.style == style {
+            binding.ruleOverrides = existing?.ruleOverrides
+        }
         bindings.append(binding)
         writingStyleBindings = bindings
         VocaLogger.info(.appState, "Bound \(target.displayName) to writing style '\(style.rawValue)'")

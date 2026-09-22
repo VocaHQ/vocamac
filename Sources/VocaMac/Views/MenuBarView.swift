@@ -178,6 +178,8 @@ struct MenuBarView: View {
             appState.refreshActiveWritingStyle()
         }
         .onDisappear { processMonitor.stop() }
+        // A "saved for Ghostty" notice is wrong once the user is in Discord.
+        .onChange(of: appState.activeWritingTargetName) { _, _ in bindNotice = nil }
     }
 
     private var supplementaryContent: some View {
@@ -259,8 +261,12 @@ struct MenuBarView: View {
             if appState.writingStyleEnabled {
                 MenuPanelRowDivider()
                 writingStyleRow
-                MenuPanelRowDivider()
-                nextDictationRow
+                // Only shown while a one-off override is waiting, so it can
+                // be seen and cancelled.
+                if appState.nextWritingProfile != nil {
+                    MenuPanelRowDivider()
+                    nextDictationRow
+                }
             }
 
             if let notice = recordingOptionsNotice {
@@ -292,69 +298,88 @@ struct MenuBarView: View {
 
     // MARK: - Writing Style
 
-    /// One-off override for the next dictation.
+    /// A pending one-off override, with a way to cancel it. Choosing one lives
+    /// in the Style menu, so this row only exists while one is waiting.
     private var nextDictationRow: some View {
         MenuPanelRow(
-            title: "Next Dictation",
+            title: "Next dictation only",
             systemImage: "forward.frame",
             tint: .indigo
         ) {
-            Menu {
-                Button("Raw transcription") { appState.useRawForNextDictation() }
-                Menu("Format") {
-                    ForEach(WritingStyle.allCases) { style in
-                        Button(style.displayName) { appState.useNextWritingFormat(style) }
-                    }
+            HStack(spacing: 6) {
+                Text(appState.nextWritingProfile.map(nextProfileLabel) ?? "")
+                    .foregroundStyle(.secondary)
+                Button {
+                    appState.nextWritingProfile = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
                 }
-                if appState.writingRewriteEnabled {
-                    Menu("Wording") {
-                        ForEach(WritingIntent.allCases) { intent in
-                            Button(intent.displayName) { appState.useNextWritingIntent(intent) }
-                        }
-                    }
-                }
-                if appState.nextWritingProfile != nil {
-                    Divider()
-                    Button("Use App Profile") { appState.nextWritingProfile = nil }
-                }
-            } label: {
-                Text(appState.nextWritingProfile.map(nextProfileLabel) ?? "Same as app")
+                .buttonStyle(.borderless)
+                .help("Cancel and use the app's usual style")
             }
-            .menuPanelValueMenu()
-            .help("Override the style for the next dictation only")
         }
     }
 
-    /// Shows which style the next dictation will use, and lets the user
-    /// re-bind the frontmost app in one step when it looks wrong.
+    /// Which style dictation into the app in front will use. Picking a style
+    /// remembers it for that app; the submenu applies one just once.
     private var writingStyleRow: some View {
-        MenuPanelRow(
-            title: "Style",
+        let appName = appState.activeWritingTargetName
+        return MenuPanelRow(
+            title: appName.map { "Style in \($0)" } ?? "Style",
             systemImage: appState.activeWritingStyle.style.systemImage,
             tint: .orange
         ) {
             Menu {
-                ForEach(WritingStyle.allCases) { style in
-                    VocaMenuChoice(
-                        title: style.displayName,
-                        isSelected: style == appState.activeWritingStyle.style
-                    ) {
-                        bindNotice = appState.bindFrontmostApp(to: style)
-                            .map { "\(style.displayName) for \($0)" }
+                Section(appName.map { "Always use in \($0)" } ?? "Always use") {
+                    ForEach(WritingStyle.allCases) { style in
+                        VocaMenuChoice(
+                            title: style.displayName,
+                            isSelected: style == appState.activeWritingStyle.style
+                        ) {
+                            bindNotice = appState.bindFrontmostApp(to: style)
+                                .map { "\(style.displayName) style saved for \($0)" }
+                        }
                     }
                 }
 
                 if appState.activeWritingStyle.matchedAppName != nil {
-                    Divider()
-                    Button("Use Default Style") {
-                        bindNotice = appState.unbindFrontmostApp().map { "Default style for \($0)" }
+                    Button("Use My Default Style (\(appState.writingStyleDefault.displayName))") {
+                        bindNotice = appState.unbindFrontmostApp()
+                            .map { "\($0) now uses your default style" }
                     }
+                }
+
+                Divider()
+
+                Menu("Just for the Next Dictation") {
+                    Section("Style") {
+                        ForEach(WritingStyle.allCases) { style in
+                            Button(style.displayName) { appState.useNextWritingFormat(style) }
+                        }
+                    }
+                    if appState.writingRewriteEnabled {
+                        Section("Tone") {
+                            ForEach(WritingIntent.allCases) { intent in
+                                Button(intent.displayName) { appState.useNextWritingIntent(intent) }
+                            }
+                        }
+                    }
+                    Divider()
+                    Button("Exactly as Transcribed") { appState.useRawForNextDictation() }
+                }
+
+                Divider()
+
+                Button("Writing Style Settings…") {
+                    appState.requestSettingsPage(.writingStyles)
+                    settingsManager.open(appState: appState)
                 }
             } label: {
                 Text(writingStyleLabel)
             }
             .menuPanelValueMenu()
-            .help("Choose the writing style for the app in front")
+            .help("How text is formatted when you dictate into this app")
         }
     }
 
@@ -366,14 +391,11 @@ struct MenuBarView: View {
            resolved.intent != .preserve {
             style += " · \(resolved.intent.displayName)"
         }
-        if let app = appState.activeWritingStyle.matchedAppName {
-            return "\(style) — \(app)"
-        }
-        return "\(style) (default)"
+        return style
     }
 
     private func nextProfileLabel(_ profile: WritingProfile) -> String {
-        guard profile.cleanup != .raw else { return "Raw transcription" }
+        guard profile.cleanup != .raw else { return "Exactly as transcribed" }
         guard appState.writingRewriteEnabled,
               profile.format.supportsWording,
               profile.intent != .preserve,

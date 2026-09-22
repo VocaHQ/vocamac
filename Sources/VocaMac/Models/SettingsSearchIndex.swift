@@ -117,41 +117,41 @@ enum SettingsSearchIndex {
             id: "writing-styles",
             page: .writingStyles,
             title: "Writing Styles",
-            subtitle: "Shape dictation for the target app",
+            subtitle: "Make dictation fit the app you're typing in",
             keywords: ["style", "per-app", "app", "formatting", "output", "shape"]
         ),
         SettingsSearchEntry(
             id: "default-writing-style",
             page: .writingStyles,
-            title: "Default Style",
-            subtitle: "Used when an app has no rule",
+            title: "Style Everywhere Else",
+            subtitle: "Used for apps you haven't set up",
             keywords: ["default", "style", "plain", "fallback"]
         ),
         SettingsSearchEntry(
             id: "writing-wording",
             page: .writingStyles,
-            title: "Formal and Casual Wording",
-            subtitle: "Choose how dictation sounds in each app",
-            keywords: ["formal", "casual", "professional", "friends", "conversation", "wording", "rewrite"]
+            title: "Tone: Formal or Casual",
+            subtitle: "Reword dictation to sound formal or casual",
+            keywords: ["tone", "formal", "casual", "professional", "friends", "conversation", "wording", "rewrite"]
         ),
         SettingsSearchEntry(
             id: "app-style-rules",
             page: .writingStyles,
-            title: "App Rules",
-            subtitle: "Per-app style bindings",
-            keywords: ["cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding"]
+            title: "Your Apps",
+            subtitle: "Give an app its own writing style",
+            keywords: ["rules", "cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding"]
         ),
         SettingsSearchEntry(
             id: "website-style-rules",
             page: .writingStyles,
-            title: "Website Rules",
-            subtitle: "Choose formatting and cleanup by browser domain",
-            keywords: ["website", "domain", "browser", "safari", "chrome", "url", "per-site"]
+            title: "Websites",
+            subtitle: "Use a different style on one site",
+            keywords: ["rules", "website", "domain", "browser", "safari", "chrome", "url", "per-site"]
         ),
         SettingsSearchEntry(
             id: "app-cleanup-prompt",
             page: .writingStyles,
-            title: "Per-App Cleanup Prompt",
+            title: "Per-App Cleanup Instructions",
             subtitle: "Custom cleanup instructions for an app or website",
             keywords: ["custom", "prompt", "per-app", "per-site", "instructions", "cleanup"]
         ),
@@ -165,15 +165,15 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "writing-style-rule-transfer",
             page: .writingStyles,
-            title: "Export and Import Rules",
-            subtitle: "Move app rules between Macs",
+            title: "Export and Import App List",
+            subtitle: "Move your app styles between Macs",
             keywords: ["export", "import", "backup", "share", "json", "transfer", "remove all"]
         ),
         SettingsSearchEntry(
             id: "writing-style-preview",
             page: .writingStyles,
-            title: "Style Preview",
-            subtitle: "See what each style does",
+            title: "Try a Style",
+            subtitle: "See what each style types",
             keywords: ["preview", "sample", "test", "try"]
         ),
 

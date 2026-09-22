@@ -9,9 +9,9 @@ struct WebsiteRulesSettings: View {
     @State private var isAdding = false
 
     var body: some View {
-        VocaSettingsGroup("Website Rules", subtitle: "Override a browser's rule for one site.") {
+        VocaSettingsGroup("Websites", subtitle: "Use a different style on one site in your browser.") {
             if appState.websiteStyleBindings.isEmpty {
-                Text("No website rules yet.")
+                Text("No websites set up yet.")
                     .foregroundStyle(.secondary)
                     .help("VocaMac reads the focused tab's URL through Accessibility. URLs are never saved to history.")
             } else {
@@ -39,7 +39,7 @@ struct WebsiteRulesSettings: View {
                 }
             }
 
-            Button("Add Website Rule…") { isAdding = true }
+            Button("Add Website…") { isAdding = true }
         }
         .sheet(isPresented: $isAdding) {
             WebsiteRuleEditor(rule: WebsiteStyleBinding(
@@ -50,12 +50,14 @@ struct WebsiteRulesSettings: View {
                 appState.websiteStyleBindings = rules
                 isAdding = false
             } onCancel: { isAdding = false }
+            .environmentObject(appState)
         }
         .sheet(item: $editing) { rule in
             WebsiteRuleEditor(rule: rule) { updated in
                 update(rule) { $0 = updated }
                 editing = nil
             } onCancel: { editing = nil }
+            .environmentObject(appState)
         }
     }
 
@@ -73,6 +75,7 @@ private struct WebsiteRuleEditor: View {
     let onCancel: () -> Void
 
     @State private var draft: WebsiteStyleBinding
+    @State private var showsAdvanced: Bool
 
     init(
         rule: WebsiteStyleBinding,
@@ -83,11 +86,14 @@ private struct WebsiteRuleEditor: View {
         self.onSave = onSave
         self.onCancel = onCancel
         _draft = State(initialValue: rule)
+        _showsAdvanced = State(initialValue: rule.cleanup != .inherit
+            || rule.cleanupLevel != nil
+            || rule.cleanupPrompt != nil)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(rule.hostPattern.isEmpty ? "Add Website Rule" : "Edit Website Rule")
+            Text(rule.hostPattern.isEmpty ? "Add Website" : "Edit Website")
                 .font(.headline).padding()
             Form {
                 Section {
@@ -98,32 +104,38 @@ private struct WebsiteRuleEditor: View {
                         .foregroundStyle(.secondary)
                 }
                 Section {
-                    Picker("Format", selection: $draft.style) {
+                    Picker("Style", selection: $draft.style) {
                         ForEach(WritingStyle.allCases) { Text($0.displayName).tag($0) }
                     }
-                    Picker("Wording", selection: $draft.intent) {
+                    WritingStyleExample(style: draft.style)
+                    Picker("Tone", selection: $draft.intent) {
                         ForEach(WritingIntent.allCases) { Text($0.displayName).tag($0) }
                     }
                     .disabled(!draft.style.supportsWording)
-                    Picker("Processing", selection: $draft.cleanup) {
-                        ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    Picker("Cleanup level", selection: $draft.cleanupLevel) {
-                        Text("Use global setting").tag(Optional<CleanupLevel>.none)
-                        ForEach(CleanupLevel.allCases) { Text($0.displayName).tag(Optional($0)) }
-                    }
-                    .disabled(draft.cleanup != .inherit)
                 }
-                Section("Custom Cleanup Prompt") {
-                    TextEditor(text: Binding(
-                        get: { draft.cleanupPrompt ?? "" },
-                        set: { draft.cleanupPrompt = $0.isEmpty ? nil : $0 }
-                    ))
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(minHeight: 80)
-                    Text("Leave blank to use the global prompt. Applies only on this website.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                Section {
+                    DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
+                        Picker("AI cleanup", selection: $draft.cleanup) {
+                            ForEach(WritingCleanupPolicy.allCases) { Text($0.displayName).tag($0) }
+                        }
+                        Picker("Cleanup level", selection: $draft.cleanupLevel) {
+                            Text("Same as Cleanup page").tag(Optional<CleanupLevel>.none)
+                            ForEach(CleanupLevel.allCases) { Text($0.displayName).tag(Optional($0)) }
+                        }
+                        .disabled(draft.cleanup != .inherit)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Custom cleanup instructions")
+                            TextEditor(text: Binding(
+                                get: { draft.cleanupPrompt ?? "" },
+                                set: { draft.cleanupPrompt = $0.isEmpty ? nil : $0 }
+                            ))
+                            .font(.system(.caption, design: .monospaced))
+                            .frame(minHeight: 70)
+                            Text("Leave blank to use the instructions from the Cleanup page. Applies only on this website.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             .formStyle(.grouped)

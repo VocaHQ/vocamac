@@ -30,6 +30,29 @@ final class WritingStyleTests: XCTestCase {
         }
     }
 
+    /// Settings shows each style's example as proof of what it does, so the
+    /// example has to come out the way the style promises.
+    func testStyleExamplesShowWhatEachStyleDoes() {
+        let expected: [WritingStyle: String] = [
+            .plain: "So this is a normal sentence",
+            .code: "open config.json",
+            .terminal: "cd src/components",
+            .chat: "See you at five",
+            .slack: "*Ship this today*",
+            .email: "Thanks for the update.",
+            .notes: "**Buy milk today**"
+        ]
+        for style in WritingStyle.allCases {
+            let output = WritingStyleEngine.format(
+                style.exampleSentence,
+                style: style,
+                globalAutoCapitalize: true,
+                globalTrailingSpace: false
+            )
+            XCTAssertEqual(output, expected[style], "\(style.rawValue) example")
+        }
+    }
+
     func testTechnicalStylesKeepExactWording() {
         XCTAssertFalse(WritingStyle.code.supportsWording)
         XCTAssertFalse(WritingStyle.terminal.supportsWording)

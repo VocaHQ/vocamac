@@ -17,11 +17,11 @@ enum WritingIntent: String, Codable, CaseIterable, Identifiable {
     var description: String {
         switch self {
         case .preserve:
-            return "Keep your phrasing. Smart Cleanup can still remove fillers when enabled."
+            return "Keep your own words. Smart Cleanup can still remove “um” and “uh” when it is on."
         case .professional:
-            return "Make English dictation clear, direct, and suitable for work or email."
+            return "Reword English dictation to sound clear and professional, for work and email."
         case .casual:
-            return "Make English dictation sound relaxed and conversational for friends and chat."
+            return "Reword English dictation to sound relaxed and friendly, for chatting."
         }
     }
 }
@@ -32,9 +32,9 @@ enum WritingCleanupPolicy: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .inherit: return "Use local cleanup setting"
-        case .off: return "Formatting only"
-        case .raw: return "Raw transcription"
+        case .inherit: return "Use Smart Cleanup settings"
+        case .off: return "Formatting only, no AI"
+        case .raw: return "Exactly as transcribed"
         }
     }
 }

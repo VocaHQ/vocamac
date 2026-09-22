@@ -54,10 +54,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "resource"), .advanced)
     }
 
-    func testToneQueryHitsAudio() {
+    /// "Tone" names both the start/stop sound cues and the Formal / Casual
+    /// wording setting, so a search for it must find both.
+    func testToneQueryHitsSoundsAndWritingTone() {
         let matches = SettingsSearchIndex.matches(query: "tone")
         XCTAssertTrue(matches.contains { $0.id == "sound-effects" })
-        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "tone"), .audio)
+        XCTAssertTrue(matches.contains { $0.id == "writing-wording" })
     }
 
     func testAboutSearchEntriesStayIndexed() {

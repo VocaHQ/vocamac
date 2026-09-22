@@ -54,6 +54,7 @@ enum PreferenceKey {
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
     static let skipSilence = "vocamac.audio.skipSilence"
     static let spokenLanguages = "vocamac.spokenLanguages"
+    static let compiledModelBuilds = "vocamac.models.compiledBuilds"
 }
 
 /// The on-device inference engine backing a model in the catalog.

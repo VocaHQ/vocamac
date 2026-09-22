@@ -790,7 +790,11 @@ final class AppState: ObservableObject {
     /// `freeingGB` is the RAM the outgoing model releases as part of this
     /// load, which must not count against the incoming one.
     var modelFitsInMemory: (_ size: ModelSize, _ freeingGB: Double) -> Bool = { size, freeingGB in
-        SystemInfo.canFitModelInMemory(size, freeingGB: freeingGB)
+        SystemInfo.canFitModelInMemory(
+            size,
+            isFirstLoad: !CompiledModelRecord().hasLoaded(size),
+            freeingGB: freeingGB
+        )
     }
     var availableInputDevices: () -> [AudioDevice] = { AudioEngine.availableInputDevices() }
     var isLidClosed: () -> Bool = { LidStateReader.isClosed() }
@@ -2479,7 +2483,11 @@ final class AppState: ObservableObject {
         // measured against memory that model is about to give back.
         let reclaimableGB = hadLoadedModel ? (previousModelSize?.ramRequiredGB ?? 0) : 0
         if !modelFitsInMemory(targetSize, reclaimableGB) {
-            let needed = String(format: "%.1f", targetSize.ramRequiredGB)
+            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
+            let needed = String(
+                format: "%.1f",
+                isFirstLoad ? targetSize.firstLoadRAMRequiredGB : targetSize.ramRequiredGB
+            )
             let failureMessage =
                 "Not enough free memory to load \(targetSize.displayName) "
                 + "(~\(needed) GB needed). Free RAM or choose a smaller model."
@@ -2574,6 +2582,7 @@ final class AppState: ObservableObject {
             lastModelUnloadReason = nil
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
+            CompiledModelRecord().recordLoad(targetSize)
             VocaLogger.info(.appState, "Model ready: \(targetSize.displayName)")
         } catch {
             // A newer load superseded this one; do not restore over it.
@@ -3000,6 +3009,7 @@ final class AppState: ObservableObject {
 
         do {
             try await modelManager.deleteModel(size)
+            CompiledModelRecord().forget(size)
             refreshModelStatuses()
             VocaLogger.info(.appState, "Deleted model \(size.displayName)")
         } catch {

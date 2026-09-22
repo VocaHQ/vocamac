@@ -1,7 +1,7 @@
 ---
 title: "Custom Vocabulary"
 subtitle: "Teach VocaMac the names, brands, and jargon you use so they're transcribed right, every time."
-description: "Add names, technical terms, and jargon to VocaMac's custom vocabulary so the Whisper path can use your preferred spellings locally."
+description: "Add names, technical terms, and jargon to VocaMac's custom vocabulary so every speech model uses your preferred spellings locally."
 keywords: "custom vocabulary dictation, whisper glossary, proper noun transcription, technical jargon speech to text, fix misspelled names dictation macOS"
 icon: "📝"
 ---
@@ -22,7 +22,7 @@ Open **Settings → Speech Model** and add terms under **Custom Vocabulary**, on
 kubectl, PostgreSQL, nginx, Grafana
 ```
 
-VocaMac passes these to Whisper as a transcription hint, biasing it toward your spelling. Keep the list focused and put your most-mistranscribed terms near the top; WhisperKit applies its own prompt-token budget. There is no training step. The updated list is used on the next transcription attempt, although it remains a hint rather than a promise.
+VocaMac passes these to the speech model as a hint, biasing it toward your spelling: Whisper takes them as a prompt, Apple Speech as contextual strings, and Parakeet through an optional vocabulary boost model. Every model, including the specialized ones, also gets a spelling fix after transcription. Keep the list focused and put your most-mistranscribed terms near the top; WhisperKit applies its own prompt-token budget. There is no training step. The updated list is used on the next transcription attempt, although it remains a hint rather than a promise.
 
 For best results, enter terms in the language you dictate and set a matching transcription language above. In Auto-detect, your vocabulary can even nudge VocaMac toward the right language.
 

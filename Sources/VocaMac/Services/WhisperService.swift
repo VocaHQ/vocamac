@@ -404,7 +404,7 @@ final class WhisperService: @unchecked Sendable {
     }
 
     /// Map a model name string to our ModelSize enum
-    private func modelSizeFromName(_ name: String) -> ModelSize {
+    func modelSizeFromName(_ name: String) -> ModelSize {
         let lowered = name.lowercased()
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }

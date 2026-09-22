@@ -39,6 +39,38 @@ final class ClipboardPreservationTests: XCTestCase {
         }
     }
 
+    func testClipboardIsRestoredRightAfterTheTargetReadsThePaste() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setString("original", forType: .string)
+        var pasted: String?
+        let injector = TextInjector(pasteboard: board, accessibilityTrustedOverride: true,
+                                    accessibilityInjectionOverride: { _ in false }, pasteActionOverride: {
+            pasted = board.string(forType: .string)
+        }, frontmostPIDProvider: { 123 })
+        let start = ProcessInfo.processInfo.systemUptime
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await drainInjectionQueue()
+        XCTAssertEqual(pasted, "dictation")
+        XCTAssertEqual(board.string(forType: .string), "original")
+        // The read is the receipt; no need to wait out the timeout.
+        XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1.5)
+    }
+
+    func testClipboardIsRestoredEvenWhenNothingReadsThePaste() async {
+        let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
+        defer { board.releaseGlobally() }
+        board.clearContents()
+        board.setString("original", forType: .string)
+        let injector = TextInjector(pasteboard: board, accessibilityTrustedOverride: true,
+                                    accessibilityInjectionOverride: { _ in false }, pasteActionOverride: {},
+                                    frontmostPIDProvider: { 123 })
+        injector.inject(text: "dictation", preserveClipboard: true)
+        await drainInjectionQueue()
+        XCTAssertEqual(board.string(forType: .string), "original")
+    }
+
     func testChangingClipboardDuringSnapshotDoesNotRestoreMixedGenerations() async {
         let board = NSPasteboard(name: .init("com.vocamac.tests.\(UUID())"))
         defer { board.releaseGlobally() }

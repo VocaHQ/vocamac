@@ -52,6 +52,7 @@ enum PreferenceKey {
     static let useScreenContext = "vocamac.dictionary.screenContext"
     static let websiteStyleBindings = "vocamac.writingStyle.websiteBindings"
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
+    static let skipSilence = "vocamac.audio.skipSilence"
 }
 
 /// The on-device inference engine backing a model in the catalog.

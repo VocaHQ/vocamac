@@ -114,15 +114,15 @@ enum DictionaryCorrector {
     ) {
         var exact: [String: Candidate] = [:]
         for term in contextTerms {
-            let key = normalized(term)
-            guard key.count >= 2 else { continue }
-            exact[key] = Candidate(term: term, isUserTerm: false)
+            for key in exactKeys(for: term) {
+                exact[key] = Candidate(term: term, isUserTerm: false)
+            }
         }
         // The user's own terms win over anything read from the screen.
         for term in vocabulary {
-            let key = normalized(term)
-            guard key.count >= 2 else { continue }
-            exact[key] = Candidate(term: term, isUserTerm: true)
+            for key in exactKeys(for: term) {
+                exact[key] = Candidate(term: term, isUserTerm: true)
+            }
         }
         guard !exact.isEmpty else { return }
 
@@ -207,7 +207,10 @@ enum DictionaryCorrector {
 
             for term in terms {
                 let target = normalized(term)
-                let limit = target.count >= 9 ? 2 : 1
+                // One more edit for a word that sounds the same ("Kayzer" →
+                // Kaiser), still within the same first sound and length.
+                let soundsAlike = soundex(key) != nil && soundex(key) == soundex(target)
+                let limit = (target.count >= 9 ? 2 : 1) + (soundsAlike ? 1 : 0)
                 guard abs(target.count - key.count) <= limit,
                       firstSound(target) == firstSound(key) else { continue }
                 let distance = levenshtein(key, target, limit: limit)
@@ -260,6 +263,49 @@ enum DictionaryCorrector {
     }
 
     // MARK: - Helpers
+
+    /// Letter keys that spell a term exactly: its own letters, and for a term
+    /// with "&" also the spoken form ("R and D" → R&D).
+    static func exactKeys(for term: String) -> [String] {
+        var keys: [String] = []
+        let key = normalized(term)
+        if key.count >= 2 { keys.append(key) }
+        if term.contains("&") {
+            let spoken = normalized(term.replacingOccurrences(of: "&", with: " and "))
+            if spoken != key { keys.append(spoken) }
+        }
+        return keys
+    }
+
+    /// American Soundex of a lowercase ASCII key, or nil for anything else.
+    /// English-only by design: it only widens the edit budget, never matches
+    /// on its own.
+    static func soundex(_ key: String) -> String? {
+        guard let first = key.first, key.allSatisfy({ $0.isASCII && $0.isLetter }) else { return nil }
+        func code(_ character: Character) -> Character? {
+            switch character {
+            case "b", "f", "p", "v": return "1"
+            case "c", "g", "j", "k", "q", "s", "x", "z": return "2"
+            case "d", "t": return "3"
+            case "l": return "4"
+            case "m", "n": return "5"
+            case "r": return "6"
+            default: return nil
+            }
+        }
+        var result = String(first)
+        var previous = code(first)
+        for character in key.dropFirst() {
+            let current = code(character)
+            if let current, current != previous {
+                result.append(current)
+                if result.count == 4 { break }
+            }
+            // "h" and "w" do not separate equal codes; vowels do.
+            if character != "h" && character != "w" { previous = current }
+        }
+        return result.padding(toLength: 4, withPad: "0", startingAt: 0)
+    }
 
     /// Letters and digits only, lowercased: "Voca-Mac" and "voca mac" agree.
     static func normalized(_ text: String) -> String {

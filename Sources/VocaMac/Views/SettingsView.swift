@@ -1513,6 +1513,9 @@ struct AudioSettingsTab: View {
 
             Toggle("Use an external microphone when the lid is closed", isOn: $appState.externalMicWhenLidClosed)
                 .help("While your MacBook is closed, records from an available external input. Your saved choice is not changed.")
+
+            Toggle("Skip silence before transcribing", isOn: $appState.skipSilence)
+                .help("A small voice detector removes silence and long pauses before the speech model runs, so it decodes faster and doesn't invent words in quiet stretches. Recordings with no speech are not transcribed.")
         }
     }
 

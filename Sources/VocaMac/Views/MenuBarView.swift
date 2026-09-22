@@ -287,6 +287,10 @@ struct MenuBarView: View {
         if let fallbackNotice = appState.inputDeviceFallbackNotice {
             return AnyView(Label(fallbackNotice, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange))
         }
+        if appState.isSecureInputActive, appState.hotKeyIsKeyed {
+            return AnyView(Label("Secure keyboard entry is on in another app. Your shortcut still works through a fallback.",
+                                 systemImage: "lock.fill").foregroundStyle(.secondary))
+        }
         if appState.isRecording {
             return AnyView(Text("Stop recording before changing the microphone.").foregroundStyle(.secondary))
         }

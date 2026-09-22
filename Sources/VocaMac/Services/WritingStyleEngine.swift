@@ -189,6 +189,70 @@ enum WritingStyleEngine {
         return (removeWordRuns(ranges, from: text, prose: prose), true)
     }
 
+    // MARK: - Hesitations in other languages
+
+    /// Sounds that are not a word in any language VocaMac's models write,
+    /// so they can go even when the language is unknown: "uh", "uhm", "umm",
+    /// "hmm", "ehm", "ähm". Plain "um" is excluded (a word in Portuguese and
+    /// German), as are "ah", "eh", "em", "am", and "mm".
+    private static let universalHesitationPattern =
+        #"u+h+m*|u+m{2,}|h+m+|e+h{2,}|e+h+m+|a+h+m+|ä+h+m*|m{3,}|х+м+|м{3,}"#
+
+    /// Hesitations that are only safe with evidence for the language.
+    static func languageHesitations(for language: String?) -> [String] {
+        switch language?.split(separator: "-").first.map(String.init) {
+        case "de": return ["öh"]
+        case "fr": return ["euh", "heu"]
+        default: return []
+        }
+    }
+
+    /// Remove hesitation sounds from text that is not English: the universal
+    /// sounds always, plus the language's own when it is known.
+    static func removeOtherLanguageHesitations(
+        _ text: String, language: String?, prose: Bool = true
+    ) -> (text: String, removed: Bool) {
+        let extras = languageHesitations(for: language).map(NSRegularExpression.escapedPattern(for:))
+        let alternatives = ([universalHesitationPattern] + extras).joined(separator: "|")
+        guard let expression = try? NSRegularExpression(
+            pattern: #"(?<![\p{L}\p{N}'’])("# + alternatives + #")(?![\p{L}\p{N}'’])([,.!?;:…]*)"#,
+            options: [.caseInsensitive]
+        ) else { return (text, false) }
+        let ranges = expression.matches(in: text, range: NSRange(text.startIndex..., in: text)).map(\.range)
+        guard !ranges.isEmpty else { return (text, false) }
+        return (removeWordRuns(ranges, from: text, prose: prose), true)
+    }
+
+    // MARK: - Stutters
+
+    /// Collapse a sound repeated three or more times to one: "I I I think" →
+    /// "I think", "wh wh wh where" → "wh where". Only single letters and
+    /// fragments that are not words; "no no no" and "very very very" are
+    /// said on purpose.
+    static func collapseStutters(_ text: String, isKnownWord: (String) -> Bool) -> (text: String, removed: Int) {
+        guard let expression = cutOffTokenExpression else { return (text, 0) }
+        let ns = text as NSString
+        let tokens = expression.matches(in: text, range: NSRange(location: 0, length: ns.length)).map {
+            (range: $0.range, word: ns.substring(with: $0.range))
+        }
+        var removals: [NSRange] = []
+        var index = 0
+        while index < tokens.count {
+            let key = tokens[index].word.lowercased()
+            var end = index + 1
+            while end < tokens.count, tokens[end].word.lowercased() == key { end += 1 }
+            let count = end - index
+            let isStutter = key.allSatisfy(\.isLetter)
+                && (key.count == 1 || !isKnownWord(key))
+            if count >= 3, isStutter {
+                removals += tokens[(index + 1)..<end].map(\.range)
+            }
+            index = end
+        }
+        guard !removals.isEmpty else { return (text, 0) }
+        return (removeWordRuns(removals, from: text, prose: false), removals.count)
+    }
+
     // MARK: - Cut-off words
 
     /// Remove a word the speaker cut off and then said in full, without a

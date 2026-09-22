@@ -90,6 +90,36 @@ final class DictionaryCorrectorTests: XCTestCase {
         XCTAssertEqual(correct("ask Tamrata about it", vocabulary: ["Namrata"]).text, "ask Tamrata about it")
     }
 
+    func testSoundAlikeGetsOneMoreEdit() {
+        XCTAssertEqual(correct("call Kayzer tomorrow", vocabulary: ["Kaiser"]).text, "call Kaiser tomorrow")
+        // Two edits that do not sound alike stay put.
+        XCTAssertEqual(correct("call Kolmar tomorrow", vocabulary: ["Kaiser"]).text, "call Kolmar tomorrow")
+    }
+
+    func testSoundAlikeStillSparesOrdinaryWords() {
+        XCTAssertEqual(correct("the kaiser roll", vocabulary: ["Kayzer"]).text, "the kaiser roll")
+    }
+
+    func testSpokenAmpersandMatchesTerm() {
+        XCTAssertEqual(correct("the R and D budget", vocabulary: ["R&D"]).text, "the R&D budget")
+        XCTAssertEqual(correct("ask AT and T", vocabulary: ["AT&T"]).text, "ask AT&T")
+        XCTAssertEqual(correct("the R&D budget", vocabulary: ["R&D"]).text, "the R&D budget")
+    }
+
+    func testTermWithTrailingNumber() {
+        XCTAssertEqual(correct("try gpt 4 now", vocabulary: ["GPT-4"]).text, "try GPT-4 now")
+    }
+
+    func testSoundex() {
+        XCTAssertEqual(DictionaryCorrector.soundex("robert"), "r163")
+        XCTAssertEqual(DictionaryCorrector.soundex("rupert"), "r163")
+        XCTAssertEqual(DictionaryCorrector.soundex("ashcraft"), "a261")
+        XCTAssertEqual(DictionaryCorrector.soundex("tymczak"), "t522")
+        XCTAssertEqual(DictionaryCorrector.soundex("pfister"), "p236")
+        XCTAssertNil(DictionaryCorrector.soundex("gpt4"))
+        XCTAssertNil(DictionaryCorrector.soundex("müller"))
+    }
+
     // MARK: Screen context
 
     func testScreenIdentifiersJoinOnlyInCodeApps() {

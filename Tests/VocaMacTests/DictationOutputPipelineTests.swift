@@ -212,6 +212,43 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertFalse(WritingStyleEngine.removeHesitations("nothing to remove").removed)
     }
 
+    func testOtherLanguagesLoseOnlyUniversalHesitations() {
+        let cases: [(String, String?, String)] = [
+            // "um" is German for "at", "em" Portuguese for "in", "am" German for "on the".
+            ("Wir treffen uns um 5 Uhr, ähm, am Bahnhof", "de", "Wir treffen uns um 5 Uhr, am Bahnhof"),
+            ("Eu moro em Lisboa, hmm, perto do rio", "pt", "Eu moro em Lisboa, perto do rio"),
+            ("Alors euh on commence", "fr", "Alors on commence"),
+            // The French filler is a word elsewhere, so it needs the language.
+            ("Alors euh on commence", nil, "Alors euh on commence"),
+            ("Uhm, ja", nil, "Ja"),
+        ]
+        for (input, language, expected) in cases {
+            XCTAssertEqual(
+                WritingStyleEngine.removeOtherLanguageHesitations(input, language: language).text,
+                expected, input
+            )
+        }
+    }
+
+    func testStuttersCollapseButDeliberateRepeatsStay() {
+        let known: (String) -> Bool = { ["no", "very", "where", "i", "think"].contains($0) }
+        let cases: [(String, String)] = [
+            ("I I I think so", "I think so"),
+            ("wh wh wh where is it", "wh where is it"),
+            ("no no no, not that", "no no no, not that"),
+            ("it is very very very good", "it is very very very good"),
+            ("I I think", "I I think"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(WritingStyleEngine.collapseStutters(input, isKnownWord: known).text, expected, input)
+        }
+    }
+
+    func testPipelineRemovesUniversalHesitationsInGerman() async {
+        let result = await process("Wir treffen uns um 5 Uhr, ähm, am Bahnhof", cleaner: MockTranscriptCleanup(), enabled: false, language: "de")
+        XCTAssertEqual(result.text, "Wir treffen uns um 5 Uhr, am Bahnhof")
+    }
+
     func testHesitationRemovalLeavesOtherWhitespaceAlone() {
         // Indentation, double spaces, and line breaks are content in code.
         XCTAssertEqual(

@@ -1333,7 +1333,21 @@ struct ModelRow: View {
             .foregroundStyle(.tertiary)
             .lineLimit(1)
             .help(ModelLanguageBadge.tooltip(for: model.size, systemLanguages: systemLanguages)
-                  + "\n~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use")
+                  + "\n" + ramHelp)
+    }
+
+    /// Estimated RAM for the facts line: "~2.0 GB RAM".
+    private var ramLabel: String {
+        "~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM"
+    }
+
+    /// Estimated RAM for the row's help, with the first-load peak when a
+    /// model needs more while macOS prepares it for the Neural Engine.
+    private var ramHelp: String {
+        let inUse = "~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM while in use"
+        guard model.size.firstLoadRAMRequiredGB > model.size.ramRequiredGB else { return inUse }
+        return inUse + ", ~\(String(format: "%.1f", model.size.firstLoadRAMRequiredGB)) GB "
+            + "the first time it loads"
     }
 
     /// Accuracy as its label and the dots the row shows: "Great, 3.5 of 5".
@@ -1346,11 +1360,12 @@ struct ModelRow: View {
         ModelRating.describe(model.size.speedScore)
     }
 
-    /// Languages, translation, and size, in one plain line.
+    /// Languages, translation, size and estimated RAM, in one plain line.
     private var facts: String {
         var parts = [ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages)]
         if model.size.translatesToEnglish { parts.append("Translates to English") }
         parts.append(model.size.fileSizeDescription)
+        parts.append(ramLabel)
         return parts.joined(separator: " · ")
     }
 

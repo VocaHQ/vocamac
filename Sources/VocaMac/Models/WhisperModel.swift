@@ -247,9 +247,10 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// and transcribes: what it needs on every load after the first.
     ///
     /// Computed from `fileSizeBytes` with the engine's measured line, so a
-    /// new model needs only its real size on disk. Apple Speech runs in
-    /// system processes and keeps a fixed estimate.
+    /// new model needs only its real size on disk, except where
+    /// `ModelRAMFit.handSetGB(for:)` fixes the value.
     var ramRequiredGB: Double {
+        if let handSetGB = ModelRAMFit.handSetGB(for: self) { return handSetGB }
         guard let fit = ModelRAMFit.loaded(for: self) else { return 1.0 }
         return fit.estimateGB(fileSizeBytes: fileSizeBytes)
     }
@@ -258,6 +259,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// CoreML compiles the model for the Neural Engine. The same as
     /// `ramRequiredGB` for engines that do not compile.
     var firstLoadRAMRequiredGB: Double {
+        if let handSetGB = ModelRAMFit.handSetGB(for: self) { return handSetGB }
         guard let fit = ModelRAMFit.firstLoad(for: self) else { return ramRequiredGB }
         return max(ramRequiredGB, fit.estimateGB(fileSizeBytes: fileSizeBytes))
     }

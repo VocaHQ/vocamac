@@ -42,14 +42,17 @@ final class ModelRAMEstimateTests: XCTestCase {
         .qwen3Asr06B: 2.489,
     ]
 
+    // Hand-set estimates (`ModelRAMFit.handSetGB`) are chosen, not fitted,
+    // so the fit checks below leave them out.
+
     func testFirstLoadEstimatesCoverEveryMeasuredFirstLoad() {
-        for (size, peakGB) in Self.measuredFirstLoadGB {
+        for (size, peakGB) in Self.measuredFirstLoadGB where ModelRAMFit.handSetGB(for: size) == nil {
             XCTAssertGreaterThanOrEqual(size.firstLoadRAMRequiredGB, peakGB, "\(size)")
         }
     }
 
     func testLoadedEstimatesCoverEveryMeasuredLoad() {
-        for (size, peakGB) in Self.measuredLoadedGB {
+        for (size, peakGB) in Self.measuredLoadedGB where ModelRAMFit.handSetGB(for: size) == nil {
             XCTAssertGreaterThanOrEqual(size.ramRequiredGB, peakGB, "\(size)")
         }
     }
@@ -65,6 +68,7 @@ final class ModelRAMEstimateTests: XCTestCase {
             for palettized in [false, true] {
                 let sizes = ModelSize.allCases
                     .filter { $0.engine == engine && $0.hasPalettizedWeights == palettized }
+                    .filter { ModelRAMFit.handSetGB(for: $0) == nil }
                     .sorted { $0.fileSizeBytes < $1.fileSizeBytes }
                 for (smaller, larger) in zip(sizes, sizes.dropFirst()) {
                     XCTAssertLessThanOrEqual(
@@ -94,12 +98,21 @@ final class ModelRAMEstimateTests: XCTestCase {
     func testOnlyPalettizedWhisperBuildsNeedMoreOnTheirFirstLoad() {
         for size in ModelSize.allCases {
             let expands = size.engine == .whisperKit && size.hasPalettizedWeights
+                && ModelRAMFit.handSetGB(for: size) == nil
             XCTAssertEqual(size.firstLoadRAMRequiredGB > size.ramRequiredGB, expands, "\(size)")
         }
     }
 
+    func testKeepsTheHandSetEstimates() {
+        XCTAssertEqual(ModelSize.vocaHinglish.ramRequiredGB, 1.5)
+        XCTAssertEqual(ModelSize.vocaHinglish.firstLoadRAMRequiredGB, 1.5)
+        XCTAssertEqual(ModelSize.qwen3Asr06B.ramRequiredGB, 2.0)
+        XCTAssertEqual(ModelSize.moonshineTiny.ramRequiredGB, 0.5)
+        XCTAssertEqual(ModelSize.appleSpeech.ramRequiredGB, 1.0)
+    }
+
     func testGateUsesTheFirstLoadEstimateOnlyForAFirstLoad() {
-        let size = ModelSize.vocaHinglish
+        let size = ModelSize.largeV3LatestTurboCompact
         let between = (size.ramRequiredGB + size.firstLoadRAMRequiredGB) / 2
         let availableBytes = UInt64(between * 1024 * 1024 * 1024)
         XCTAssertTrue(

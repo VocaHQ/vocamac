@@ -37,6 +37,22 @@ struct ModelRAMFit: Equatable {
 
     // MARK: - Fits
 
+    /// Estimates set by hand, used for every load in place of the fits.
+    ///
+    /// Apple Speech has no model file to size. The others keep the values
+    /// they had before the fits; measured on the M1 Pro, Voca Hinglish
+    /// peaked at 3.06 GB on its first load (0.36 GB in the app, the rest in
+    /// the Neural Engine compiler) and Qwen3 ASR at 2.49 GB over 10 min.
+    static func handSetGB(for size: ModelSize) -> Double? {
+        switch size {
+        case .appleSpeech:   return 1.0
+        case .vocaHinglish:  return 1.5
+        case .qwen3Asr06B:   return 2.0
+        case .moonshineTiny: return 0.5
+        default:             return nil
+        }
+    }
+
     /// Every load after the first, from CoreML's compile cache. `nil` for
     /// Apple Speech, which runs in system processes and has no model file.
     static func loaded(for size: ModelSize) -> ModelRAMFit? {

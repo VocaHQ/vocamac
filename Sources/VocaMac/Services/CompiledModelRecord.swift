@@ -10,8 +10,9 @@ import Foundation
 /// Which models have loaded at least once on the current macOS build.
 ///
 /// The first load of a CoreML model compiles it for the Neural Engine, and
-/// that compile needs several times the memory of every later load (Voca
-/// Hinglish: about 3 GB against 0.4 GB). CoreML caches the result and
+/// for palettized Whisper builds that compile needs far more memory than
+/// later loads (Large v3 Turbo Compact: 2.1 GB while compiling, most of it
+/// in the Neural Engine compiler). CoreML caches the result and
 /// recompiles after a macOS update, so the memory gate asks this record
 /// whether the coming load will compile, keyed by OS build.
 struct CompiledModelRecord {

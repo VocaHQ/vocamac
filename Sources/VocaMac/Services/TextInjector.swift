@@ -325,10 +325,13 @@ final class TextInjector {
     /// value mutation. Limiting scope to single-line fields makes AX injection
     /// reliable for apps like Raycast while letting terminal/editor traffic
     /// fall through to the clipboard+Cmd+V path that has always worked there.
+    /// Fields in those roles that report their selected text as not settable
+    /// fall through as well.
     ///
-    /// - Returns: `true` if the text was successfully written via the AX API;
-    ///            `false` if the focused element is unreachable, has an
-    ///            unsupported role, or the write was rejected.
+    /// - Returns: `.inserted` if the text was written via the AX API;
+    ///            `.unavailable` if the focused element is unreachable, has an
+    ///            unsupported role, cannot take the write, or rejected it;
+    ///            `.uncertain` if the write timed out and may still land.
     @discardableResult
     private func injectViaAccessibility(text: String, targetPID: pid_t?) -> AccessibilityInsertion {
         let systemWide = AXUIElementCreateSystemWide()
@@ -355,7 +358,7 @@ final class TextInjector {
         let element = focusedRef as! AXUIElement
         var elementPID: pid_t = 0
         guard AXUIElementGetPid(element, &elementPID) == .success,
-              elementPID == targetPID else { return .unavailable }
+              elementPID == targetPID || Self.isLauncherPanelOwner(elementPID) else { return .unavailable }
         AXUIElementSetMessagingTimeout(element, 0.1)
         // swiftlint:enable force_cast
 
@@ -369,6 +372,16 @@ final class TextInjector {
         let supportedRoles: Set<String> = ["AXTextField", "AXSearchField", "AXComboBox"]
         guard supportedRoles.contains(role) else {
             VocaLogger.debug(.textInjector, "AX: skipping role '\(role)' — not a single-line input field")
+            return .unavailable
+        }
+
+        // Messages' compose field is an AXTextField that reports its selected
+        // text as not settable and silently drops a write to it. Write only
+        // where the field says it will take one; the rest go through Cmd+V.
+        var isSettable: DarwinBoolean = false
+        guard AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &isSettable) == .success,
+              isSettable.boolValue else {
+            VocaLogger.debug(.textInjector, "AX: selected text not settable (role: \(role)) — using Cmd+V")
             return .unavailable
         }
 
@@ -387,6 +400,19 @@ final class TextInjector {
 
         VocaLogger.debug(.textInjector, "AX: kAXSelectedTextAttribute write failed (\(setResult.rawValue)) — element may be read-only")
         return setResult == .cannotComplete ? .uncertain : .unavailable
+    }
+
+    /// Whether the focused field belongs to a menu bar app's panel, such as
+    /// the search bar of Raycast, Tinycast or Spotlight.
+    ///
+    /// Those panels take keyboard focus without becoming the frontmost app,
+    /// so their field is never owned by the paste target. Cmd+V would go to
+    /// the panel as well, but launchers often swallow it, so the field is
+    /// written directly. VocaMac's own panels are left out.
+    private static func isLauncherPanelOwner(_ pid: pid_t) -> Bool {
+        guard pid != ProcessInfo.processInfo.processIdentifier,
+              let app = NSRunningApplication(processIdentifier: pid) else { return false }
+        return app.activationPolicy != .regular
     }
 
     // MARK: - Strategy 2: Clipboard + Cmd+V

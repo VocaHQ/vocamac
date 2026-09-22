@@ -195,7 +195,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.largeV3.rawValue, "large-v3")
         XCTAssertEqual(ModelSize.largeV3Turbo.rawValue, "large-v3_turbo")
         XCTAssertEqual(ModelSize.medium.rawValue, "medium")
-        XCTAssertEqual(ModelSize.hindi2HinglishApex.rawValue, "hindi2hinglish-apex")
+        XCTAssertEqual(ModelSize.vocaHinglish.rawValue, "voca-hinglish")
         XCTAssertEqual(ModelSize.parakeetV3.rawValue, "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(ModelSize.parakeetV2.rawValue, "parakeet-tdt-0.6b-v2")
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.rawValue, "parakeet-tdt-ctc-110m")
@@ -223,13 +223,13 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertTrue(ModelSize.standardCatalog.contains(.gigaamV3))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.canary180mFlash))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.qwen3Asr06B))
-        XCTAssertTrue(ModelSize.standardCatalog.contains(.hindi2HinglishApex))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.vocaHinglish))
     }
 
     func testOnlyHinglishPinsItsDecoderLanguage() {
-        XCTAssertEqual(ModelSize.hindi2HinglishApex.pinnedLanguage, "en")
-        XCTAssertEqual(ModelSize.hindi2HinglishApex.engine, .whisperKit)
-        for size in ModelSize.allCases where size != .hindi2HinglishApex {
+        XCTAssertEqual(ModelSize.vocaHinglish.pinnedLanguage, "en")
+        XCTAssertEqual(ModelSize.vocaHinglish.engine, .whisperKit)
+        for size in ModelSize.allCases where size != .vocaHinglish {
             XCTAssertNil(size.pinnedLanguage, size.rawValue)
         }
     }
@@ -363,30 +363,30 @@ final class ModelManagerTests: XCTestCase {
         XCTAssertEqual(manager.whisperKitModelName(for: .largeV3), "openai_whisper-large-v3")
         XCTAssertEqual(manager.whisperKitModelName(for: .largeV3Turbo), "openai_whisper-large-v3_turbo")
         XCTAssertEqual(manager.whisperKitModelName(for: .medium), "openai_whisper-medium")
-        XCTAssertEqual(manager.whisperKitModelName(for: .hindi2HinglishApex), "Oriserve_Whisper-Hindi2Hinglish-Apex_820MB")
+        XCTAssertEqual(manager.whisperKitModelName(for: .vocaHinglish), "vocahq_voca-hinglish_820MB")
     }
 
     func testFineTunesDownloadFromTheCommunityRepo() {
         let manager = ModelManager()
         XCTAssertEqual(manager.whisperKitRepo(for: .tiny), "argmaxinc/whisperkit-coreml")
         XCTAssertEqual(manager.whisperKitRepo(for: .largeV3LatestTurbo), "argmaxinc/whisperkit-coreml")
-        XCTAssertEqual(manager.whisperKitRepo(for: .hindi2HinglishApex), ModelManager.communityModelRepo)
+        XCTAssertEqual(manager.whisperKitRepo(for: .vocaHinglish), ModelManager.communityModelRepo)
     }
 
     func testHinglishSharesCompactLargeV3DeviceSupport() {
         let manager = ModelManager()
-        XCTAssertEqual(ModelSize.hindi2HinglishApex.whisperKitBaseModel, .largeV3LatestCompact)
+        XCTAssertEqual(ModelSize.vocaHinglish.whisperKitBaseModel, .largeV3LatestCompact)
         XCTAssertEqual(
-            manager.isModelSupported(.hindi2HinglishApex),
+            manager.isModelSupported(.vocaHinglish),
             manager.isModelSupported(.largeV3LatestCompact)
         )
     }
 
     func testHinglishIdentifierRoundTrips() {
         let manager = ModelManager()
-        let identifier = manager.modelIdentifier(for: .hindi2HinglishApex)
-        XCTAssertEqual(manager.modelSize(from: identifier), .hindi2HinglishApex)
-        XCTAssertEqual(WhisperService().modelSizeFromName(identifier), .hindi2HinglishApex)
+        let identifier = manager.modelIdentifier(for: .vocaHinglish)
+        XCTAssertEqual(manager.modelSize(from: identifier), .vocaHinglish)
+        XCTAssertEqual(WhisperService().modelSizeFromName(identifier), .vocaHinglish)
     }
 
     func testModelSizeFromWhisperKitNameUsesExactVariant() {

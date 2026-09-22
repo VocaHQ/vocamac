@@ -458,8 +458,8 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
-        case .hindi2HinglishApex:
-            return "Oriserve_Whisper-Hindi2Hinglish-Apex_820MB"
+        case .vocaHinglish:
+            return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B:

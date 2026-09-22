@@ -204,7 +204,7 @@ extension ModelSize {
             return .qwen
         case .gigaamV3:
             return .sber
-        case .hindi2HinglishApex:
+        case .vocaHinglish:
             return .oriserve
         }
     }

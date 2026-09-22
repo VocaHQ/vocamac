@@ -907,17 +907,35 @@ struct MenuBarView: View {
                         .map { "Paste Last  \(KeyCodeReference.displayName(for: $0))" }) {
                 openHistory()
             }
-            menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,") {
+            menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", keyEquivalent: ",") {
                 settingsManager.open(appState: appState)
             }
-            menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q") {
+            menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q", keyEquivalent: "q") {
                 NSApplication.shared.terminate(nil)
             }
         }
     }
 
-    /// A full-width row that highlights like a native menu item.
+    /// A full-width row that highlights like a native menu item. With a
+    /// `keyEquivalent`, ⌘ plus that key triggers the row while the menu is
+    /// open, so the shortcut it shows actually works.
+    @ViewBuilder
     private func menuRow(
+        _ title: String,
+        systemImage: String,
+        shortcut: String?,
+        keyEquivalent: KeyEquivalent? = nil,
+        action: @escaping () -> Void
+    ) -> some View {
+        let row = menuRowButton(title, systemImage: systemImage, shortcut: shortcut, action: action)
+        if let keyEquivalent {
+            row.keyboardShortcut(keyEquivalent, modifiers: .command)
+        } else {
+            row
+        }
+    }
+
+    private func menuRowButton(
         _ title: String,
         systemImage: String,
         shortcut: String?,

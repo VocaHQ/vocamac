@@ -101,7 +101,8 @@ enum TranscriptRepetition {
 
     /// Whether `text` holds a loop of words or of letters inside a word.
     static func containsLoop(_ text: String, audioSeconds: Double? = nil) -> Bool {
-        loop(in: text, audioSeconds: audioSeconds) != nil || characterLoop(in: text) != nil
+        loop(in: text, audioSeconds: audioSeconds) != nil
+            || characterLoop(in: text, audioSeconds: audioSeconds) != nil
     }
 
     /// `text` with every loop cut down to its first copy, keeping that copy's
@@ -111,7 +112,7 @@ enum TranscriptRepetition {
         // Letters first: once "Hiiiiiiiiiiii Hiiiiiiiiiiii …" is "Hi Hi …",
         // the word pass sees the repeated word. Each pass shortens the text,
         // so this ends even when every word looped.
-        while let loop = characterLoop(in: text) {
+        while let loop = characterLoop(in: text, audioSeconds: audioSeconds) {
             let firstCopyEnd = text.index(loop.range.lowerBound, offsetBy: loop.unitLength)
             let firstCopy = String(text[loop.range.lowerBound..<firstCopyEnd])
             text.replaceSubrange(loop.range, with: firstCopy)
@@ -153,20 +154,30 @@ enum TranscriptRepetition {
     /// repetition inside a word.
     static let maximumCharacterUnitLength = 4
 
-    /// Copies a run of `unitLength` letters needs before it is a loop.
+    /// Copies a run of `unitLength` letters needs before it can be a loop.
     ///
-    /// Stretched words stay under it: "Sooooo", "Hmmmm", "hahahaha". No word
-    /// holds a dozen of the same letter in a row, while a decoder loop runs to
-    /// the token limit, far past it.
+    /// Like `minimumCopies(unitLength:)`, this is only enough when the audio
+    /// is too short for the copies (see `maximumCharacterCopiesPerSecond`);
+    /// otherwise a loop needs twice as many. Stretched words and laughter stay
+    /// under that: "Sooooo", "Hmmmm", "hahahahahahahaha". A decoder loop runs
+    /// to the token limit, usually well past a hundred copies.
     static func minimumCharacterCopies(unitLength: Int) -> Int {
         unitLength == 1 ? 12 : 8
     }
+
+    /// More copies a second than anyone voices: each copy of "ha" is a
+    /// syllable, and even fast laughter stays under 8 a second.
+    static let maximumCharacterCopiesPerSecond = 8.0
 
     /// The first loop of letters inside a word in `text`, if any.
     ///
     /// Only letters count, so a spoken number such as "1000000000000" is
     /// never cut down.
-    static func characterLoop(in text: String) -> CharacterLoop? {
+    ///
+    /// - Parameter audioSeconds: How long the recording was, when known. A
+    ///   run with more copies than that audio could hold is runaway
+    ///   generation, so fewer copies are enough to call it a loop.
+    static func characterLoop(in text: String, audioSeconds: Double? = nil) -> CharacterLoop? {
         for token in tokens(in: text) {
             let word = text[token.range]
             let indices = Array(word.indices)
@@ -186,7 +197,11 @@ enum TranscriptRepetition {
                         copies += 1
                         next += unitLength
                     }
-                    guard copies >= minimumCharacterCopies(unitLength: unitLength) else { continue }
+                    let isImplausiblyLong = audioSeconds.map { seconds in
+                        seconds > 0 && Double(copies) / seconds > maximumCharacterCopiesPerSecond
+                    } ?? false
+                    let required = minimumCharacterCopies(unitLength: unitLength) * (isImplausiblyLong ? 1 : 2)
+                    guard copies >= required else { continue }
                     // A copy the decoder cut off mid-run belongs to the loop.
                     var partial = 0
                     while next + partial < characters.count, partial < unitLength - 1,

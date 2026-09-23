@@ -115,7 +115,24 @@ final class TranscriptRepetitionTests: XCTestCase {
     func testFindsLoopsOfSeveralLettersAndInScriptsWithoutSpaces() {
         XCTAssertTrue(TranscriptRepetition.containsLoop("Okay " + String(repeating: "кт", count: 40) + "к"))
         XCTAssertTrue(TranscriptRepetition.containsLoop(String(repeating: "谢", count: 30)))
-        XCTAssertTrue(TranscriptRepetition.containsLoop("Hi" + String(repeating: "abcd", count: 10)))
+        XCTAssertTrue(TranscriptRepetition.containsLoop("Hi" + String(repeating: "abcd", count: 20)))
+    }
+
+    func testLaughterThatFitsTheAudioIsKept() {
+        let laugh = String(repeating: "ha", count: 8)
+        XCTAssertNil(TranscriptRepetition.characterLoop(in: laugh))
+        XCTAssertNil(TranscriptRepetition.characterLoop(in: laugh, audioSeconds: 3))
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: laugh, audioSeconds: 3), laugh)
+    }
+
+    func testLetterRunTooLongForItsAudioNeedsFewerCopies() {
+        let run = String(repeating: "ha", count: 10)
+        // Ten copies: short of a loop on count alone, but no one laughs ten
+        // syllables in half a second.
+        XCTAssertNil(TranscriptRepetition.characterLoop(in: run))
+        XCTAssertNil(TranscriptRepetition.characterLoop(in: run, audioSeconds: 3))
+        XCTAssertNotNil(TranscriptRepetition.characterLoop(in: run, audioSeconds: 0.5))
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: run, audioSeconds: 0.5), "ha")
     }
 
     func testStretchedWordsAndNumbersAreNotLetterLoops() {
@@ -123,6 +140,8 @@ final class TranscriptRepetitionTests: XCTestCase {
             "Sooooo good.",
             "Hmmmmmm, let me think.",
             "Hahahahaha that's funny.",
+            "Hahahahahahahaha!",
+            "Nooooooooooooooo!",
             "Aaaaaaah!",
             "Mississippi",
             "It costs 1000000000000 dollars.",
@@ -146,7 +165,7 @@ final class TranscriptRepetitionTests: XCTestCase {
     }
 
     func testCollapseHandlesLetterLoopsBeforeWordLoops() {
-        let word = "Hi" + String(repeating: "i", count: 14)
+        let word = "Hi" + String(repeating: "i", count: 30)
         let text = Array(repeating: word, count: 20).joined(separator: " ")
         XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: text), "Hi")
     }

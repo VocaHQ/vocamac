@@ -488,23 +488,43 @@ final class WhisperService: @unchecked Sendable {
     /// then.
     private static let nativeScripts: [String: String] = ["hi": "Devanagari"]
 
-    /// `text` without the words a romanizing model cannot mean.
+    /// `text` without the letters a romanizing model cannot mean.
     ///
     /// Voca Hinglish writes Latin letters, and now and then Devanagari. When
     /// it derails it can write another script entirely: one dictation ended
-    /// in "в ктттт…". Any word with a letter from a script other than those
-    /// two is decoder garbage, so it is dropped. Other models write every
-    /// language they know and are left alone.
+    /// in "в ктттт…". Letters from any other script are decoder garbage and
+    /// are removed; a word keeps whatever it held besides them
+    /// ("amazing.в" stays "amazing."), and a word left without letters or
+    /// digits is dropped. Other models write every language they know and
+    /// are left alone.
     static func removingUnexpectedScripts(from text: String, model: ModelSize) -> String {
         guard let romanized = model.romanizedLanguage else { return text }
         let allowed = (["Latin"] + [nativeScripts[romanized]].compactMap { $0 })
             .map { "\\p{Script=\($0)}" }
             .joined()
-        let pattern = "\\S*(?=\\p{L})[^\(allowed)]\\S*"
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
-        let range = NSRange(text.startIndex..., in: text)
-        guard regex.firstMatch(in: text, range: range) != nil else { return text }
-        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+        // A run of disallowed letters, with the marks attached to them.
+        guard let offScript = try? NSRegularExpression(pattern: "(?:(?=\\p{L})[^\(allowed)]\\p{M}*)+"),
+              let words = try? NSRegularExpression(pattern: "\\S+") else { return text }
+        guard offScript.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil else {
+            return text
+        }
+
+        var result = ""
+        var copiedUpTo = text.startIndex
+        for match in words.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range, in: text) else { continue }
+            let word = String(text[range])
+            let wordRange = NSRange(word.startIndex..., in: word)
+            guard offScript.firstMatch(in: word, range: wordRange) != nil else { continue }
+            let kept = offScript.stringByReplacingMatches(in: word, range: wordRange, withTemplate: "")
+            result += text[copiedUpTo..<range.lowerBound]
+            if kept.contains(where: { $0.isLetter || $0.isNumber }) {
+                result += kept
+            }
+            copiedUpTo = range.upperBound
+        }
+        result += text[copiedUpTo...]
+        return result
             .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }

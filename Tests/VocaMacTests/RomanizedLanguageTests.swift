@@ -49,6 +49,21 @@ final class RomanizedLanguageTests: XCTestCase {
         )
     }
 
+    func testVocaHinglishKeepsTheLatinPartOfAWordWithGarbageAttached() {
+        XCTAssertEqual(
+            WhisperService.removingUnexpectedScripts(from: "It is just amazing.в кт", model: .vocaHinglish),
+            "It is just amazing."
+        )
+        XCTAssertEqual(
+            WhisperService.removingUnexpectedScripts(from: "Приветbhai, kaise ho? «в»", model: .vocaHinglish),
+            "bhai, kaise ho?"
+        )
+        XCTAssertEqual(
+            WhisperService.removingUnexpectedScripts(from: "Room 404в mein", model: .vocaHinglish),
+            "Room 404 mein"
+        )
+    }
+
     func testVocaHinglishKeepsLatinAndDevanagari() {
         for text in [
             "Aap pandrah log hain.",

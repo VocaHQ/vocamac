@@ -184,8 +184,7 @@ final class VocaLogger {
     // MARK: - Initialization
 
     private init() {
-        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        self.logDirectory = appSupportURL.appendingPathComponent("VocaMac/logs", isDirectory: true)
+        self.logDirectory = Self.defaultLogDirectory(isRunningTests: Self.isRunningTests)
         self.logFileURL = logDirectory.appendingPathComponent(LogFileStore.activeName)
         self.osLogger = os.Logger(subsystem: "com.vocamac", category: "general")
 
@@ -197,6 +196,24 @@ final class VocaLogger {
             self.cleanupOrphanedRotatedFiles()
             self.setupLogFile()
         }
+    }
+
+    /// Where log files live. Test runs get their own folder: they share this
+    /// singleton with the app, and writing to the real folder filled the
+    /// user's diagnostic logs with fake dictations and rotated real ones out.
+    static func defaultLogDirectory(isRunningTests: Bool) -> URL {
+        if isRunningTests {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("VocaMac-tests/logs", isDirectory: true)
+        }
+        let appSupportURL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return appSupportURL.appendingPathComponent("VocaMac/logs", isDirectory: true)
+    }
+
+    /// XCTest is only loaded into a test runner, never into the app or CLI.
+    private static var isRunningTests: Bool {
+        NSClassFromString("XCTestCase") != nil
     }
 
     // MARK: - Public API

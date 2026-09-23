@@ -151,11 +151,50 @@ enum SystemInfo {
 
     /// Approximate reclaimable memory in bytes. Zero means the probe failed.
     ///
-    /// Uses free + inactive only. On Darwin, `free_count` already includes
-    /// speculative pages, purgeable pages often overlap the inactive queue,
-    /// and compressor-resident pages still occupy RAM — so those counters
-    /// must not be added on top or the gate can over-approve loads.
+    /// The larger of two readings: free + inactive pages, and the kernel's
+    /// available-memory level (`kern.memorystatus_level`, the percentage
+    /// `memory_pressure` prints) less a reserve. That level counts active,
+    /// inactive, free and speculative pages: everything neither wired nor
+    /// held by the compressor. Free + inactive alone stays low on a busy Mac,
+    /// where clean file cache and idle app memory sit in the active queue: a
+    /// 16 GB Mac at 39% read 3.0 GB and refused a 3.4 GB Command Mode model it
+    /// had run minutes earlier, every time. The level falls as wired and
+    /// compressed memory grow, so the gate still refuses on a full machine.
     static var availableMemoryBytes: UInt64 {
+        reclaimableBytes(
+            freeAndInactiveBytes: freeAndInactiveBytes,
+            memoryStatusLevel: memoryStatusLevel,
+            physicalBytes: ProcessInfo.processInfo.physicalMemory
+        )
+    }
+
+    /// Share of RAM the kernel-level reading leaves untouched, so a load that
+    /// fits still does not compress the rest of the machine down to nothing.
+    static let memoryStatusReservePercent = 10
+
+    /// Combine the two probes. A missing kernel level falls back to free +
+    /// inactive alone, so zero still means neither probe worked.
+    static func reclaimableBytes(
+        freeAndInactiveBytes: UInt64,
+        memoryStatusLevel: Int?,
+        physicalBytes: UInt64
+    ) -> UInt64 {
+        guard let level = memoryStatusLevel, (0...100).contains(level) else {
+            return freeAndInactiveBytes
+        }
+        let usablePercent = UInt64(max(0, level - memoryStatusReservePercent))
+        let kernelBytes = physicalBytes / 100 * usablePercent
+        // At least one byte: a machine the kernel reports as full is a known
+        // reading, and zero would read as "unknown" and wave the load through.
+        return max(freeAndInactiveBytes, kernelBytes, 1)
+    }
+
+    /// Free + inactive pages from host_statistics64, or zero if the probe fails.
+    ///
+    /// `free_count` already includes speculative pages, purgeable pages often
+    /// overlap the inactive queue, and compressor-resident pages still occupy
+    /// RAM — so those counters must not be added on top.
+    private static var freeAndInactiveBytes: UInt64 {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(
             MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride
@@ -173,6 +212,16 @@ enum SystemInfo {
         let pages = UInt64(stats.free_count)
             + UInt64(stats.inactive_count)
         return pages * UInt64(pageSize)
+    }
+
+    /// The kernel's available-memory percentage, or nil if it cannot be read.
+    private static var memoryStatusLevel: Int? {
+        var level: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_level", &level, &size, nil, 0) == 0 else {
+            return nil
+        }
+        return Int(level)
     }
 
     /// Whether loading `size` is likely to fit without thrashing.

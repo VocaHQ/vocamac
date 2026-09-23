@@ -576,6 +576,22 @@ final class CommandModePromptTests: XCTestCase {
     }
 
     @MainActor
+    func testCommandModelStaysLoadedUnlessIdleUnloadIsOn() {
+        let keys = [PreferenceKey.modelKeepAliveEnabled, PreferenceKey.modelKeepAliveIdleTimeout]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+        }
+        let (app, _) = AppState.makeTestState()
+        app.modelKeepAliveEnabled = false
+        XCTAssertNil(app.commandModelIdleUnloadDelay, "No setting asked for it, so the model stays")
+
+        app.modelKeepAliveEnabled = true
+        app.modelKeepAliveIdleTimeoutSeconds = 900
+        XCTAssertEqual(app.commandModelIdleUnloadDelay, 900)
+    }
+
+    @MainActor
     func testClipboardFallbackNeedsConsent() {
         XCTAssertTrue(SelectionCaptureFailure.needsClipboardFallback.message.contains("Copy the selection"))
         let service = AccessibilitySelectedTextService(textInjector: MockTextInjector())

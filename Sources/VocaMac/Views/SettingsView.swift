@@ -882,7 +882,7 @@ struct PerformanceSettingsTab: View {
 
             Section("Unload When Idle") {
                 Toggle("Unload model when idle", isOn: $appState.modelKeepAliveEnabled)
-                    .help("Frees memory after you stop dictating. The next dictation reloads the model, which can take a moment.")
+                    .help("Frees memory after you stop dictating, including the cleanup and Command Mode models. The next use reloads the model, which can take a moment.")
 
                 Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
                     ForEach(idleTimeoutChoices, id: \.seconds) { choice in

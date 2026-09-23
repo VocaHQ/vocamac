@@ -124,7 +124,7 @@ Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/i
 - Never force-unwrap (`!`) unless the value is guaranteed (e.g. system symbols).
 - `do/catch` with meaningful error types. Surface user-visible failures via `AppState.appStatus = .error`.
 - Log with **`VocaLogger`** (`debug` / `info` / `warning` / `error` + `LogCategory`). Do **not** use `print()`.
-- Logs go to Console.app (`os.Logger`) and `~/Library/Application Support/VocaMac/logs/` (rotated files).
+- Logs go to Console.app (`os.Logger`) and `~/Library/Application Support/VocaMac/logs/` (rotated files). Test runs write to `$TMPDIR/VocaMac-tests/logs/` instead, so `swift test` never touches the app's logs.
 
 ### Performance
 

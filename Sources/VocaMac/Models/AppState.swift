@@ -679,9 +679,9 @@ final class AppState: ObservableObject {
     private var activeCommandTransformer: TextTransforming?
     /// A local Command Mode model loading while the user speaks.
     private var commandModelWarmup: Task<Void, Never>?
-    /// Frees a large Command Mode model a while after its last use.
+    /// Frees a Command Mode model after its last use, when "Unload model
+    /// when idle" is on.
     private var commandModelIdleUnload: Task<Void, Never>?
-    static let commandModelIdleSeconds: TimeInterval = 300
     private lazy var appleIntelligenceService = AppleIntelligenceTextService()
     /// A quick press toggles Command Mode; holding past this point stops on
     /// release. Internal so flow tests can exercise both gestures instantly.
@@ -4228,13 +4228,22 @@ extension AppState {
             }
             return
         }
-        // Nothing else needs the slot: keep the model warm for a follow-up
-        // edit, then free its memory.
+        // Nothing else needs the slot. Keep the model resident unless the
+        // user asked for idle unloading: a fixed timer here dropped it behind
+        // their back, and the reload could then be refused for memory.
+        guard let delay = commandModelIdleUnloadDelay else { return }
         commandModelIdleUnload = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.commandModelIdleSeconds * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self, !Task.isCancelled, self.activeCommandEngine == nil else { return }
             await self.releaseCommandModelSlot()
         }
+    }
+
+    /// How long a Command Mode model stays loaded after its last use, or nil
+    /// to keep it loaded. Follows the "Unload model when idle" setting.
+    var commandModelIdleUnloadDelay: TimeInterval? {
+        guard modelKeepAliveEnabled else { return nil }
+        return ModelKeepAlive.clampIdleTimeout(modelKeepAliveIdleTimeoutSeconds)
     }
 
     private var cleanupUsesLocalModel: Bool {

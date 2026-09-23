@@ -77,8 +77,18 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     /// Seam for tests; production checks reclaimable RAM against the catalog
     /// estimate, the same gate the speech models use (vocamac#251).
-    var modelFitsInMemory: (CleanupModelDescriptor) -> Bool = {
-        SystemInfo.canFitInMemory(requiredGB: $0.ramRequiredGB)
+    ///
+    /// `freeingGB` is the model this load replaces in the shared llama.cpp
+    /// slot. It is dropped before the new weights load, so it must not count
+    /// against them.
+    var modelFitsInMemory: (_ descriptor: CleanupModelDescriptor, _ freeingGB: Double) -> Bool = {
+        SystemInfo.canFitInMemory(requiredGB: $0.ramRequiredGB, freeingGB: $1)
+    }
+
+    /// RAM a load of `incoming` releases by replacing the resident model.
+    nonisolated static func freeingGB(resident: CleanupModelKind?, incoming: CleanupModelKind) -> Double {
+        guard let resident, resident != incoming else { return 0 }
+        return resident.descriptor.ramRequiredGB
     }
 
     /// Command Mode edits can be as long as the selection and the user is
@@ -510,7 +520,12 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
         // Refuse a known-too-large load before llama.cpp maps the weights and
         // pushes the machine into swap, matching the speech-model gate.
-        guard modelFitsInMemory(descriptor) else {
+        // Switching Command Mode <-> cleanup swaps models in one slot; without
+        // this credit the outgoing model's RAM refused loads that fit. No
+        // credit while a timed-out generation still holds the old model: it
+        // keeps the weights alive until it winds down.
+        let resident = activeLLM == nil || pendingGeneration != nil ? nil : activeKind
+        guard modelFitsInMemory(descriptor, Self.freeingGB(resident: resident, incoming: kind)) else {
             let needed = String(format: "%.1f", descriptor.ramRequiredGB)
             let message = "Not enough free memory to load \(descriptor.displayName) "
                 + "(~\(needed) GB needed). Free RAM or choose a smaller cleanup model."

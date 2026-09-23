@@ -44,70 +44,71 @@ modelRepo = "argmaxinc/whisperkit-coreml"
 modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
 
 # The WhisperKit model picker shown in Settings in v1.0.0 (ModelSize.standardCatalog).
-# size/ram are the values the app itself reports.
+# size/ram are the values the app itself reports (fileSizeDescription and the
+# loaded ramRequiredGB from ModelRAMFit, #311).
 [[models]]
 id = "tiny"
 name = "Tiny"
-size = "39 MB"
-ram = "1 GB"
+size = "77 MB"
+ram = "0.5 GB"
 quality = "Good"
 note = "Fastest. Good for short commands and quick notes."
 
 [[models]]
 id = "base"
 name = "Base"
-size = "142 MB"
-ram = "1.5 GB"
+size = "147 MB"
+ram = "1 GB"
 quality = "Better"
 note = "A small step up in accuracy for very little extra weight."
 
 [[models]]
 id = "small"
 name = "Small"
-size = "466 MB"
-ram = "2 GB"
+size = "487 MB"
+ram = "1.5 GB"
 quality = "Great"
 note = "A sensible default on 8 GB Macs."
 
 [[models]]
 id = "large-v3-turbo-compact"
 name = "Large v3 Turbo (Compact)"
-size = "632 MB"
-ram = "4 GB"
+size = "646 MB"
+ram = "2 GB"
 quality = "Excellent"
 note = "The best accuracy-per-second trade-off for most people."
 
 [[models]]
 id = "distil-large-v3-compact"
 name = "Distil Large v3 (Compact)"
-size = "594 MB"
-ram = "4 GB"
+size = "595 MB"
+ram = "2 GB"
 quality = "Excellent"
 note = "Distilled for speed. English-focused."
 
 [[models]]
 id = "distil-large-v3-turbo"
 name = "Distil Large v3 Turbo"
-size = "600 MB"
-ram = "4 GB"
+size = "607 MB"
+ram = "2 GB"
 quality = "Excellent"
 note = "The fastest of the distilled variants."
 
 [[models]]
 id = "large-v3-latest-compact"
 name = "Large v3 Latest (Compact)"
-size = "626 MB"
-ram = "5 GB"
+size = "627 MB"
+ram = "2 GB"
 quality = "Best"
 note = "Full large-model accuracy, compressed."
 
 [[models]]
 id = "large-v3-latest"
 name = "Large v3 Latest"
-size = "3.1 GB"
-ram = "10 GB"
+size = "1.6 GB"
+ram = "3.5 GB"
 quality = "Best"
-note = "Highest accuracy. Wants a 16 GB Mac and patience."
+note = "Highest accuracy. The largest download."
 
 [[models]]
 id = "voca-hinglish"
@@ -123,21 +124,21 @@ note = "Writes Hindi speech in Roman script (Hinglish). Fine-tuned from Oriserve
 id = "parakeet-v3"
 name = "Parakeet v3"
 engine = "Parakeet"
-size = "0.7 GB"
+size = "483 MB"
 note = "Fastest engine. 25 European languages + Japanese, auto-detected."
 
 [[releaseModels]]
 id = "parakeet-v2"
 name = "Parakeet v2"
 engine = "Parakeet"
-size = "1.2 GB"
+size = "464 MB"
 note = "Fastest engine. English only, highest recall."
 
 [[releaseModels]]
 id = "parakeet-110m"
 name = "Parakeet 110M"
 engine = "Parakeet"
-size = "0.2 GB"
+size = "227 MB"
 note = "English only, smaller download and faster first load."
 
 [[releaseModels]]
@@ -151,42 +152,42 @@ note = "macOS 26+ system engine (SpeechAnalyzer). Roughly 30 locales."
 id = "moonshine-v2-tiny"
 name = "Moonshine v2 Tiny"
 engine = "sherpa-onnx"
-size = "60 MB"
+size = "44 MB"
 note = "CPU-only. Very low-RAM Macs, English."
 
 [[releaseModels]]
 id = "moonshine-v2-base"
 name = "Moonshine v2 Base"
 engine = "sherpa-onnx"
-size = "190 MB"
+size = "142 MB"
 note = "CPU-only. Low-RAM Macs, English."
 
 [[releaseModels]]
 id = "sense-voice"
 name = "SenseVoice"
 engine = "sherpa-onnx"
-size = "240 MB"
+size = "241 MB"
 note = "CPU-only. Chinese, Japanese, Korean, Cantonese, English."
 
 [[releaseModels]]
 id = "gigaam-v3"
 name = "GigaAM v3"
 engine = "sherpa-onnx"
-size = "270 MB"
+size = "225 MB"
 note = "CPU-only. Russian, with punctuation."
 
 [[releaseModels]]
 id = "canary-180m-flash"
 name = "Canary 180M Flash"
 engine = "sherpa-onnx"
-size = "320 MB"
+size = "207 MB"
 note = "CPU-only. English, Spanish, German, French."
 
 [[releaseModels]]
 id = "qwen3-asr-0.6b"
 name = "Qwen3 ASR 0.6B"
 engine = "sherpa-onnx"
-size = "973 MB"
+size = "1 GB"
 note = "CPU-only. 30 languages, including Hindi, Arabic, and Thai."
 
 [links]

@@ -16,7 +16,7 @@ VocaMac can inspect the Mac's Apple Silicon hardware and available memory to rec
 
 ![VocaMac Settings showing the Speech Model page](/screenshots/settings-models.png)
 
-The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 39 MB to 3.1 GB. VocaMac shows the local model state and resource guidance in Settings.
+The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 77 MB to 1.6 GB. VocaMac shows the local model state and resource guidance in Settings.
 
 Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or Base for a smaller download and lower memory use. Choose a compact Large or Distil model when accuracy matters and your Mac has the headroom. The full Large v3 model needs substantially more disk space and memory.
 

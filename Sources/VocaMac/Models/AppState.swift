@@ -4234,9 +4234,15 @@ extension AppState {
         guard let delay = commandModelIdleUnloadDelay else { return }
         commandModelIdleUnload = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.activeCommandEngine == nil else { return }
+            guard let self, !Task.isCancelled, self.commandModelIdleUnloadIsDue else { return }
             await self.releaseCommandModelSlot()
         }
+    }
+
+    /// Checked again when the timer fires, as `ModelKeepAlive` does: the user
+    /// may have turned idle unloading off, or started another edit, since.
+    var commandModelIdleUnloadIsDue: Bool {
+        commandModelIdleUnloadDelay != nil && activeCommandEngine == nil
     }
 
     /// How long a Command Mode model stays loaded after its last use, or nil

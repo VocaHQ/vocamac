@@ -589,6 +589,11 @@ final class CommandModePromptTests: XCTestCase {
         app.modelKeepAliveEnabled = true
         app.modelKeepAliveIdleTimeoutSeconds = 900
         XCTAssertEqual(app.commandModelIdleUnloadDelay, 900)
+        XCTAssertTrue(app.commandModelIdleUnloadIsDue)
+
+        // Turned off while an unload was pending: the timer must not fire it.
+        app.modelKeepAliveEnabled = false
+        XCTAssertFalse(app.commandModelIdleUnloadIsDue)
     }
 
     @MainActor

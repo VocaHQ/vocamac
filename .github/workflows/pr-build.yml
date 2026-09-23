@@ -1,12 +1,21 @@
 name: PR Build
 
-# Triggered by commenting "/build" or "/build-quick" on a pull request.
-# Builds a signed DMG (notarized if /build) from the PR branch and posts
-# a download link as a comment on the PR.
+# A maintainer starts this manually after reviewing the exact PR commit.
+# The protected environment requires an independent Core team approval before
+# any PR code runs in a job that can access signing credentials.
 
 on:
-  issue_comment:
-    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number to build
+        required: true
+        type: string
+      quick:
+        description: Skip notarization
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -14,82 +23,107 @@ permissions:
   actions: read
 
 concurrency:
-  # One build per PR — re-commenting /build cancels any in-progress build
-  group: pr-build-${{ github.event.issue.number }}
+  group: pr-build-${{ inputs.pr_number }}
   cancel-in-progress: true
 
 jobs:
   pr-build:
     name: Build PR
-    # Only run when:
-    # 1. The comment is on a pull request (not a plain issue)
-    # 2. The comment body is exactly "/build" (trimmed)
-    if: >-
-      github.event.issue.pull_request &&
-      (contains(github.event.comment.body, '/build') || contains(github.event.comment.body, '/build-quick'))
+    if: github.ref == 'refs/heads/main'
+    environment: pr-signing
     runs-on: macos-15
     timeout-minutes: 45
 
     steps:
       # ── Setup ─────────────────────────────────────────────────────────────
-      - name: React to comment
-        uses: actions/github-script@v9
-        with:
-          script: |
-            await github.rest.reactions.createForIssueComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: context.payload.comment.id,
-              content: 'rocket'
-            });
-
-      - name: Get PR branch info
+      - name: Validate PR and reviewed commit
         id: pr
         uses: actions/github-script@v9
         with:
           script: |
+            const input = context.payload.inputs.pr_number;
+            if (!/^[1-9][0-9]*$/.test(input)) {
+              throw new Error('PR number must be a positive integer');
+            }
+            const number = Number(input);
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number
+              pull_number: number
             });
-            core.setOutput('ref', pr.data.head.ref);
+            if (pr.data.state !== 'open' ||
+                pr.data.head.repo?.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              throw new Error('Only open PRs with a branch in this repository can be signed');
+            }
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: number,
+              per_page: 100
+            });
+            const latestByReviewer = new Map();
+            for (const review of reviews) {
+              latestByReviewer.set(review.user?.login, review);
+            }
+            const approved = [...latestByReviewer.values()].some(review =>
+              review.state === 'APPROVED' &&
+              review.commit_id === pr.data.head.sha &&
+              review.user?.login !== pr.data.user.login &&
+              review.user?.login !== context.actor
+            );
+            if (!approved) {
+              throw new Error('The current PR commit needs an independent approving review');
+            }
             core.setOutput('sha', pr.data.head.sha);
             core.setOutput('short_sha', pr.data.head.sha.substring(0, 7));
-            core.setOutput('pr_number', context.issue.number);
-            core.setOutput('pr_title', pr.data.title);
+            core.setOutput('pr_number', number);
 
       - name: Determine build type
         id: build_type
         run: |
-          if [[ "${{ github.event.comment.body }}" == *"/build-quick"* ]]; then
-            echo "QUICK=true" >> "$GITHUB_OUTPUT"
-            echo "BUILD_DESCRIPTION=Build signed DMG (skipping notarization)" >> "$GITHUB_OUTPUT"
-            echo "DIST_FLAGS=--skip-notarize" >> "$GITHUB_OUTPUT"
+          if [[ "${{ inputs.quick }}" == "true" ]]; then
+            {
+              echo "QUICK=true"
+              echo "BUILD_DESCRIPTION=Build signed DMG (skipping notarization)"
+              echo "DIST_FLAGS=--skip-notarize"
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "QUICK=false" >> "$GITHUB_OUTPUT"
-            echo "BUILD_DESCRIPTION=Build signed & notarized DMG" >> "$GITHUB_OUTPUT"
-            echo "DIST_FLAGS=" >> "$GITHUB_OUTPUT"
+            {
+              echo "QUICK=false"
+              echo "BUILD_DESCRIPTION=Build signed & notarized DMG"
+              echo "DIST_FLAGS="
+            } >> "$GITHUB_OUTPUT"
           fi
 
       - name: Post "build started" comment
         uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_SHA: ${{ steps.pr.outputs.short_sha }}
+          BUILD_DESCRIPTION: ${{ steps.build_type.outputs.BUILD_DESCRIPTION }}
+          QUICK: ${{ steps.build_type.outputs.QUICK }}
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const description = "${{ steps.build_type.outputs.BUILD_DESCRIPTION }}";
-            const timeEstimate = "${{ steps.build_type.outputs.QUICK }}" === "true" ? "3–5 minutes" : "10–20 minutes";
+            const description = process.env.BUILD_DESCRIPTION;
+            const timeEstimate = process.env.QUICK === 'true' ? '3–5 minutes' : '10–20 minutes';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `⏳ **PR Build started** for \`${{ steps.pr.outputs.short_sha }}\`\n\n${description}... this usually takes ${timeEstimate}.\n\n[Watch the build →](${runUrl})`
+              issue_number: Number(process.env.PR_NUMBER),
+              body: `⏳ **PR Build started** for \`${process.env.PR_SHA}\`\n\n${description}... this usually takes ${timeEstimate}.\n\n[Watch the build →](${runUrl})`
             });
 
-      - name: Checkout PR branch
+      - name: Checkout reviewed PR commit
         uses: actions/checkout@v7
         with:
-          ref: ${{ steps.pr.outputs.ref }}
+          ref: ${{ steps.pr.outputs.sha }}
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        env:
+          EXPECTED_SHA: ${{ steps.pr.outputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Cache SPM dependencies
         uses: actions/cache@v6
@@ -105,6 +139,22 @@ jobs:
       # ── Test ──────────────────────────────────────────────────────────────
       - name: Run tests
         run: swift test
+
+      - name: Confirm PR still points to reviewed commit
+        uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          EXPECTED_SHA: ${{ steps.pr.outputs.sha }}
+        with:
+          script: |
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: Number(process.env.PR_NUMBER)
+            });
+            if (pr.data.state !== 'open' || pr.data.head.sha !== process.env.EXPECTED_SHA) {
+              throw new Error('PR changed during build; request a new signed build');
+            }
 
       - name: Initialize Xcode tools
         run: sudo xcodebuild -runFirstLaunch
@@ -255,25 +305,32 @@ jobs:
 
       - name: Post download comment on PR
         uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_SHA: ${{ steps.pr.outputs.short_sha }}
+          QUICK: ${{ steps.build_type.outputs.QUICK }}
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact-id }}
+          DMG_NAME: ${{ steps.artifacts.outputs.dmg_name }}
+          DMG_SIZE: ${{ steps.artifacts.outputs.dmg_size }}
+          DMG_SHA: ${{ steps.artifacts.outputs.dmg_sha }}
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const artifactUrl = `${runUrl}/artifacts/${{ steps.upload.outputs.artifact-id }}`;
-            const isQuick = "${{ steps.build_type.outputs.QUICK }}" === "true";
+            const artifactUrl = `${runUrl}/artifacts/${process.env.ARTIFACT_ID}`;
+            const isQuick = process.env.QUICK === 'true';
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
+              issue_number: Number(process.env.PR_NUMBER),
               body: [
                 `✅ **PR Build ready!**`,
                 ``,
                 `| | |`,
                 `|---|---|`,
-                `| **DMG** | [\`${{ steps.artifacts.outputs.dmg_name }}\`](${artifactUrl}) |`,
-                `| **Size** | ${{ steps.artifacts.outputs.dmg_size }} |`,
-                `| **Branch** | \`${{ steps.pr.outputs.ref }}\` |`,
-                `| **Commit** | \`${{ steps.pr.outputs.short_sha }}\` |`,
+                `| **DMG** | [\`${process.env.DMG_NAME}\`](${artifactUrl}) |`,
+                `| **Size** | ${process.env.DMG_SIZE} |`,
+                `| **Commit** | \`${process.env.PR_SHA}\` |`,
                 `| **Signed** | ✅ Developer ID |`,
                 `| **Notarized** | ${isQuick ? '⏭️ Skipped' : '✅ Apple'} |`,
                 ``,
@@ -285,11 +342,11 @@ jobs:
                 `<details><summary>SHA-256 checksum</summary>`,
                 ``,
                 `\`\`\``,
-                `${{ steps.artifacts.outputs.dmg_sha }}  ${{ steps.artifacts.outputs.dmg_name }}`,
+                `${process.env.DMG_SHA}  ${process.env.DMG_NAME}`,
                 `\`\`\``,
                 `</details>`,
                 ``,
-                `> 💡 Comment \`/build\` or \`/build-quick\` to rebuild.`
+                `> 💡 A maintainer can start another PR Build from the Actions tab.`
               ].join('\n')
             });
 
@@ -303,12 +360,15 @@ jobs:
       - name: Post failure comment
         if: failure()
         uses: actions/github-script@v9
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_SHA: ${{ steps.pr.outputs.short_sha }}
         with:
           script: |
             const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `❌ **PR Build failed** for \`${{ steps.pr.outputs.short_sha }}\`\n\n[View build logs →](${runUrl})\n\n> 💡 Fix the issue and comment \`/build\` to retry.`
+              issue_number: Number(process.env.PR_NUMBER),
+              body: `❌ **PR Build failed** for \`${process.env.PR_SHA}\`\n\n[View build logs →](${runUrl})\n\n> 💡 A maintainer can retry from the Actions tab.`
             });

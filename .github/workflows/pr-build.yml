@@ -63,7 +63,11 @@ jobs:
             });
             const latestByReviewer = new Map();
             for (const review of reviews) {
-              latestByReviewer.set(review.user?.login, review);
+              // A comment does not revoke an earlier approval. Only a new
+              // approval, change request, or dismissal changes the decision.
+              if (['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)) {
+                latestByReviewer.set(review.user?.login, review);
+              }
             }
             const approved = [...latestByReviewer.values()].some(review =>
               review.state === 'APPROVED' &&

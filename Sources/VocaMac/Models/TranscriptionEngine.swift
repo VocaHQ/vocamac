@@ -54,6 +54,8 @@ enum PreferenceKey {
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
     static let skipSilence = "vocamac.audio.skipSilence"
     static let spokenLanguages = "vocamac.spokenLanguages"
+    /// Prefix of one key per model: the macOS build it last loaded on.
+    static let compiledModelBuildPrefix = "vocamac.models.compiledBuild."
 }
 
 /// The on-device inference engine backing a model in the catalog.
@@ -106,6 +108,12 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
     /// Whether the engine biases transcription toward user-provided vocabulary.
     var supportsCustomVocabulary: Bool {
         self == .whisperKit
+    }
+
+    /// Whether CoreML compiles this engine's models for the Neural Engine on
+    /// their first load, which can take minutes.
+    var compilesForNeuralEngine: Bool {
+        self == .whisperKit || self == .parakeet
     }
 
 }

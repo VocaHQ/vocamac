@@ -54,10 +54,13 @@ final class SystemInfoTests: XCTestCase {
         XCTAssertTrue(summary.contains("Recommended Model:"))
     }
 
+    // The gate tests pass explicit estimates rather than catalog models, so
+    // they keep testing the gate when a model's measured estimate changes.
+
     func testCanFitModelRejectsWhenPhysicalMemoryIsTooLow() {
         XCTAssertFalse(
-            SystemInfo.canFitModelInMemory(
-                .largeV3Latest,
+            SystemInfo.canFitInMemory(
+                requiredGB: 6,
                 physicalMemoryGB: 4,
                 availableBytes: UInt64(64) * 1024 * 1024 * 1024
             )
@@ -80,16 +83,16 @@ final class SystemInfoTests: XCTestCase {
         // gate runs, so without the credit this switch was refused outright.
         let availableBytes: UInt64 = 1024 * 1024 * 1024
         XCTAssertFalse(
-            SystemInfo.canFitModelInMemory(
-                .base,
+            SystemInfo.canFitInMemory(
+                requiredGB: 1.5,
                 physicalMemoryGB: 16,
                 availableBytes: availableBytes
             )
         )
         XCTAssertTrue(
-            SystemInfo.canFitModelInMemory(
-                .base,
-                freeingGB: ModelSize.parakeetV3.ramRequiredGB,
+            SystemInfo.canFitInMemory(
+                requiredGB: 1.5,
+                freeingGB: 1.0,
                 physicalMemoryGB: 16,
                 availableBytes: availableBytes
             )
@@ -100,8 +103,8 @@ final class SystemInfoTests: XCTestCase {
         // The credit is against free memory only; it must not let a model
         // through that installed RAM cannot hold at all.
         XCTAssertFalse(
-            SystemInfo.canFitModelInMemory(
-                .largeV3Latest,
+            SystemInfo.canFitInMemory(
+                requiredGB: 6,
                 freeingGB: 64,
                 physicalMemoryGB: 4,
                 availableBytes: UInt64(64) * 1024 * 1024 * 1024

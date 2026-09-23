@@ -181,18 +181,22 @@ enum SystemInfo {
     /// reclaimable free memory from host_statistics64. A zero available
     /// reading is treated as unknown so we do not block loads on a failed probe.
     ///
+    /// - Parameter isFirstLoad: Whether this load compiles the model for the
+    ///   Neural Engine (see `CompiledModelRecord`), which needs far more
+    ///   memory than a load from CoreML's cache.
     /// - Parameter freeingGB: RAM the pending load will release before it
     ///   allocates, because it unloads the model currently resident. Without
     ///   this the outgoing model counts against the incoming one, which
     ///   rejected perfectly possible switches away from a large engine.
     static func canFitModelInMemory(
         _ size: ModelSize,
+        isFirstLoad: Bool = false,
         freeingGB: Double = 0,
         physicalMemoryGB: Int = physicalMemoryGB,
         availableBytes: UInt64 = availableMemoryBytes
     ) -> Bool {
         canFitInMemory(
-            requiredGB: size.ramRequiredGB,
+            requiredGB: isFirstLoad ? size.firstLoadRAMRequiredGB : size.ramRequiredGB,
             freeingGB: freeingGB,
             physicalMemoryGB: physicalMemoryGB,
             availableBytes: availableBytes

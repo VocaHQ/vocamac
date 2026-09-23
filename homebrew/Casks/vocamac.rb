@@ -5,7 +5,7 @@
 # other than the version changes.
 cask "vocamac" do
   version "1.0.0"
-  sha256 "TBD-DMG-SHA256"
+  sha256 "0ac5b7887bc31b72f39062109a6982efdaa031093c9bc52e69f88c31e4f1e645"
 
   url "https://github.com/VocaHQ/vocamac/releases/download/v#{version}/VocaMac-#{version}-arm64.dmg"
   name "VocaMac"

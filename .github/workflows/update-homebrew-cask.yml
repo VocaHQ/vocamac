@@ -15,6 +15,9 @@ on:
         type: string
         default: ""
 
+permissions:
+  contents: read
+
 jobs:
   update-cask:
     runs-on: ubuntu-latest

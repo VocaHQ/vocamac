@@ -790,7 +790,11 @@ final class AppState: ObservableObject {
     /// `freeingGB` is the RAM the outgoing model releases as part of this
     /// load, which must not count against the incoming one.
     var modelFitsInMemory: (_ size: ModelSize, _ freeingGB: Double) -> Bool = { size, freeingGB in
-        SystemInfo.canFitModelInMemory(size, freeingGB: freeingGB)
+        SystemInfo.canFitModelInMemory(
+            size,
+            isFirstLoad: !CompiledModelRecord().hasLoaded(size),
+            freeingGB: freeingGB
+        )
     }
     var availableInputDevices: () -> [AudioDevice] = { AudioEngine.availableInputDevices() }
     var isLidClosed: () -> Bool = { LidStateReader.isClosed() }
@@ -2479,7 +2483,11 @@ final class AppState: ObservableObject {
         // measured against memory that model is about to give back.
         let reclaimableGB = hadLoadedModel ? (previousModelSize?.ramRequiredGB ?? 0) : 0
         if !modelFitsInMemory(targetSize, reclaimableGB) {
-            let needed = String(format: "%.1f", targetSize.ramRequiredGB)
+            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
+            let needed = String(
+                format: "%.1f",
+                isFirstLoad ? targetSize.firstLoadRAMRequiredGB : targetSize.ramRequiredGB
+            )
             let failureMessage =
                 "Not enough free memory to load \(targetSize.displayName) "
                 + "(~\(needed) GB needed). Free RAM or choose a smaller model."
@@ -2534,10 +2542,19 @@ final class AppState: ObservableObject {
             // cache instead of fetching its own copy. WhisperKit handles
             // tokenizer fetching itself — we don't pre-validate those files.
             let folderURL = modelManager.modelFolder(for: targetSize)
+            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
+            if isFirstLoad && targetSize.engine.compilesForNeuralEngine {
+                VocaLogger.info(
+                    .appState,
+                    "First load of \(targetSize.displayName) on this macOS build: compiling for the Neural Engine"
+                )
+            }
 
             // Update status: unpacking
             if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
-                availableModels[idx].loadingStatus = "Unpacking model…"
+                availableModels[idx].loadingStatus = targetSize.loadingStatus(
+                    forPhase: "Unpacking model…", isFirstLoad: isFirstLoad
+                )
             }
 
             // Load model with status callback
@@ -2545,10 +2562,15 @@ final class AppState: ObservableObject {
                 Task { @MainActor in
                     guard let self = self else { return }
                     if let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
-                        self.availableModels[idx].loadingStatus = phase
+                        self.availableModels[idx].loadingStatus = targetSize.loadingStatus(
+                            forPhase: phase, isFirstLoad: isFirstLoad
+                        )
                     }
                 }
             }
+            // CoreML has cached the compile even if a newer load supersedes
+            // this one, so record it before any early return.
+            CompiledModelRecord().recordLoad(targetSize)
 
             // A newer loadModel started while we were waiting; leave UI to it.
             guard generation == loadGeneration else {
@@ -2885,6 +2907,7 @@ final class AppState: ObservableObject {
                 : nil
             let restoreName = previousName ?? modelManager.modelIdentifier(for: previousSize)
             try await whisperService.loadModel(name: restoreName, folder: folderURL)
+            CompiledModelRecord().recordLoad(previousSize)
             markModelActive(previousSize)
             VocaLogger.info(.appState, "Restored previous model: \(previousSize.displayName)")
         } catch {
@@ -2960,6 +2983,9 @@ final class AppState: ObservableObject {
             // Small delay to let the final progress (1.0) callback settle on MainActor
             try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms
 
+            // Fresh files compile again on their first load.
+            CompiledModelRecord().forget(size)
+
             // Refresh all model statuses to ensure previously downloaded models are preserved
             refreshModelStatuses()
             VocaLogger.info(.appState, "Download complete for \(size.displayName), isDownloaded=\(modelManager.isModelDownloaded(size))")
@@ -3000,6 +3026,7 @@ final class AppState: ObservableObject {
 
         do {
             try await modelManager.deleteModel(size)
+            CompiledModelRecord().forget(size)
             refreshModelStatuses()
             VocaLogger.info(.appState, "Deleted model \(size.displayName)")
         } catch {

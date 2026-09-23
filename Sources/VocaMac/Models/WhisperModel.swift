@@ -195,32 +195,43 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    /// Approximate file size on disk in bytes
+    /// Size on disk once installed, in bytes.
+    ///
+    /// `ramRequiredGB` is computed from this, so it must be the real size,
+    /// not a guess. Read it without downloading:
+    ///
+    /// - WhisperKit: sum the model's folder in its Hugging Face repo:
+    ///   `curl -s "https://huggingface.co/api/models/argmaxinc/whisperkit-coreml/tree/main/<folder>?recursive=true"`
+    ///   and add up each file's `size`.
+    /// - Parakeet: the same call on the FluidInference repo, counting only
+    ///   the `.mlmodelc` folders and vocab files FluidAudio downloads.
+    /// - sherpa-onnx: the unpacked archive, not the archive itself:
+    ///   `curl -sL <archiveURL> | tar -tvjf -` and add up the file sizes.
     var fileSizeBytes: Int64 {
         switch self {
-        case .tiny:                      return 39_000_000
-        case .base:                      return 142_000_000
-        case .small:                     return 466_000_000
-        case .largeV3LatestTurboCompact: return 632_000_000
-        case .distilLargeV3Compact:      return 594_000_000
-        case .distilLargeV3TurboCompact: return 600_000_000
-        case .largeV3LatestCompact:      return 626_000_000
-        case .largeV3Latest:             return 3_100_000_000
-        case .largeV3LatestTurbo:        return 1_000_000_000
-        case .largeV3:                   return 3_100_000_000
-        case .largeV3Turbo:              return 954_000_000
-        case .medium:                    return 1_500_000_000
-        case .vocaHinglish:              return 824_000_000
-        case .parakeetV3:                return 700_000_000
-        case .parakeetV2:                return 1_200_000_000
-        case .parakeetTdtCtc110m:        return 220_000_000
+        case .tiny:                      return 76_635_397
+        case .base:                      return 146_719_453
+        case .small:                     return 486_487_465
+        case .largeV3LatestTurboCompact: return 645_668_913
+        case .distilLargeV3Compact:      return 594_534_261
+        case .distilLargeV3TurboCompact: return 607_114_331
+        case .largeV3LatestCompact:      return 626_718_238
+        case .largeV3Latest:             return 1_619_531_263
+        case .largeV3LatestTurbo:        return 1_638_464_446
+        case .largeV3:                   return 3_090_319_899
+        case .largeV3Turbo:              return 3_195_115_988
+        case .medium:                    return 1_529_654_233
+        case .vocaHinglish:              return 824_300_479
+        case .parakeetV3:                return 483_257_242
+        case .parakeetV2:                return 464_413_250
+        case .parakeetTdtCtc110m:        return 227_468_698
         case .appleSpeech:               return 0
-        case .moonshineTiny:             return 60_000_000
-        case .moonshineBase:             return 190_000_000
-        case .senseVoiceSmall:           return 240_000_000
-        case .gigaamV3:                  return 270_000_000
-        case .canary180mFlash:           return 320_000_000
-        case .qwen3Asr06B:               return 973_000_000
+        case .moonshineTiny:             return 44_441_158
+        case .moonshineBase:             return 141_498_518
+        case .senseVoiceSmall:           return 240_506_435
+        case .gigaamV3:                  return 225_266_401
+        case .canary180mFlash:           return 207_476_042
+        case .qwen3Asr06B:               return 1_000_089_677
         }
     }
 
@@ -232,36 +243,53 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         return formatter.string(fromByteCount: fileSizeBytes)
     }
 
-    /// Approximate RAM required for inference in GB
+    /// Approximate peak RAM in GB while this model loads from CoreML's cache
+    /// and transcribes: what it needs on every load after the first.
+    ///
+    /// Computed from `fileSizeBytes` with the engine's measured line, so a
+    /// new model needs only its real size on disk, except where
+    /// `ModelRAMFit.handSetGB(for:)` fixes the value.
     var ramRequiredGB: Double {
+        if let handSetGB = ModelRAMFit.handSetGB(for: self) { return handSetGB }
+        guard let fit = ModelRAMFit.loaded(for: self) else { return 1.0 }
+        return fit.estimateGB(fileSizeBytes: fileSizeBytes)
+    }
+
+    /// Approximate peak RAM in GB on the first load on a macOS build, while
+    /// CoreML compiles the model for the Neural Engine. The same as
+    /// `ramRequiredGB` for engines that do not compile.
+    var firstLoadRAMRequiredGB: Double {
+        if let handSetGB = ModelRAMFit.handSetGB(for: self) { return handSetGB }
+        guard let fit = ModelRAMFit.firstLoad(for: self) else { return ramRequiredGB }
+        return max(ramRequiredGB, fit.estimateGB(fileSizeBytes: fileSizeBytes))
+    }
+
+    /// Status shown while a model loads for the first time on this macOS
+    /// build and CoreML compiles it for the Neural Engine.
+    static let firstLoadStatus = "First load, can take minutes…"
+
+    /// Why a first load is slow, for help text.
+    static let firstLoadExplanation =
+        "macOS compiles a model for this Mac's Neural Engine the first time it loads, "
+        + "and again after a macOS update. That can take a few minutes; later loads take seconds."
+
+    /// The status for a loading phase. On a first load that compiles for the
+    /// Neural Engine, the engine's phase names ("Loading model…") hide a wait
+    /// of minutes, so the first-load status replaces them.
+    func loadingStatus(forPhase phase: String, isFirstLoad: Bool) -> String {
+        isFirstLoad && engine.compilesForNeuralEngine ? Self.firstLoadStatus : phase
+    }
+
+    /// Whether the weights are palettized: the Compact builds and Voca
+    /// Hinglish. The Neural Engine compiler expands them on the first load,
+    /// which then needs far more memory than the file size suggests.
+    var hasPalettizedWeights: Bool {
         switch self {
-        case .tiny:                      return 1.0
-        case .base:                      return 1.5
-        case .small:                     return 2.0
-        case .largeV3LatestTurboCompact: return 4.0
-        case .distilLargeV3Compact:      return 4.0
-        case .distilLargeV3TurboCompact: return 4.0
-        case .largeV3LatestCompact:      return 5.0
-        case .largeV3Latest:             return 10.0
-        case .largeV3LatestTurbo:        return 6.0
-        case .largeV3:                   return 10.0
-        case .largeV3Turbo:              return 6.0
-        case .medium:                    return 5.0
-        // Measured with the CLI on Apple Silicon (a Whisper Turbo decoder,
-        // 8-bit): 1.0 GB peak resident on the first load while CoreML
-        // compiles for the Neural Engine, then about 0.3 GB. The 5 GB it
-        // inherited from its base model blocked loads on 8 GB Macs.
-        case .vocaHinglish:              return 1.5
-        case .parakeetV3:                return 2.0
-        case .parakeetV2:                return 2.5
-        case .parakeetTdtCtc110m:        return 1.0
-        case .appleSpeech:               return 1.0
-        case .moonshineTiny:             return 0.5
-        case .moonshineBase:             return 1.0
-        case .senseVoiceSmall:           return 1.5
-        case .gigaamV3:                  return 1.5
-        case .canary180mFlash:           return 1.5
-        case .qwen3Asr06B:               return 2.0
+        case .largeV3LatestTurboCompact, .distilLargeV3Compact, .distilLargeV3TurboCompact,
+             .largeV3LatestCompact, .vocaHinglish:
+            return true
+        default:
+            return false
         }
     }
 

@@ -111,6 +111,7 @@ struct CurrentModelSummary: View {
                 Text(model.loadingStatus)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .help(model.loadingStatus == ModelSize.firstLoadStatus ? ModelSize.firstLoadExplanation : "")
             } else if missing.isEmpty {
                 Text(ModelLanguageBadge.label(for: model.size, systemLanguages: systemLanguages))
                     .font(.caption)

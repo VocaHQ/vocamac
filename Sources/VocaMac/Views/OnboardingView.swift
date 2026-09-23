@@ -562,6 +562,7 @@ struct ModelSetupStep: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            .help(model.loadingStatus == ModelSize.firstLoadStatus ? ModelSize.firstLoadExplanation : "")
         } else {
             HStack(spacing: 10) {
                 Button(model.isDownloaded ? "Use this model" : "Download & use") {

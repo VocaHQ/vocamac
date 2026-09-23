@@ -179,18 +179,19 @@ The repository includes `.github/workflows/update-homebrew-cask.yml`, which auto
 2. It extracts the version tag (e.g., `v0.6.2` → `0.6.2`)
 3. It downloads the DMG from the release assets
 4. It computes the SHA-256 checksum
-5. It updates `homebrew/Casks/vocamac.rb` with the new version and sha256
-6. It pushes the change to the `VocaHQ/homebrew-vocamac` tap repository
+5. It updates `Casks/vocamac.rb` with the new version and sha256 on a versioned branch in `VocaHQ/homebrew-vocamac`
+6. It opens a pull request against the tap's `main` branch for review
 
 ### Required GitHub Secret
 
-The workflow needs a Personal Access Token with `repo` scope to push to the tap repository:
+The workflow needs a token that can push a branch and open a pull request in the tap repository:
 
 - **Secret name:** `HOMEBREW_TAP_TOKEN`
-- **Scope:** `repo` (full control of private and public repositories)
+- **Fine-grained token:** select resource owner `VocaHQ`, grant access only to `homebrew-vocamac`, and grant **Contents: Read and write** plus **Pull requests: Read and write**. Contents access allows the workflow to push the cask branch; Pull requests access lets `gh` find and open the review PR.
+- **Classic token fallback:** `repo` scope works for an organization owner, but grants broad access to repositories. Prefer the fine-grained token above.
 - **Set at:** Repository Settings → Secrets and variables → Actions
 
-Generate the token at [github.com/settings/tokens](https://github.com/settings/tokens). Prefer a **classic** PAT with the `repo` scope (works when the token owner is a VocaHQ org owner), or a **fine-grained** PAT with resource owner `VocaHQ`, repository access `homebrew-vocamac`, and permission **Contents: Read and write**. A fine-grained PAT issued under a personal account without org resource ownership cannot push to `VocaHQ/homebrew-vocamac`.
+Generate the token at [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens). The fine-grained token must be issued for the `VocaHQ` organization; a personal token without VocaHQ resource ownership cannot write to `VocaHQ/homebrew-vocamac`.
 
 ## Submitting to homebrew-cask
 

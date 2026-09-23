@@ -32,7 +32,19 @@ final class SettingsWindowManager: ObservableObject {
     private var settingsWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
-    func open(appState: AppState) {
+    /// Sidebar page to apply when Settings appears. Survives first-open timing.
+    /// Settings also honors `AppState.requestedSettingsPage`.
+    @Published private(set) var requestedPage: SettingsPage?
+
+    /// Pair-phone sheet to present when Gateway settings appears.
+    @Published private(set) var pendingPairingPresentation = false
+
+    func open(appState: AppState, page: SettingsPage? = nil, showPairing: Bool = false) {
+        if let target = page ?? (showPairing ? SettingsPage.gateway : nil) {
+            recordOpenRequest(page: target, showPairing: showPairing)
+            appState.requestSettingsPage(target)
+        }
+
         // If window already exists, just bring it to front
         if let window = settingsWindow {
             restoreUsableFrame(window)
@@ -45,6 +57,7 @@ final class SettingsWindowManager: ObservableObject {
         // Create the settings view
         let settingsView = SettingsView()
             .environmentObject(appState)
+            .environmentObject(self)
 
         // Create a new window
         let window = NSWindow(
@@ -97,6 +110,34 @@ final class SettingsWindowManager: ObservableObject {
                 DockVisibilityCoordinator.shared.windowDidClose()
             }
         }
+    }
+
+    /// Stores a sidebar page and/or pair-phone request until Settings consumes it.
+    func recordOpenRequest(page: SettingsPage? = nil, showPairing: Bool = false) {
+        if let page {
+            requestedPage = page
+        }
+        if showPairing {
+            pendingPairingPresentation = true
+            if requestedPage == nil {
+                requestedPage = .gateway
+            }
+        }
+    }
+
+    /// Returns and clears the requested sidebar page, if any.
+    func consumeRequestedPage() -> SettingsPage? {
+        guard let page = requestedPage else { return nil }
+        requestedPage = nil
+        return page
+    }
+
+    /// Consumes the pair-phone request only when the Gateway pane can show the sheet.
+    /// Leaves the flag set otherwise so a later pairable/ready status can retry.
+    func consumePendingPairingPresentation(canPresent: Bool) -> Bool {
+        guard pendingPairingPresentation, canPresent else { return false }
+        pendingPairingPresentation = false
+        return true
     }
 
     /// Reject collapsed or off-screen frames left by hosting layout or an

@@ -110,6 +110,7 @@ struct MenuBarView: View {
 
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
+    @ObservedObject private var gateway = GatewayEmbedController.shared
     @ObservedObject var updateWindowManager: UpdateWindowManager
     @ObservedObject var fileTranscriptionManager: FileTranscriptionWindowManager
     @ObservedObject var scratchpadManager: ScratchpadWindowManager
@@ -176,6 +177,7 @@ struct MenuBarView: View {
             processMonitor.start()
             bindNotice = nil
             appState.refreshActiveWritingStyle()
+            Task { await gateway.refreshStatus() }
         }
         .onDisappear { processMonitor.stop() }
         // A "saved for Ghostty" notice is wrong once the user is in Discord.
@@ -913,6 +915,11 @@ struct MenuBarView: View {
             }
             menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", keyEquivalent: ",") {
                 settingsManager.open(appState: appState)
+            }
+            if gateway.status.allowsPairing {
+                menuRow("Pair phone…", systemImage: "qrcode", shortcut: nil) {
+                    settingsManager.open(appState: appState, page: .gateway, showPairing: true)
+                }
             }
             menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q", keyEquivalent: "q") {
                 NSApplication.shared.terminate(nil)

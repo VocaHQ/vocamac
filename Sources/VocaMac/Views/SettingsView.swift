@@ -13,6 +13,7 @@ extension Notification.Name {
 
 struct SettingsView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var settingsWindowManager: SettingsWindowManager
 
     @State private var selectedPage: SettingsPage? = .dictation
     @State private var searchText = ""
@@ -83,8 +84,13 @@ struct SettingsView: View {
                 didRestore = true
             }
             showRequestedPage()
+            applyWindowRequestedPage()
         }
         .onChange(of: appState.requestedSettingsPage) { showRequestedPage() }
+        .onChange(of: settingsWindowManager.requestedPage) { _, page in
+            guard page != nil else { return }
+            applyWindowRequestedPage()
+        }
         .frame(minWidth: 760, minHeight: 580)
         .tint(VocaDesign.accent)
         .groupBoxStyle(VocaGroupBoxStyle())
@@ -94,9 +100,20 @@ struct SettingsView: View {
     /// the menu bar), once.
     private func showRequestedPage() {
         guard let page = appState.requestedSettingsPage else { return }
+        // Clear search only after remembering the destination. An empty query
+        // restores `pageBeforeSearch`, which would otherwise undo this jump.
+        pageBeforeSearch = page
         searchText = ""
         selectedPage = page
         appState.requestedSettingsPage = nil
+    }
+
+    /// Honor a page recorded on the window manager (Pair phone, first open).
+    private func applyWindowRequestedPage() {
+        guard let page = settingsWindowManager.consumeRequestedPage() else { return }
+        pageBeforeSearch = page
+        searchText = ""
+        selectedPage = page
     }
 
     private var settingsSidebar: some View {
@@ -172,6 +189,8 @@ struct SettingsView: View {
                 StatsSettingsTab()
             case .advanced:
                 DebugTab()
+            case .gateway:
+                GatewaySettingsTab()
             case .about:
                 AboutTab()
             }

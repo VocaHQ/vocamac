@@ -6,7 +6,7 @@
 import Foundation
 import SwiftUI
 
-/// Sidebar groups, in display order. Thirteen pages in one flat list read as
+/// Sidebar groups, in display order. One flat list of every page reads as
 /// a wall; four short groups can be scanned at a glance.
 enum SettingsSection: CaseIterable, Identifiable {
     case dictation
@@ -31,7 +31,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .dictation: return [.dictation, .speechModel, .audio]
         case .writing: return [.writingStyles, .cleanup, .dictionary, .snippets]
         case .activity: return [.history, .stats]
-        case .app: return [.application, .performance, .advanced, .about]
+        case .app: return [.application, .performance, .advanced, .gateway, .about]
         }
     }
 }
@@ -50,6 +50,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case application
     case stats
     case advanced
+    case gateway
     case about
 
     var id: String { rawValue }
@@ -68,6 +69,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .application: return "Application"
         case .stats: return "Stats"
         case .advanced: return "Advanced"
+        case .gateway: return "Gateway"
         case .about: return "About"
         }
     }
@@ -86,6 +88,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .application: return "gearshape"
         case .stats: return "chart.xyaxis.line"
         case .advanced: return "ladybug"
+        case .gateway: return "server.rack"
         case .about: return "info.circle"
         }
     }

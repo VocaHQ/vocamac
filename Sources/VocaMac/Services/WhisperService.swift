@@ -263,6 +263,7 @@ final class WhisperService: @unchecked Sendable {
                         results = retried
                         rawText = retriedRaw
                         fullText = retriedText
+                        options = unprompted
                     } else {
                         VocaLogger.warning(.whisperService, "Unprompted retry was empty; keeping the first transcription")
                     }
@@ -270,6 +271,35 @@ final class WhisperService: @unchecked Sendable {
                     VocaLogger.warning(
                         .whisperService,
                         "Unprompted retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
+            }
+            // Greedy decoding at temperature 0 repeats the same loop every
+            // time, with or without the prompt. Sampling once at a slightly
+            // higher temperature, Whisper's own escape from a loop, usually
+            // finishes the sentence instead.
+            if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying at temperature \(Self.loopRetryTemperature)"
+                )
+                var warmer = options
+                warmer.temperature = Self.loopRetryTemperature
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: warmer)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if Self.isLoopFreeRetry(retriedText, audioSeconds: audioLengthSeconds) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                    } else {
+                        VocaLogger.warning(.whisperService, "Warmer retry still repeated itself or was empty; keeping the first transcription")
+                    }
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Warmer retry failed (\(error.localizedDescription)); keeping the first transcription"
                     )
                 }
             }
@@ -282,9 +312,18 @@ final class WhisperService: @unchecked Sendable {
                 fullText = collapsed
             }
 
-            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
-
             let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
+
+            let scriptChecked = Self.removingUnexpectedScripts(from: fullText, model: modelUsed)
+            if scriptChecked != fullText {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Dropped words in scripts \(modelUsed.rawValue) does not write (\(fullText.count) → \(scriptChecked.count) characters)"
+                )
+                fullText = scriptChecked
+            }
+
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
             // Get detected language from first result
             let decodedLanguage = results.first?.language ?? language ?? "en"
@@ -444,9 +483,46 @@ final class WhisperService: @unchecked Sendable {
         return (recognizer.languageHypotheses(withMaximum: 3)[.english] ?? 0) >= 0.6
     }
 
+    /// Scripts a romanizing fine-tune may write besides Latin: the native
+    /// script of the language it romanizes, which it falls back to now and
+    /// then.
+    private static let nativeScripts: [String: String] = ["hi": "Devanagari"]
+
+    /// `text` without the words a romanizing model cannot mean.
+    ///
+    /// Voca Hinglish writes Latin letters, and now and then Devanagari. When
+    /// it derails it can write another script entirely: one dictation ended
+    /// in "в ктттт…". Any word with a letter from a script other than those
+    /// two is decoder garbage, so it is dropped. Other models write every
+    /// language they know and are left alone.
+    static func removingUnexpectedScripts(from text: String, model: ModelSize) -> String {
+        guard let romanized = model.romanizedLanguage else { return text }
+        let allowed = (["Latin"] + [nativeScripts[romanized]].compactMap { $0 })
+            .map { "\\p{Script=\($0)}" }
+            .joined()
+        let pattern = "\\S*(?=\\p{L})[^\(allowed)]\\S*"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return text }
+        let range = NSRange(text.startIndex..., in: text)
+        guard regex.firstMatch(in: text, range: range) != nil else { return text }
+        return regex.stringByReplacingMatches(in: text, range: range, withTemplate: "")
+            .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// Whether a retry's text can replace the transcription it retried.
     static func isUsableRetry(_ text: String) -> Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The temperature for the one retry of a transcription that looped.
+    /// WhisperKit steps its own fallback by 0.2; one step is enough to leave
+    /// a loop without letting the decoder wander.
+    static let loopRetryTemperature: Float = 0.2
+
+    /// Whether a retry of a looped transcription can replace it: it has text
+    /// and no loop of its own.
+    static func isLoopFreeRetry(_ text: String, audioSeconds: Double) -> Bool {
+        isUsableRetry(text) && !TranscriptRepetition.containsLoop(text, audioSeconds: audioSeconds)
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {

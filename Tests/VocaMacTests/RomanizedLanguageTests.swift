@@ -34,6 +34,39 @@ final class RomanizedLanguageTests: XCTestCase {
         XCTAssertEqual(WhisperService.reportedLanguage(for: "Hello there.", model: .tiny, decoded: "en"), "en")
     }
 
+    // MARK: - Unexpected scripts
+
+    func testVocaHinglishDropsWordsInOtherScripts() {
+        XCTAssertEqual(
+            WhisperService.removingUnexpectedScripts(
+                from: "Cats are everywhere. It is just amazing. в кт", model: .vocaHinglish
+            ),
+            "Cats are everywhere. It is just amazing."
+        )
+        XCTAssertEqual(
+            WhisperService.removingUnexpectedScripts(from: "Haan 谢谢 thik hai, مرحبا bhai.", model: .vocaHinglish),
+            "Haan thik hai, bhai."
+        )
+    }
+
+    func testVocaHinglishKeepsLatinAndDevanagari() {
+        for text in [
+            "Aap pandrah log hain.",
+            "हाँ ठीक है, kal milte hain.",
+            "Café mein naïve sa sawaal, 1,500 rupaye!",
+            "Deadline 5:30 pm hai 🙂",
+            "",
+        ] {
+            XCTAssertEqual(WhisperService.removingUnexpectedScripts(from: text, model: .vocaHinglish), text, text)
+        }
+    }
+
+    func testOtherModelsKeepEveryScript() {
+        let text = "Привет, 谢谢 and hello."
+        XCTAssertEqual(WhisperService.removingUnexpectedScripts(from: text, model: .largeV3Turbo), text)
+        XCTAssertEqual(WhisperService.removingUnexpectedScripts(from: text, model: .small), text)
+    }
+
     func testRomanizedTags() {
         XCTAssertTrue(DictationOutputPipeline.isRomanized("hi-Latn"))
         XCTAssertTrue(DictationOutputPipeline.isRomanized("hi-latn"))

@@ -62,7 +62,7 @@ test("keeps the PRODUCT.md product boundary explicit", () => {
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
-  assert.match(index, /Stable/);
+  assert.match(index, /Available now/);
   assert.match(index, /includes Parakeet/i);
   assert.match(index, /Additional engines and models available in v1\.0\.0/i);
   assert.match(index, /Parakeet/);
@@ -73,7 +73,7 @@ test("keeps the PRODUCT.md product boundary explicit", () => {
   assert.doesNotMatch(index, /Works in All Apps/i);
   assert.doesNotMatch(index, /99\+ Languages/i);
   assert.doesNotMatch(index, /remove local models/i);
-  assert.match(product, /status = "Stable"/);
+  assert.match(product, /status = "Available now"/);
   assert.match(product, /osShort = "macOS 14\+"/);
   assert.match(product, /count = 43/);
   assert.doesNotMatch(product, /count = 37/);

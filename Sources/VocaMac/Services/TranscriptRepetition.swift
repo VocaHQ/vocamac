@@ -2,8 +2,8 @@
 // VocaMac
 //
 // Finds the runaway loops Whisper falls into on short clips ("Chalo. Chalo.
-// Chalo. …" until the token limit, or "ктттттт…" inside one word) and
-// collapses them to one copy.
+// Chalo. …" until the token limit, "ктттттт…" inside one word, or a tail of
+// "::::::::") and collapses them to one copy.
 
 import Foundation
 
@@ -99,16 +99,22 @@ enum TranscriptRepetition {
         return nil
     }
 
-    /// Whether `text` holds a loop of words or of letters inside a word.
+    /// Whether `text` holds a loop of words, of letters inside a word, or of
+    /// punctuation.
     static func containsLoop(_ text: String, audioSeconds: Double? = nil) -> Bool {
         loop(in: text, audioSeconds: audioSeconds) != nil
             || characterLoop(in: text, audioSeconds: audioSeconds) != nil
+            || symbolLoop(in: text) != nil
     }
 
     /// `text` with every loop cut down to its first copy, keeping that copy's
     /// punctuation and anything said after the loop.
     static func collapsingLoops(in text: String, audioSeconds: Double? = nil) -> String {
         var text = text
+        // Each pass replaces at least six characters with at most three.
+        while let loop = symbolLoop(in: text) {
+            text = collapsing(loop, in: text)
+        }
         // Letters first: once "Hiiiiiiiiiiii Hiiiiiiiiiiii …" is "Hi Hi …",
         // the word pass sees the repeated word. Each pass shortens the text,
         // so this ends even when every word looped.
@@ -215,6 +221,128 @@ enum TranscriptRepetition {
             }
         }
         return nil
+    }
+
+    // MARK: - Punctuation
+
+    /// Punctuation or symbols repeated far past any written use.
+    ///
+    /// Voca Hinglish ended an 11.4 second dictation with "please?" and sixteen
+    /// colons, and another with a full stop and twenty. The word check skips
+    /// punctuation and the letter check only reads letters, so both went
+    /// through. Punctuation is never spoken, so the length of the audio says
+    /// nothing about how many copies are plausible.
+    struct SymbolLoop: Equatable {
+        /// From the first copy through any copy cut off at the end.
+        let range: Range<String.Index>
+        /// One copy.
+        let unit: String
+        /// Complete copies, including the first.
+        let copies: Int
+    }
+
+    /// The longest run of symbols, in characters, that is checked.
+    static let maximumSymbolUnitLength = 3
+
+    /// Copies before repeated punctuation is a loop. Writing stops well short
+    /// of this: an ellipsis is three dots, emphasis a few "!". None of 1,015
+    /// real dictations came close, and both loops ran past fifteen.
+    static let minimumSymbolCopies = 6
+
+    /// Characters whose long runs are written on purpose: Markdown rules and
+    /// headings ("------", "***", "======", "###"), and plain-text dividers.
+    /// A repeated unit made only of these is never a loop; one that mixes in
+    /// anything else ("-:-:-:") still is.
+    static let dividerCharacters: Set<Character> = ["-", "_", "=", "*", "~", "#"]
+
+    /// The first loop of punctuation or symbols in `text`, if any.
+    ///
+    /// Only symbols written back to back form a run. A space, a line break or
+    /// anything else ends it, so separate tokens ("-> -> ->", ":-) :-) :-)"),
+    /// the separators in "1,000,000,000,000" and symbols on separate lines
+    /// never add up. Both loops seen so far were unbroken.
+    static func symbolLoop(in text: String) -> SymbolLoop? {
+        var run: [String.Index] = []
+        for index in text.indices {
+            if isSymbol(text[index]) {
+                run.append(index)
+            } else {
+                if let loop = symbolLoop(in: run, of: text) { return loop }
+                run.removeAll()
+            }
+        }
+        return symbolLoop(in: run, of: text)
+    }
+
+    private static func isSymbol(_ character: Character) -> Bool {
+        character.isPunctuation || character.isSymbol
+    }
+
+    /// A loop inside one run of symbols, given as their positions in `text`.
+    private static func symbolLoop(in run: [String.Index], of text: String) -> SymbolLoop? {
+        guard run.count >= minimumSymbolCopies else { return nil }
+        let characters = run.map { text[$0] }
+        // A divider can be long, and nothing in it is a loop; don't scan it
+        // from every position.
+        guard !characters.allSatisfy(dividerCharacters.contains) else { return nil }
+        for start in characters.indices {
+            let longestUnit = min(maximumSymbolUnitLength, (characters.count - start) / 2)
+            guard longestUnit >= 1 else { break }
+            for unitLength in 1...longestUnit {
+                let unit = characters[start..<(start + unitLength)]
+                var copies = 1
+                var next = start + unitLength
+                while next + unitLength <= characters.count,
+                      characters[next..<(next + unitLength)].elementsEqual(unit) {
+                    copies += 1
+                    next += unitLength
+                }
+                guard copies >= minimumSymbolCopies,
+                      !unit.allSatisfy(dividerCharacters.contains) else { continue }
+                // A copy cut off at the end belongs to the loop.
+                var partial = 0
+                while next + partial < characters.count, partial < unitLength - 1,
+                      characters[next + partial] == unit[unit.startIndex + partial] {
+                    partial += 1
+                }
+                let last = run[next + partial - 1]
+                return SymbolLoop(
+                    range: run[start]..<text.index(after: last),
+                    unit: String(unit),
+                    copies: copies
+                )
+            }
+        }
+        return nil
+    }
+
+    /// `text` with `loop` cut down to what the sentence needs from it.
+    ///
+    /// Dots become an ellipsis. A run that follows other punctuation, or
+    /// starts the text, is dropped: "please?::::::::" is "please?", not
+    /// "please?:". Otherwise one copy is kept, so "Wait!!!!!!!!" is "Wait!".
+    static func collapsing(_ loop: SymbolLoop, in text: String) -> String {
+        var prefix = String(text[..<loop.range.lowerBound])
+        var suffix = String(text[loop.range.upperBound...])
+        let previous = prefix.last(where: { !$0.isWhitespace })
+        let replacement: String
+        if loop.unit.allSatisfy({ $0 == "." }) {
+            replacement = "..."
+        } else if previous.map(isSymbol) ?? true {
+            replacement = ""
+        } else {
+            replacement = loop.unit
+        }
+        if replacement.isEmpty {
+            // Leave one space where the run sat between words, none at an end.
+            if suffix.first?.isWhitespace == true || suffix.isEmpty {
+                while prefix.last?.isWhitespace == true { prefix.removeLast() }
+            }
+            if prefix.isEmpty {
+                while suffix.first?.isWhitespace == true { suffix.removeFirst() }
+            }
+        }
+        return prefix + replacement + suffix
     }
 
     // MARK: - Words

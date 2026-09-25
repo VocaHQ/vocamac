@@ -13,7 +13,7 @@
 - [ ] Tried the change in a built app (`make build` / `make install`) when it affects runtime behavior
 
 **Website** (`web/`)
-- [ ] `cd web && npm run check` passes
+- [ ] In `web/`: `npm run check`, `npx html-validate 'public/**/*.html'`, and `npx stylelint static/style.css` pass (the same checks as CI; see `web/AGENTS.md`)
 - [ ] New page behavior or product facts are covered in `web/tests/`
 
 ## Checklist

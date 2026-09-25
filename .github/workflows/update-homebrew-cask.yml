@@ -23,7 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main repo
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Resolve release tag and version
         id: version
@@ -73,8 +75,9 @@ jobs:
           echo "sha256=${SHA256}" >> "$GITHUB_OUTPUT"
           echo "Computed sha256: ${SHA256}"
 
-      - name: Checkout tap repo
-        uses: actions/checkout@v7
+      # Keeps the tap token in the checkout: the last step pushes with it.
+      - name: Checkout tap repo # zizmor: ignore[artipacked]
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: VocaHQ/homebrew-vocamac
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

@@ -1,0 +1,34 @@
+# Dependabot version updates. Security updates are enabled in the repository
+# settings and are not limited by this file.
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs; this keeps the pins and their
+  # version comments current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Let a new release age a week before proposing it, so a compromised or
+    # yanked release is usually caught before it reaches a PR.
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  # Package.swift and Package.resolved. Every bump still needs a person to read
+  # the dependency notes in AGENTS.md: FluidAudio minors change the ASR APIs,
+  # sherpa-onnx must stay >= 1.13.8, and LLM.swift tags move the vendored
+  # llama.cpp build.
+  - package-ecosystem: swift
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope

@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/VocaHQ/vocamac/security/advisories/new
+    about: Report vulnerabilities privately. Do not open a public issue.
+  - name: Ask a question or share an idea
+    url: https://github.com/VocaHQ/vocamac/discussions
+    about: Setup help, usage questions, and open-ended ideas.
+  - name: Chat on Discord
+    url: https://discord.gg/t6muquAJbm
+    about: Talk with the maintainers and other users.

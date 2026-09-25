@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a new feature or an improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe what you are trying to do and what gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Anything you tried, or how another app handles it.
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy
+      description: VocaMac keeps speech on the Mac. Features that send audio or text off the device must be opt-in.
+      options:
+        - label: This feature works without sending audio or transcripts to a server, or I have described how it stays opt-in.
+          required: true

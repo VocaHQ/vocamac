@@ -14,7 +14,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: nightly-build
@@ -33,10 +33,11 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
+          persist-credentials: false
 
       - name: Check for changes since last tag
         id: check
@@ -71,8 +72,9 @@ jobs:
       - name: Generate changelog
         id: changelog
         if: steps.check.outputs.has_changes == 'true'
+        env:
+          LATEST_TAG: ${{ steps.check.outputs.latest_tag }}
         run: |
-          LATEST_TAG="${{ steps.check.outputs.latest_tag }}"
 
           # Build changelog from commits since last tag
           if [ -z "$LATEST_TAG" ]; then
@@ -145,13 +147,19 @@ jobs:
     if: needs.check-for-changes.outputs.has_changes == 'true'
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
@@ -226,9 +234,10 @@ jobs:
 
       # ── Nightly Version ────────────────────────────────────────────────────
       - name: Set nightly version
+        env:
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
           NIGHTLY_DATE=$(date -u +%Y%m%d)
-          SHORT_SHA="${{ needs.check-for-changes.outputs.short_sha }}"
           # Extract the default version from APP_VERSION="${APP_VERSION:-X.Y.Z}" in build.sh
           BASE_VERSION=$(grep '^APP_VERSION=' scripts/build.sh | sed 's/.*:-\(.*\)}.*/\1/')
           if [ -z "$BASE_VERSION" ]; then
@@ -243,16 +252,24 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/hf-venv"
           source "$RUNNER_TEMP/hf-venv/bin/activate"
-          pip install -U huggingface_hub
+          pip install 'huggingface_hub==1.32.0'
           echo "$RUNNER_TEMP/hf-venv/bin" >> "$GITHUB_PATH"
 
+      # Pinned to commits so a release bundles the model that was reviewed,
+      # not whatever the Hugging Face repos hold on the day of the build.
+      # Bump deliberately, together with a test of the bundled model.
       - name: Fetch bundled tiny model from Hugging Face
+        env:
+          WHISPERKIT_COREML_REVISION: 0f63a7800b00dd0226abd051b906c246e1907482
+          WHISPER_TINY_REVISION: 169d4a4341b33bc18d8881c4b69c2e104e1cc0af
         run: |
           MODEL_STAGE="$RUNNER_TEMP/whisperkit-coreml"
           hf download argmaxinc/whisperkit-coreml \
+            --revision "$WHISPERKIT_COREML_REVISION" \
             --include "openai_whisper-tiny/*" \
             --local-dir "$MODEL_STAGE"
           hf download openai/whisper-tiny \
+            --revision "$WHISPER_TINY_REVISION" \
             tokenizer.json tokenizer_config.json \
             --local-dir "$MODEL_STAGE/openai_whisper-tiny"
           rm -rf "$MODEL_STAGE/.cache" "$MODEL_STAGE/openai_whisper-tiny/.cache"
@@ -324,9 +341,10 @@ jobs:
           echo "✅ All SPM resource bundles are correctly staged."
 
       - name: Rename artifacts for nightly
+        env:
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
           NIGHTLY_DATE=$(date -u +%Y%m%d)
-          SHORT_SHA="${{ needs.check-for-changes.outputs.short_sha }}"
           ARCH=$(uname -m)
 
           # Rename the DMG from dist/ to nightly naming convention
@@ -351,6 +369,15 @@ jobs:
         run: |
           shasum -a 256 VocaMac-nightly-*.dmg VocaMac-nightly-*.zip > checksums.txt
           cat checksums.txt
+
+      # Signed SLSA provenance, so a download can be traced to this workflow
+      # run and commit: `gh attestation verify <file> -R VocaHQ/vocamac`.
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            VocaMac-nightly-*.dmg
+            VocaMac-nightly-*.zip
 
       # ── Cleanup ─────────────────────────────────────────────────────────────
       - name: Delete temporary keychain
@@ -377,12 +404,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANGELOG: ${{ needs.check-for-changes.outputs.changelog }}
+          LATEST_TAG: ${{ needs.check-for-changes.outputs.latest_tag }}
+          COMMIT_COUNT: ${{ needs.check-for-changes.outputs.commit_count }}
+          SHORT_SHA: ${{ needs.check-for-changes.outputs.short_sha }}
         run: |
-          LATEST_TAG="${{ needs.check-for-changes.outputs.latest_tag }}"
-          COMMIT_COUNT="${{ needs.check-for-changes.outputs.commit_count }}"
-          SHORT_SHA="${{ needs.check-for-changes.outputs.short_sha }}"
           NIGHTLY_DATE=$(date -u +%Y-%m-%d)
-          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+          REPO_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
 
           # Build the stable release link
           if [ -n "$LATEST_TAG" ]; then

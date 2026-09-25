@@ -6,17 +6,23 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-and-release:
     name: Build & Release
     runs-on: macos-15
     timeout-minutes: 45
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Extract version from tag
         id: version
@@ -89,16 +95,24 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/hf-venv"
           source "$RUNNER_TEMP/hf-venv/bin/activate"
-          pip install -U huggingface_hub
+          pip install 'huggingface_hub==1.32.0'
           echo "$RUNNER_TEMP/hf-venv/bin" >> "$GITHUB_PATH"
 
+      # Pinned to commits so a release bundles the model that was reviewed,
+      # not whatever the Hugging Face repos hold on the day of the build.
+      # Bump deliberately, together with a test of the bundled model.
       - name: Fetch bundled tiny model from Hugging Face
+        env:
+          WHISPERKIT_COREML_REVISION: 0f63a7800b00dd0226abd051b906c246e1907482
+          WHISPER_TINY_REVISION: 169d4a4341b33bc18d8881c4b69c2e104e1cc0af
         run: |
           MODEL_STAGE="$RUNNER_TEMP/whisperkit-coreml"
           hf download argmaxinc/whisperkit-coreml \
+            --revision "$WHISPERKIT_COREML_REVISION" \
             --include "openai_whisper-tiny/*" \
             --local-dir "$MODEL_STAGE"
           hf download openai/whisper-tiny \
+            --revision "$WHISPER_TINY_REVISION" \
             tokenizer.json tokenizer_config.json \
             --local-dir "$MODEL_STAGE/openai_whisper-tiny"
           rm -rf "$MODEL_STAGE/.cache" "$MODEL_STAGE/openai_whisper-tiny/.cache"
@@ -168,6 +182,8 @@ jobs:
           echo "✅ All SPM resource bundles are correctly staged."
 
       - name: Rename artifacts with version
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
         run: |
           ARCH=$(uname -m)
           # dist.sh already names the DMG correctly; verify it exists
@@ -175,7 +191,7 @@ jobs:
 
           # Create ZIP from the signed .app
           ditto -c -k --sequesterRsrc --keepParent VocaMac.app \
-            "dist/VocaMac-${{ steps.version.outputs.VERSION }}-${ARCH}.zip"
+            "dist/VocaMac-${VERSION}-${ARCH}.zip"
 
           echo "ZIP created:"
           ls -lh dist/VocaMac-*.zip
@@ -186,6 +202,15 @@ jobs:
           shasum -a 256 VocaMac-*.dmg VocaMac-*.zip > checksums.txt
           cat checksums.txt
 
+      # Signed SLSA provenance, so a download can be traced to this workflow
+      # run and tag: `gh attestation verify <file> -R VocaHQ/vocamac`.
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/VocaMac-*.dmg
+            dist/VocaMac-*.zip
+
       # ── Cleanup ─────────────────────────────────────────────────────────────
       - name: Delete temporary keychain
         if: always()
@@ -193,31 +218,53 @@ jobs:
           security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
 
       # ── Release ─────────────────────────────────────────────────────────────
+      # gh ships on the runner, so the job that holds a write token runs no
+      # third-party release action. Generated notes are appended to the body.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          generate_release_notes: true
-          draft: true
-          files: |
-            dist/VocaMac-*.dmg
-            dist/VocaMac-*.zip
-            dist/checksums.txt
-          body: |
-            ## VocaMac ${{ steps.version.outputs.VERSION }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/release-body.md" <<EOF
+          ## VocaMac ${VERSION}
 
-            ### Installation
+          ### Installation
 
-            1. Download `VocaMac-${{ steps.version.outputs.VERSION }}-arm64.dmg`
-            2. Open the DMG and drag VocaMac to Applications
-            3. Open VocaMac from Applications
-            4. Grant **Microphone**, **Accessibility**, and **Input Monitoring** permissions when prompted
+          1. Download \`VocaMac-${VERSION}-arm64.dmg\`
+          2. Open the DMG and drag VocaMac to Applications
+          3. Open VocaMac from Applications
+          4. Grant **Microphone**, **Accessibility**, and **Input Monitoring** permissions when prompted
 
-            > This release is **Developer ID signed and notarized** by Apple.
-            > macOS will open it without any security warnings.
+          > This release is **Developer ID signed and notarized** by Apple.
+          > macOS will open it without any security warnings.
 
-            ### Requirements
-            - macOS 14 (Sonoma) or later
-            - Apple Silicon (arm64)
+          ### Requirements
+          - macOS 14 (Sonoma) or later
+          - Apple Silicon (arm64)
 
-            ### Checksums (SHA-256)
-            See `checksums.txt` for verification.
+          ### Checksums (SHA-256)
+          See \`checksums.txt\` for verification. To check that a file was built by
+          this repository's release workflow: \`gh attestation verify <file> -R ${GH_REPO}\`
+          EOF
+
+          ASSETS=(dist/VocaMac-*.dmg dist/VocaMac-*.zip dist/checksums.txt)
+          # A re-run for the same tag replaces the assets on the draft. Once the
+          # release is published, its DMG checksum is in the Homebrew tap and
+          # the in-app updater, so a rebuild must not replace it: cut a new tag.
+          IS_DRAFT=$(gh api "repos/${GH_REPO}/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"${GITHUB_REF_NAME}\") | .draft")
+          if [ "$IS_DRAFT" = "true" ]; then
+            gh release upload "$GITHUB_REF_NAME" "${ASSETS[@]}" --clobber
+          elif [ -n "$IS_DRAFT" ]; then
+            echo "::error::Release ${GITHUB_REF_NAME} is already published; not replacing its assets. Tag a new version instead."
+            exit 1
+          else
+            gh release create "$GITHUB_REF_NAME" "${ASSETS[@]}" \
+              --draft \
+              --verify-tag \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              --notes-file "$RUNNER_TEMP/release-body.md"
+          fi

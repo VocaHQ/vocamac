@@ -194,6 +194,32 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await app.cancelRecording()
     }
 
+    func testPiecesSkipTheVocabularyForAModelThatTakesNoPrompt() async {
+        let (app, mocks) = AppState.makeTestState()
+        let originalModel = app.selectedModelSize
+        let originalMode = app.activationMode
+        defer {
+            app.selectedModelSize = originalModel
+            app.activationMode = originalMode
+        }
+        app.processWhileSpeaking = true
+        app.activationMode = .doubleTapToggle
+
+        app.selectedModelSize = ModelSize.small.rawValue
+        await app.startRecording()
+        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit?.vocabulary)
+        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit?.isReadyForEarlyDecode)
+        await app.cancelRecording()
+
+        // Nothing to read or wait for: the vocabulary never reaches the model.
+        app.selectedModelSize = ModelSize.vocaHinglish.rawValue
+        await app.startRecording()
+        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit, "pieces still decode while speaking")
+        XCTAssertNil(mocks.whisperService.lastStreamingCommit?.vocabulary)
+        XCTAssertNil(mocks.whisperService.lastStreamingCommit?.isReadyForEarlyDecode)
+        await app.cancelRecording()
+    }
+
     func testEarlyDecodeQuietFitsTheSilenceBeforeStop() {
         XCTAssertEqual(AppState.earlyDecodeQuietSeconds(silenceDuration: 0.5), 0.3)
         XCTAssertEqual(AppState.earlyDecodeQuietSeconds(silenceDuration: 1.5), 0.5, accuracy: 0.001)

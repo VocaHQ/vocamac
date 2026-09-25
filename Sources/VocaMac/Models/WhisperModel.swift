@@ -121,6 +121,19 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// Whether the user's vocabulary is passed to the decoder as a prompt.
+    ///
+    /// Voca Hinglish was fine-tuned without prompts. Given the vocabulary as a
+    /// "Glossary:" prompt it returned nothing on 77 of 141 dictations, each
+    /// then decoded again without it (about 0.8 s more), and on 12 recordings
+    /// with names from the vocabulary it spelled none of them better.
+    var acceptsVocabularyPrompt: Bool {
+        switch self {
+        case .vocaHinglish:       return false
+        default:                  return true
+        }
+    }
+
     /// The language a fine-tune writes in Latin letters under its pinned
     /// decoder language.
     ///

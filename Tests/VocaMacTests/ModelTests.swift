@@ -237,6 +237,13 @@ final class ModelSizeTests: XCTestCase {
         }
     }
 
+    func testOnlyHinglishSkipsTheVocabularyPrompt() {
+        XCTAssertFalse(ModelSize.vocaHinglish.acceptsVocabularyPrompt)
+        for size in ModelSize.allCases where size != .vocaHinglish {
+            XCTAssertTrue(size.acceptsVocabularyPrompt, size.rawValue)
+        }
+    }
+
     func testEngineAssignment() {
         XCTAssertEqual(ModelSize.parakeetV3.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV2.engine, .parakeet)

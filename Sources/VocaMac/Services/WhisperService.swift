@@ -187,8 +187,9 @@ final class WhisperService: @unchecked Sendable {
             throw WhisperError.emptyAudio
         }
 
+        let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
         // A fine-tune trained on one decoder language ignores the setting.
-        let language = modelSizeFromName(loadedModelName ?? "tiny").pinnedLanguage ?? language
+        let language = modelUsed.pinnedLanguage ?? language
 
         let audioLengthSeconds = Double(audioData.count) / 16000.0
         VocaLogger.info(.whisperService, "Transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
@@ -200,7 +201,9 @@ final class WhisperService: @unchecked Sendable {
         // "Namrata"). WhisperKit only applies promptTokens when usePrefillPrompt
         // is true, so we force it on whenever vocabulary is present — otherwise
         // the terms would be silently ignored in auto-detect mode.
-        let promptTokens = Self.promptTokens(for: vocabulary, tokenizer: kit.tokenizer)
+        let promptTokens = modelUsed.acceptsVocabularyPrompt
+            ? Self.promptTokens(for: vocabulary, tokenizer: kit.tokenizer)
+            : nil
 
         // Configure decoding options — optimized for low latency dictation
         var options = DecodingOptions(
@@ -311,8 +314,6 @@ final class WhisperService: @unchecked Sendable {
                 )
                 fullText = collapsed
             }
-
-            let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
 
             let scriptChecked = Self.removingUnexpectedScripts(from: fullText, model: modelUsed)
             if scriptChecked != fullText {

@@ -2038,8 +2038,9 @@ final class AppState: ObservableObject {
         recordingSpeculator = nil
         recordingVocabulary = nil
         guard processWhileSpeaking, injectResult, activeCommandSelection == nil,
-              let engine = ModelSize(rawValue: selectedModelSize)?.engine,
-              !(engine == .whisperKit && translatesSpeech) else { return nil }
+              let model = ModelSize(rawValue: selectedModelSize),
+              !(model.engine == .whisperKit && translatesSpeech) else { return nil }
+        let engine = model.engine
         guard !isPowerConstrained() else {
             VocaLogger.info(.appState, "Process while speaking paused: Low Power Mode or thermal pressure")
             return nil
@@ -2075,7 +2076,8 @@ final class AppState: ObservableObject {
         }
         var readVocabulary: (@Sendable () -> String)?
         var isReadyForEarlyDecode: (@Sendable () -> Bool)?
-        if engine == .whisperKit {
+        // A model that takes no vocabulary prompt has nothing to wait for.
+        if engine == .whisperKit, model.acceptsVocabularyPrompt {
             readVocabulary = { vocabulary.read() }
             isReadyForEarlyDecode = { vocabulary.isSettled }
         }

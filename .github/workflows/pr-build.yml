@@ -129,8 +129,10 @@ jobs:
           EXPECTED_SHA: ${{ steps.pr.outputs.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
-      - name: Cache SPM dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # Restore only: this job runs PR code in the default branch's cache scope,
+      # so it must never save a cache that main's builds would later restore.
+      - name: Restore SPM dependencies cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}

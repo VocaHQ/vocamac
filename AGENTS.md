@@ -86,7 +86,7 @@ make install       # Build + install to /Applications (recommended)
 make build         # .app in repo root (fast iteration)
 make install-cli   # vocamac / vocamac-build → ~/.local/bin
 make test          # swift test (what CI runs for the app)
-make lint          # SwiftLint, strict (CI fails on any violation)
+make lint          # pinned SwiftLint, strict (CI fails on any violation)
 make dmg           # Dist DMG → dist/
 make run           # open the locally built .app
 make clean

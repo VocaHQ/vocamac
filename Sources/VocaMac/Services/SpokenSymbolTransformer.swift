@@ -115,20 +115,18 @@ enum SpokenSymbolTransformer {
         "dot", "slash", "underscore", "dash", "hyphen", "backtick"
     ]
 
-    // swiftlint:disable comma
     /// Case-conversion commands, longest phrase first so "screaming snake
     /// case" is matched before "snake case".
     private static let caseCommands: [(phrase: [String], style: IdentifierCase)] = [
         (["screaming", "snake", "case"], .screamingSnake),
-        (["constant", "case"],           .screamingSnake),
-        (["camel", "case"],              .camel),
-        (["pascal", "case"],             .pascal),
-        (["upper", "camel", "case"],     .pascal),
-        (["snake", "case"],              .snake),
-        (["kebab", "case"],              .kebab),
-        (["dash", "case"],               .kebab)
+        (["constant", "case"], .screamingSnake),
+        (["camel", "case"], .camel),
+        (["pascal", "case"], .pascal),
+        (["upper", "camel", "case"], .pascal),
+        (["snake", "case"], .snake),
+        (["kebab", "case"], .kebab),
+        (["dash", "case"], .kebab)
     ]
-    // swiftlint:enable comma
 
     /// Maximum words a case command consumes.
     private static let maxCaseCommandWords = 6

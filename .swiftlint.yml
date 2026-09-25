@@ -1,5 +1,6 @@
-# SwiftLint configuration. Run `make lint` (or `swiftlint lint --strict`).
-# CI runs the same command and fails on any violation.
+# SwiftLint configuration. Run `make lint`, which uses the SwiftLint version
+# pinned in scripts/swiftlint.sh. CI runs the same script and fails on any
+# violation.
 # Rule reference: https://realm.github.io/SwiftLint/rule-directory.html
 
 included:

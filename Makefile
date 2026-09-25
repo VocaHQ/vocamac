@@ -31,10 +31,9 @@ test:
 	@./scripts/fix-onnxruntime-framework-links.sh
 	@swift test
 
-## Lint Swift sources with SwiftLint (install: brew install swiftlint)
+## Lint Swift sources with the pinned SwiftLint (downloaded on first run)
 lint:
-	@command -v swiftlint >/dev/null || { echo "❌ SwiftLint not found. Install it with: brew install swiftlint"; exit 1; }
-	@swiftlint lint --strict --quiet
+	@./scripts/swiftlint.sh --quiet
 
 ## Remove build artifacts
 clean:

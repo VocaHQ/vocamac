@@ -13,7 +13,7 @@ final class CleanupModelEvaluationTests: XCTestCase {
         let language: String
         let mustPreserve: [String]
         /// Supply only for audio-derived transcripts with a human verbatim reference.
-        var verbatimReference: String? = nil
+        var verbatimReference: String?
     }
 
     struct Measurement: Codable {

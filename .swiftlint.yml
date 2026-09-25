@@ -1,0 +1,74 @@
+# SwiftLint configuration. Run `make lint` (or `swiftlint lint --strict`).
+# CI runs the same command and fails on any violation.
+# Rule reference: https://realm.github.io/SwiftLint/rule-directory.html
+
+included:
+  - Sources
+  - Tests
+  - Package.swift
+
+excluded:
+  - .build
+  - .xcode-build
+  # Upstream sherpa-onnx code, kept close to its source for easy re-syncs.
+  - Sources/VocaMac/Vendor
+
+disabled_rules:
+  # Size and complexity limits. Much of the code predates the linter, and
+  # splitting files and functions to satisfy a number is its own change.
+  - line_length
+  - file_length
+  - type_body_length
+  - function_body_length
+  - cyclomatic_complexity
+  - function_parameter_count
+  - large_tuple
+  - nesting
+  # Short names (x, y, db, id) and leading-underscore names are used on purpose.
+  - identifier_name
+  # Both styles appear in the code; neither is a correctness issue.
+  - trailing_comma
+  # `}` then a comment line then `else {` is used to explain branches.
+  - statement_position
+  # String(decoding:as:) is lossy on purpose where logs and headers may hold
+  # invalid UTF-8; the failable form would drop the whole string.
+  - optional_data_string_conversion
+  # A single `if` inside a loop often guards a multi-line body; moving it into
+  # a `where` clause only reindents the body.
+  - for_where
+
+opt_in_rules:
+  # Correctness
+  - identical_operands
+  - unhandled_throwing_task
+  - overridden_super_call
+  - weak_delegate
+  - fatal_error_message
+  - legacy_random
+  # Clarity and performance
+  - contains_over_filter_count
+  - contains_over_filter_is_empty
+  - contains_over_first_not_nil
+  - first_where
+  - last_where
+  - flatmap_over_map_reduce
+  - reduce_into
+  - redundant_nil_coalescing
+  - empty_collection_literal
+  - empty_string
+  - toggle_bool
+  - yoda_condition
+  - private_swiftui_state
+
+colon:
+  # Lookup tables align their values after the colon.
+  flexible_right_spacing: true
+
+custom_rules:
+  no_print:
+    name: No print()
+    message: Log with VocaLogger. CLI output goes through the CLIEntrypoint stdout and stderr sinks.
+    included: /Sources/
+    regex: (?<![\w.])print\s*\(
+    match_kinds: [identifier]
+    severity: error

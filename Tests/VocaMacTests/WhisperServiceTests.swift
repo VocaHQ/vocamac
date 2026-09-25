@@ -20,7 +20,6 @@ final class WhisperServiceTranslationTests: XCTestCase {
     }
 }
 
-
 // MARK: - WhisperService Hallucination Filtering Tests
 
 final class WhisperServiceHallucinationTests: XCTestCase {

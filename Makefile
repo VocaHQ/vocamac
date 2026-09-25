@@ -1,7 +1,7 @@
 # VocaMac — Makefile
 # Run `make help` for available commands.
 
-.PHONY: build install install-cli dmg release test clean reset run help
+.PHONY: build install install-cli dmg release test lint clean reset run help
 
 .DEFAULT_GOAL := help
 
@@ -30,6 +30,11 @@ test:
 	@swift package resolve
 	@./scripts/fix-onnxruntime-framework-links.sh
 	@swift test
+
+## Lint Swift sources with SwiftLint (install: brew install swiftlint)
+lint:
+	@command -v swiftlint >/dev/null || { echo "❌ SwiftLint not found. Install it with: brew install swiftlint"; exit 1; }
+	@swiftlint lint --strict --quiet
 
 ## Remove build artifacts
 clean:
@@ -73,6 +78,7 @@ help:
 	@echo "  make dmg          Build DMG for distribution (output in dist/)"
 	@echo "  make release VERSION=X.Y.Z  Tag and release (triggers CI signing + notarization)"
 	@echo "  make test         Run tests"
+	@echo "  make lint         Lint Swift sources (SwiftLint)"
 	@echo "  make run          Launch the locally built .app"
 	@echo "  make clean        Remove build artifacts"
 	@echo "  make reset        Delete all local app data (models, cache, prefs)"

@@ -53,4 +53,3 @@ final class FailedAudioDumpTests: XCTestCase {
         XCTAssertFalse(name.contains(":"))
         XCTAssertTrue(name.hasSuffix("-path-with-chars.wav"))
     }
-

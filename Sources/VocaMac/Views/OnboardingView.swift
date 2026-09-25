@@ -586,7 +586,6 @@ struct ModelSetupStep: View {
     }
 }
 
-
 struct HotkeyConfigStep: View {
     @EnvironmentObject var appState: AppState
 

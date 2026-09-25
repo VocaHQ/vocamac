@@ -123,7 +123,7 @@ struct MaskedText: Equatable {
                 if swallowNewlines, character.isNewline {
                     continue
                 }
-                if (swallowASCIISpace || swallowNewlines), character == " " {
+                if swallowASCIISpace || swallowNewlines, character == " " {
                     swallowASCIISpace = false
                     swallowNewlines = false
                     continue

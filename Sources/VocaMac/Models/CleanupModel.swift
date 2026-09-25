@@ -48,7 +48,7 @@ struct CleanupAttempt: Equatable {
     let duration: TimeInterval
     /// The model's answer when the whole-answer check threw it out. Its safe
     /// edits can still be applied one by one (`EditMerge`).
-    var rejectedCandidate: String? = nil
+    var rejectedCandidate: String?
 
     var didChangeText: Bool { outcome == .cleaned }
 

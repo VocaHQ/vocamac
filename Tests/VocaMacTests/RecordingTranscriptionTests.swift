@@ -423,7 +423,7 @@ extension RecordingTranscriptionTests {
         let previews = PieceLog()
         let configuration = SpeechSegmenter.Configuration(pauseSeconds: 0.6, minPieceSeconds: 4, maxPieceSeconds: 25)
         let transcribe: @Sendable ([Float]) async throws -> VocaTranscription = { try await engine.transcribe($0) }
-        let preview: @Sendable ([Float]) async throws -> VocaTranscription = { samples in
+        let preview: @Sendable ([Float]) async throws -> VocaTranscription = { _ in
             previews.appendPartial("preview")
             return VocaTranscription(text: "preview", duration: 0, detectedLanguage: "en",
                                      audioLengthSeconds: 0, modelUsed: .tiny)

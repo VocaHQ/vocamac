@@ -181,7 +181,7 @@ final class PermissionManager: ObservableObject {
 
     /// Prompt the user to grant Accessibility permission.
     func requestAccessibilityPermission() {
-        let _ = HotKeyManager.checkAccessibilityPermission(prompt: true)
+        _ = HotKeyManager.checkAccessibilityPermission(prompt: true)
         startPermissionPolling()
     }
 

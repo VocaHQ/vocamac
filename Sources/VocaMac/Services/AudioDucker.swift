@@ -235,7 +235,7 @@ final class AudioDucker: AudioDucking {
         let date: Date
         /// When the end-of-recording restore undid it, leaving only the
         /// settle check; `nil` while the device is still silenced.
-        var restoredAt: Date? = nil
+        var restoredAt: Date?
     }
 
     static let pendingRestoreKey = "vocamac.duckOtherAudio.pendingMute"

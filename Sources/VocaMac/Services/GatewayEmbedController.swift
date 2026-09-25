@@ -128,8 +128,6 @@ enum GatewayBinaryResolver {
     }
 }
 
-
-
 @MainActor
 final class GatewayEmbedController: ObservableObject {
     static let shared = GatewayEmbedController()
@@ -163,7 +161,6 @@ final class GatewayEmbedController: ObservableObject {
             }
         }
     }
-
 
     @Published private(set) var status: Status = .stopped
     @Published private(set) var binaryPath: String?
@@ -417,7 +414,6 @@ final class GatewayEmbedController: ObservableObject {
         }
         lastErrorMessage = "Gateway config folder ~/.config/vocagateway does not exist yet. It appears after the first native Gateway start."
     }
-
 
     func copyPairingURLToPasteboard() {
         guard let url = pairingPayload?.url else { return }

@@ -246,7 +246,6 @@ final class ModelManager {
         try ensureInstalledModelReady(for: size)
     }
 
-
     /// Local base directory passed to WhisperKit's downloadBase config.
     /// WhisperKit creates its own subdirectory structure under this path.
     private var downloadBase: URL {
@@ -870,7 +869,7 @@ final class ModelManager {
             }
 
             defer { progressTask.cancel() }
-            let _ = try await WhisperKit(config)
+            _ = try await WhisperKit(config)
 
             // The Hub downloader returns normally, with whatever files it
             // finished, when its task is cancelled.

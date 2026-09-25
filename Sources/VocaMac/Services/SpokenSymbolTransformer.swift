@@ -115,6 +115,7 @@ enum SpokenSymbolTransformer {
         "dot", "slash", "underscore", "dash", "hyphen", "backtick"
     ]
 
+    // swiftlint:disable comma
     /// Case-conversion commands, longest phrase first so "screaming snake
     /// case" is matched before "snake case".
     private static let caseCommands: [(phrase: [String], style: IdentifierCase)] = [
@@ -127,6 +128,7 @@ enum SpokenSymbolTransformer {
         (["kebab", "case"],              .kebab),
         (["dash", "case"],               .kebab)
     ]
+    // swiftlint:enable comma
 
     /// Maximum words a case command consumes.
     private static let maxCaseCommandWords = 6
@@ -170,7 +172,7 @@ enum SpokenSymbolTransformer {
         /// a token build a fresh one, so a `nil` origin means "a rule fired
         /// here" — which is how the escape check knows whether saying
         /// "literally" prevented anything.
-        var origin: Int? = nil
+        var origin: Int?
         /// Preceded by "literally" — never substitute using this token.
         var isProtected: Bool = false
         /// Produced by a substitution. Marks the line as identifier-ish, which

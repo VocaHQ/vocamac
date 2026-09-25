@@ -86,6 +86,7 @@ make install       # Build + install to /Applications (recommended)
 make build         # .app in repo root (fast iteration)
 make install-cli   # vocamac / vocamac-build → ~/.local/bin
 make test          # swift test (what CI runs for the app)
+make lint          # SwiftLint, strict (CI fails on any violation)
 make dmg           # Dist DMG → dist/
 make run           # open the locally built .app
 make clean
@@ -118,6 +119,7 @@ Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/i
 - `async/await` over callbacks. `guard` for early returns; avoid deep nesting.
 - Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/). Names: `isRecording`, not `flag`.
 - `// MARK: -` sections. `///` on public types/methods and non-trivial private methods.
+- SwiftLint (`.swiftlint.yml`) must pass with `--strict`. Fix the code rather than adding `swiftlint:disable`; when a disable is warranted, scope it to the line (`disable:next`) and say why.
 
 ### Errors and logging
 

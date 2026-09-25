@@ -178,7 +178,7 @@ final class MockAudioDucker: AudioDucking {
 
 final class MockHotKeyManager: HotKeyMonitoring, HotKeyShortcutMonitoring {
     var isListening = false
-    var eventTap: CFMachPort? = nil
+    var eventTap: CFMachPort?
     var onRecordingStart: (() -> Void)?
     var onRecordingStop: (() -> Void)?
 
@@ -967,7 +967,6 @@ struct TestMocks {
     let frontmostAppResolver: MockFrontmostAppResolver
     let transcriptCleanup: MockTranscriptCleanup
 }
-
 
 // MARK: - Test Words
 

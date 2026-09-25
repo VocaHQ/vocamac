@@ -301,7 +301,7 @@ enum EditMerge {
         // "I want to, I need to": an abandoned start the next words redo.
         if (2...6).contains(keys.count), let next = hunk.following.first, next.key == first.key,
            keys.last.map({ CleanupSalvage.unfinishedEndings.contains($0) }) == true,
-           hunk.removed.contains(where: { ["," , "—", "-"].contains($0.text) }) {
+           hunk.removed.contains(where: { [",", "—", "-"].contains($0.text) }) {
             return true
         }
         // "send it to John, no, Mary": the model resolved a correction the

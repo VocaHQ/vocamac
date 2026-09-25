@@ -14,7 +14,7 @@ final class AudioMeterState: ObservableObject {
 
 struct ObservedAudioLevelView: View {
     @ObservedObject var meter: AudioMeterState
-    var tint: Color? = nil
+    var tint: Color?
 
     var body: some View {
         if let tint {

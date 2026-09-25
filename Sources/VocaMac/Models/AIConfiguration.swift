@@ -243,8 +243,8 @@ struct WebsiteStyleBinding: Codable, Identifiable, Hashable {
     var style: WritingStyle
     var intent: WritingIntent = .preserve
     var cleanup: WritingCleanupPolicy = .inherit
-    var cleanupLevel: CleanupLevel? = nil
-    var cleanupPrompt: String? = nil
+    var cleanupLevel: CleanupLevel?
+    var cleanupPrompt: String?
     var isEnabled = true
 
     func matches(_ url: URL) -> Bool {

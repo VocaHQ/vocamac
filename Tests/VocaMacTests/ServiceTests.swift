@@ -430,8 +430,6 @@ final class SoundManagerTests: XCTestCase {
     }
 }
 
-
-
 // MARK: - AudioEngine Tests
 
 /// Shared guard for tests that need a real audio capture session.
@@ -743,7 +741,7 @@ final class AudioEngineTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 2.0)
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         // The detector should notify at most once for one continuous silent period.
         XCTAssertLessThanOrEqual(silenceCallCount, 1,
@@ -773,7 +771,7 @@ final class AudioEngineTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 2.0)
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         // The callback should have fired at most once
         XCTAssertLessThanOrEqual(maxDurationCallCount, 1,
@@ -947,7 +945,6 @@ final class AudioEngineStartFailureTests: XCTestCase {
     }
 }
 
-
 // MARK: - AudioEngine Force Reset Tests
 
 final class AudioEngineForceResetTests: XCTestCase {
@@ -1066,7 +1063,7 @@ final class AudioEngineForceResetTests: XCTestCase {
         XCTAssertTrue(engine.isCurrentlyRecording,
             "Engine should be recording after startRecording")
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         XCTAssertFalse(engine.isCurrentlyRecording,
             "Engine should not be recording after stopRecording")
@@ -1471,7 +1468,7 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
 
         XCTAssertTrue(engine.isCurrentlyRecording,
             "Should be able to record again after device change recovery")
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
     }
 
     func testDeviceChangeCallbackNotFiredWhenNotRecording() {

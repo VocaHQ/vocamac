@@ -31,16 +31,20 @@ jobs:
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
             if [ -z "$TAG" ]; then
-              TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq '.tag_name')
+              TAG=$(gh api "repos/${REPOSITORY}/releases/latest" --jq '.tag_name')
               echo "No tag input provided; using latest release: ${TAG}"
             fi
           else
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="$RELEASE_TAG"
           fi
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "::error::Could not resolve a release tag (empty input and no latest release, or API failure)."
@@ -56,9 +60,10 @@ jobs:
           echo "Resolved tag=${TAG} version=${VERSION}"
 
       - name: Download DMG artifact
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${{ steps.version.outputs.version }}"
           DMG_URL="https://github.com/VocaHQ/vocamac/releases/download/v${VERSION}/VocaMac-${VERSION}-arm64.dmg"
           curl -fsSL -o vocamac.dmg "$DMG_URL"
           SIZE=$(wc -c < vocamac.dmg)
@@ -84,9 +89,10 @@ jobs:
           path: homebrew-vocamac
 
       - name: Update cask file
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          SHA256="${{ steps.checksum.outputs.sha256 }}"
           CASK_FILE="homebrew-vocamac/Casks/vocamac.rb"
 
           # Update the version line
@@ -98,8 +104,9 @@ jobs:
           grep -E "^\s+(version|sha256)" "$CASK_FILE"
 
       - name: Commit and push to tap repo
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           cd homebrew-vocamac
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

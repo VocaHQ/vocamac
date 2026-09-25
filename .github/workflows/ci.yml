@@ -22,6 +22,7 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
       web: ${{ steps.filter.outputs.web }}
+      hf-cli: ${{ steps.filter.outputs.hf-cli }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,6 +50,11 @@ jobs:
               - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              - '.github/workflows/ci.yml'
+            hf-cli:
+              - '.github/requirements/**'
+              - '.github/workflows/release.yml'
+              - '.github/workflows/nightly.yml'
               - '.github/workflows/ci.yml'
 
   # ── App jobs ────────────────────────────────────────────────────────────────
@@ -244,6 +250,29 @@ jobs:
       - name: Lint
         run: ./scripts/swiftlint.sh --reporter github-actions-logging
 
+  # Release and nightly builds install the Hugging Face CLI from this lockfile
+  # to fetch the bundled tiny model. Install it the same way here, so a bad pin
+  # or hash fails the PR instead of the next release.
+  hf-cli:
+    name: Hugging Face CLI Lockfile
+    needs: changes
+    if: needs.changes.outputs.hf-cli == 'true'
+    runs-on: macos-15
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install from the hash-locked requirements
+        run: |
+          python3 -m venv "$RUNNER_TEMP/hf-venv"
+          source "$RUNNER_TEMP/hf-venv/bin/activate"
+          pip install --require-hashes -r .github/requirements/huggingface-cli.txt
+          hf version
+
   # Build website (only when web files change)
   build-website:
     name: Build Website
@@ -282,7 +311,7 @@ jobs:
   # instead of tracking each job above.
   ci:
     name: CI
-    needs: [changes, test, release-build, app-bundle, lint, build-website]
+    needs: [changes, test, release-build, app-bundle, lint, hf-cli, build-website]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -95,7 +95,7 @@ jobs:
         run: |
           python3 -m venv "$RUNNER_TEMP/hf-venv"
           source "$RUNNER_TEMP/hf-venv/bin/activate"
-          pip install 'huggingface_hub==1.32.0'
+          pip install --require-hashes -r .github/requirements/huggingface-cli.txt
           echo "$RUNNER_TEMP/hf-venv/bin" >> "$GITHUB_PATH"
 
       # Pinned to commits so a release bundles the model that was reviewed,

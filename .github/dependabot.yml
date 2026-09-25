@@ -32,3 +32,17 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+
+  # Hash-locked Hugging Face CLI used by the release and nightly builds to
+  # fetch the bundled tiny model.
+  - package-ecosystem: pip
+    directory: /.github/requirements
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      huggingface-cli:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci

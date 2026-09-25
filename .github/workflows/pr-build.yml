@@ -38,7 +38,7 @@ jobs:
       # ── Setup ─────────────────────────────────────────────────────────────
       - name: Validate PR and reviewed commit
         id: pr
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const input = context.payload.inputs.pr_number;
@@ -100,7 +100,7 @@ jobs:
           fi
 
       - name: Post "build started" comment
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PR_SHA: ${{ steps.pr.outputs.short_sha }}
@@ -119,7 +119,7 @@ jobs:
             });
 
       - name: Checkout reviewed PR commit
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.pr.outputs.sha }}
           persist-credentials: false
@@ -130,7 +130,7 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
@@ -145,7 +145,7 @@ jobs:
         run: swift test
 
       - name: Confirm PR still points to reviewed commit
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           EXPECTED_SHA: ${{ steps.pr.outputs.sha }}
@@ -216,6 +216,9 @@ jobs:
 
       # ── Build & Package ─────────────────────────────────────────────────────
       - name: Set PR build version
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          PR_SHORT_SHA: ${{ steps.pr.outputs.short_sha }}
         run: |
           # Tag the build so it's identifiable (e.g., 0.6.2-pr.106+abc1234)
           BASE_VERSION="${APP_VERSION:-}"
@@ -226,12 +229,14 @@ jobs:
             echo "❌ Unable to determine base app version from scripts/build.sh" >&2
             exit 1
           fi
-          PR_VERSION="${BASE_VERSION}-pr.${{ steps.pr.outputs.pr_number }}+${{ steps.pr.outputs.short_sha }}"
+          PR_VERSION="${BASE_VERSION}-pr.${PR_NUMBER}+${PR_SHORT_SHA}"
           echo "APP_VERSION=$PR_VERSION" >> "$GITHUB_ENV"
           echo "📦 Build version: $PR_VERSION"
 
       - name: Build signed DMG
-        run: ./scripts/dist.sh ${{ steps.build_type.outputs.DIST_FLAGS }}
+        env:
+          DIST_FLAGS: ${{ steps.build_type.outputs.DIST_FLAGS }}
+        run: ./scripts/dist.sh ${DIST_FLAGS:+"$DIST_FLAGS"}
 
       - name: Verify code signature
         run: codesign -v --deep --strict VocaMac.app
@@ -300,7 +305,7 @@ jobs:
 
       # ── Upload & Notify ─────────────────────────────────────────────────────
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         id: upload
         with:
           name: ${{ steps.artifacts.outputs.dmg_name }}
@@ -308,7 +313,7 @@ jobs:
           retention-days: 14
 
       - name: Post download comment on PR
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PR_SHA: ${{ steps.pr.outputs.short_sha }}
@@ -363,7 +368,7 @@ jobs:
       # ── Failure notification ────────────────────────────────────────────────
       - name: Post failure comment
         if: failure()
-        uses: actions/github-script@v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           PR_SHA: ${{ steps.pr.outputs.short_sha }}

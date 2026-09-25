@@ -9,6 +9,7 @@
 <div align="center">
   
 [![Build & Test](https://github.com/VocaHQ/vocamac/actions/workflows/ci.yml/badge.svg)](https://github.com/VocaHQ/vocamac/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/VocaHQ/vocamac/badge)](https://scorecard.dev/viewer/?uri=github.com/VocaHQ/vocamac)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![Platform: macOS](https://img.shields.io/badge/Platform-macOS%2014%2B-lightgrey.svg)](https://github.com/VocaHQ/vocamac)
 [![Swift 5.9+](https://img.shields.io/badge/Swift-5.9%2B-orange.svg)](https://swift.org)

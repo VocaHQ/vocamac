@@ -153,6 +153,14 @@ Each release produces:
 | `VocaMac-X.Y.Z-arm64.zip` | ZIP archive of VocaMac.app |
 | `checksums.txt` | SHA-256 checksums for verification |
 
+The release and nightly workflows also publish a signed [SLSA build provenance](https://slsa.dev/provenance/) attestation for the DMG and ZIP. It ties each file to the workflow run and commit that built it. To check a download:
+
+```bash
+gh attestation verify VocaMac-X.Y.Z-arm64.dmg -R VocaHQ/vocamac
+```
+
+The bundled Tiny model is fetched from Hugging Face at fixed commits (`WHISPERKIT_COREML_REVISION` and `WHISPER_TINY_REVISION` in `release.yml` and `nightly.yml`). Bump both workflows together, and only after testing the new model.
+
 ## Architecture Support
 
 Currently **Apple Silicon (arm64) only**. The build runs on `macos-15` runners which are arm64.
@@ -181,13 +189,22 @@ swift build -c release --arch arm64 --arch x86_64
 ### `release.yml` - Release
 
 - **Triggers**: Push of version tags (`v*`)
-- **Steps**: Build, test, create DMG + ZIP, generate checksums, create draft release
+- **Steps**: Build, test, create DMG + ZIP, generate checksums, attest build provenance, create draft release
 - **Output**: Draft GitHub Release with downloadable artifacts
 
 ### `deploy-website.yml` - Website
 
 - **Triggers**: Release published, manual dispatch
 - **Steps**: Deploy `web/` directory to GitHub Pages
+
+### Security workflows
+
+- **`dependency-review.yml`**: fails a PR that adds or bumps a Swift package to a version with a known high or critical advisory. SHA-pinned actions fall outside its version matching; Dependabot and zizmor cover them
+- **`workflow-security.yml`**: runs [zizmor](https://docs.zizmor.sh) on workflow changes and reports findings to code scanning (config: `.github/zizmor.yml`)
+- **`scorecard.yml`**: weekly and on every push to `main`, runs [OpenSSF Scorecard](https://scorecard.dev) and reports to code scanning
+- **`.github/dependabot.yml`**: weekly update PRs for workflow actions and Swift packages, after a 7-day cooldown
+
+Actions are pinned to full commit SHAs with the version in a trailing comment (`uses: actions/checkout@<sha> # v7.0.1`). Pin new actions the same way; Dependabot keeps both current. Workflows default to read-only tokens and grant write scopes per job.
 
 ## Manual Release (Without CI)
 

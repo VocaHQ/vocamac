@@ -205,6 +205,14 @@ Keep dependencies minimal. Do not bump FluidAudio across a minor without checkin
 
 `Package.resolved` is **tracked**, not ignored. Release builds resolve from a clean checkout, so the lockfile is the only thing that makes a tagged build reproducible. Commit it with any dependency change, and never add it back to `.gitignore`.
 
+### GitHub Actions
+
+- Pin every third-party action to a full commit SHA with the version in a trailing comment: `uses: actions/checkout@<sha> # v7.0.1`. Dependabot bumps both. Reusable workflows from `VocaHQ/*` may track `main`.
+- Start new workflows at `permissions: {}` (or `contents: read`) and grant write scopes on the job that needs them.
+- Pass `${{ … }}` values into `run:` scripts through `env:`, never inline.
+- Check out with `persist-credentials: false` unless a later step pushes with that token.
+- Run `zizmor .github/workflows` before pushing a workflow change; CI reports its findings to code scanning.
+
 ---
 
 ## macOS specifics

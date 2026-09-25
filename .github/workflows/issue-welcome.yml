@@ -1,6 +1,8 @@
 name: Welcome
 
-on:
+# pull_request_target lets the welcome comment reach PRs from forks. The
+# reusable workflow only posts a comment; it never checks out PR code.
+on: # zizmor: ignore[dangerous-triggers]
   issues:
     types: [opened]
   pull_request_target:

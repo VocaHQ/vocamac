@@ -35,7 +35,7 @@ enum OverlayStyle: String, CaseIterable, Codable, Identifiable {
         case .minimal:
             return "Show a compact waveform while recording and a spinner while transcribing."
         case .live:
-            return "Show a larger waveform and live words while Whisper or Parakeet is listening."
+            return "Show a larger waveform and live words while Whisper, Parakeet or an ONNX model is listening."
         }
     }
 }

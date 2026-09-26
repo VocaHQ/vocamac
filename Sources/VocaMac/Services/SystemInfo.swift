@@ -99,6 +99,15 @@ enum SystemInfo {
         ProcessInfo.processInfo.activeProcessorCount
     }
 
+    /// Performance cores (`hw.perflevel0.physicalcpu`). Zero when the kernel
+    /// doesn't report performance levels.
+    static var performanceCoreCount: Int {
+        var count: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("hw.perflevel0.physicalcpu", &count, &size, nil, 0) == 0 else { return 0 }
+        return Int(count)
+    }
+
     /// Mac model identifier (e.g., "MacBookPro18,1")
     static var modelIdentifier: String {
         var size: Int = 0
@@ -147,6 +156,17 @@ enum SystemInfo {
         let cores = coreCount
         // Use at most half the cores, minimum 2, maximum 8
         return max(2, min(cores / 2, 8))
+    }
+
+    /// CPU threads for one sherpa-onnx decode: the performance cores, up to 6.
+    ///
+    /// Canary 180M on 18 s of speech (M1 Pro, 8 performance + 2 efficiency
+    /// cores) decoded in 1.94 s on 2 threads, 1.16 s on 4, 0.99 s on 6 and
+    /// 1.09 s on 8. Past the performance cores, threads land on efficiency
+    /// cores and the slowest one holds up each operator.
+    static func sherpaThreadCount(performanceCores: Int, cores: Int) -> Int {
+        let fastCores = performanceCores > 0 ? performanceCores : cores / 2
+        return max(2, min(fastCores, 6))
     }
 
     /// Approximate reclaimable memory in bytes. Zero means the probe failed.

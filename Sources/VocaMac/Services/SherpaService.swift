@@ -263,9 +263,15 @@ final class SherpaService: @unchecked Sendable {
     ///   - audioData: Array of Float32 PCM samples at 16kHz mono
     ///   - language: ISO 639-1 language code; only used to label the result.
     ///     Model language behavior is fixed at load time (see loadModel).
+    ///   - isPreview: A live preview nobody keeps. It decodes once, without
+    ///     the empty-result retries, logs at debug level, and never saves an
+    ///     empty result as failed audio: a preview window that ends in a
+    ///     pause often decodes to nothing, and the retries would hold the
+    ///     engine while the final decode waits.
     func transcribe(
         audioData: [Float],
-        language: String? = nil
+        language: String? = nil,
+        isPreview: Bool = false
     ) async throws -> VocaTranscription {
         try Task.checkCancellation()
         guard let request = snapshot() else { throw SherpaError.modelNotLoaded }
@@ -274,7 +280,10 @@ final class SherpaService: @unchecked Sendable {
         try SherpaAudioPreparation.validate(audioData)
 
         let audioLengthSeconds = Double(audioData.count) / 16000.0
-        VocaLogger.info(.sherpaService, "ONNX transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
+        let log: (String) -> Void = isPreview
+            ? { VocaLogger.debug(.sherpaService, "Preview: \($0)") }
+            : { VocaLogger.info(.sherpaService, $0) }
+        log("ONNX transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
 
         let startTime = CFAbsoluteTimeGetCurrent()
 
@@ -288,10 +297,7 @@ final class SherpaService: @unchecked Sendable {
         let segments: [Range<Int>]
         if let maxSeconds, audioLengthSeconds > maxSeconds {
             segments = AudioSegmenter.ranges(for: audioData, maxSeconds: maxSeconds)
-            VocaLogger.info(
-                .sherpaService,
-                "Audio exceeds \(String(format: "%.1f", maxSeconds))s for \(size.rawValue) — split into \(segments.count) segments"
-            )
+            log("Audio exceeds \(String(format: "%.1f", maxSeconds))s for \(size.rawValue) — split into \(segments.count) segments")
         } else {
             segments = [audioData.indices]
         }
@@ -300,7 +306,10 @@ final class SherpaService: @unchecked Sendable {
         // cancellation. Native inference is synchronous: finish the current
         // segment safely, then discard its result and stop before the next one.
         let worker = Task.detached(priority: .userInitiated) {
-            try Self.decodeRequest(audioData: audioData, segments: segments, language: language, request: request)
+            try Self.decodeRequest(
+                audioData: audioData, segments: segments, language: language,
+                recoversEmpty: !isPreview, request: request
+            )
         }
         let decoded = try await withTaskCancellationHandler {
             let result = try await worker.value
@@ -313,8 +322,10 @@ final class SherpaService: @unchecked Sendable {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        VocaLogger.info(.sherpaService, "ONNX transcription completed in \(String(format: "%.2f", elapsed))s")
-        if text.isEmpty {
+        log("ONNX transcription completed in \(String(format: "%.2f", elapsed))s")
+        if isPreview {
+            log("Result: \(text.count) characters")
+        } else if text.isEmpty {
             // The decoders return an empty string rather than an error when
             // they stop on their first token, so nothing else marks a dropped
             // recording. Say so plainly — an INFO line reading "Result: ..."
@@ -352,12 +363,15 @@ final class SherpaService: @unchecked Sendable {
 
     /// Serialize native decoding for a retained model without holding the state lock.
     private static func decodeRequest(
-        audioData: [Float], segments: [Range<Int>], language: String?, request: LoadedRecognizer
+        audioData: [Float], segments: [Range<Int>], language: String?, recoversEmpty: Bool,
+        request: LoadedRecognizer
     ) throws -> (text: String, lang: String) {
         try Task.checkCancellation()
         request.decodeLock.lock()
         defer { request.decodeLock.unlock() }
-        return try decodeSegments(segments.lazy.map { Array(audioData[$0]) }, language: language) { samples in
+        return try decodeSegments(
+            segments.lazy.map { Array(audioData[$0]) }, language: language, recoversEmpty: recoversEmpty
+        ) { samples in
             try decode(samples: samples, recognizer: request.pointer)
         }
     }
@@ -366,6 +380,7 @@ final class SherpaService: @unchecked Sendable {
     static func decodeSegments<Segments: Sequence>(
         _ segments: Segments,
         language: String?,
+        recoversEmpty: Bool = true,
         decodeSegment: ([Float]) throws -> (text: String, lang: String)
     ) throws -> (text: String, lang: String) where Segments.Element == [Float] {
         try Task.checkCancellation()
@@ -373,7 +388,7 @@ final class SherpaService: @unchecked Sendable {
         var detected = ""
         for segment in segments {
             try Task.checkCancellation()
-            guard let result = try decode(segment, with: decodeSegment) else { continue }
+            guard let result = try decode(segment, recoversEmpty: recoversEmpty, with: decodeSegment) else { continue }
             try Task.checkCancellation()
             let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !piece.isEmpty { pieces.append(piece) }
@@ -393,9 +408,11 @@ final class SherpaService: @unchecked Sendable {
     /// not at all. Retrying the same audio framed differently recovers it, and
     /// only ever runs after an attempt that produced nothing.
     ///
-    /// Returns nil when the segment held no audio to decode.
+    /// Returns nil when the segment held no audio to decode. With
+    /// `recoversEmpty` false, an empty first attempt is returned as is.
     static func decode(
         _ segment: [Float],
+        recoversEmpty: Bool = true,
         with decodeSegment: ([Float]) throws -> (text: String, lang: String)
     ) throws -> (text: String, lang: String)? {
         var samples = SherpaAudioPreparation.prepare(segment)
@@ -407,7 +424,7 @@ final class SherpaService: @unchecked Sendable {
             defer { PerformanceTrace.end(firstInterval) }
             first = try decodeSegment(samples)
         }
-        guard first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard recoversEmpty, first.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return first
         }
 
@@ -485,7 +502,9 @@ final class SherpaService: @unchecked Sendable {
         language: String
     ) -> SherpaOnnxOfflineRecognizerConfig {
         let path = { (file: String) in directory.appendingPathComponent(file).path }
-        let numThreads = min(4, max(2, SystemInfo.recommendedThreadCount))
+        let numThreads = SystemInfo.sherpaThreadCount(
+            performanceCores: SystemInfo.performanceCoreCount, cores: SystemInfo.coreCount
+        )
 
         let modelConfig: SherpaOnnxOfflineModelConfig
         switch spec.kind {

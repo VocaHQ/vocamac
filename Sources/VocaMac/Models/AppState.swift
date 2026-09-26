@@ -1952,12 +1952,10 @@ final class AppState: ObservableObject {
         }
         recordingProcessesWhileSpeaking = commit != nil && session != nil
         // Only promise live words when an engine will actually send them:
-        // Whisper and Parakeet decode partial snapshots, and so does ONNX when
-        // it commits pieces; the Apple Speech session streams audio but
-        // reports text only when it finishes.
+        // Whisper, Parakeet and ONNX decode partial snapshots; the Apple
+        // Speech session streams audio but reports text only when it finishes.
         let recordingEngine = ModelSize(rawValue: selectedModelSize)?.engine
-        let engineSendsPartials = [.whisperKit, .parakeet].contains(recordingEngine)
-            || (commit != nil && recordingEngine == .sherpaOnnx)
+        let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in

@@ -219,6 +219,38 @@ final class SherpaServiceTests: XCTestCase {
         XCTAssertEqual(result?.text, "")
     }
 
+    func testPreviewDecodeDoesNotRetryAnEmptyResult() {
+        var attempts = 0
+        let result = try? SherpaService.decodeSegments([[0.3, 0.4]], language: "en", recoversEmpty: false) { _ in
+            attempts += 1
+            return ("", "en")
+        }
+        XCTAssertEqual(attempts, 1)
+        XCTAssertEqual(result?.text, "")
+    }
+
+    func testThreadCountUsesPerformanceCoresUpToSix() {
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 8, cores: 10), 6)
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 12, cores: 16), 6)
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 4, cores: 8), 4)
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 1, cores: 2), 2)
+    }
+
+    func testThreadCountFallsBackToHalfTheCoresWithoutPerformanceLevels() {
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 0, cores: 10), 5)
+        XCTAssertEqual(SystemInfo.sherpaThreadCount(performanceCores: 0, cores: 2), 2)
+    }
+
+    func testPreviewWindowFitsTheModelsSinglePassLimit() {
+        let padding = SherpaAudioPreparation.addedSilenceSeconds
+        XCTAssertEqual(
+            TranscriptionRouter.sherpaPreviewWindowSamples(for: .moonshineTiny),
+            Int((8 - padding) * 16_000)
+        )
+        XCTAssertEqual(TranscriptionRouter.sherpaPreviewWindowSamples(for: .canary180mFlash), 8 * 16_000)
+        XCTAssertEqual(TranscriptionRouter.sherpaPreviewWindowSamples(for: nil), 8 * 16_000)
+    }
+
     func testFailedLaterSegmentDoesNotReturnPartialSuccess() {
         var calls = 0
         XCTAssertThrowsError(try SherpaService.decodeSegments([[0.1], [0.2]], language: "en") { _ in

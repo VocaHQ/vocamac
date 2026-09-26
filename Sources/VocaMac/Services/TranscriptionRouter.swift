@@ -237,15 +237,12 @@ extension TranscriptionRouter: SpeechTranscribing {
                         onPartial: onPartial
                     )
                 case .sherpaOnnx:
-                    return try await IncrementalAudioTranscriber.run(
-                        chunks: chunks,
-                        updateEverySamples: Self.sherpaPreviewIntervalSamples,
-                        partialWindowSamples: sherpaPreviewWindow,
-                        transcribe: { [sherpa] samples in
-                            try await sherpa.transcribe(audioData: samples, language: language, isPreview: true)
-                        },
-                        transcribeFinal: { [self] samples in
-                            try await sherpaStreamingFinal(samples, language: language)
+                    return try await Self.runSherpaLiveSession(
+                        chunks: chunks, windowSamples: sherpaPreviewWindow,
+                        language: language, model: loadedModelSize,
+                        speechOnly: { [self] samples in await audioWithoutSilence(samples) },
+                        decode: { [sherpa] samples, isPreview in
+                            try await sherpa.transcribe(audioData: samples, language: language, isPreview: isPreview)
                         },
                         onPartial: onPartial
                     )
@@ -254,23 +251,44 @@ extension TranscriptionRouter: SpeechTranscribing {
         }
     }
 
-    /// The final decode of a live sherpa-onnx session: the same silence trim
-    /// and decode the batch path gives the recording, so showing a preview
-    /// never changes the text that is pasted. The result is labelled with
-    /// the complete recording's length, which the session checks.
-    private func sherpaStreamingFinal(_ samples: [Float], language: String?) async throws -> VocaTranscription {
-        let recordingSeconds = Double(samples.count) / 16_000
-        guard let speech = await audioWithoutSilence(samples) else {
-            VocaLogger.info(.general, "No speech detected; skipping the decode")
-            return VocaTranscription(
-                text: "", duration: 0, detectedLanguage: language ?? "auto",
-                audioLengthSeconds: recordingSeconds, modelUsed: loadedModelSize
-            )
-        }
-        let result = try await sherpa.transcribe(audioData: speech, language: language)
-        return VocaTranscription(
-            text: result.text, duration: result.duration, detectedLanguage: result.detectedLanguage,
-            audioLengthSeconds: recordingSeconds, modelUsed: result.modelUsed
+    /// A live sherpa-onnx session: preview decodes of the recent audio while
+    /// recording, then the final decode of the complete recording.
+    ///
+    /// The final decode gets the same silence trim (`speechOnly`) and decode
+    /// the batch path gives the recording, so showing a preview never changes
+    /// the text that is pasted. Its result is labelled with the complete
+    /// recording's length, which `RecordingTranscription.finish` checks.
+    /// `decode`'s second argument says whether the decode is a preview.
+    static func runSherpaLiveSession(
+        chunks: AsyncThrowingStream<[Float], Error>,
+        windowSamples: Int,
+        language: String?,
+        model: ModelSize,
+        speechOnly: @escaping @Sendable ([Float]) async -> [Float]?,
+        decode: @escaping @Sendable (_ samples: [Float], _ isPreview: Bool) async throws -> VocaTranscription,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> VocaTranscription {
+        try await IncrementalAudioTranscriber.run(
+            chunks: chunks,
+            updateEverySamples: sherpaPreviewIntervalSamples,
+            partialWindowSamples: windowSamples,
+            transcribe: { samples in try await decode(samples, true) },
+            transcribeFinal: { samples in
+                let recordingSeconds = Double(samples.count) / 16_000
+                guard let speech = await speechOnly(samples) else {
+                    VocaLogger.info(.general, "No speech detected; skipping the decode")
+                    return VocaTranscription(
+                        text: "", duration: 0, detectedLanguage: language ?? "auto",
+                        audioLengthSeconds: recordingSeconds, modelUsed: model
+                    )
+                }
+                let result = try await decode(speech, false)
+                return VocaTranscription(
+                    text: result.text, duration: result.duration, detectedLanguage: result.detectedLanguage,
+                    audioLengthSeconds: recordingSeconds, modelUsed: result.modelUsed
+                )
+            },
+            onPartial: onPartial
         )
     }
 

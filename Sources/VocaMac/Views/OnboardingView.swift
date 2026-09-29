@@ -192,7 +192,7 @@ struct OnboardingView: View {
                 .font(.caption).foregroundStyle(.secondary)
         }
         .padding(24)
-        .frame(width: 245)
+        .frame(width: 220)
         .frame(maxHeight: .infinity)
         .background(VocaSidebarMaterial())
     }
@@ -333,7 +333,7 @@ struct PermissionsStep: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(VocaDesign.busy)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(gaps, id: \.self) { gap in
@@ -578,7 +578,7 @@ struct ModelSetupStep: View {
                 if didRequestRecommendation, let error = appState.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -800,7 +800,7 @@ struct QuickTestStep: View {
                         // is the one place the user cannot go and check.
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(VocaDesign.warning)
                         Text("\(message) You can retry in Settings → Cleanup.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -897,7 +897,7 @@ struct CompleteStep: View {
             HStack(spacing: 12) {
                 Image(systemName: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.circle")
                     .font(.system(size: 30))
-                    .foregroundStyle(permissionsReady ? VocaDesign.accent : Color.orange)
+                    .foregroundStyle(permissionsReady ? VocaDesign.accent : VocaDesign.warning)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(permissionsReady ? "Your voice has a new home." : "Finish permissions to start.")
                         .font(.title3.weight(.semibold))
@@ -914,19 +914,19 @@ struct CompleteStep: View {
                     SummaryItem(icon: "mic.fill", text: "Microphone access enabled")
                 } else {
                     Label("Microphone access still needed", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 if appState.accessibilityPermission == .granted {
                     SummaryItem(icon: "hand.raised.fill", text: "Accessibility permission granted")
                 } else {
                     Label("Accessibility access still needed", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 if appState.inputMonitoringPermission == .granted {
                     SummaryItem(icon: "keyboard.fill", text: "Input monitoring enabled")
                 } else {
                     Label("Input Monitoring access still needed", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 SummaryItem(icon: "keyboard", text: "Hotkey: \(KeyCodeReference.displayName(for: HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)))")
             }

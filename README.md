@@ -99,9 +99,9 @@
 <p align="center">
   <img src="docs/screenshots/settings-stats.png" alt="Settings - Stats" width="400">
   &nbsp;&nbsp;
-  <img src="docs/screenshots/settings-advanced.png" alt="Settings - Advanced" width="400">
+  <img src="docs/screenshots/settings-advanced.png" alt="Settings - Permissions & Logs" width="400">
   <br>
-  <em>Settings: Stats (left) and Advanced (right)</em>
+  <em>Settings: Stats (left) and Permissions & Logs (right)</em>
 </p>
 
 <p align="center">

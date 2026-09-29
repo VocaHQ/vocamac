@@ -138,7 +138,7 @@ struct CleanupSettingsPage: View {
                     if let problem = appState.cleanupEndpoint.validationProblem() {
                         Label(problem, systemImage: "exclamationmark.triangle")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(VocaDesign.warning)
                     }
                     Text("Only the cleanup prompt and transcript text are sent when this provider is selected. Use HTTPS whenever the endpoint is not on this Mac. Cleanup endpoint settings and API keys are never exported.")
                         .font(.caption)
@@ -217,14 +217,14 @@ struct CleanupSettingsPage: View {
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                     } else if promptBudget < 1500 {
                         Label(
                             "About \(promptBudget) English characters fit per pass. Long dictations may need multiple passes; oversized sentences stay as spoken.",
                             systemImage: "exclamationmark.triangle.fill"
                         )
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                     }
 
                     TextEditor(text: $promptDraft)
@@ -328,7 +328,7 @@ struct CleanupSettingsPage: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: result.changedText ? "checkmark.circle.fill" : "info.circle")
-                    .foregroundStyle(result.changedText ? VocaDesign.success : .orange)
+                    .foregroundStyle(result.changedText ? VocaDesign.success : VocaDesign.warning)
                 Text(result.summary)
                     .font(.caption)
                     .foregroundStyle(result.changedText ? .primary : .secondary)
@@ -458,7 +458,7 @@ struct CleanupSettingsPage: View {
         let kind = appState.selectedCleanupModelKind
         if !appState.cleanupEndpoint.isLocal {
             if let problem = appState.cleanupEndpoint.validationProblem() {
-                AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+                AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: VocaDesign.warning)
             } else {
                 AIStatusLine(
                     text: "Runs with \(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel), set in Inference below.",
@@ -474,7 +474,7 @@ struct CleanupSettingsPage: View {
                 AIStatusLine(text: "Loading \(loading.descriptor.displayName)…", systemImage: "hourglass", color: .secondary)
             case .error(let message):
                 HStack(spacing: 8) {
-                    AIStatusLine(text: message, systemImage: "exclamationmark.triangle.fill", color: .orange)
+                    AIStatusLine(text: message, systemImage: "exclamationmark.triangle.fill", color: VocaDesign.warning)
                     if let smaller = appState.smallerDownloadedCleanupModel {
                         Button("Use \(smaller.descriptor.displayName)") {
                             Task { @MainActor in await appState.useAIModel(smaller, for: .cleanup) }
@@ -489,7 +489,7 @@ struct CleanupSettingsPage: View {
                         AIStatusLine(
                             text: "Not downloaded yet, so dictations are typed as spoken.",
                             systemImage: "arrow.down.circle",
-                            color: .orange
+                            color: VocaDesign.warning
                         )
                         Button("Download \(kind.descriptor.sizeDescription)") {
                             Task { @MainActor in await appState.useAIModel(kind, for: .cleanup) }
@@ -506,7 +506,7 @@ struct CleanupSettingsPage: View {
         let engine = appState.commandModeEngine
         if appState.shortcut(for: .commandMode) == nil {
             HStack(spacing: 8) {
-                AIStatusLine(text: "Off until it has a shortcut.", systemImage: "keyboard", color: .orange)
+                AIStatusLine(text: "Off until it has a shortcut.", systemImage: "keyboard", color: VocaDesign.warning)
                 if let suggested = ShortcutValidation.suggestion(for: .commandMode, appState: appState) {
                     Button("Use \(KeyCodeReference.displayName(for: suggested))") {
                         appState.setShortcut(suggested, for: .commandMode)
@@ -517,7 +517,7 @@ struct CleanupSettingsPage: View {
             }
         } else if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
             HStack(spacing: 8) {
-                AIStatusLine(text: "\(kind.descriptor.displayName) isn't downloaded yet.", systemImage: "arrow.down.circle", color: .orange)
+                AIStatusLine(text: "\(kind.descriptor.displayName) isn't downloaded yet.", systemImage: "arrow.down.circle", color: VocaDesign.warning)
                 Button("Download \(kind.descriptor.sizeDescription)") {
                     Task { @MainActor in await appState.useAIModel(kind, for: .commandMode) }
                 }
@@ -525,7 +525,7 @@ struct CleanupSettingsPage: View {
                 .disabled(isDownloading)
             }
         } else if let problem = appState.commandModeProblem(for: engine) {
-            AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: .orange)
+            AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: VocaDesign.warning)
         } else if let combo = appState.shortcut(for: .commandMode) {
             AIStatusLine(
                 text: "Ready. Select text, press \(KeyCodeReference.displayName(for: combo)), and say the edit.",

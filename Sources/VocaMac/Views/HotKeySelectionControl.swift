@@ -83,7 +83,7 @@ struct HotKeySelectionControl: View {
             } else if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let conflict = HotKeyComboRules.systemConflict(currentCombo) {
                 Label(conflict, systemImage: "info.circle")

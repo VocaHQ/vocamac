@@ -115,7 +115,6 @@ struct MenuBarView: View {
     @ObservedObject var fileTranscriptionManager: FileTranscriptionWindowManager
     @ObservedObject var scratchpadManager: ScratchpadWindowManager
     @ObservedObject var meetingCaptureManager: MeetingCaptureWindowManager
-    @StateObject private var processMonitor = ProcessMonitor(useTimer: false)
     @State private var audioDevices: [AudioDevice] = []
     @State private var availableHeight: CGFloat = 640
     /// Measured heights of the scrolling middle and the pinned top and bottom.
@@ -174,12 +173,10 @@ struct MenuBarView: View {
         .onAppear {
             let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             availableHeight = min(720, (screen?.visibleFrame.height ?? 760) - 40)
-            processMonitor.start()
             bindNotice = nil
             appState.refreshActiveWritingStyle()
             Task { await gateway.refreshStatus() }
         }
-        .onDisappear { processMonitor.stop() }
         // A "saved for Ghostty" notice is wrong once the user is in Discord.
         .onChange(of: appState.activeWritingTargetName) { _, _ in bindNotice = nil }
     }
@@ -192,7 +189,7 @@ struct MenuBarView: View {
             }
 
             // Setup problems come first: nothing else works until they are fixed.
-            if appState.micPermission != .granted || appState.accessibilityPermission != .granted || appState.inputMonitoringPermission != .granted {
+            if needsSetup {
                 permissionsSection
                     .menuPanelCard(padding: 0)
             }
@@ -287,7 +284,7 @@ struct MenuBarView: View {
     /// The one line of follow-up the rows above need, if any.
     private var recordingOptionsNotice: AnyView? {
         if let fallbackNotice = appState.inputDeviceFallbackNotice {
-            return AnyView(Label(fallbackNotice, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange))
+            return AnyView(Label(fallbackNotice, systemImage: "exclamationmark.triangle.fill").foregroundStyle(VocaDesign.warning))
         }
         if appState.isSecureInputActive, appState.hotKeyIsKeyed {
             return AnyView(Label("Secure keyboard entry is on in another app. Your shortcut still works through a fallback.",
@@ -358,21 +355,22 @@ struct MenuBarView: View {
 
                 Divider()
 
-                Menu("Just for the Next Dictation") {
-                    Section("Style") {
+                // One-offs are a different act from "always", so they get their
+                // own labelled group instead of hiding two levels down.
+                Section("Only for the Next Dictation") {
+                    Button("Exactly as Transcribed") { appState.useRawForNextDictation() }
+                    Menu("Style…") {
                         ForEach(WritingStyle.allCases) { style in
                             Button(style.displayName) { appState.useNextWritingFormat(style) }
                         }
                     }
                     if appState.writingRewriteEnabled {
-                        Section("Tone") {
+                        Menu("Tone…") {
                             ForEach(WritingIntent.allCases) { intent in
                                 Button(intent.displayName) { appState.useNextWritingIntent(intent) }
                             }
                         }
                     }
-                    Divider()
-                    Button("Exactly as Transcribed") { appState.useRawForNextDictation() }
                 }
 
                 Divider()
@@ -434,55 +432,30 @@ struct MenuBarView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Downloading \(downloadingModel.size.displayName)… \(Int(progress * 100))%")
                             .font(.subheadline)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(.secondary)
                         ProgressView(value: progress)
                             .progressViewStyle(.linear)
-                            .tint(.orange)
                     }
                 } else if let loadingModel = appState.availableModels.first(where: { $0.isLoading }) {
                     Text("Loading \(loadingModel.size.displayName)…")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 } else if appState.isAutoPaused {
-                    Text(appState.autoPauseTriggerDisplayName.map { "Unloaded (paused for \($0))" }
-                         ?? "Unloaded (auto-paused)")
+                    Text("Model unloaded")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 } else if appState.lastModelUnloadReason == .idleKeepAlive {
-                    Text("Unloaded (idle timeout)")
+                    Text("Model unloaded")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                 } else {
                     Text("No model loaded")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                 }
             }
 
             Spacer(minLength: 8)
-
-            // CPU & RAM usage display (whole VocaMac process, not model-only)
-            HStack(spacing: 2) {
-                ResourceBadge(
-                    icon: "cpu",
-                    value: String(format: "%.0f%%", processMonitor.cpuUsage),
-                    details: [
-                        ("App CPU", String(format: "%.1f%%", processMonitor.cpuUsage)),
-                        ("Threads", "\(processMonitor.threadCount)"),
-                        ("Cores", "\(ProcessInfo.processInfo.activeProcessorCount)"),
-                    ]
-                )
-
-                ResourceBadge(
-                    icon: "memorychip",
-                    value: formattedMemory(processMonitor.memoryMB),
-                    details: [
-                        ("App Memory (RSS)", String(format: "%.1f MB", processMonitor.memoryMB)),
-                        ("Peak RSS (this session)", String(format: "%.1f MB", processMonitor.memoryPeakMB)),
-                        ("System", "\(ProcessInfo.processInfo.physicalMemory / (1024 * 1024 * 1024)) GB"),
-                    ]
-                )
-            }
         }
     }
 
@@ -520,7 +493,7 @@ struct MenuBarView: View {
                appState.appStatus == .idle || appState.isAutoPaused {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: appState.isAutoPaused ? "pause.circle.fill" : "memorychip")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(unloadMessage)
                             .font(.caption)
@@ -535,7 +508,7 @@ struct MenuBarView: View {
                 }
                 .padding(10)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
 
             if let session = appState.commandModeSession {
@@ -605,7 +578,7 @@ struct MenuBarView: View {
                 } label: {
                     Label("Reset to Idle", systemImage: "arrow.counterclockwise.circle")
                         .font(.callout)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 .buttonStyle(.plain)
             }
@@ -733,17 +706,37 @@ struct MenuBarView: View {
             ].joined(separator: "  ·  "))
             .font(.caption)
             .monospacedDigit()
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(.secondary)
         }
     }
 
     // MARK: - Permissions
 
+    private var allPermissionsGranted: Bool {
+        appState.micPermission == .granted
+            && appState.accessibilityPermission == .granted
+            && appState.inputMonitoringPermission == .granted
+    }
+
+    /// The chosen speech model is not on this Mac and none is on the way.
+    /// A model that is downloaded but still loading, or unloaded on purpose
+    /// (idle timeout, auto-pause), is not missing.
+    private var needsSpeechModel: Bool {
+        appState.appStatus == .idle
+            && !appState.whisperService.isModelLoaded
+            && !appState.availableModels.contains {
+                $0.size.rawValue == appState.selectedModelSize && $0.isDownloaded
+            }
+            && !appState.availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
+    }
+
+    private var needsSetup: Bool { !allPermissionsGranted || needsSpeechModel }
+
     private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
                 Text("Finish Setting Up")
                     .font(.system(size: 13, weight: .semibold))
                 Spacer()
@@ -751,6 +744,22 @@ struct MenuBarView: View {
             .padding(.horizontal, 12)
             .padding(.top, 10)
             .padding(.bottom, 6)
+
+            if needsSpeechModel {
+                MenuPanelRowDivider()
+                permissionRow(
+                    title: "Speech model",
+                    detail: "Pick a model so VocaMac can transcribe.",
+                    systemImage: "brain",
+                    isDenied: false,
+                    buttonTitle: "Choose…",
+                    help: "Open Speech Model settings",
+                    action: {
+                        appState.requestSettingsPage(.speechModel)
+                        settingsManager.open(appState: appState)
+                    }
+                )
+            }
 
             if appState.micPermission != .granted {
                 MenuPanelRowDivider()
@@ -796,6 +805,8 @@ struct MenuBarView: View {
         detail: String,
         systemImage: String,
         isDenied: Bool,
+        buttonTitle: String? = nil,
+        help: String? = nil,
         action: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 10) {
@@ -808,10 +819,10 @@ struct MenuBarView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button(isDenied ? "Open…" : "Allow…", action: action)
+            Button(buttonTitle ?? (isDenied ? "Open…" : "Allow…"), action: action)
                 .controlSize(.small)
                 .vocaGlassButton()
-                .help(isDenied ? "Open System Settings" : "Ask macOS for access")
+                .help(help ?? (isDenied ? "Open System Settings" : "Ask macOS for access"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
@@ -823,7 +834,7 @@ struct MenuBarView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label(recoveryTitle(entry), systemImage: "exclamationmark.arrow.circlepath")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.orange)
+                .foregroundStyle(VocaDesign.warning)
             Text("The \(String(format: "%.0f", entry.audioSeconds))-second recording is saved. Retry transcribes it again and copies the text\(pasteShortcutHint).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -1104,12 +1115,12 @@ struct MenuBarView: View {
 
     private var statusColor: Color {
         if appState.commandModeSession != nil { return VocaDesign.command }
-        if appState.isAutoPaused { return .orange }
+        if appState.isAutoPaused { return .secondary }
         switch appState.appStatus {
         case .idle:       return VocaDesign.success
         case .recording:  return Color(nsColor: BrandAssets.brandGreen)
-        case .processing: return .yellow
-        case .error:      return .orange
+        case .processing: return VocaDesign.busy
+        case .error:      return VocaDesign.warning
         }
     }
 
@@ -1121,14 +1132,6 @@ struct MenuBarView: View {
         case .doubleTapToggle:
             return ("Double-tap", keyName)
         }
-    }
-
-    /// Formats memory in MB to a compact human-readable string
-    private func formattedMemory(_ mb: Double) -> String {
-        if mb >= 1024 {
-            return String(format: "%.1f GB", mb / 1024)
-        }
-        return String(format: "%.0f MB", mb)
     }
 }
 
@@ -1402,68 +1405,6 @@ private struct MenuPanelTileButtonStyle: ButtonStyle {
     }
 }
 
-// MARK: - Resource Badge
-
-/// A compact CPU/RAM badge that shows a detail popover on hover.
-struct ResourceBadge: View {
-    let icon: String
-    let value: String
-    let details: [(String, String)]
-
-    @State private var isHovered = false
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: icon)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(
-            RoundedRectangle(cornerRadius: 5)
-                .fill(isHovered ? Color.primary.opacity(0.08) : Color.clear)
-        )
-        .onHover { hovering in
-            withAnimation(.easeInOut(duration: 0.15)) {
-                isHovered = hovering
-            }
-        }
-        .popover(isPresented: $isHovered, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    Image(systemName: icon)
-                        .font(.subheadline)
-                        .foregroundStyle(VocaDesign.accent)
-                    Text(value)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                }
-
-                Divider()
-
-                ForEach(details, id: \.0) { label, val in
-                    HStack {
-                        Text(label)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(val)
-                            .font(.caption)
-                            .monospacedDigit()
-                    }
-                }
-            }
-            .padding(10)
-            .frame(width: 160)
-        }
-    }
-}
-
 // MARK: - Audio Level View
 
 /// A simple horizontal bar that visualizes the current audio input level
@@ -1488,7 +1429,7 @@ struct AudioLevelView: View {
 
     private var levelColor: Color {
         if level > 0.8 { return .red }
-        if level > 0.5 { return .orange }
+        if level > 0.5 { return VocaDesign.warning }
         return .green
     }
 }

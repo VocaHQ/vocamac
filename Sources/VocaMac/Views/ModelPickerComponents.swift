@@ -120,7 +120,7 @@ struct CurrentModelSummary: View {
                 Label("Doesn't understand \(SpokenLanguages.list(missing))",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
                 Button("Find a Better Fit", action: onShowSuggestions)
                     .buttonStyle(.link)
                     .font(.caption)
@@ -190,7 +190,7 @@ struct SpokenLanguagePicker: View {
                                 Spacer()
                                 Text(language.code)
                                     .font(.caption.monospaced())
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(.secondary)
                             }
                             .padding(.horizontal, 8)
                             .padding(.vertical, 5)

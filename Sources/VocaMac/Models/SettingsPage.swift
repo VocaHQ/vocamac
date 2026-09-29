@@ -28,10 +28,10 @@ enum SettingsSection: CaseIterable, Identifiable {
     /// Pages in this group, in sidebar order.
     var pages: [SettingsPage] {
         switch self {
-        case .dictation: return [.dictation, .speechModel, .audio]
+        case .dictation: return [.dictation, .speechModel, .audio, .performance]
         case .writing: return [.writingStyles, .cleanup, .dictionary, .snippets]
         case .activity: return [.history, .stats]
-        case .app: return [.application, .performance, .advanced, .gateway, .about]
+        case .app: return [.application, .gateway, .advanced, .about]
         }
     }
 }
@@ -68,7 +68,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .performance: return "Performance"
         case .application: return "Application"
         case .stats: return "Stats"
-        case .advanced: return "Advanced"
+        // Raw value stays `advanced` so a remembered last page still resolves.
+        case .advanced: return "Permissions & Logs"
         case .gateway: return "Gateway"
         case .about: return "About"
         }
@@ -87,7 +88,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .performance: return "bolt.circle"
         case .application: return "gearshape"
         case .stats: return "chart.xyaxis.line"
-        case .advanced: return "ladybug"
+        case .advanced: return "checkmark.shield"
         case .gateway: return "server.rack"
         case .about: return "info.circle"
         }

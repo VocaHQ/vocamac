@@ -155,7 +155,7 @@ struct MeetingCaptureView: View {
             if let error {
                 HStack(spacing: 10) {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                         .font(.caption)
                     if session.capturedSamples != nil, !session.isTranscribing, !capture.isCapturing {
                         Button("Try Again") { transcribeCapture() }

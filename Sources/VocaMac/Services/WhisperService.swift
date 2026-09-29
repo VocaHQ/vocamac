@@ -389,7 +389,11 @@ final class WhisperService: @unchecked Sendable {
                     running -= 1
                 }
                 var chunkOptions = options
-                chunkOptions.windowClipTime = windowClipTime(sampleCount: chunk.audioSamples.count)
+                chunkOptions.windowClipTime = chunkWindowClipTime(
+                    chunkIndex: index,
+                    chunkCount: chunks.count,
+                    sampleCount: chunk.audioSamples.count
+                )
                 let samples = chunk.audioSamples
                 group.addTask {
                     (index, try await kit.transcribe(audioArray: samples, decodeOptions: chunkOptions))
@@ -554,6 +558,13 @@ final class WhisperService: @unchecked Sendable {
     /// Retain the default trailing-window protection for longer recordings.
     static func windowClipTime(sampleCount: Int) -> Float {
         sampleCount <= 16_000 ? 0 : 1
+    }
+
+    /// Window clip for a VAD chunk. Intermediate artificial splits must not
+    /// discard trailing speech; only the final chunk is the true recording end.
+    static func chunkWindowClipTime(chunkIndex: Int, chunkCount: Int, sampleCount: Int) -> Float {
+        guard chunkCount > 0, chunkIndex == chunkCount - 1 else { return 0 }
+        return windowClipTime(sampleCount: sampleCount)
     }
 
     /// Encode custom vocabulary into WhisperKit conditioning tokens.

@@ -747,6 +747,18 @@ final class WhisperService: @unchecked Sendable {
 // MARK: - SpeechTranscribing Conformance
 
 extension WhisperService: SpeechTranscribing {
+    /// The protocol's word-timestamp-free entry point: live and commit piece
+    /// decodes land here, so DTW stays off the latency-sensitive path. The
+    /// batch `transcribe` call opts in via `includeWordTimestamps`.
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool, vocabulary: String
+    ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate,
+            vocabulary: vocabulary, includeWordTimestamps: false
+        )
+    }
+
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
         try await loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
     }

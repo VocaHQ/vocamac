@@ -299,6 +299,7 @@ final class DictationHistoryStore: ObservableObject {
         summary: String?,
         language: String?,
         transcriptionSeconds: Double?,
+        segments: [TimedSegment]? = nil,
         keepAudio: Bool
     ) {
         update(id) { entry in
@@ -307,6 +308,7 @@ final class DictationHistoryStore: ObservableObject {
             entry.summary = summary
             if let language { entry.language = language }
             entry.transcriptionSeconds = transcriptionSeconds
+            entry.segments = segments?.isEmpty == false ? segments : nil
             entry.errorMessage = nil
             let hasText = !entry.displayText.isEmpty
             entry.status = hasText ? .completed : .empty
@@ -338,7 +340,8 @@ final class DictationHistoryStore: ObservableObject {
         summary: String?,
         language: String?,
         modelID: String,
-        transcriptionSeconds: Double?
+        transcriptionSeconds: Double?,
+        segments: [TimedSegment]? = nil
     ) {
         update(id) { entry in
             entry.rawText = rawText
@@ -347,6 +350,7 @@ final class DictationHistoryStore: ObservableObject {
             if let language { entry.language = language }
             entry.modelID = modelID
             entry.transcriptionSeconds = transcriptionSeconds
+            entry.segments = segments?.isEmpty == false ? segments : nil
             entry.errorMessage = nil
             entry.retryCount += 1
             entry.status = entry.displayText.isEmpty ? .empty : .completed

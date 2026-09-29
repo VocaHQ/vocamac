@@ -240,7 +240,7 @@ extension TranscriptionRouter: SpeechTranscribing {
                     return try await Self.runSherpaLiveSession(
                         chunks: chunks, windowSamples: sherpaPreviewWindow,
                         language: language, model: loadedModelSize,
-                        speechOnly: { [self] samples in await audioWithoutSilence(samples) },
+                        speechOnly: { [self] samples in await audioWithoutSilence(samples)?.samples },
                         decode: { [sherpa] samples, isPreview in
                             try await sherpa.transcribe(audioData: samples, language: language, isPreview: isPreview)
                         },
@@ -394,16 +394,16 @@ extension TranscriptionRouter: SpeechTranscribing {
     ) async throws -> VocaTranscription {
         let interval = PerformanceTrace.begin("TranscriptionQueueAndDecode")
         defer { PerformanceTrace.end(interval) }
-        guard let audioData = await audioWithoutSilence(audioData) else {
+        guard let prepared = await audioWithoutSilence(audioData) else {
             VocaLogger.info(.general, "No speech detected; skipping the decode")
             return VocaTranscription(
                 text: "", duration: 0, detectedLanguage: language ?? "auto",
                 audioLengthSeconds: Double(audioData.count) / 16_000, modelUsed: loadedModelSize
             )
         }
-        return try await operationSerializer.run { [self] in
+        var result = try await operationSerializer.run { [self] in
             do {
-                let result = try await decode(audioData: audioData, language: language, translate: translate, vocabulary: vocabulary)
+                let result = try await decode(audioData: prepared.samples, language: language, translate: translate, vocabulary: vocabulary)
                 consecutiveFailures = 0
                 return result
             } catch {
@@ -420,6 +420,14 @@ extension TranscriptionRouter: SpeechTranscribing {
                 throw error
             }
         }
+        // Timings the decoder produced sit on the audio it heard; when
+        // silence was trimmed out, move them back to the recording's timeline.
+        if !prepared.trimPieces.isEmpty {
+            result.segments = result.segments.map {
+                $0.mappingTimes { SpeechActivityTrimmer.sourceSeconds($0, pieces: prepared.trimPieces) }
+            }
+        }
+        return result
     }
 
     private func decode(
@@ -480,19 +488,22 @@ extension TranscriptionRouter: SpeechTranscribing {
 
     // MARK: - Silence
 
-    /// The recording with silence trimmed, or nil when nothing was said.
-    /// Returns the recording unchanged when trimming is off or unavailable.
-    private func audioWithoutSilence(_ audioData: [Float]) async -> [Float]? {
-        guard skipSilenceProvider() else { return audioData }
+    /// The recording with silence trimmed — or unchanged when trimming is
+    /// off or unavailable — with the pieces the trim was built from so
+    /// timings can be mapped back to the recording. Nil when nothing was said.
+    private func audioWithoutSilence(
+        _ audioData: [Float]
+    ) async -> (samples: [Float], trimPieces: [SpeechActivityTrimmer.CopiedPiece])? {
+        guard skipSilenceProvider() else { return (audioData, []) }
         let interval = PerformanceTrace.begin("VoiceActivityTrim")
         defer { PerformanceTrace.end(interval) }
         switch await voiceActivity.decision(for: audioData) {
         case .keep:
-            return audioData
+            return (audioData, [])
         case .trim(let ranges):
             let trimmed = SpeechActivityTrimmer.apply(ranges, to: audioData)
             VocaLogger.debug(.general, "Skipped silence: \(audioData.count) → \(trimmed.count) samples")
-            return trimmed
+            return (trimmed, SpeechActivityTrimmer.copiedPieces(from: ranges, sampleCount: audioData.count))
         case .noSpeech:
             return nil
         }

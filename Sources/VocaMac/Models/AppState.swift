@@ -2442,7 +2442,7 @@ final class AppState: ObservableObject {
                     historyStore.complete(
                         historyID, rawText: result.text, finalText: output.text, summary: output.summary,
                         language: result.detectedLanguage, transcriptionSeconds: result.duration,
-                        keepAudio: historyKeepsAudio
+                        segments: result.segments, keepAudio: historyKeepsAudio
                     )
                 }
                 if injectResult {
@@ -2478,7 +2478,7 @@ final class AppState: ObservableObject {
                     historyStore.complete(
                         historyID, rawText: result.text, finalText: "", summary: nil,
                         language: result.detectedLanguage, transcriptionSeconds: result.duration,
-                        keepAudio: historyKeepsAudio
+                        segments: result.segments, keepAudio: historyKeepsAudio
                     )
                 }
                 if injectResult {
@@ -3870,7 +3870,7 @@ extension AppState {
             historyStore.recordRetry(
                 id, rawText: result.text, finalText: output?.text ?? "", summary: output?.summary,
                 language: result.detectedLanguage, modelID: result.modelUsed.rawValue,
-                transcriptionSeconds: result.duration
+                transcriptionSeconds: result.duration, segments: result.segments
             )
             guard let output else {
                 showTemporaryError("The retry didn't hear any words in that recording.")

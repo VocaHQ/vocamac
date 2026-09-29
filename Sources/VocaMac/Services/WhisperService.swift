@@ -210,7 +210,7 @@ final class WhisperService: @unchecked Sendable {
             temperatureFallbackCount: 0,  // No fallback for speed
             usePrefillPrompt: language != nil || promptTokens != nil,
             detectLanguage: language == nil,
-            wordTimestamps: false,
+            wordTimestamps: true,
             windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
             chunkingStrategy: nil
@@ -337,7 +337,8 @@ final class WhisperService: @unchecked Sendable {
                 duration: elapsed,
                 detectedLanguage: detectedLanguage,
                 audioLengthSeconds: audioLengthSeconds,
-                modelUsed: modelUsed
+                modelUsed: modelUsed,
+                segments: Self.timedSegments(from: results.flatMap(\.segments))
             )
         } catch {
             throw WhisperError.transcriptionFailed(reason: error.localizedDescription)
@@ -373,7 +374,8 @@ final class WhisperService: @unchecked Sendable {
             return try await kit.transcribe(audioArray: audioData, decodeOptions: options)
         }
 
-        let chunks = try await VADAudioChunker(vad: EnergyVAD()).chunkAll(
+        let chunker = VADAudioChunker(vad: EnergyVAD())
+        let chunks = try await chunker.chunkAll(
             audioArray: audioData,
             maxChunkLength: maxChunkSamples,
             decodeOptions: options
@@ -404,7 +406,30 @@ final class WhisperService: @unchecked Sendable {
                 ordered[finished] = results
             }
         }
-        return ordered.flatMap { $0 }
+        // Every result above is a success (a failure throws): shift each
+        // chunk's segment and word times onto the recording's timeline.
+        return chunker.updateSeekOffsetsForResults(
+            chunkedResults: ordered.map { .success($0) },
+            audioChunks: chunks
+        )
+    }
+
+    /// The segments of `results` as engine-neutral timings for the
+    /// transcript: each segment's range and, when WhisperKit aligned them,
+    /// its words' ranges. Seconds on the decoded audio's timeline.
+    static func timedSegments(from segments: [TranscriptionSegment]) -> [TimedSegment] {
+        segments.map { segment in
+            let words = (segment.words ?? []).map { word in
+                TimedWord(
+                    word: word.word, start: Double(word.start), end: Double(word.end),
+                    probability: Double(word.probability)
+                )
+            }
+            return TimedSegment(
+                start: Double(segment.start), end: Double(segment.end),
+                text: segment.text, words: words
+            )
+        }
     }
 
     // MARK: - Device Recommendations

@@ -119,6 +119,8 @@ struct HistoryEntryRow: View {
     @ObservedObject var player: HistoryAudioPlayer
     @State private var showsOriginal = false
     @State private var isOriginalHovered = false
+    @State private var showsTimestamps = false
+    @State private var isTimestampsHovered = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isRetrying: Bool { appState.retryingHistoryEntryID == entry.id }
@@ -248,6 +250,86 @@ struct HistoryEntryRow: View {
                 )
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
                 .onHover { isOriginalHovered = $0 }
+            }
+
+            if let segments = entry.segments, !segments.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+                            showsTimestamps.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 5)
+                                    .fill(tint.opacity(0.12))
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(tint)
+                                    .rotationEffect(.degrees(showsTimestamps ? 90 : 0))
+                            }
+                            .frame(width: 20, height: 20)
+
+                            Text("Timestamps")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.primary)
+
+                            Spacer(minLength: 8)
+
+                            Text(showsTimestamps ? "Hide" : "Show")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Timestamps")
+                    .accessibilityValue(showsTimestamps ? "Expanded" : "Collapsed")
+                    .accessibilityHint("Shows where each part of the transcript sits in the recording")
+
+                    if showsTimestamps {
+                        Divider()
+                            .padding(.horizontal, 10)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(segments.indices, id: \.self) { index in
+                                let segment = segments[index]
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(TranscriptTimestamp.display(segment.start)) – \(TranscriptTimestamp.display(segment.end))")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    let text = segment.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    if !text.isEmpty {
+                                        Text(text)
+                                            .font(.callout)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                    if !segment.words.isEmpty {
+                                        Text(segment.words.map {
+                                            "\(TranscriptTimestamp.display($0.start)) \($0.word)"
+                                        }.joined(separator: "   "))
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
+                                            .textSelection(.enabled)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(10)
+                    }
+                }
+                .background(
+                    Color.primary.opacity(isTimestampsHovered ? 0.065 : 0.035),
+                    in: RoundedRectangle(cornerRadius: 8)
+                )
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
+                .onHover { isTimestampsHovered = $0 }
             }
         }
     }

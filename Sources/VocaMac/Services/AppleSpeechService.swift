@@ -178,11 +178,12 @@ final class AppleSpeechService: @unchecked Sendable {
             let (text, count) = try await session.transcribe(chunks, contextualStrings: hints) { text, endSeconds in
                 tracker?.finalized(text, endSeconds: endSeconds)
             }
+            let pieces = tracker?.pieces(sampleCount: count) ?? []
             return VocaTranscription(
                 text: text, duration: CFAbsoluteTimeGetCurrent() - start,
                 detectedLanguage: detectedLanguage,
                 audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech,
-                pieces: tracker?.pieces(sampleCount: count) ?? []
+                pieces: pieces, segments: pieces.map(TimedSegment.init(piece:))
             )
         } catch {
             await session.cancel()

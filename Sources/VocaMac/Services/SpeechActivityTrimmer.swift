@@ -65,31 +65,73 @@ enum SpeechActivityTrimmer {
         return .trim(ranges)
     }
 
-    /// Join speech ranges, keeping at most `maximumPause` of each gap.
-    static func apply(_ ranges: [Range<Int>], to samples: [Float]) -> [Float] {
+    /// One stretch of the source recording `apply` copies into its output.
+    /// The output is these pieces concatenated, so each maps a span of
+    /// trimmed audio back to where it was recorded.
+    struct CopiedPiece: Equatable {
+        /// Start in `apply`'s output, samples.
+        var outputStart: Int
+        /// Start in the source recording, samples.
+        var sourceStart: Int
+        /// Length of the stretch, samples.
+        var count: Int
+    }
+
+    /// The source stretches `apply` copies, in output order. Splitting this
+    /// out keeps the copy plan honest: trimming and the map that undoes it
+    /// are the same list of pieces.
+    static func copiedPieces(from ranges: [Range<Int>], sampleCount: Int) -> [CopiedPiece] {
         let pause = Int(maximumPause * Double(sampleRate))
-        var output: [Float] = []
-        output.reserveCapacity(assembledLength(ranges))
+        var pieces: [CopiedPiece] = []
+        var outputStart = 0
         var previousEnd: Int?
         for range in ranges {
             let lower = max(range.lowerBound, previousEnd ?? 0)
-            guard lower < range.upperBound, range.upperBound <= samples.count else { continue }
+            guard lower < range.upperBound, range.upperBound <= sampleCount else { continue }
             if let previousEnd, lower > previousEnd {
                 let gap = lower - previousEnd
                 if gap <= pause {
-                    output.append(contentsOf: samples[previousEnd..<lower])
+                    pieces.append(CopiedPiece(outputStart: outputStart, sourceStart: previousEnd, count: gap))
+                    outputStart += gap
                 } else {
                     // Keep the edges of the pause: the tail of one word and
                     // the breath before the next.
                     let half = pause / 2
-                    output.append(contentsOf: samples[previousEnd..<(previousEnd + half)])
-                    output.append(contentsOf: samples[(lower - (pause - half))..<lower])
+                    pieces.append(CopiedPiece(outputStart: outputStart, sourceStart: previousEnd, count: half))
+                    outputStart += half
+                    let tail = pause - half
+                    pieces.append(CopiedPiece(outputStart: outputStart, sourceStart: lower - tail, count: tail))
+                    outputStart += tail
                 }
             }
-            output.append(contentsOf: samples[lower..<range.upperBound])
+            pieces.append(CopiedPiece(outputStart: outputStart, sourceStart: lower, count: range.upperBound - lower))
+            outputStart += range.upperBound - lower
             previousEnd = range.upperBound
         }
+        return pieces
+    }
+
+    /// Join speech ranges, keeping at most `maximumPause` of each gap.
+    static func apply(_ ranges: [Range<Int>], to samples: [Float]) -> [Float] {
+        var output: [Float] = []
+        output.reserveCapacity(assembledLength(ranges))
+        for piece in copiedPieces(from: ranges, sampleCount: samples.count) {
+            output.append(contentsOf: samples[piece.sourceStart..<(piece.sourceStart + piece.count)])
+        }
         return output
+    }
+
+    /// Where `trimmedSeconds` — a time in `apply`'s output — sits in the
+    /// source recording, given the pieces that output was built from. A time
+    /// past the output's end lands on the last kept sample.
+    static func sourceSeconds(_ trimmedSeconds: Double, pieces: [CopiedPiece]) -> Double {
+        let position = trimmedSeconds * Double(sampleRate)
+        for piece in pieces where position < Double(piece.outputStart + piece.count) {
+            let offset = max(0, position - Double(piece.outputStart))
+            return (Double(piece.sourceStart) + offset) / Double(sampleRate)
+        }
+        guard let last = pieces.last else { return trimmedSeconds }
+        return Double(last.sourceStart + last.count) / Double(sampleRate)
     }
 
     /// Samples `apply` will return for these ranges.

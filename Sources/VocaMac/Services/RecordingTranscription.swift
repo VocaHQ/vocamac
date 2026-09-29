@@ -79,7 +79,7 @@ final class RecordingTranscription: @unchecked Sendable {
                 text: result.text, duration: ProcessInfo.processInfo.systemUptime - start,
                 detectedLanguage: result.detectedLanguage,
                 audioLengthSeconds: result.audioLengthSeconds, modelUsed: result.modelUsed,
-                pieces: result.pieces
+                pieces: result.pieces, segments: result.segments
             )
         } onCancel: { self.cancel() }
     }
@@ -485,6 +485,7 @@ extension IncrementalAudioTranscriber {
             }
             group.addTask {
                 var pieces: [TranscribedPiece] = []
+                var timed: [TimedSegment] = []
                 var modelUsed: ModelSize?
                 var lastPreviewCount = 0
                 /// The piece being spoken, decoded early, and where the audio
@@ -502,6 +503,7 @@ extension IncrementalAudioTranscriber {
                     }
                     modelUsed = decode.modelUsed ?? modelUsed
                     pieces.append(decode.piece)
+                    timed.append(contentsOf: decode.segments)
                     onPiece?(pieces.count - 1, decode.piece)
                     if let onPartial, !decode.piece.text.isEmpty {
                         onPartial(TranscribedPiece.join(pieces))
@@ -528,6 +530,7 @@ extension IncrementalAudioTranscriber {
                                     range: next.piece.range, text: early.decode.piece.text,
                                     language: early.decode.piece.language
                                 ),
+                                segments: segments(inside: next.piece.range, of: early.decode.segments),
                                 revisedPrevious: early.decode.revisedPrevious,
                                 modelUsed: early.decode.modelUsed
                             ))
@@ -552,7 +555,7 @@ extension IncrementalAudioTranscriber {
                             text: TranscribedPiece.join(pieces), duration: 0,
                             detectedLanguage: language,
                             audioLengthSeconds: Double(status.total) / 16_000,
-                            modelUsed: modelUsed, pieces: pieces
+                            modelUsed: modelUsed, pieces: pieces, segments: timed
                         )
                     }
                     if let earlyQuietSamples,
@@ -646,6 +649,10 @@ extension IncrementalAudioTranscriber {
     /// A piece decoded the way a session keeps it.
     struct CommittedDecode: Sendable {
         let piece: TranscribedPiece
+        /// The piece's timed segments on the recording's timeline, when the
+        /// engine reports them. Empty for a silent piece and for engines
+        /// without timings.
+        let segments: [TimedSegment]
         /// The previous piece as this decode heard it, when its words differ
         /// and the caller asked for revisions.
         let revisedPrevious: TranscribedPiece?
@@ -677,6 +684,7 @@ extension IncrementalAudioTranscriber {
         var modelUsed: ModelSize?
         var contextual: TranscribedPiece?
         var revised: TranscribedPiece?
+        var timed: [TimedSegment]?
         if let previous, !isSilent(samples),
            let previousAudio = await audio(previous.range),
            let start = contextStart(
@@ -686,21 +694,32 @@ extension IncrementalAudioTranscriber {
             let merged = try await decodePiece(
                 start..<range.upperBound, samples: mergedAudio, transcribe: transcribe
             ) { modelUsed = $0 }
-            if let split = split(merged.text, previous: previous, contextStart: start) {
-                contextual = TranscribedPiece(range: range, text: split.newText, language: merged.language)
+            if let split = split(merged.piece.text, previous: previous, contextStart: start) {
+                contextual = TranscribedPiece(range: range, text: split.newText, language: merged.piece.language)
+                // The merged decode heard the context before the piece too;
+                // only timings inside the piece's own range belong to it.
+                timed = segments(inside: range, of: merged.segments)
                 if revisesPrevious, let text = split.revisedPrevious {
                     revised = TranscribedPiece(range: previous.range, text: text, language: previous.language)
                 }
             }
         }
         let piece: TranscribedPiece
+        let pieceSegments: [TimedSegment]
         if let contextual, !(contextual.text.isEmpty && hasSpeech(samples)) {
             piece = contextual
+            // Engines without timings still get the piece's own range as a
+            // segment, so commit-mode results always carry segment timing.
+            let mergedTimed = timed ?? []
+            pieceSegments = mergedTimed.isEmpty ? [TimedSegment(piece: piece)] : mergedTimed
         } else {
             // First piece, or the merged text couldn't be lined up with the
             // previous piece: decode this one alone.
             revised = nil
-            piece = try await decodePiece(range, samples: samples, transcribe: transcribe) { modelUsed = $0 }
+            let standalone = try await decodePiece(range, samples: samples, transcribe: transcribe) { modelUsed = $0 }
+            piece = standalone.piece
+            let inRange = segments(inside: range, of: standalone.segments)
+            pieceSegments = inRange.isEmpty ? [TimedSegment(piece: piece)] : inRange
         }
         // Speech that decoded to nothing (a decoder that stopped on its first
         // token) must not vanish from the result.
@@ -708,7 +727,7 @@ extension IncrementalAudioTranscriber {
             VocaLogger.warning(.general, "A piece with speech decoded to nothing; decoding the complete recording instead")
             throw RecordingTranscription.StreamError.incomplete
         }
-        return CommittedDecode(piece: piece, revisedPrevious: revised, modelUsed: modelUsed)
+        return CommittedDecode(piece: piece, segments: pieceSegments, revisedPrevious: revised, modelUsed: modelUsed)
     }
 
     /// Less context than this (2 s) barely helps a piece and still costs a
@@ -813,16 +832,20 @@ extension IncrementalAudioTranscriber {
         return heard
     }
 
+    /// A piece decode's transcript piece and its timings. `segments` are
+    /// already on the recording's timeline (`range` says where `samples` sits
+    /// in it); a decode that heard context before the piece still needs
+    /// `segments(inside:of:)` to cut them down to the piece.
     private static func decodePiece(
         _ range: Range<Int>,
         samples: [Float],
         transcribe: @Sendable ([Float]) async throws -> VocaTranscription,
         recordModel: (ModelSize) -> Void
-    ) async throws -> TranscribedPiece {
+    ) async throws -> (piece: TranscribedPiece, segments: [TimedSegment]) {
         // A recording that is silent throughout never sets the model, so the
         // session fails and the batch path answers it as it does today.
         guard !isSilent(samples) else {
-            return TranscribedPiece(range: range, text: "", language: "auto")
+            return (TranscribedPiece(range: range, text: "", language: "auto"), [])
         }
         let result = try await transcribe(padded(samples))
         // A decoder stuck in a loop on a short piece ("E E E E…") would be
@@ -834,11 +857,41 @@ extension IncrementalAudioTranscriber {
             throw RecordingTranscription.StreamError.incomplete
         }
         recordModel(result.modelUsed)
-        return TranscribedPiece(
-            range: range,
-            text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
-            language: result.detectedLanguage
+        let offset = Double(range.lowerBound) / 16_000
+        return (
+            TranscribedPiece(
+                range: range,
+                text: result.text.trimmingCharacters(in: .whitespacesAndNewlines),
+                language: result.detectedLanguage
+            ),
+            result.segments.map { $0.mappingTimes { $0 + offset } }
         )
+    }
+
+    /// The parts of `timed` that fall inside `range`, a sample span of the
+    /// recording. A decode that ran on context plus the piece hears more than
+    /// the piece itself; words and segments reaching over its edges are
+    /// clamped to them.
+    static func segments(inside range: Range<Int>, of timed: [TimedSegment]) -> [TimedSegment] {
+        let lower = Double(range.lowerBound) / 16_000
+        let upper = Double(range.upperBound) / 16_000
+        return timed.compactMap { segment -> TimedSegment? in
+            guard segment.end > lower, segment.start < upper else { return nil }
+            let words = segment.words.compactMap { word -> TimedWord? in
+                guard word.end > lower, word.start < upper else { return nil }
+                return TimedWord(
+                    word: word.word,
+                    start: min(max(word.start, lower), upper),
+                    end: min(max(word.end, lower), upper),
+                    probability: word.probability
+                )
+            }
+            return TimedSegment(
+                start: min(max(segment.start, lower), upper),
+                end: min(max(segment.end, lower), upper),
+                text: segment.text, words: words
+            )
+        }
     }
 
     /// How far piece decoding may fall behind the microphone, beyond the

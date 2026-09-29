@@ -107,6 +107,11 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
     /// instruction is in `rawText` and the replacement in `finalText`. Nil for
     /// dictations, and absent from entries saved by older builds.
     var commandOriginal: String?
+    /// The raw transcript's timed stretches — seconds into this dictation's
+    /// audio — with word timings where the engine reports them. Nil when the
+    /// dictation had none (a failed or cancelled decode, an engine without
+    /// timings, or an entry saved by a build before them).
+    var segments: [TimedSegment]?
 
     init(
         id: UUID = UUID(),
@@ -126,7 +131,8 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         audioBytes: Int64? = nil,
         errorMessage: String? = nil,
         retryCount: Int = 0,
-        commandOriginal: String? = nil
+        commandOriginal: String? = nil,
+        segments: [TimedSegment]? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -146,6 +152,7 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         self.errorMessage = errorMessage
         self.retryCount = retryCount
         self.commandOriginal = commandOriginal
+        self.segments = segments
     }
 
     /// A Command Mode edit rather than a dictation.

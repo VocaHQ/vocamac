@@ -534,12 +534,18 @@ extension IncrementalAudioTranscriber {
                         }
                         if let early, earlyFits {
                             PerformanceTrace.event("EarlyDecodeUsed")
+                            // Re-cut early timings to the closed piece. A wordless
+                            // early segment that spans past the closed end is
+                            // dropped by segments(inside:); fall back to the
+                            // piece range so Timestamps stay (same as decodeCommitted).
+                            let nextPiece = TranscribedPiece(
+                                range: next.piece.range, text: early.decode.piece.text,
+                                language: early.decode.piece.language
+                            )
+                            let cut = segments(inside: next.piece.range, of: early.decode.segments)
                             keep(CommittedDecode(
-                                piece: TranscribedPiece(
-                                    range: next.piece.range, text: early.decode.piece.text,
-                                    language: early.decode.piece.language
-                                ),
-                                segments: segments(inside: next.piece.range, of: early.decode.segments),
+                                piece: nextPiece,
+                                segments: cut.isEmpty ? [TimedSegment(piece: nextPiece)] : cut,
                                 revisedPrevious: early.decode.revisedPrevious,
                                 revisedPreviousSegments: early.decode.revisedPreviousSegments,
                                 modelUsed: early.decode.modelUsed

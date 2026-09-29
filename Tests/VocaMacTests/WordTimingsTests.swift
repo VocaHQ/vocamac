@@ -483,6 +483,33 @@ final class PieceTimingCutTests: XCTestCase {
         XCTAssertTrue(cut.isEmpty, "Clamped wordless segments are dropped for piece-text fallback")
     }
 
+    /// Early-decode reuse re-cuts timings to the closed piece. A wordless
+    /// early segment spanning past the closed end becomes empty after the
+    /// clamp; fall back to TimedSegment(piece:) so History Timestamps still
+    /// cover the kept piece text (same contract as decodeCommitted).
+    func testEarlyDecodeReuseFallsBackToPieceWhenWordlessClampEmpties() {
+        // Early decode heard through 5.5 s; the piece later closed at 5.0 s
+        // (pause mid-point after earlyQuiet fired).
+        let earlyRange = 0..<Int(5.5 * rate)
+        let closedRange = 0..<Int(5.0 * rate)
+        let earlyPiece = TranscribedPiece(
+            range: earlyRange, text: "committed speech", language: "en"
+        )
+        let earlySegments = [TimedSegment(piece: earlyPiece)]
+        // Mirror runCommitted's earlyFits keep path.
+        let nextPiece = TranscribedPiece(
+            range: closedRange, text: earlyPiece.text, language: earlyPiece.language
+        )
+        let cut = IncrementalAudioTranscriber.segments(inside: closedRange, of: earlySegments)
+        XCTAssertTrue(cut.isEmpty, "wordless early segment past closed end is dropped")
+        let kept = cut.isEmpty ? [TimedSegment(piece: nextPiece)] : cut
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertEqual(kept[0].text, "committed speech")
+        XCTAssertEqual(kept[0].start, 0, accuracy: 0.0001)
+        XCTAssertEqual(kept[0].end, 5.0, accuracy: 0.0001)
+        XCTAssertTrue(kept[0].words.isEmpty)
+    }
+
     /// Revising a previous piece replaces its timings, not only its text.
     func testRevisionReplacesPreviousTimings() {
         let previous = TranscribedPiece(range: 0..<32_000, text: "old words", language: "en")

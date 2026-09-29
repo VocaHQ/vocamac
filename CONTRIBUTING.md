@@ -2,7 +2,7 @@
 
 Thanks for helping with VocaMac. Keep dictation on-device after the model is downloaded. Do not add a Voca cloud speech path.
 
-VocaMac is Beta, Apple Silicon only, macOS 14+. Intel Macs are not supported.
+VocaMac requires Apple Silicon and macOS 14+. Intel Macs are not supported.
 
 Coding agents should also read [AGENTS.md](AGENTS.md).
 
@@ -42,7 +42,7 @@ Open against main. Keep the diff focused.
 - Do not weaken on-device transcription, clipboard restore, or permissions without saying so in the PR.
 - App CI runs on macos-15 with Xcode 26. Website CI runs when web/ changes.
 
-Maintainers can comment /build on a PR for a signed, notarized DMG.
+After an independent approval of the current PR commit, maintainers can start the PR Build workflow from Actions on `main` with the PR number to create a signed, notarized DMG.
 
 ## Community
 

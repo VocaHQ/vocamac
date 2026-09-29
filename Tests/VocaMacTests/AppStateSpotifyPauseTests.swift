@@ -158,7 +158,8 @@ final class AppStateSpotifyPauseTests: XCTestCase {
 
         NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: nil)
 
-        XCTAssertEqual(mocks.spotifyPauser.resumeCallCount, 1)
+        XCTAssertEqual(mocks.spotifyPauser.resumeSynchronouslyForTerminationCallCount, 1)
+        XCTAssertEqual(mocks.spotifyPauser.resumeCallCount, 0, "Terminate must not take the in-session async resume path")
         XCTAssertTrue(appState.isRecording, "Quit does not flip isRecording; resume runs from willTerminate")
     }
 }

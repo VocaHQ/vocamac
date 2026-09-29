@@ -179,6 +179,7 @@ final class MockAudioDucker: AudioDucking {
 final class MockSpotifyPauser: SpotifyPausing {
     var pauseCallCount = 0
     var resumeCallCount = 0
+    var resumeSynchronouslyForTerminationCallCount = 0
     var resumeAfterUnexpectedExitCallCount = 0
 
     func pause() {
@@ -187,6 +188,10 @@ final class MockSpotifyPauser: SpotifyPausing {
 
     func resume() {
         resumeCallCount += 1
+    }
+
+    func resumeSynchronouslyForTermination() {
+        resumeSynchronouslyForTerminationCallCount += 1
     }
 
     func resumeAfterUnexpectedExit() {

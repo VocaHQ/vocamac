@@ -78,7 +78,8 @@ final class SpotifyPauserTests: XCTestCase {
             control: control,
             defaults: defaults,
             now: { [unowned self] in self.clock },
-            perform: { $0() }
+            perform: { $0() },
+            performSync: { $0() }
         )
     }
 
@@ -285,5 +286,36 @@ final class SpotifyPauserTests: XCTestCase {
 
         XCTAssertEqual(control.playCallCount, 0)
         XCTAssertNotNil(defaults.object(forKey: SpotifyPauser.pendingPauseKey))
+    }
+
+    // MARK: Termination resume
+
+    func testResumeSynchronouslyForTerminationDrainsBeforeReturning() {
+        let queue = DispatchQueue(label: "SpotifyPauserTests.terminate")
+        let pauser = SpotifyPauser(
+            control: control,
+            defaults: defaults,
+            now: { [unowned self] in self.clock },
+            perform: { work in queue.async(execute: work) },
+            performSync: { work in queue.sync(execute: work) }
+        )
+
+        pauser.pause()
+        queue.sync {}  // drain the async pause so `paused` is set
+
+        XCTAssertEqual(control.pauseCallCount, 1)
+        XCTAssertEqual(control.playerState, .paused)
+
+        pauser.resumeSynchronouslyForTermination()
+
+        XCTAssertEqual(control.playCallCount, 1, "play must have run before resumeSynchronouslyForTermination returns")
+        XCTAssertEqual(control.playerState, .playing)
+    }
+
+    func testResumeSynchronouslyForTerminationWithoutAPauseIsNoOp() {
+        makePauser().resumeSynchronouslyForTermination()
+
+        XCTAssertEqual(control.playCallCount, 0)
+        XCTAssertEqual(control.stateReads, 0)
     }
 }

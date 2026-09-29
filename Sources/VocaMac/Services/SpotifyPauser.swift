@@ -119,7 +119,9 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
 ///
 /// The work runs on a serial queue rather than the caller's thread: a first
 /// run can block on macOS's Automation consent prompt, which must never stall
-/// dictation. Ordering pause before resume is the queue's job.
+/// dictation. Ordering pause before resume is the queue's job. Quit is the
+/// exception: `resumeSynchronouslyForTermination` waits on that queue so
+/// AppleScript play finishes before the process exits.
 ///
 /// A pause the user undoes mid-recording and a pause the user makes
 /// mid-recording look identical to ours — the resume at recording end sends
@@ -139,9 +141,13 @@ final class SpotifyPauser: SpotifyPausing {
     /// call order. Production passes a serial background queue; tests run the
     /// work inline so the policy is synchronous there.
     private let perform: (@escaping () -> Void) -> Void
+    /// Runs `work` for `resumeSynchronouslyForTermination` on the same serial
+    /// queue as `perform`, but waits for it — and any earlier `perform` work —
+    /// to finish. Production uses `workQueue.sync`; tests run it inline.
+    private let performSync: (@escaping () -> Void) -> Void
 
     /// Whether a `pause` is in effect, i.e. we told Spotify to pause and have
-    /// not undone it. Touched only from inside `perform`.
+    /// not undone it. Touched only from inside `perform` / `performSync`.
     private var paused = false
 
     private static let workQueue = DispatchQueue(label: "com.vocamac.spotify-pauser")
@@ -152,12 +158,16 @@ final class SpotifyPauser: SpotifyPausing {
         now: @escaping () -> Date = Date.init,
         perform: @escaping (@escaping () -> Void) -> Void = { work in
             SpotifyPauser.workQueue.async(execute: work)
+        },
+        performSync: @escaping (@escaping () -> Void) -> Void = { work in
+            SpotifyPauser.workQueue.sync(execute: work)
         }
     ) {
         self.control = control
         self.defaults = defaults
         self.now = now
         self.perform = perform
+        self.performSync = performSync
     }
 
     // MARK: SpotifyPausing
@@ -192,11 +202,13 @@ final class SpotifyPauser: SpotifyPausing {
 
     func resume() {
         perform { [self] in
-            guard paused else { return }
-            paused = false
-            if resumeSpotify(reason: "recording ended") {
-                clearPersistedPause()
-            }
+            resumeIfPaused(reason: "recording ended")
+        }
+    }
+
+    func resumeSynchronouslyForTermination() {
+        performSync { [self] in
+            resumeIfPaused(reason: "app terminating")
         }
     }
 
@@ -215,6 +227,16 @@ final class SpotifyPauser: SpotifyPausing {
     }
 
     // MARK: Undo
+
+    /// Shared resume body for in-session `resume` and quit. Touched only from
+    /// inside `perform` / `performSync`.
+    private func resumeIfPaused(reason: String) {
+        guard paused else { return }
+        paused = false
+        if resumeSpotify(reason: reason) {
+            clearPersistedPause()
+        }
+    }
 
     /// Plays what `pause` paused, if Spotify is still paused — the same
     /// "undo only what is still as we left it" rule `AudioDucker` uses.

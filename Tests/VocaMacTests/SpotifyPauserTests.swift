@@ -58,16 +58,22 @@ final class SpotifyPauserTests: XCTestCase {
     private var control: FakeSpotifyControl!
     private var clock = Date(timeIntervalSince1970: 1_800_000_000)
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         suiteName = "SpotifyPauserTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        defaults = try XCTUnwrap(
+            UserDefaults(suiteName: suiteName),
+            "Could not create UserDefaults suite \(suiteName ?? "?")"
+        )
         control = FakeSpotifyControl()
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        if let suiteName, let defaults {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
         defaults = nil
+        suiteName = nil
         control = nil
         super.tearDown()
     }
@@ -78,8 +84,7 @@ final class SpotifyPauserTests: XCTestCase {
             control: control,
             defaults: defaults,
             now: { [unowned self] in self.clock },
-            perform: { $0() },
-            performSync: { $0() }
+            perform: { $0() }
         )
     }
 
@@ -288,34 +293,4 @@ final class SpotifyPauserTests: XCTestCase {
         XCTAssertNotNil(defaults.object(forKey: SpotifyPauser.pendingPauseKey))
     }
 
-    // MARK: Termination resume
-
-    func testResumeSynchronouslyForTerminationDrainsBeforeReturning() {
-        let queue = DispatchQueue(label: "SpotifyPauserTests.terminate")
-        let pauser = SpotifyPauser(
-            control: control,
-            defaults: defaults,
-            now: { [unowned self] in self.clock },
-            perform: { work in queue.async(execute: work) },
-            performSync: { work in queue.sync(execute: work) }
-        )
-
-        pauser.pause()
-        queue.sync {}  // drain the async pause so `paused` is set
-
-        XCTAssertEqual(control.pauseCallCount, 1)
-        XCTAssertEqual(control.playerState, .paused)
-
-        pauser.resumeSynchronouslyForTermination()
-
-        XCTAssertEqual(control.playCallCount, 1, "play must have run before resumeSynchronouslyForTermination returns")
-        XCTAssertEqual(control.playerState, .playing)
-    }
-
-    func testResumeSynchronouslyForTerminationWithoutAPauseIsNoOp() {
-        makePauser().resumeSynchronouslyForTermination()
-
-        XCTAssertEqual(control.playCallCount, 0)
-        XCTAssertEqual(control.stateReads, 0)
-    }
 }

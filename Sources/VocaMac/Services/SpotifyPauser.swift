@@ -42,10 +42,11 @@ protocol SpotifyControlling: AnyObject {
 
 // MARK: - AppleScriptSpotifyControl
 
-/// NSAppleScript implementation of `SpotifyControlling`. Not unit-tested: it
-/// is thin, and its behaviour depends on Spotify being installed and on the
-/// user granting Automation permission (one consent prompt per Mac; denial
-/// comes back as error -1743).
+/// NSAppleScript implementation of `SpotifyControlling`. Policy is covered by
+/// unit tests against an injectable fake; this AppleScript path is verified
+/// manually against a real Spotify (no live e2e in CI). Behaviour depends on
+/// Spotify being installed and on the user granting Automation permission
+/// (one consent prompt per Mac; denial comes back as error -1743).
 final class AppleScriptSpotifyControl: SpotifyControlling {
 
     private static let bundleID = "com.spotify.client"
@@ -119,9 +120,10 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
 ///
 /// The work runs on a serial queue rather than the caller's thread: a first
 /// run can block on macOS's Automation consent prompt, which must never stall
-/// dictation. Ordering pause before resume is the queue's job. Quit is the
-/// exception: `resumeSynchronouslyForTermination` waits on that queue so
-/// AppleScript play finishes before the process exits.
+/// dictation or app quit. Ordering pause before resume is the queue's job.
+/// Quit uses the same async `resume()` as recording end so AppleScript never
+/// holds termination; a pause that does not finish before exit is recovered
+/// via the pending flag on the next launch.
 ///
 /// A pause the user undoes mid-recording and a pause the user makes
 /// mid-recording look identical to ours — the resume at recording end sends
@@ -141,13 +143,9 @@ final class SpotifyPauser: SpotifyPausing {
     /// call order. Production passes a serial background queue; tests run the
     /// work inline so the policy is synchronous there.
     private let perform: (@escaping () -> Void) -> Void
-    /// Runs `work` for `resumeSynchronouslyForTermination` on the same serial
-    /// queue as `perform`, but waits for it — and any earlier `perform` work —
-    /// to finish. Production uses `workQueue.sync`; tests run it inline.
-    private let performSync: (@escaping () -> Void) -> Void
 
     /// Whether a `pause` is in effect, i.e. we told Spotify to pause and have
-    /// not undone it. Touched only from inside `perform` / `performSync`.
+    /// not undone it. Touched only from inside `perform`.
     private var paused = false
 
     private static let workQueue = DispatchQueue(label: "com.vocamac.spotify-pauser")
@@ -158,16 +156,12 @@ final class SpotifyPauser: SpotifyPausing {
         now: @escaping () -> Date = Date.init,
         perform: @escaping (@escaping () -> Void) -> Void = { work in
             SpotifyPauser.workQueue.async(execute: work)
-        },
-        performSync: @escaping (@escaping () -> Void) -> Void = { work in
-            SpotifyPauser.workQueue.sync(execute: work)
         }
     ) {
         self.control = control
         self.defaults = defaults
         self.now = now
         self.perform = perform
-        self.performSync = performSync
     }
 
     // MARK: SpotifyPausing
@@ -206,12 +200,6 @@ final class SpotifyPauser: SpotifyPausing {
         }
     }
 
-    func resumeSynchronouslyForTermination() {
-        performSync { [self] in
-            resumeIfPaused(reason: "app terminating")
-        }
-    }
-
     func resumeAfterUnexpectedExit() {
         perform { [self] in
             guard let date = persistedPause() else { return }
@@ -228,8 +216,8 @@ final class SpotifyPauser: SpotifyPausing {
 
     // MARK: Undo
 
-    /// Shared resume body for in-session `resume` and quit. Touched only from
-    /// inside `perform` / `performSync`.
+    /// Shared resume body for in-session and quit-time `resume`. Touched only
+    /// from inside `perform`.
     private func resumeIfPaused(reason: String) {
         guard paused else { return }
         paused = false

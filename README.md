@@ -4,7 +4,7 @@
 
 <h1 align="center">VocaMac</h1>
 
-<p align="center"><strong>Your voice, your Mac, your privacy. Open-source, on-device dictation.</strong></p>
+<p align="center"><strong>Your voice, your Mac, your privacy. Open-source dictation, on-device by default.</strong></p>
 
 <div align="center">
   
@@ -16,9 +16,9 @@
 [![Release](https://img.shields.io/github/v/release/VocaHQ/vocamac?label=Release)](https://github.com/VocaHQ/vocamac/releases)
 [![Nightly](https://img.shields.io/badge/Nightly-download-blueviolet)](https://github.com/VocaHQ/vocamac/releases/tag/nightly)
 
-[![Speech engines](https://img.shields.io/badge/Speech%20engines-Whisper%20%7C%20Parakeet%20%7C%20Apple%20Speech%20%7C%20ONNX-6C5CE7.svg)](#-models)
+[![Speech engines](https://img.shields.io/badge/Speech%20engines-Whisper%20%7C%20Parakeet%20%7C%20Apple%20Speech%20%7C%20ONNX%20%7C%20Custom-6C5CE7.svg)](#-models)
 [![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-Optimized-black.svg?logo=apple&logoColor=white)](https://github.com/VocaHQ/vocamac)
-[![Privacy](https://img.shields.io/badge/Privacy-on--device%20after%20model%20download-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
+[![Privacy](https://img.shields.io/badge/Privacy-on--device%20for%20local%20engines-brightgreen.svg)](https://github.com/VocaHQ/vocamac)
 
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/VocaHQ/vocamac/pulls)
 [![GitHub Issues](https://img.shields.io/github/issues/VocaHQ/vocamac)](https://github.com/VocaHQ/vocamac/issues)
@@ -29,15 +29,15 @@
 
 </div>
 
-<p align="center">Speak. It types. Open-source, on-device voice-to-text for macOS. Choose from local Whisper, Parakeet, Apple Speech, and specialized ONNX models. After the model is downloaded, dictation audio stays on your Mac. The Tiny Whisper model ships bundled; larger models need a one-time download. No cloud speech service, no subscriptions, and no required Voca account. Hold a hotkey, speak, and your words appear wherever your cursor is.</p>
+<p align="center">Speak. It types. Open-source, on-device voice-to-text for macOS. Choose from local Whisper, Parakeet, Apple Speech, and specialized ONNX models. After a local model is downloaded, dictation audio stays on your Mac. An optional Custom Endpoint uploads recordings only when you deliberately select it. The Tiny Whisper model ships bundled; larger models need a one-time download. No required cloud speech account, no subscriptions, and no required Voca account. Hold a hotkey, speak, and your words appear wherever your cursor is.</p>
 
 ---
 
 ## ✨ Features
 
-- **🔒 Local Speech** - All audio processing happens on your machine. No internet required — the Tiny model ships bundled and works out of the box offline. Optional remote cleanup sends text only when you explicitly configure it.
+- **🔒 Local Speech** - Local engines process audio on your machine. The Tiny model ships bundled and works offline. An optional Custom Endpoint uploads recordings only when you select it. Optional remote cleanup sends text only when you explicitly configure it.
 - **✍️ Per-App and Website Writing Styles** - Choose output format, cleanup level, and optional cleanup instructions per app or browser domain, with exact rules for paths, identifiers, spacing, and markup. Optional Formal and Casual wording reuse the selected cleanup provider in one pass. Code and Terminal never let the model reword: it can only point out filler, which VocaMac removes from your own words; Raw bypasses cleanup, snippets, and formatting.
-- **🔒 On-device** - After the model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account.
+- **🔒 On-device** - After a local model is downloaded, audio processing stays on your Mac. The Tiny Whisper model ships bundled so you can dictate immediately; larger models need a one-time download. No required Voca account. Custom Endpoint is the opt-in exception: it sends audio to the server you configure.
 - **⌨️ System-Wide Text Injection** - Transcribed text is typed wherever your cursor is: browsers, Slack, VS Code, spreadsheets, terminals - everywhere.
 - **🎯 Push-to-Talk** - Hold a hotkey (default: Right Option) to record. Release to transcribe.
 - **👆 Double-Tap Toggle** - Double-tap the hotkey to start/stop recording.
@@ -46,7 +46,7 @@
 - **🪄 Command Mode** - Select text in any app — including Electron apps like Discord and Slack — press a configurable shortcut (or hold it), and speak an instruction such as “make this shorter” or “translate to Spanish.” Edits run on Apple Intelligence (macOS 26), a local model (Qwen 2.5 1.5B, Ministral 3 3B, Qwen 3 4B, or Qwen 2.5 7B), or your cleanup endpoint, whether or not Smart Cleanup is on. A local Command Mode model can also run Smart Cleanup, so one model stays loaded for both. Escape cancels, the original stays in the menu bar to copy back, and the selection is left untouched if the result or the replacement fails validation.
 - **📖 Personal Dictionary** - Vocabulary and replacements work with every speech engine (“voca mac” → VocaMac, “get hub” → GitHub). VocaMac suggests words you corrected after dictating, and can spell names and code identifiers the way they appear on screen. All of this happens on your Mac.
 - **😊 Spoken Emoji and Numbers (optional)** - Say “party emoji” to type 🎉 (or “three fire emojis” for 🔥🔥🔥), and “twenty three”, “seven thirty pm” or “my number is nine eight seven…” to type 23, 7:30 pm and 987…. An optional extra writes “50%”, “$5.50” and “June 22”. All off by default, and they survive Smart Cleanup unchanged.
-- **🧠 Engine and Model Choice** - Choose the local speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible options for your Apple Silicon Mac.
+- **🧠 Engine and Model Choice** - Choose the speech engine and model that fit your language, speed, and memory needs. VocaMac recommends compatible local options for your Apple Silicon Mac. Custom Endpoint is opt-in.
 - **⚡ Native Apple Acceleration** - CoreML + Metal + Neural Engine acceleration on Apple Silicon. No manual setup.
 - **📊 Live Visual Feedback** - Menu bar and overlay show audio level and partial words while Whisper or Parakeet is decoding; only the complete recording produces the final transcript.
 - **✨ Transcript Cleanup (optional)** - Say “let's do it tomorrow, oh, no, Wednesday” and VocaMac types “let's do it Wednesday” — spoken corrections of days, months, numbers, and times are resolved in English, Spanish, French, German, Portuguese, Italian, and Hinglish, and “um”/“uh” disappear, even without a model. Choose None, Light, Medium, or High cleanup and run it with a local GGUF model by default; Settings recommends one for your Mac's memory. Ollama, LM Studio, and OpenAI-compatible endpoints are opt-in; only the cleanup prompt and transcript are sent when one is selected, and API keys stay in Keychain.
@@ -122,7 +122,7 @@
 
 ## 🧠 How the engines work
 
-VocaMac runs four on-device speech engines: Whisper, Parakeet, Apple Speech, and specialized ONNX models. Choose among them in **Settings → Speech Model**. The [Models](#-models) section explains the full catalogue.
+VocaMac runs four on-device speech engines (Whisper, Parakeet, Apple Speech, and specialized ONNX models) plus an optional Custom Endpoint that sends audio to a Whisper-compatible server you host. Choose among them in **Settings → Speech Model**. The [Models](#-models) section explains the full catalogue.
 
 ### Why the Whisper engine uses WhisperKit
 
@@ -381,7 +381,7 @@ Switch between modes in **Settings → Dictation**.
 
 ## 🧠 Models
 
-VocaMac runs four on-device speech engines and picks between them in **Settings → Speech Model**, where models are grouped by engine. Everything runs locally.
+VocaMac runs four on-device speech engines plus an optional Custom Endpoint, and picks among them in **Settings → Speech Model**, where models are grouped by engine. Local engines run on this Mac. Custom Endpoint uploads each recording to the server you configure.
 
 ### Parakeet — fastest, recommended for dictation
 
@@ -426,6 +426,10 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 | **Qwen3 ASR 0.6B** | ~973 MB | Accurate transcription across 30 languages and Chinese dialects |
 
 Recordings longer than a model's single-pass limit are split at natural pauses and decoded segment by segment, since these models — unlike Whisper and Parakeet — do not chunk internally.
+
+### Custom Endpoint (optional, remote)
+
+Select Custom Endpoint to upload each recording as a WAV file to a Whisper-compatible server you host (OpenAI audio API or whisper.cpp). This is opt-in and off by default. It is distinct from VocaGateway.
 
 Models download automatically on first use and are cached locally — Whisper and Parakeet from [HuggingFace](https://huggingface.co/argmaxinc/whisperkit-coreml), the specialized models from sherpa-onnx's model releases.
 

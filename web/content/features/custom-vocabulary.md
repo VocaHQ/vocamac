@@ -28,4 +28,4 @@ For best results, enter terms in the language you dictate and set a matching tra
 
 ## Private by Design
 
-Your word list never leaves your Mac. Like every other part of VocaMac, custom vocabulary is applied entirely on-device — nothing is uploaded to build or store a dictionary. Your names, projects, and jargon stay yours.
+Your word list never leaves your Mac. Vocabulary is applied on-device, and nothing is uploaded to build or store a dictionary. Names, projects, and jargon stay yours. If you select Custom Endpoint, recordings are uploaded for transcription; the vocabulary list is not.

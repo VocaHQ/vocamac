@@ -7,7 +7,7 @@ Living plan for bringing VocaMac in line with the Voca family product bar, start
 **Sources reviewed:**
 
 - VocaLinux `main` (v0.15 line): searchable sidebar settings (#601, #618), auto-pause + idle unload (#592), dictation polish (#554, #608), language catalog (#616)
-- VocaMac: four-engine `TranscriptionRouter`, cursor overlay, stats, AX injection, plus the parity work shipped in PR #207
+- VocaMac: four on-device engines plus optional Custom Endpoint, cursor overlay, stats, AX injection, plus the parity work shipped in PR #207
 - VocaHQ product principles and status labels
 
 ---
@@ -45,7 +45,7 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 | Power | Auto-pause while listed apps run | Yes | Yes | Keep |
 | Power | Idle model unload (keep-alive) | Yes | Yes (opt-in) | Keep |
 | Power | Sleep/wake recovery | Yes (logind) | Yes (`NSWorkspace`) | Keep |
-| Models | Multi-engine catalog | 3 + remote | 4 on-device | Keep Mac lead |
+| Models | Multi-engine catalog | 3 + remote | 4 on-device + Custom Endpoint (opt-in remote) | Keep Mac lead |
 | Models | Language catalog depth | ~33 + auto | ~36 + auto (searchable) | Keep |
 | Updates | Stable / nightly channel picker | Yes | Nightly via separate cask/DMG | Align UX (follow-up) |
 | Diagnostics | In-app log viewer | Yes | Copy/export only | Improve (follow-up) |
@@ -251,7 +251,8 @@ Unload reuses existing engine teardown via `TranscriptionRouter.unloadModel()`.
 - VOSK as a Mac engine
 - Flatpak / AppImage / AUR packaging
 - systemd-logind D-Bus suspend API
-- Remote OpenAI-compatible API engine (revisit only if VocaGateway needs a Mac client)
+
+Custom Endpoint (this repo) is a user-hosted Whisper-compatible speech engine, distinct from VocaGateway. Org PRODUCT.md (VocaHQ/vocahq) still needs that third deliberate remote STT path called out and not branded as on-device.
 
 ---
 

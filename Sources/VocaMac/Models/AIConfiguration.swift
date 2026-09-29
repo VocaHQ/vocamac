@@ -296,17 +296,62 @@ struct SpeechEndpointConfiguration: Codable, Equatable {
     }
 
     func validationProblem() -> String? {
-        guard let url = URL(string: resolvedBaseURL),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "https" || scheme == "http",
-              url.host != nil else {
+        guard let url = URL(string: resolvedBaseURL) else {
             return "Enter an HTTP or HTTPS endpoint."
         }
-        // The cleanup endpoint's rule: plain HTTP is only acceptable on this
-        // Mac or the local network, which ATS also lets through. Recordings
-        // are more sensitive than cleanup text, so the rule applies at least
-        // as strictly here.
-        guard scheme == "https" || CleanupEndpointConfiguration.isLocalNetworkHost(url.host) else {
+        return Self.validationProblem(for: url)
+    }
+
+    /// Whether this URL may receive a speech recording (configured base or
+    /// a redirect hop). HTTPS is broadly OK; plain HTTP is limited to
+    /// loopback, RFC1918, and `.local` names.
+    static func allowsRecordingDestination(_ url: URL) -> Bool {
+        validationProblem(for: url) == nil
+    }
+
+    /// Hosts that may receive a recording over plain HTTP: this Mac's
+    /// loopback, RFC1918 private IPv4, and `.local` mDNS names. Link-local
+    /// (169.254/16, fe80::/10) and bare hostnames without a dot are not
+    /// enough; recordings are more sensitive than cleanup text, so this
+    /// list is tighter than `CleanupEndpointConfiguration.isLocalNetworkHost`.
+    static func isCleartextAllowedHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]")),
+              !host.isEmpty else { return false }
+        if host == "localhost" || host == "::1" { return true }
+        if host.hasSuffix(".local") { return true }
+        if host.contains(":") { return false }
+        let parts = host.split(separator: ".")
+        let octets = parts.compactMap { UInt8($0) }
+        guard octets.count == 4, octets.count == parts.count else { return false }
+        switch (octets[0], octets[1]) {
+        case (127, _), (10, _), (192, 168): return true
+        case (172, 16...31): return true
+        default: return false
+        }
+    }
+
+    /// Base URL safe to write to logs: host and path only, never userinfo.
+    var loggableBaseURL: String {
+        guard var components = URLComponents(string: resolvedBaseURL) else {
+            return resolvedBaseURL.contains("@") ? "(endpoint URL)" : resolvedBaseURL
+        }
+        components.user = nil
+        components.password = nil
+        return components.string ?? resolvedBaseURL
+    }
+
+    static func validationProblem(for url: URL) -> String? {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true)
+                ?? URLComponents(string: url.absoluteString),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              components.host != nil else {
+            return "Enter an HTTP or HTTPS endpoint."
+        }
+        if components.user != nil || components.password != nil {
+            return "Don't put a username or password in the endpoint URL. Save an API key instead."
+        }
+        guard scheme == "https" || isCleartextAllowedHost(components.host) else {
             return "Use HTTPS for servers outside this Mac or your local network."
         }
         return nil

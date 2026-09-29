@@ -431,6 +431,23 @@ final class SettingsArchiveTests: XCTestCase {
         XCTAssertEqual(archive.values[PreferenceKey.historyEnabled], .bool(true))
     }
 
+    func testCustomEndpointSelectionIsNeverImported() throws {
+        defaults.set(ModelSize.tiny.rawValue, forKey: PreferenceKey.selectedModelSize)
+        let archive = SettingsArchive(values: [
+            PreferenceKey.selectedModelSize: .string(ModelSize.customEndpoint.rawValue),
+        ])
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        try SettingsArchiveService.restore(try encoder.encode(archive), defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: PreferenceKey.selectedModelSize), ModelSize.tiny.rawValue)
+
+        let local = SettingsArchive(values: [
+            PreferenceKey.selectedModelSize: .string(ModelSize.small.rawValue),
+        ])
+        try SettingsArchiveService.restore(try encoder.encode(local), defaults: defaults)
+        XCTAssertEqual(defaults.string(forKey: PreferenceKey.selectedModelSize), ModelSize.small.rawValue)
+    }
+
     func testClipboardConsentIsNeverImported() throws {
         let archive = SettingsArchive(values: [PreferenceKey.commandModeClipboardFallback: .bool(true)])
         let encoder = JSONEncoder()

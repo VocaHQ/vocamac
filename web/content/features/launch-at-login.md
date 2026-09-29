@@ -16,6 +16,6 @@ This controls when the app starts; it does not force a speech model to stay load
 
 ## Local and quiet
 
-The menu-bar app can be ready without opening a large window. Audio is captured only during a recording session, and transcription uses the selected local model. Model downloads, update checks, and release downloads are separate network actions; enabling launch at login does not turn on website analytics or telemetry.
+The menu-bar app can be ready without opening a large window. Audio is captured only during a recording session, and transcription uses the selected model (local by default). Custom Endpoint uploads recordings when you choose it. Model downloads, update checks, and release downloads are separate network actions; enabling launch at login does not turn on website analytics or telemetry.
 
 You can disable the login item from VocaMac or from macOS System Settings. Release builds are Developer ID signed; ad-hoc source builds may require permissions again after rebuilding.

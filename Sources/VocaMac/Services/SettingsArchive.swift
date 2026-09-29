@@ -50,6 +50,9 @@ enum SettingsArchiveService {
     /// (history, stats, scratchpad) and the cleanup endpoint and API key are
     /// not settings backups. Neither is the Command Mode clipboard opt-in: a
     /// privacy consent is given in Settings, never by importing a file.
+    /// Selecting Custom Endpoint is the same kind of consent (audio leaves
+    /// this Mac), so `custom-endpoint` is skipped on restore even though
+    /// `selectedModelSize` is otherwise imported.
     static let kinds: [String: Kind] = [
         // Switches
         "vocamac.launchAtLogin": .bool, "vocamac.preserveClipboard": .bool,
@@ -164,6 +167,15 @@ enum SettingsArchiveService {
         for (key, value) in archive.values {
             guard let kind = kinds[key] else { continue }
             if inputDeviceKeys.contains(key), !deviceIsHere { continue }
+            if key == PreferenceKey.selectedModelSize,
+               case .string(let size) = value,
+               size == ModelSize.customEndpoint.rawValue {
+                VocaLogger.warning(
+                    .general,
+                    "Skipped imported setting \(key): Custom Endpoint must be chosen in Settings"
+                )
+                continue
+            }
             guard isCompatible(value, with: kind) else {
                 VocaLogger.warning(.general, "Skipped imported setting \(key): unexpected value type")
                 continue

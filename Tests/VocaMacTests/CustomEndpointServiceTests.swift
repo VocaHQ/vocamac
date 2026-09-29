@@ -15,13 +15,15 @@ private struct StubEndpointCredentials: EndpointCredentialStoring {
     func deleteAPIKey() throws {}
 }
 
-/// Holds the last request the stub saw so a test can assert on it after the
+/// Holds the requests the stub saw so a test can assert on hops after the
 /// service call returns (the handler itself is `@Sendable`).
 private final class RequestBox: @unchecked Sendable {
     private let lock = NSLock()
-    private var stored: URLRequest?
-    func put(_ request: URLRequest) { lock.withLock { stored = request } }
-    var request: URLRequest? { lock.withLock { stored } }
+    private var stored: [URLRequest] = []
+    func put(_ request: URLRequest) { lock.withLock { stored.append(request) } }
+    func clear() { lock.withLock { stored = [] } }
+    var request: URLRequest? { lock.withLock { stored.last } }
+    var requests: [URLRequest] { lock.withLock { stored } }
 }
 
 private final class StubEndpointURLProtocol: URLProtocol, @unchecked Sendable {
@@ -41,6 +43,14 @@ private final class StubEndpointURLProtocol: URLProtocol, @unchecked Sendable {
         do {
             guard let handler else { throw URLError(.badServerResponse) }
             let (response, data) = try handler(request)
+            if let http = response as? HTTPURLResponse,
+               (300...399).contains(http.statusCode),
+               let location = http.value(forHTTPHeaderField: "Location"),
+               let redirectURL = URL(string: location, relativeTo: request.url)?.absoluteURL {
+                var redirected = request
+                redirected.url = redirectURL
+                client?.urlProtocol(self, wasRedirectedTo: redirected, redirectResponse: http)
+            }
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             client?.urlProtocol(self, didLoad: data)
             client?.urlProtocolDidFinishLoading(self)
@@ -114,6 +124,68 @@ final class SpeechEndpointConfigurationTests: XCTestCase {
         XCTAssertNil(configuration.validationProblem())
     }
 
+    func testSpeechCleartextRejectsLinkLocalAndBareHostnames() {
+        XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("169.254.169.254"))
+        XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("fe80::1"))
+        XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("[fe80::1]"))
+        XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("myserver"))
+        XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("172.32.0.1"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("192.168.1.20"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("localhost"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("::1"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("127.0.0.1"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("10.0.0.1"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("172.16.0.1"))
+        XCTAssertTrue(SpeechEndpointConfiguration.isCleartextAllowedHost("speech.local"))
+
+        var configuration = SpeechEndpointConfiguration()
+
+        configuration.baseURL = "http://169.254.169.254/latest/meta-data"
+        XCTAssertEqual(
+            configuration.validationProblem(),
+            "Use HTTPS for servers outside this Mac or your local network."
+        )
+
+        configuration.baseURL = "http://[fe80::1]/"
+        XCTAssertNotNil(configuration.validationProblem())
+
+        configuration.baseURL = "http://myserver/v1/audio/transcriptions"
+        XCTAssertEqual(
+            configuration.validationProblem(),
+            "Use HTTPS for servers outside this Mac or your local network."
+        )
+
+        configuration.baseURL = "http://192.168.1.20"
+        XCTAssertNil(configuration.validationProblem())
+
+        configuration.baseURL = "http://localhost"
+        XCTAssertNil(configuration.validationProblem())
+
+        configuration.baseURL = "http://127.0.0.1"
+        XCTAssertNil(configuration.validationProblem())
+
+        configuration.baseURL = "http://[::1]/"
+        XCTAssertNil(configuration.validationProblem())
+
+        configuration.baseURL = "http://speech.local"
+        XCTAssertNil(configuration.validationProblem())
+
+        configuration.baseURL = "https://anywhere.example"
+        XCTAssertNil(configuration.validationProblem())
+    }
+
+    func testURLUserinfoIsRejected() {
+        var configuration = SpeechEndpointConfiguration()
+        configuration.baseURL = "https://user:s3cret@speech.example.com/v1"
+        XCTAssertEqual(
+            configuration.validationProblem(),
+            "Don't put a username or password in the endpoint URL. Save an API key instead."
+        )
+        XCTAssertFalse(configuration.loggableBaseURL.contains("s3cret"))
+        XCTAssertFalse(configuration.loggableBaseURL.contains("user:"))
+        XCTAssertTrue(configuration.loggableBaseURL.contains("speech.example.com"))
+    }
+
     func testNonHTTPSchemesAreRejected() {
         var configuration = SpeechEndpointConfiguration()
         configuration.baseURL = "ftp://192.168.1.20"
@@ -150,7 +222,7 @@ final class CustomEndpointServiceTests: XCTestCase {
         return CustomEndpointService(
             configurationProvider: { configuration },
             credentials: StubEndpointCredentials(apiKey: apiKey),
-            session: URLSession(configuration: sessionConfiguration)
+            session: CustomEndpointService.makeSpeechSession(configuration: sessionConfiguration)
         )
     }
 
@@ -395,6 +467,8 @@ final class CustomEndpointServiceTests: XCTestCase {
             }
             XCTAssertEqual(status, 500)
             XCTAssertEqual(detail, #"{"error": "model missing"}"#)
+            XCTAssertEqual(error.localizedDescription, "The endpoint answered HTTP 500.")
+            XCTAssertFalse(error.localizedDescription.contains("model missing"))
         } catch {
             XCTFail("expected CustomEndpointError, got \(error)")
         }
@@ -443,5 +517,132 @@ final class CustomEndpointServiceTests: XCTestCase {
             TranscriptionRouter.engine(forModelIdentifier: ModelSize.customEndpoint.rawValue),
             .customEndpoint
         )
+    }
+
+    func testMultipartFieldStripsCRLF() {
+        var form = MultipartForm()
+        form.appendField("mod\nel", "large\r\nv3")
+        let body = String(decoding: form.body, as: UTF8.self)
+        XCTAssertFalse(body.contains("\r\nlarge"))
+        XCTAssertFalse(body.contains("mod\nel"))
+        XCTAssertTrue(body.contains("name=\"model\""))
+        XCTAssertTrue(body.contains("largev3"))
+    }
+
+    // MARK: - Redirect policy
+
+    func testRedirectToCleartextPublicHTTPDoesNotResendTheRecording() async throws {
+        for status in [302, 307] {
+            requestBox.clear()
+            var configuration = SpeechEndpointConfiguration()
+            configuration.baseURL = "https://speech.example.com"
+            let service = makeService(configuration: configuration, apiKey: "sk-secret")
+            try await service.loadModel()
+
+            StubEndpointURLProtocol.install { [requestBox] request in
+                requestBox.put(request)
+                if request.url?.scheme == "http" {
+                    let response = HTTPURLResponse(
+                        url: request.url!, statusCode: 200, httpVersion: nil,
+                        headerFields: ["Content-Type": "application/json"]
+                    )!
+                    return (response, Data(#"{"text": "leaked"}"#.utf8))
+                }
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: status, httpVersion: nil,
+                    headerFields: ["Location": "http://speech.example.com/v1/audio/transcriptions"]
+                )!
+                return (response, Data())
+            }
+
+            do {
+                _ = try await service.transcribe(
+                    audioData: [Float](repeating: 0.5, count: 1_600),
+                    language: nil, translate: false, vocabulary: ""
+                )
+                XCTFail("expected the \(status) redirect to fail")
+            } catch {
+                // Failure is required; the hop count below is the security check.
+            }
+
+            XCTAssertEqual(
+                requestBox.requests.count, 1,
+                "status \(status) followed a disallowed redirect"
+            )
+            let hop = try XCTUnwrap(requestBox.requests.first)
+            XCTAssertEqual(hop.url?.scheme, "https")
+            XCTAssertEqual(hop.value(forHTTPHeaderField: "Authorization"), "Bearer sk-secret")
+            XCTAssertNil(requestBox.requests.dropFirst().first)
+            for hop in requestBox.requests.dropFirst() {
+                let body = StubEndpointURLProtocol.bodyData(from: hop) ?? Data()
+                XCTAssertNil(hop.value(forHTTPHeaderField: "Authorization"))
+                XCTAssertNil(body.range(of: Data("RIFF".utf8)))
+            }
+        }
+    }
+
+    func testRedirectToLocalCleartextIsFollowed() async throws {
+        requestBox.clear()
+        var configuration = SpeechEndpointConfiguration()
+        configuration.baseURL = "https://speech.example.com"
+        let service = makeService(configuration: configuration, apiKey: "sk-secret")
+        try await service.loadModel()
+
+        StubEndpointURLProtocol.install { [requestBox] request in
+            requestBox.put(request)
+            if request.url?.host == "127.0.0.1" {
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (response, Data(#"{"text": "from localhost"}"#.utf8))
+            }
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 307, httpVersion: nil,
+                headerFields: ["Location": "http://127.0.0.1/v1/audio/transcriptions"]
+            )!
+            return (response, Data())
+        }
+
+        let result = try await service.transcribe(
+            audioData: [Float](repeating: 0.5, count: 1_600),
+            language: nil, translate: false, vocabulary: ""
+        )
+        XCTAssertEqual(result.text, "from localhost")
+        XCTAssertGreaterThanOrEqual(requestBox.requests.count, 2)
+        XCTAssertEqual(requestBox.requests.last?.url?.host, "127.0.0.1")
+        XCTAssertEqual(requestBox.requests.last?.url?.scheme, "http")
+    }
+
+    func testRedirectDelegateRejectsPublicCleartextAndAllowsLocalhost() async {
+        let rejected = await redirectDecision(
+            to: "http://speech.example.com/v1/audio/transcriptions"
+        )
+        XCTAssertNil(rejected)
+
+        let allowedHTTP = await redirectDecision(to: "http://127.0.0.1/v1/audio/transcriptions")
+        XCTAssertEqual(allowedHTTP?.url?.host, "127.0.0.1")
+
+        let allowedHTTPS = await redirectDecision(to: "https://anywhere.example/v1/audio/transcriptions")
+        XCTAssertEqual(allowedHTTPS?.url?.host, "anywhere.example")
+    }
+
+    private func redirectDecision(to target: String) async -> URLRequest? {
+        let delegate = SpeechEndpointRedirectDelegate()
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        let original = URL(string: "https://speech.example.com/v1/audio/transcriptions")!
+        let task = session.dataTask(with: original)
+        let newRequest = URLRequest(url: URL(string: target)!)
+        let response = HTTPURLResponse(
+            url: original, statusCode: 307, httpVersion: nil,
+            headerFields: ["Location": target]
+        )!
+        return await withCheckedContinuation { continuation in
+            delegate.urlSession(
+                session, task: task, willPerformHTTPRedirection: response,
+                newRequest: newRequest
+            ) { continuation.resume(returning: $0) }
+        }
     }
 }

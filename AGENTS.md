@@ -9,7 +9,7 @@ trailers for agents.
 
 ## Project overview
 
-Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device engines; `TranscriptionRouter` dispatches to the engine that owns the selected model. Optional post-transcript cleanup uses a local GGUF LLM (`TranscriptCleanupService`); views and `AppState` must not call `LLM` directly.
+Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device engines plus an optional Custom Endpoint remote engine; `TranscriptionRouter` dispatches to the engine that owns the selected model. Optional post-transcript cleanup uses a local GGUF LLM (`TranscriptCleanupService`); views and `AppState` must not call `LLM` directly.
 
 | Engine | Library / API | Runtime |
 |--------|---------------|---------|
@@ -17,6 +17,7 @@ Native **macOS menu bar** dictation app (Swift 5.9+, SwiftUI). Four on-device en
 | Parakeet | [FluidAudio](https://github.com/FluidInference/FluidAudio) | NVIDIA Parakeet TDT, CoreML on the Neural Engine |
 | Apple Speech | SpeechAnalyzer / SpeechTranscriber | macOS 26+, system-managed assets |
 | Specialized ONNX | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Moonshine, SenseVoice, GigaAM, Canary; CPU-only |
+| Custom Endpoint (opt-in) | User-hosted Whisper-compatible HTTP | Remote; uploads WAV when selected |
 | Cleanup (opt-in) | [LLM.swift](https://github.com/eastriverlee/LLM.swift) | Qwen / Ministral GGUF via llama.cpp Metal |
 
 The marketing site is Hugo in `web/`, deployed to GitHub Pages at [vocamac.com](https://vocamac.com).

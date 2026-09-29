@@ -625,8 +625,8 @@ struct ApplicationSettingsPage: View {
                     Button("Export Settings…", action: exportSettings)
                     Button("Import Settings…", action: importSettings)
                 }
-                .help("Includes preferences, shortcuts, rules, snippets, and dictionary. Not history, stats, models, cleanup endpoints, or API keys.")
-                Text("Includes preferences, shortcuts, rules, snippets, and dictionary. Not history, stats, models, cleanup endpoints, or API keys.")
+                .help("Includes preferences, shortcuts, rules, snippets, and dictionary. Not history, stats, models, cleanup endpoints, custom endpoint settings, or API keys.")
+                Text("Includes preferences, shortcuts, rules, snippets, and dictionary. Not history, stats, models, cleanup endpoints, custom endpoint settings, or API keys.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -646,7 +646,7 @@ struct ApplicationSettingsPage: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try SettingsArchiveService.encode().write(to: url, options: .atomic)
-            backupNotice = "Settings exported. Cleanup endpoints and API keys were not included."
+            backupNotice = "Settings exported. Cleanup endpoints, custom endpoint settings, and API keys were not included."
         } catch {
             backupNotice = "Could not export settings: \(error.localizedDescription)"
         }
@@ -662,7 +662,7 @@ struct ApplicationSettingsPage: View {
             let devices = Set(appState.availableInputDevices().map(\.id))
             try SettingsArchiveService.restore(Data(contentsOf: url), isAvailableInputDevice: devices.contains)
             appState.reloadImportedSettings()
-            backupNotice = "Settings imported. The existing cleanup endpoint and API key were left unchanged."
+            backupNotice = "Settings imported. The existing cleanup endpoint and API key were left unchanged. Custom Endpoint was not selected from the file."
         } catch {
             backupNotice = "Could not import settings: \(error.localizedDescription)"
         }
@@ -1578,6 +1578,7 @@ struct ModelRow: View {
     /// Apple Speech's languages on this Mac, when known.
     var systemLanguages: Set<String>?
     @State private var showForceDownloadAlert = false
+    @State private var showRemoteEndpointAlert = false
     @State private var showDeleteAlert = false
 
     /// Apple Speech models are managed by the OS, not stored by the app, so there's nothing to
@@ -1667,11 +1668,11 @@ struct ModelRow: View {
                 HStack(spacing: 6) {
                     Text(model.size.displayName)
                         .font(.callout.weight(model.isActive ? .semibold : .medium))
-                    if model.isDownloaded && !model.isActive {
+                    if model.size.isRemotelyHosted {
+                        ModelTag(text: "Remote", systemImage: "network")
+                    } else if model.isDownloaded && !model.isActive {
                         ModelTag(
-                            text: model.size.isRemotelyHosted
-                                ? "Remote"
-                                : model.size.isSystemManaged ? "Built In" : "Downloaded",
+                            text: model.size.isSystemManaged ? "Built In" : "Downloaded",
                             systemImage: "checkmark"
                         )
                     }
@@ -1733,12 +1734,24 @@ struct ModelRow: View {
                         await appState.downloadModel(model.size)
                     }
                     if model.isDownloaded || appState.availableModels.first(where: { $0.size == model.size })?.isDownloaded == true {
-                        await appState.loadModel(model.size)
+                        if model.size.isRemotelyHosted {
+                            showRemoteEndpointAlert = true
+                        } else {
+                            await appState.loadModel(model.size)
+                        }
                     }
                 }
             }
         } message: {
             Text("WhisperKit hasn't verified this model on your chip family. It may fail to load, or it may run slower than tuned models.")
+        }
+        .alert("Use Remote Endpoint?", isPresented: $showRemoteEndpointAlert) {
+            Button("Cancel", role: .cancel) {}
+            Button("Use Remote Endpoint", role: .destructive) {
+                Task { @MainActor in await appState.loadModel(model.size) }
+            }
+        } message: {
+            Text("Each recording is uploaded as a WAV file to the configured server. Audio leaves this Mac while Custom Endpoint is selected.")
         }
         .alert("Delete \(model.size.displayName)?", isPresented: $showDeleteAlert) {
             Button("Cancel", role: .cancel) {}
@@ -1811,7 +1824,9 @@ struct ModelRow: View {
                     .accessibilityLabel("Delete \(model.size.displayName)")
                 }
                 Button(model.isSupported ? "Use" : "Use Anyway") {
-                    if model.isSupported {
+                    if model.size.isRemotelyHosted {
+                        showRemoteEndpointAlert = true
+                    } else if model.isSupported {
                         Task { @MainActor in await appState.loadModel(model.size) }
                     } else {
                         showForceDownloadAlert = true

@@ -33,11 +33,8 @@ enum CustomEndpointError: LocalizedError, Equatable {
             return "Nothing was recorded."
         case .notConfigured(let problem):
             return problem
-        case .endpointRejected(let status, let detail):
-            guard let detail, !detail.isEmpty else {
-                return "The endpoint answered HTTP \(status)."
-            }
-            return "The endpoint answered HTTP \(status): \(detail)"
+        case .endpointRejected(let status, _):
+            return "The endpoint answered HTTP \(status)."
         case .unexpectedResponse:
             return "The endpoint's answer was not the JSON transcript VocaMac expects."
         }
@@ -70,11 +67,26 @@ final class CustomEndpointService: SpeechTranscribing {
             )
         },
         credentials: EndpointCredentialStoring = KeychainCredentialStore.speechEndpoint,
-        session: URLSession = .shared
+        session: URLSession = CustomEndpointService.makeSpeechSession()
     ) {
         self.configurationProvider = configurationProvider
         self.credentials = credentials
         self.session = session
+    }
+
+    /// A session that re-checks every redirect hop against the speech URL
+    /// rules, so a 302/307 cannot bounce a WAV upload onto cleartext public
+    /// HTTP. Tests pass a configuration with a stub `URLProtocol`.
+    static func makeSpeechSession(
+        configuration: URLSessionConfiguration = .ephemeral
+    ) -> URLSession {
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = requestTimeout
+        return URLSession(
+            configuration: configuration,
+            delegate: SpeechEndpointRedirectDelegate(),
+            delegateQueue: nil
+        )
     }
 
     /// Load "the endpoint": validate the saved settings and mark the engine
@@ -87,7 +99,10 @@ final class CustomEndpointService: SpeechTranscribing {
         }
         loadedModelName = name ?? ModelSize.customEndpoint.rawValue
         isModelLoaded = true
-        VocaLogger.info(.customEndpointService, "Custom endpoint ready: \(configuration.resolvedBaseURL)")
+        VocaLogger.info(
+            .customEndpointService,
+            "Custom endpoint ready: \(configuration.loggableBaseURL)"
+        )
     }
 
     func unloadModel() {
@@ -147,10 +162,17 @@ final class CustomEndpointService: SpeechTranscribing {
         guard (200..<300).contains(http.statusCode) else {
             let detail = String(data: data.prefix(240), encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            VocaLogger.warning(
-                .customEndpointService,
-                "Endpoint rejected the recording with HTTP \(http.statusCode)"
-            )
+            if let detail, !detail.isEmpty {
+                VocaLogger.warning(
+                    .customEndpointService,
+                    "Endpoint rejected the recording with HTTP \(http.statusCode): \(detail)"
+                )
+            } else {
+                VocaLogger.warning(
+                    .customEndpointService,
+                    "Endpoint rejected the recording with HTTP \(http.statusCode)"
+                )
+            }
             throw CustomEndpointError.endpointRejected(status: http.statusCode, detail: detail)
         }
 
@@ -195,6 +217,8 @@ struct MultipartForm {
     private(set) var body = Data()
 
     mutating func appendField(_ name: String, _ value: String) {
+        let name = Self.withoutLineBreaks(name)
+        let value = Self.withoutLineBreaks(value)
         body.append(contentsOf: (
             "--\(boundary)\r\n"
             + "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"
@@ -203,6 +227,9 @@ struct MultipartForm {
     }
 
     mutating func appendFile(_ name: String, filename: String, contentType: String, data: Data) {
+        let name = Self.withoutLineBreaks(name)
+        let filename = Self.withoutLineBreaks(filename)
+        let contentType = Self.withoutLineBreaks(contentType)
         body.append(contentsOf: (
             "--\(boundary)\r\n"
             + "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n"
@@ -214,5 +241,33 @@ struct MultipartForm {
 
     mutating func close() {
         body.append(contentsOf: "--\(boundary)--\r\n".utf8)
+    }
+
+    /// CR/LF in a multipart name or value would split the body into extra
+    /// parts. Drop them rather than send a malformed upload.
+    static func withoutLineBreaks(_ text: String) -> String {
+        text.filter { $0 != "\r" && $0 != "\n" }
+    }
+}
+
+/// Follows a redirect only when the next hop would still pass speech URL
+/// validation (HTTPS, or cleartext on loopback / RFC1918 / `.local`).
+final class SpeechEndpointRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard let url = request.url, SpeechEndpointConfiguration.allowsRecordingDestination(url) else {
+            VocaLogger.warning(
+                .customEndpointService,
+                "Rejected a redirect that would leave the speech allowlist"
+            )
+            completionHandler(nil)
+            return
+        }
+        completionHandler(request)
     }
 }

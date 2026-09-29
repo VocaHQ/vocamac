@@ -24,8 +24,8 @@ Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or B
 
 The first use of a model can download its files from the documented WhisperKit model repository. VocaMac caches the model locally, verifies the downloaded assets, and uses the selected model for later recordings. You can keep more than one model and delete downloaded models you no longer need from Settings.
 
-The model choice affects speed, memory, and accuracy; it does not change the privacy boundary. Transcription remains on-device after the selected model is available.
+The model choice affects speed, memory, and accuracy. Local engines keep transcription on-device after the selected model is available. Selecting Custom Endpoint uploads each recording to the server you configured.
 
 ## CoreML on Apple Silicon
 
-WhisperKit supplies the CoreML model path used by the stable release. VocaMac coordinates the model on your Mac instead of sending audio to a hosted speech API. Actual speed varies by chip, memory pressure, recording length, and model size, so the site avoids unsupported benchmark promises.
+WhisperKit supplies the CoreML model path used by the stable release. For local engines, VocaMac coordinates the model on your Mac instead of sending audio to a hosted speech API. Custom Endpoint is a separate, opt-in engine and is the exception. Actual speed varies by chip, memory pressure, recording length, and model size, so the site avoids unsupported benchmark promises.

@@ -420,7 +420,9 @@ struct MenuBarView: View {
                     .font(.system(size: 14, weight: .semibold))
 
                 if let model = appState.currentModel {
-                    Text(model.size.displayName)
+                    Text(model.size.isRemotelyHosted
+                         ? "\(model.size.displayName) · Remote"
+                         : model.size.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if appState.whisperService.isModelLoaded {

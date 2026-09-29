@@ -724,6 +724,8 @@ struct MenuBarView: View {
     private var needsSpeechModel: Bool {
         appState.appStatus == .idle
             && !appState.whisperService.isModelLoaded
+            // Not yet populated at launch: nothing is known to be missing.
+            && !appState.availableModels.isEmpty
             && !appState.availableModels.contains {
                 $0.size.rawValue == appState.selectedModelSize && $0.isDownloaded
             }

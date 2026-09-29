@@ -23,13 +23,13 @@ VocaMac uses OpenAI's Whisper model, which has a built-in translation capability
 
 The speech-processing step happens on your Mac. VocaMac does not send dictation audio to a Voca cloud endpoint; separate actions such as model and release downloads still need a network connection.
 
-The available source languages and results depend on the selected Whisper model. The stable app exposes its supported language hints in Settings; it does not promise every language in Whisper's training data.
+The available source languages and results depend on the selected Whisper model. The current release (v1.0.0) exposes its supported language hints in Settings; it does not promise every language in Whisper's training data.
 
 ## Setting Your Source Language
 
 By default, VocaMac automatically detects the language you're speaking. Whisper's detection is remarkably accurate, even for short utterances.
 
-For more predictable results, you can manually set your source language in **Settings → Speech Model**. Select from the language hints exposed by the stable app. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
+For more predictable results, you can manually set your source language in **Settings → Speech Model**. Select from the language hints in Settings. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
 
 Changing languages is as simple as picking a new option from the dropdown. No restarts, no waiting. The change takes effect immediately.
 
@@ -99,11 +99,11 @@ If you want to transcribe in your source language without translation, simply di
 
 ## The Private Alternative to Cloud Translation
 
-VocaMac's translation feature represents a fundamentally different approach than cloud-based translation services. By keeping everything local, you get:
+VocaMac's translation feature represents a fundamentally different approach than cloud-based translation services. After the model is available, speech processing runs on your Mac, so you get:
 
-- **Privacy**: your voice and words never leave your computer
+- **Privacy**: after the model is present, speech processing runs on-device. Model downloads and update checks are separate network actions.
 - **Speed**: no network round trip for the speech-processing step
-- **Offline capability**: work anywhere, anytime
+- **Offline capability**: after the model is available, on-device transcription can work offline. The launch update check still happens when online.
 - **No subscription fees**: translation is included with VocaMac
 
 This is ideal for anyone who speaks multiple languages and values both convenience and privacy in their workflow.

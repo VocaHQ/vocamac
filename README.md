@@ -721,6 +721,12 @@ Input Monitoring still needs VocaMac to be restarted once after the grant takes 
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
 ## 📄 License
 
 AGPL-3.0 License - see [LICENSE](LICENSE) for details.

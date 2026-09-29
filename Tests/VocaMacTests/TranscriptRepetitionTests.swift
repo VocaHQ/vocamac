@@ -184,4 +184,74 @@ final class TranscriptRepetitionTests: XCTestCase {
         XCTAssertFalse(WhisperService.isLoopFreeRetry(hinglishLoop, audioSeconds: 1.8))
         XCTAssertFalse(WhisperService.isLoopFreeRetry(" ", audioSeconds: 11.5))
     }
+
+    // MARK: - Punctuation
+
+    func testDropsTheColonTailVocaHinglishWrote() {
+        // Two real dictations, word for word.
+        let question = "in the Phone client and in the Mac client, please?" + String(repeating: ":", count: 16)
+        XCTAssertTrue(TranscriptRepetition.containsLoop(question, audioSeconds: 11.4))
+        XCTAssertEqual(
+            TranscriptRepetition.collapsingLoops(in: question, audioSeconds: 11.4),
+            "in the Phone client and in the Mac client, please?"
+        )
+        let statement = "let's have a meeting." + String(repeating: ":", count: 20)
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: statement), "let's have a meeting.")
+    }
+
+    func testRepeatedPunctuationKeepsWhatTheSentenceNeeds() {
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "Wait!!!!!!!!"), "Wait!")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "So.........."), "So...")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "okay ::::::::: then"), "okay : then")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "okay. :::::::: then"), "okay. then")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "?!?!?!?!?!?!?!"), "")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "::::::: hello"), "hello")
+        // A unit that mixes a divider character with anything else still loops.
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "okay -:-:-:-:-:-:-:"), "okay -:")
+        XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: "Done.#!#!#!#!#!#!"), "Done.")
+    }
+
+    func testPunctuationPeopleWriteIsNotALoop() {
+        for text in [
+            "Wait...",
+            "Really?!",
+            "No!!!",
+            "Hmm.....",
+            "It costs $1,000,000,000,000.",
+            "a -- b",
+            "Time is 10:30:00:00:00:00.",
+            "Smile :-) :-) :-)",
+            "Done. Next. Then. Okay. Fine. Good.",
+            // Dividers and headings are written on purpose.
+            "------",
+            "Notes\n------\nFirst item",
+            "---\n---",
+            "a ====== b",
+            "******",
+            "Name ______ here",
+            "~~~~~~",
+            "###### Heading",
+            "*-*-*-*-*-*-*-",
+            "Done? ------",
+            // Only back-to-back symbols form a run: spaced tokens and three on
+            // each of two lines are not six copies.
+            "Smile :-) :-) :-) :-) :-) :-)",
+            "a -> b -> c -> d -> e -> f -> g",
+            "-> -> -> -> -> -> ->",
+            "Done? ? ? ? ? ? ? ?",
+            "Wow!!!\n!!! Nice",
+            "Why???\n???",
+        ] {
+            XCTAssertNil(TranscriptRepetition.symbolLoop(in: text), text)
+            XCTAssertEqual(TranscriptRepetition.collapsingLoops(in: text), text, text)
+        }
+    }
+
+    func testLongDividersAreSkippedWithoutScanning() {
+        let divider = String(repeating: "-", count: 20_000)
+        let text = "Notes " + divider + " " + divider
+        let started = Date()
+        XCTAssertNil(TranscriptRepetition.symbolLoop(in: text))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1)
+    }
 }

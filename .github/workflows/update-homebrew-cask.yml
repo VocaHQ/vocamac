@@ -1,5 +1,5 @@
 # Updates the Homebrew tap cask (VocaHQ/homebrew-vocamac) when a GitHub Release is published.
-# Downloads the release DMG, computes its sha256, and commits the updated version+checksum to the tap repo.
+# Downloads the release DMG, computes its sha256, and opens a reviewable tap PR.
 # Can also be triggered manually via workflow_dispatch (optional tag input; defaults to latest)
 # so a cask bump can be run for an existing release without publishing a new one.
 name: Update Homebrew Cask
@@ -51,8 +51,8 @@ jobs:
             exit 1
           fi
           VERSION="${TAG#v}"
-          if [ -z "$VERSION" ]; then
-            echo "::error::Resolved tag '${TAG}' produced an empty version."
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Release tag must contain a valid version."
             exit 1
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
@@ -88,11 +88,26 @@ jobs:
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-vocamac
 
+      - name: Prepare tap update branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd homebrew-vocamac
+          BRANCH="automation/vocamac-v${VERSION}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "$BRANCH"
+            git switch -C "$BRANCH" FETCH_HEAD
+          else
+            git switch -c "$BRANCH"
+          fi
+
       - name: Update cask file
         env:
           VERSION: ${{ steps.version.outputs.version }}
           SHA256: ${{ steps.checksum.outputs.sha256 }}
         run: |
+          set -euo pipefail
           CASK_FILE="homebrew-vocamac/Casks/vocamac.rb"
 
           # Update the version line
@@ -103,11 +118,14 @@ jobs:
           echo "Updated ${CASK_FILE}:"
           grep -E "^\s+(version|sha256)" "$CASK_FILE"
 
-      - name: Commit and push to tap repo
+      - name: Open tap update pull request
         env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
+          set -euo pipefail
           cd homebrew-vocamac
+          BRANCH="automation/vocamac-v${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Casks/vocamac.rb
@@ -116,4 +134,9 @@ jobs:
             exit 0
           fi
           git commit -m "chore: update vocamac to v${VERSION}"
-          git push
+          git push -u origin "$BRANCH"
+          if [ "$(gh pr list --repo VocaHQ/homebrew-vocamac --head "$BRANCH" --state open --json number --jq 'length')" = "0" ]; then
+            gh pr create --repo VocaHQ/homebrew-vocamac --base main --head "$BRANCH" \
+              --title "chore: update VocaMac cask to v${VERSION}" \
+              --body "Automated cask update for VocaMac v${VERSION}. Review the release artifact URL and SHA-256 before merging."
+          fi

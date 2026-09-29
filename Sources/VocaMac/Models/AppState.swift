@@ -2072,9 +2072,10 @@ final class AppState: ObservableObject {
         // The custom endpoint is batch-only: one upload per recording. Commit
         // mode would mean an upload per piece, so it stays off for it.
         guard processWhileSpeaking, injectResult, activeCommandSelection == nil,
-              let engine = ModelSize(rawValue: selectedModelSize)?.engine,
-              engine != .customEndpoint,
-              !(engine == .whisperKit && translatesSpeech) else { return nil }
+              let model = ModelSize(rawValue: selectedModelSize),
+              model.engine != .customEndpoint,
+              !(model.engine == .whisperKit && translatesSpeech) else { return nil }
+        let engine = model.engine
         guard !isPowerConstrained() else {
             VocaLogger.info(.appState, "Process while speaking paused: Low Power Mode or thermal pressure")
             return nil
@@ -2110,7 +2111,8 @@ final class AppState: ObservableObject {
         }
         var readVocabulary: (@Sendable () -> String)?
         var isReadyForEarlyDecode: (@Sendable () -> Bool)?
-        if engine == .whisperKit {
+        // A model that takes no vocabulary prompt has nothing to wait for.
+        if engine == .whisperKit, model.acceptsVocabularyPrompt {
             readVocabulary = { vocabulary.read() }
             isReadyForEarlyDecode = { vocabulary.isSettled }
         }

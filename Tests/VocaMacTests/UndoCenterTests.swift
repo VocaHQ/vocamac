@@ -186,11 +186,45 @@ final class UndoCenterTests: XCTestCase {
             Snippet(trigger: "mail", expansion: "a"), Snippet(trigger: "vmac", expansion: "a")))
     }
 
-    func testReplacementConflictOnSameTextOrSharedSpokenForm() {
+    func testReplacementConflictOnlyOnASharedSpokenForm() {
         let a = WordReplacement(heard: "get hub, git hub", replacement: "GitHub")
-        XCTAssertTrue(WordReplacement.overlaps(a, WordReplacement(heard: "gh", replacement: "GitHub")))
         XCTAssertTrue(WordReplacement.overlaps(a, WordReplacement(heard: "GIT HUB", replacement: "Git Hub")))
         XCTAssertFalse(WordReplacement.overlaps(a, WordReplacement(heard: "jira", replacement: "Jira")))
+    }
+
+    func testSameTypedTextWithDifferentSpokenFormsIsNotAConflict() {
+        // Two rows can end up with the same "Type" text after an edit; undoing
+        // the removal of one must bring its spoken form back.
+        let a = WordReplacement(heard: "get hub", replacement: "GitHub")
+        let b = WordReplacement(heard: "gh", replacement: "GitHub")
+        XCTAssertFalse(WordReplacement.overlaps(a, b))
+    }
+
+    func testAppRuleConflictUsesAppIdentityNotRuleID() {
+        let original = AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal",
+                                       bundleIdentifier: "com.apple.Terminal", style: .plain)
+        let imported = AppStyleBinding(id: "imported-1", displayName: "Terminal",
+                                       bundleIdentifier: "com.apple.Terminal", style: .plain)
+        let other = AppStyleBinding(id: "com.apple.mail", displayName: "Mail",
+                                    bundleIdentifier: "com.apple.mail", style: .plain)
+        XCTAssertTrue(AppStyleBinding.sharesApp(original, imported))
+        XCTAssertFalse(AppStyleBinding.sharesApp(original, other))
+    }
+
+    func testRemoveAllUndoSkipsAnAppRuleImportedUnderAnotherID() {
+        final class Holder { var rules: [AppStyleBinding] = [] }
+        let holder = Holder()
+        holder.rules = [AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal",
+                                        bundleIdentifier: "com.apple.Terminal", style: .plain)]
+        let center = UndoCenter()
+        center.removeAll(from: \Holder.rules, of: holder, message: "Removed 1",
+                         conflictsWith: AppStyleBinding.sharesApp)
+        holder.rules = [AppStyleBinding(id: "imported-1", displayName: "Terminal",
+                                        bundleIdentifier: "com.apple.Terminal", style: .code)]
+
+        center.undo()
+
+        XCTAssertEqual(holder.rules.map(\.id), ["imported-1"])
     }
 
     func testWebsiteConflictIgnoresCase() {

@@ -78,6 +78,19 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
         )
     }
 
+    /// Two rules are for the same app, even under different rule IDs (say, one
+    /// imported from a file), using the same identity match as dictation.
+    static func sharesApp(_ a: AppStyleBinding, _ b: AppStyleBinding) -> Bool {
+        func snapshot(_ binding: AppStyleBinding) -> RunningAppSnapshot {
+            RunningAppSnapshot(
+                displayName: binding.displayName,
+                bundleIdentifier: binding.bundleIdentifier,
+                processName: binding.processName
+            )
+        }
+        return a.matches(snapshot(b)) || b.matches(snapshot(a))
+    }
+
     /// Whether this binding identifies the given running app.
     func matches(_ snapshot: RunningAppSnapshot) -> Bool {
         AppIdentityMatching.matches(

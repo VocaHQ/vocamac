@@ -96,9 +96,11 @@ struct DictionaryContext {
 }
 
 extension WordReplacement {
-    /// Two replacements write the same text or fire on a shared spoken form.
+    /// Two replacements fire on a shared spoken form, so only one can win.
+    ///
+    /// The same text with different spoken forms is not a conflict: both
+    /// rows are needed to keep every form working.
     static func overlaps(_ a: WordReplacement, _ b: WordReplacement) -> Bool {
-        if a.replacement == b.replacement { return true }
         let forms = Set(a.heardForms.map { $0.lowercased() })
         return b.heardForms.contains { forms.contains($0.lowercased()) }
     }

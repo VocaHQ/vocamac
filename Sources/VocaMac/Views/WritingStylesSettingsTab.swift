@@ -87,7 +87,8 @@ struct WritingStylesSettingsTab: View {
                             onRemove: {
                                 undo.remove(
                                     id: binding.id, from: \.writingStyleBindings, of: appState,
-                                    message: "Removed \(binding.displayName)"
+                                    message: "Removed \(binding.displayName)",
+                                    conflictsWith: AppStyleBinding.sharesApp
                                 )
                             }
                         )
@@ -132,6 +133,7 @@ struct WritingStylesSettingsTab: View {
                             undo.removeAll(
                                 from: \.writingStyleBindings, of: appState,
                                 message: "Removed \(count) apps",
+                                conflictsWith: AppStyleBinding.sharesApp,
                                 afterUndo: { suggestionNotice = nil }
                             )
                             suggestionNotice = "Removed every app. All apps now use \(appState.writingStyleDefault.displayName)."

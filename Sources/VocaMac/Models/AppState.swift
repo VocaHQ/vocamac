@@ -704,6 +704,17 @@ final class AppState: ObservableObject {
     let soundManager: SoundPlaying
     let audioDucker: AudioDucking
     let cursorOverlay: CursorOverlayManaging
+
+    /// The Settings overlay preview. Owned here so a real dictation can end it
+    /// before it starts: a preview left up while the speech model loads would
+    /// look like the microphone is already listening.
+    private(set) lazy var overlayPreview = OverlayPreviewController(
+        overlay: cursorOverlay,
+        isIdle: { [weak self] in
+            guard let self else { return false }
+            return appStatus == .idle && !isRecording
+        }
+    )
     let statsManager: StatsManaging
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
@@ -1367,6 +1378,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The chosen speech model is not on this Mac and none is on the way.
+    ///
+    /// A model that is downloaded but not loaded yet, or unloaded on purpose
+    /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
+    var needsSpeechModel: Bool {
+        appStatus == .idle
+            && !whisperService.isModelLoaded
+            // Not yet populated at launch: nothing is known to be missing.
+            && !availableModels.isEmpty
+            && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
+            && !availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
+    }
+
     /// Ensure a model is loaded before dictation (lazy reload after idle unload).
     func ensureModelLoaded() async {
         guard !whisperService.isModelLoaded else { return }
@@ -1770,6 +1794,7 @@ final class AppState: ObservableObject {
     ) async {
         let interval = PerformanceTrace.begin("RecordingStart")
         defer { PerformanceTrace.end(interval) }
+        overlayPreview.stop()
         // If we're already recording, this is a recovery attempt — the user
         // pressed the hotkey again because a previous key-up was missed.
         // Stop the current recording and transcribe what we have.
@@ -4359,6 +4384,17 @@ extension AppState {
         guard !trimmed.isEmpty else { return }
         var terms = vocabularyTerms.filter { $0.lowercased() != trimmed.lowercased() }
         terms.append(trimmed)
+        setVocabularyTerms(terms)
+    }
+
+    /// Put a removed term back where it was, so undoing an early term in a long
+    /// list does not push a different one out of the recognition hints (which
+    /// keep the last terms). Does nothing if the term was added again meanwhile.
+    func restoreVocabularyTerm(_ term: String, at index: Int) {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        var terms = vocabularyTerms
+        guard !trimmed.isEmpty, !terms.contains(where: { $0.lowercased() == trimmed.lowercased() }) else { return }
+        terms.insert(trimmed, at: min(max(index, 0), terms.count))
         setVocabularyTerms(terms)
     }
 

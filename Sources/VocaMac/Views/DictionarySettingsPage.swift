@@ -27,8 +27,9 @@ struct DictionarySettingsPage: View {
             VocaSettingsGroup("Vocabulary", subtitle: "Names and jargon, spelled exactly your way.") {
                 if !appState.vocabularyTerms.isEmpty {
                     FlowTermList(terms: appState.vocabularyTerms) { term in
+                        let index = appState.vocabularyTerms.firstIndex(of: term) ?? 0
                         appState.removeVocabularyTerm(term)
-                        undo.offer("Removed “\(term)”") { appState.addVocabularyTerm(term) }
+                        undo.offer("Removed “\(term)”") { appState.restoreVocabularyTerm(term, at: index) }
                     }
                 }
                 HStack {
@@ -186,7 +187,8 @@ struct WordReplacementRow: View {
             Button(role: .destructive) {
                 undo.remove(
                     id: replacement.id, from: \.wordReplacements, of: appState,
-                    message: "Removed replacement for “\(replacement.replacement)”"
+                    message: "Removed replacement for “\(replacement.replacement)”",
+                    conflictsWith: WordReplacement.overlaps
                 )
             } label: {
                 Image(systemName: "minus.circle.fill")

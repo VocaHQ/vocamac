@@ -79,6 +79,15 @@ final class OverlayPreviewControllerTests: XCTestCase {
         XCTAssertFalse(controller.isRunning)
     }
 
+    func testStopWithNoPreviewNeverTouchesTheOverlay() {
+        let overlay = MockCursorOverlay()
+        let controller = makeController(overlay: overlay)
+
+        controller.stop()
+
+        XCTAssertEqual(overlay.hideCallCount, 0)
+    }
+
     func testStopHidesTheOverlayOnce() {
         let overlay = MockCursorOverlay()
         let controller = makeController(overlay: overlay)
@@ -91,7 +100,7 @@ final class OverlayPreviewControllerTests: XCTestCase {
         XCTAssertFalse(controller.isRunning)
     }
 
-    func testLeavesTheOverlayAloneOnceADictationTakesOver() async throws {
+    func testHidesThePreviewIfTheAppBecomesBusyWithoutStop() async throws {
         let overlay = MockCursorOverlay()
         var idle = true
         let controller = makeController(overlay: overlay, idle: { idle }, duration: .seconds(5))
@@ -100,7 +109,7 @@ final class OverlayPreviewControllerTests: XCTestCase {
         idle = false
         try await Task.sleep(for: .milliseconds(200))
 
-        XCTAssertEqual(overlay.hideCallCount, 0)
+        XCTAssertEqual(overlay.hideCallCount, 1)
         XCTAssertFalse(controller.isRunning)
     }
 }

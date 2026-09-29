@@ -16,3 +16,11 @@ struct Snippet: Identifiable, Codable, Equatable {
         self.expansion = expansion
     }
 }
+
+extension Snippet {
+    /// Two snippets answer to the same spoken trigger.
+    static func sharesTrigger(_ a: Snippet, _ b: Snippet) -> Bool {
+        a.trigger.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == b.trigger.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+}

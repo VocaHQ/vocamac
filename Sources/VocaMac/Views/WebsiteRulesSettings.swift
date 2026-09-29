@@ -39,7 +39,8 @@ struct WebsiteRulesSettings: View {
                         Button(role: .destructive) {
                             undo.remove(
                                 id: rule.id, from: \.websiteStyleBindings, of: appState,
-                                message: "Removed \(rule.displayName)"
+                                message: "Removed \(rule.displayName)",
+                                conflictsWith: WebsiteStyleBinding.sharesHost
                             )
                         } label: { Image(systemName: "minus.circle.fill") }
                         .buttonStyle(.borderless)

@@ -67,13 +67,19 @@ final class UndoCenter {
     /// Remove the element with `id` from an array property and offer to put it
     /// back at the same position.
     ///
+    /// Undo never brings back a stale copy over newer work: if the list gained
+    /// an element with the same `id`, or one that `conflictsWith` the removed
+    /// element (say, a snippet re-added with the same trigger), the removed
+    /// element stays gone.
+    ///
     /// Returns whether anything was removed.
     @discardableResult
     func remove<Root: AnyObject, Element: Identifiable>(
         id: Element.ID,
         from keyPath: ReferenceWritableKeyPath<Root, [Element]>,
         of root: Root,
-        message: String
+        message: String,
+        conflictsWith: @escaping (Element, Element) -> Bool = { _, _ in false }
     ) -> Bool {
         var items = root[keyPath: keyPath]
         guard let index = items.firstIndex(where: { $0.id == id }) else { return false }
@@ -82,10 +88,43 @@ final class UndoCenter {
         offer(message) { [weak root] in
             guard let root else { return }
             var items = root[keyPath: keyPath]
-            guard !items.contains(where: { $0.id == removed.id }) else { return }
+            guard !Self.isSuperseded(removed, by: items, conflictsWith: conflictsWith) else { return }
             items.insert(removed, at: min(index, items.count))
             root[keyPath: keyPath] = items
         }
         return true
+    }
+
+    /// Empty an array property and offer to bring the elements back.
+    ///
+    /// Elements added since are kept: undo puts the removed ones ahead of them
+    /// and skips any that were superseded (see `remove`).
+    func removeAll<Root: AnyObject, Element: Identifiable>(
+        from keyPath: ReferenceWritableKeyPath<Root, [Element]>,
+        of root: Root,
+        message: String,
+        conflictsWith: @escaping (Element, Element) -> Bool = { _, _ in false },
+        afterUndo: @escaping () -> Void = {}
+    ) {
+        let removed = root[keyPath: keyPath]
+        guard !removed.isEmpty else { return }
+        root[keyPath: keyPath] = []
+        offer(message) { [weak root] in
+            guard let root else { return }
+            let current = root[keyPath: keyPath]
+            let restorable = removed.filter {
+                !Self.isSuperseded($0, by: current, conflictsWith: conflictsWith)
+            }
+            root[keyPath: keyPath] = restorable + current
+            afterUndo()
+        }
+    }
+
+    private static func isSuperseded<Element: Identifiable>(
+        _ element: Element,
+        by current: [Element],
+        conflictsWith: (Element, Element) -> Bool
+    ) -> Bool {
+        current.contains { $0.id == element.id || conflictsWith($0, element) }
     }
 }

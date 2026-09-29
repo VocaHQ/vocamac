@@ -94,3 +94,12 @@ struct DictionaryContext {
         vocabulary.isEmpty && replacements.isEmpty && contextTerms.isEmpty
     }
 }
+
+extension WordReplacement {
+    /// Two replacements write the same text or fire on a shared spoken form.
+    static func overlaps(_ a: WordReplacement, _ b: WordReplacement) -> Bool {
+        if a.replacement == b.replacement { return true }
+        let forms = Set(a.heardForms.map { $0.lowercased() })
+        return b.heardForms.contains { forms.contains($0.lowercased()) }
+    }
+}

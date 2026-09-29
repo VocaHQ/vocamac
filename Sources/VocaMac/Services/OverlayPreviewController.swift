@@ -8,8 +8,10 @@ import Foundation
 
 /// Shows the overlay with a fake waveform and sample words, then hides it.
 ///
-/// A preview never outlives a real dictation: it stops as soon as the app is
-/// no longer idle, and leaves the overlay to whoever took over.
+/// A preview never outlives the idle state: `AppState` ends it before a
+/// dictation starts, and it hides itself if the app becomes busy any other
+/// way. Either way the fake "listening" overlay is gone before the speech
+/// model loads or a recording begins.
 @MainActor
 final class OverlayPreviewController {
     static let sampleTranscript = "This is how your words will appear."
@@ -54,9 +56,12 @@ final class OverlayPreviewController {
             var step = 0.0
             while clock.now - start < duration {
                 guard !Task.isCancelled else { return }
-                // Something else started using the overlay: leave it alone.
+                // The app got busy without going through `stop()`. A real
+                // dictation always calls `stop()` first, so nothing else owns
+                // the overlay yet and the fake one must not linger.
                 guard isIdle() else {
                     task = nil
+                    overlay.hide()
                     return
                 }
                 step += 1
@@ -69,11 +74,12 @@ final class OverlayPreviewController {
         }
     }
 
-    /// Cancel a running preview and hide the overlay.
+    /// Cancel a running preview and hide the overlay. Does nothing when no
+    /// preview is running, so it never touches an overlay it does not own.
     func stop() {
         guard let running = task else { return }
         running.cancel()
         task = nil
-        if isIdle() { overlay.hide() }
+        overlay.hide()
     }
 }

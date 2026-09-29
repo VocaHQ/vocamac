@@ -718,21 +718,7 @@ struct MenuBarView: View {
             && appState.inputMonitoringPermission == .granted
     }
 
-    /// The chosen speech model is not on this Mac and none is on the way.
-    /// A model that is downloaded but still loading, or unloaded on purpose
-    /// (idle timeout, auto-pause), is not missing.
-    private var needsSpeechModel: Bool {
-        appState.appStatus == .idle
-            && !appState.whisperService.isModelLoaded
-            // Not yet populated at launch: nothing is known to be missing.
-            && !appState.availableModels.isEmpty
-            && !appState.availableModels.contains {
-                $0.size.rawValue == appState.selectedModelSize && $0.isDownloaded
-            }
-            && !appState.availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
-    }
-
-    private var needsSetup: Bool { !allPermissionsGranted || needsSpeechModel }
+    private var needsSetup: Bool { !allPermissionsGranted || appState.needsSpeechModel }
 
     private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -747,7 +733,7 @@ struct MenuBarView: View {
             .padding(.top, 10)
             .padding(.bottom, 6)
 
-            if needsSpeechModel {
+            if appState.needsSpeechModel {
                 MenuPanelRowDivider()
                 permissionRow(
                     title: "Speech model",

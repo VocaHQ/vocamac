@@ -246,6 +246,7 @@ struct SettingsSidebarSearchField: View {
 struct SettingsSidebarFooter: View {
     @EnvironmentObject var appState: AppState
     @State private var isResultExpanded = false
+    @State private var isResultTruncated = false
 
     private var isActiveSession: Bool {
         appState.isRecording
@@ -296,13 +297,18 @@ struct SettingsSidebarFooter: View {
                 .font(.caption)
             }
             if let resultText, !isActiveSession {
-                Text(resultText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(isResultExpanded ? nil : 3)
-                    .textSelection(.enabled)
-                // A test dictation is often longer than three sidebar lines.
-                if resultText.count > 110 {
+                // A test dictation is often longer than three sidebar lines. Ask
+                // the layout whether it was cut off: a character count cannot
+                // tell, since the sidebar's width and the words vary.
+                TruncationAwareText(
+                    text: resultText, lineLimit: isResultExpanded ? nil : 3, isTruncated: $isResultTruncated
+                )
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                // A new result starts collapsed again.
+                Color.clear.frame(height: 0)
+                    .onChange(of: resultText) { isResultExpanded = false }
+                if isResultExpanded || isResultTruncated {
                     Button(isResultExpanded ? "Show Less" : "Show More") {
                         isResultExpanded.toggle()
                     }
@@ -350,13 +356,9 @@ struct SettingsSidebarFooter: View {
         appState.availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
     }
 
-    /// Idle with nothing to listen with, and nothing on the way.
-    private var needsModel: Bool {
-        appState.appStatus == .idle
-            && !appState.isAutoPaused
-            && !appState.whisperService.isModelLoaded
-            && !isLoadingModel
-    }
+    /// The chosen model is not on this Mac. One that is only unloaded (idle
+    /// timeout, auto-pause) reloads on the next dictation, so it is not missing.
+    private var needsModel: Bool { appState.needsSpeechModel }
 
     private var statusLabel: String {
         if appState.isAutoPaused { return "Auto-paused" }
@@ -384,6 +386,58 @@ struct SettingsSidebarFooter: View {
         case .processing: return VocaDesign.busy
         case .error: return VocaDesign.warning
         }
+    }
+}
+
+/// Caption text with a line limit that reports whether the limit cut it off.
+///
+/// The text is measured with AppKit at the width it was given, rather than
+/// guessed from its length: the sidebar's width and the words both vary, so a
+/// character count cannot say whether the third line ran out.
+struct TruncationAwareText: View {
+    let text: String
+    let lineLimit: Int?
+    @Binding var isTruncated: Bool
+
+    private static let font = NSFont.preferredFont(forTextStyle: .caption1)
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .lineLimit(lineLimit)
+            // Without this a tight parent squeezes the text below its line
+            // limit, leaving one ellipsized line under a "Show More" button.
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { measure(width: proxy.size.width) }
+                        .onChange(of: proxy.size.width) { _, width in measure(width: width) }
+                        .onChange(of: text) { measure(width: proxy.size.width) }
+                }
+            )
+    }
+
+    private func measure(width: CGFloat) {
+        // Expanded text is never cut; keep the last verdict so "Show Less" stays.
+        guard let lineLimit, width > 0 else { return }
+        let needed = Self.height(of: text, width: width)
+        let allowed = Self.lineHeight * CGFloat(lineLimit)
+        let truncated = needed > allowed + 1
+        if truncated != isTruncated { isTruncated = truncated }
+    }
+
+    private static var lineHeight: CGFloat {
+        NSLayoutManager().defaultLineHeight(for: font)
+    }
+
+    private static func height(of text: String, width: CGFloat) -> CGFloat {
+        let rect = (text as NSString).boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font]
+        )
+        return ceil(rect.height)
     }
 }
 
@@ -504,7 +558,6 @@ struct SettingsToggleRow: View {
 struct ApplicationSettingsPage: View {
     @EnvironmentObject var appState: AppState
     @State private var backupNotice: String?
-    @State private var preview: OverlayPreviewController?
 
     var body: some View {
         VocaSettingsPageContent {
@@ -561,7 +614,7 @@ struct ApplicationSettingsPage: View {
                 }
 
                 Button {
-                    preview?.start(style: appState.overlayStyle, position: appState.overlayPosition)
+                    appState.overlayPreview.start(style: appState.overlayStyle, position: appState.overlayPosition)
                 } label: {
                     Label("Preview Overlay", systemImage: "play.circle")
                 }
@@ -584,13 +637,7 @@ struct ApplicationSettingsPage: View {
                 }
             }
         }
-        .onAppear {
-            preview = OverlayPreviewController(
-                overlay: appState.cursorOverlay,
-                isIdle: { [appState] in appState.appStatus == .idle && !appState.isRecording }
-            )
-        }
-        .onDisappear { preview?.stop() }
+        .onDisappear { appState.overlayPreview.stop() }
     }
 
     private func exportSettings() {
@@ -754,7 +801,8 @@ struct SnippetRow: View {
                 Button(role: .destructive) {
                     undo.remove(
                         id: snippet.id, from: \.snippets, of: appState,
-                        message: "Removed snippet “\(snippet.trigger)”"
+                        message: "Removed snippet “\(snippet.trigger)”",
+                        conflictsWith: Snippet.sharesTrigger
                     )
                 } label: {
                     Image(systemName: "minus.circle.fill")

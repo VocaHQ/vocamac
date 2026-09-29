@@ -122,4 +122,82 @@ final class UndoCenterTests: XCTestCase {
 
         XCTAssertEqual(center.current?.message, "second")
     }
+
+    // MARK: - Newer work wins
+
+    func testUndoDoesNotRestoreAnElementThatConflictsWithANewerOne() {
+        let center = UndoCenter()
+        let box = makeBox([1])
+        center.remove(
+            id: 1, from: \Box.items, of: box, message: "Removed",
+            conflictsWith: { $0.name == $1.name }
+        )
+        box.items.append(Item(id: 7, name: "item 1"))
+
+        center.undo()
+
+        XCTAssertEqual(box.items.map(\.id), [7])
+    }
+
+    func testRemoveAllThenUndoKeepsElementsAddedMeanwhile() {
+        let center = UndoCenter()
+        let box = makeBox([1, 2])
+        center.removeAll(from: \Box.items, of: box, message: "Removed 2")
+        XCTAssertTrue(box.items.isEmpty)
+        box.items.append(Item(id: 9, name: "new"))
+
+        center.undo()
+
+        XCTAssertEqual(box.items.map(\.id), [1, 2, 9])
+    }
+
+    func testRemoveAllUndoSkipsConflictsAndRunsAfterUndo() {
+        let center = UndoCenter()
+        let box = makeBox([1, 2])
+        box.items[1].name = "same"
+        center.removeAll(
+            from: \Box.items, of: box, message: "Removed 2",
+            conflictsWith: { $0.name == $1.name }
+        )
+        box.items.append(Item(id: 9, name: "same"))
+        var ran = false
+        center.removeAll(from: \Box.items, of: box, message: "again", afterUndo: { ran = true })
+        box.items = [Item(id: 9, name: "same")]
+
+        center.undo()
+
+        XCTAssertTrue(ran)
+        XCTAssertEqual(box.items.map(\.id), [9])
+    }
+
+    func testRemoveAllOnAnEmptyListOffersNothing() {
+        let center = UndoCenter()
+        let box = makeBox([])
+
+        center.removeAll(from: \Box.items, of: box, message: "Removed 0")
+
+        XCTAssertNil(center.current)
+    }
+
+    func testSnippetConflictIgnoresCaseAndSpaces() {
+        XCTAssertTrue(Snippet.sharesTrigger(
+            Snippet(trigger: " My Mail ", expansion: "a"), Snippet(trigger: "my mail", expansion: "b")))
+        XCTAssertFalse(Snippet.sharesTrigger(
+            Snippet(trigger: "mail", expansion: "a"), Snippet(trigger: "vmac", expansion: "a")))
+    }
+
+    func testReplacementConflictOnSameTextOrSharedSpokenForm() {
+        let a = WordReplacement(heard: "get hub, git hub", replacement: "GitHub")
+        XCTAssertTrue(WordReplacement.overlaps(a, WordReplacement(heard: "gh", replacement: "GitHub")))
+        XCTAssertTrue(WordReplacement.overlaps(a, WordReplacement(heard: "GIT HUB", replacement: "Git Hub")))
+        XCTAssertFalse(WordReplacement.overlaps(a, WordReplacement(heard: "jira", replacement: "Jira")))
+    }
+
+    func testWebsiteConflictIgnoresCase() {
+        let a = WebsiteStyleBinding(hostPattern: "Example.com", displayName: "A", style: .plain)
+        let b = WebsiteStyleBinding(hostPattern: " example.COM", displayName: "B", style: .plain)
+        let c = WebsiteStyleBinding(hostPattern: "other.com", displayName: "C", style: .plain)
+        XCTAssertTrue(WebsiteStyleBinding.sharesHost(a, b))
+        XCTAssertFalse(WebsiteStyleBinding.sharesHost(a, c))
+    }
 }

@@ -128,13 +128,13 @@ struct WritingStylesSettingsTab: View {
                         Button("Import App List…") { importRules() }
                         Divider()
                         Button("Remove All Apps", role: .destructive) {
-                            let removed = appState.writingStyleBindings
-                            appState.removeAllWritingStyleBindings()
+                            let count = appState.writingStyleBindings.count
+                            undo.removeAll(
+                                from: \.writingStyleBindings, of: appState,
+                                message: "Removed \(count) apps",
+                                afterUndo: { suggestionNotice = nil }
+                            )
                             suggestionNotice = "Removed every app. All apps now use \(appState.writingStyleDefault.displayName)."
-                            undo.offer("Removed \(removed.count) apps") {
-                                appState.writingStyleBindings = removed
-                                suggestionNotice = nil
-                            }
                         }
                         .disabled(appState.writingStyleBindings.isEmpty)
                     } label: {

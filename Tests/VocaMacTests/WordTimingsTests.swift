@@ -228,7 +228,6 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertEqual(timed[0].words.map(\.word), [" Haan", " thik", " hai"])
     }
 
-
     /// Loop collapse that keeps a trailing word must keep that word's timing
     /// too ("go go… go home" -> "go home", not timing for only the first "go").
     func testFilteredTimedSegmentsKeepsTrailingWordsAfterLoopCollapse() {

@@ -358,9 +358,17 @@ struct SpeechEndpointConfiguration: Codable, Equatable {
     }
 
     /// Where recordings are posted, or nil while the settings are invalid.
+    ///
+    /// OpenAI-compatible clients often paste a base that already ends in `/v1`
+    /// (matching cleanup's defaults). Strip that suffix before appending
+    /// `v1/audio/transcriptions` so we never post to `/v1/v1/...`.
     var transcriptionsURL: URL? {
         guard validationProblem() == nil else { return nil }
-        let base = resolvedBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        var base = resolvedBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if kind == .openAICompatible, base.lowercased().hasSuffix("/v1") {
+            base = String(base.dropLast(3))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
         return URL(string: base + "/" + kind.path)
     }
 

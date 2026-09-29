@@ -266,7 +266,14 @@ enum SettingsSearchIndex {
             page: .speechModel,
             title: "Speech Models",
             subtitle: "Download and select engines",
-            keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download"]
+            keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download", "endpoint", "remote", "server"]
+        ),
+        SettingsSearchEntry(
+            id: "custom-endpoint",
+            page: .speechModel,
+            title: "Custom Endpoint",
+            subtitle: "Send recordings to your Whisper-compatible server",
+            keywords: ["endpoint", "remote", "server", "openai", "whisper.cpp", "api", "upload"]
         ),
         SettingsSearchEntry(
             id: "spoken-languages",

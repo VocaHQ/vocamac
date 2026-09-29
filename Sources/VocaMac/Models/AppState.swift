@@ -1526,7 +1526,13 @@ final class AppState: ObservableObject {
             return sameEngine
         }
 
-        if let downloadedSupported = availableModels.last(where: { $0.isSupported && $0.isDownloaded })?.size {
+        // Custom Endpoint is always marked downloaded (nothing to install) and
+        // sits last in the catalog, so leaving it in this fallback would auto-
+        // select a remote upload path the user never chose. Keep it only when
+        // it was the explicit preference (handled by the early return above).
+        if let downloadedSupported = availableModels.last(where: {
+            $0.isSupported && $0.isDownloaded && $0.size.engine != .customEndpoint
+        })?.size {
             return downloadedSupported
         }
 

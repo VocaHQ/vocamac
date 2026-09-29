@@ -160,19 +160,15 @@ final class CustomEndpointService: SpeechTranscribing {
             throw CustomEndpointError.unexpectedResponse
         }
         guard (200..<300).contains(http.statusCode) else {
+            // Keep any body snippet on the thrown error for callers; never
+            // write response bodies into logs (they can carry prompt text or
+            // other sensitive detail from the user's server).
             let detail = String(data: data.prefix(240), encoding: .utf8)?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            if let detail, !detail.isEmpty {
-                VocaLogger.warning(
-                    .customEndpointService,
-                    "Endpoint rejected the recording with HTTP \(http.statusCode): \(detail)"
-                )
-            } else {
-                VocaLogger.warning(
-                    .customEndpointService,
-                    "Endpoint rejected the recording with HTTP \(http.statusCode)"
-                )
-            }
+            VocaLogger.warning(
+                .customEndpointService,
+                "Endpoint rejected the recording with HTTP \(http.statusCode)"
+            )
             throw CustomEndpointError.endpointRejected(status: http.statusCode, detail: detail)
         }
 
@@ -252,8 +248,9 @@ struct MultipartForm {
     }
 }
 
-/// Follows a redirect only when the next hop would still pass speech URL
-/// validation (HTTPS, or cleartext on loopback / RFC1918 / `.local`).
+/// Follows a redirect only when the next hop keeps the recording off
+/// cleartext-public HTTP: never HTTPS→HTTP (even to loopback), and otherwise
+/// only destinations that still pass speech URL validation.
 final class SpeechEndpointRedirectDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(
         _ session: URLSession,
@@ -262,7 +259,25 @@ final class SpeechEndpointRedirectDelegate: NSObject, URLSessionTaskDelegate, @u
         newRequest request: URLRequest,
         completionHandler: @escaping (URLRequest?) -> Void
     ) {
-        guard let url = request.url, SpeechEndpointConfiguration.allowsRecordingDestination(url) else {
+        guard let url = request.url else {
+            completionHandler(nil)
+            return
+        }
+        let fromScheme = response.url?.scheme?.lowercased()
+        let toScheme = url.scheme?.lowercased()
+        // A 307 would resend the WAV (and Authorization) on the next hop.
+        // Reject any HTTPS→HTTP downgrade, including loopback / RFC1918 /
+        // `.local`, so a TLS front door cannot bounce the recording to
+        // cleartext.
+        if fromScheme == "https", toScheme == "http" {
+            VocaLogger.warning(
+                .customEndpointService,
+                "Rejected an HTTPS→HTTP redirect that would cleartext the recording"
+            )
+            completionHandler(nil)
+            return
+        }
+        guard SpeechEndpointConfiguration.allowsRecordingDestination(url) else {
             VocaLogger.warning(
                 .customEndpointService,
                 "Rejected a redirect that would leave the speech allowlist"

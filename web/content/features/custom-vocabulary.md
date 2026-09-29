@@ -28,4 +28,4 @@ For best results, enter terms in the language you dictate and set a matching tra
 
 ## Private by Design
 
-Your word list never leaves your Mac. Vocabulary is applied on-device, and nothing is uploaded to build or store a dictionary. Names, projects, and jargon stay yours. If you select Custom Endpoint, recordings are uploaded for transcription; the vocabulary list is not.
+Your word list never leaves your Mac. Vocabulary is applied on-device, and nothing is uploaded to build or store a dictionary. Names, projects, and jargon stay yours. If you select [Custom Endpoint](/features/custom-endpoint/), recordings are uploaded for transcription; the vocabulary list is not.

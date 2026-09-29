@@ -102,6 +102,33 @@ final class SpeechEndpointConfigurationTests: XCTestCase {
         )
     }
 
+    func testTranscriptionsURLStripsTrailingOpenAIV1() {
+        var configuration = SpeechEndpointConfiguration()
+        configuration.kind = .openAICompatible
+        configuration.baseURL = "https://speech.example.com/v1"
+        XCTAssertEqual(
+            configuration.transcriptionsURL?.absoluteString,
+            "https://speech.example.com/v1/audio/transcriptions"
+        )
+        configuration.baseURL = "https://speech.example.com/v1/"
+        XCTAssertEqual(
+            configuration.transcriptionsURL?.absoluteString,
+            "https://speech.example.com/v1/audio/transcriptions"
+        )
+        configuration.baseURL = "https://speech.example.com/V1"
+        XCTAssertEqual(
+            configuration.transcriptionsURL?.absoluteString,
+            "https://speech.example.com/v1/audio/transcriptions"
+        )
+        // whisper.cpp path is not under /v1 — leave a user-supplied /v1 alone.
+        configuration.kind = .whisperCpp
+        configuration.baseURL = "https://speech.example.com/v1"
+        XCTAssertEqual(
+            configuration.transcriptionsURL?.absoluteString,
+            "https://speech.example.com/v1/inference"
+        )
+    }
+
     func testPlainHTTPRequiresALocalNetworkHost() {
         var configuration = SpeechEndpointConfiguration()
 
@@ -581,7 +608,7 @@ final class CustomEndpointServiceTests: XCTestCase {
         }
     }
 
-    func testRedirectToLocalCleartextIsFollowed() async throws {
+    func testRedirectHTTPSToLocalHTTPIsRejected() async throws {
         requestBox.clear()
         var configuration = SpeechEndpointConfiguration()
         configuration.baseURL = "https://speech.example.com"
@@ -604,34 +631,90 @@ final class CustomEndpointServiceTests: XCTestCase {
             return (response, Data())
         }
 
+        do {
+            _ = try await service.transcribe(
+                audioData: [Float](repeating: 0.5, count: 1_600),
+                language: nil, translate: false, vocabulary: ""
+            )
+            XCTFail("expected HTTPS→HTTP localhost redirect to fail")
+        } catch {
+            // Failure is required; the hop count below is the security check.
+        }
+
+        XCTAssertEqual(requestBox.requests.count, 1)
+        let hop = try XCTUnwrap(requestBox.requests.first)
+        XCTAssertEqual(hop.url?.scheme, "https")
+        XCTAssertEqual(hop.value(forHTTPHeaderField: "Authorization"), "Bearer sk-secret")
+        XCTAssertNil(requestBox.requests.dropFirst().first)
+    }
+
+    func testRedirectToSameSchemeHTTPSIsFollowed() async throws {
+        requestBox.clear()
+        var configuration = SpeechEndpointConfiguration()
+        configuration.baseURL = "https://speech.example.com"
+        let service = makeService(configuration: configuration, apiKey: "sk-secret")
+        try await service.loadModel()
+
+        StubEndpointURLProtocol.install { [requestBox] request in
+            requestBox.put(request)
+            if request.url?.host == "cdn.speech.example.com" {
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil,
+                    headerFields: ["Content-Type": "application/json"]
+                )!
+                return (response, Data(#"{"text": "from cdn"}"#.utf8))
+            }
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 307, httpVersion: nil,
+                headerFields: ["Location": "https://cdn.speech.example.com/v1/audio/transcriptions"]
+            )!
+            return (response, Data())
+        }
+
         let result = try await service.transcribe(
             audioData: [Float](repeating: 0.5, count: 1_600),
             language: nil, translate: false, vocabulary: ""
         )
-        XCTAssertEqual(result.text, "from localhost")
+        XCTAssertEqual(result.text, "from cdn")
         XCTAssertGreaterThanOrEqual(requestBox.requests.count, 2)
-        XCTAssertEqual(requestBox.requests.last?.url?.host, "127.0.0.1")
-        XCTAssertEqual(requestBox.requests.last?.url?.scheme, "http")
+        XCTAssertEqual(requestBox.requests.last?.url?.host, "cdn.speech.example.com")
+        XCTAssertEqual(requestBox.requests.last?.url?.scheme, "https")
     }
 
-    func testRedirectDelegateRejectsPublicCleartextAndAllowsLocalhost() async {
-        let rejected = await redirectDecision(
+    func testRedirectDelegateRejectsHTTPSDowngradeAndPublicCleartext() async {
+        let rejectedPublic = await redirectDecision(
+            from: "https://speech.example.com/v1/audio/transcriptions",
             to: "http://speech.example.com/v1/audio/transcriptions"
         )
-        XCTAssertNil(rejected)
+        XCTAssertNil(rejectedPublic)
 
-        let allowedHTTP = await redirectDecision(to: "http://127.0.0.1/v1/audio/transcriptions")
-        XCTAssertEqual(allowedHTTP?.url?.host, "127.0.0.1")
+        let rejectedLocalHTTP = await redirectDecision(
+            from: "https://speech.example.com/v1/audio/transcriptions",
+            to: "http://127.0.0.1/v1/audio/transcriptions"
+        )
+        XCTAssertNil(rejectedLocalHTTP)
 
-        let allowedHTTPS = await redirectDecision(to: "https://anywhere.example/v1/audio/transcriptions")
+        let allowedHTTPS = await redirectDecision(
+            from: "https://speech.example.com/v1/audio/transcriptions",
+            to: "https://anywhere.example/v1/audio/transcriptions"
+        )
         XCTAssertEqual(allowedHTTPS?.url?.host, "anywhere.example")
+
+        // Same-scheme cleartext on an allowed host remains OK when the
+        // configured base was already HTTP (no TLS downgrade).
+        let allowedLocalHTTP = await redirectDecision(
+            from: "http://127.0.0.1/v1/audio/transcriptions",
+            to: "http://127.0.0.1/inference"
+        )
+        XCTAssertEqual(allowedLocalHTTP?.url?.host, "127.0.0.1")
+        XCTAssertEqual(allowedLocalHTTP?.url?.scheme, "http")
     }
 
-    private func redirectDecision(to target: String) async -> URLRequest? {
+    private func redirectDecision(from origin: String, to target: String) async -> URLRequest? {
         let delegate = SpeechEndpointRedirectDelegate()
         let session = URLSession(configuration: .ephemeral)
         defer { session.finishTasksAndInvalidate() }
-        let original = URL(string: "https://speech.example.com/v1/audio/transcriptions")!
+        let original = URL(string: origin)!
         let task = session.dataTask(with: original)
         let newRequest = URLRequest(url: URL(string: target)!)
         let response = HTTPURLResponse(

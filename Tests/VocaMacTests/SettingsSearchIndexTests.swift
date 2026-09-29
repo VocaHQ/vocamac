@@ -31,6 +31,17 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "qwen"), .cleanup)
     }
 
+    func testEndpointQueryFindsCustomEndpointOnSpeechModel() {
+        for term in ["endpoint", "remote", "server"] {
+            let matches = SettingsSearchIndex.matches(query: term)
+            XCTAssertTrue(
+                matches.contains { $0.id == "custom-endpoint" && $0.page == .speechModel },
+                "\(term) should find Custom Endpoint"
+            )
+        }
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "whisper.cpp"), .speechModel)
+    }
+
     func testTrailingQueryHitsDictation() {
         let matches = SettingsSearchIndex.matches(query: "trailing")
         XCTAssertTrue(matches.contains { $0.page == .dictation })

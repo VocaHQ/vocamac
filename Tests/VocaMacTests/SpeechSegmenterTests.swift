@@ -192,6 +192,54 @@ final class FinalizedPieceTrackerTests: XCTestCase {
         XCTAssertEqual(segments[0].text, "Only the join")
         XCTAssertEqual(segments[0].end, 1.0, accuracy: 0.0001)
     }
+
+    /// Overshooting Apple ranges must not drop later finalized text from
+    /// Timestamps (Greptile P1): results at 5s and 6s for a 1s recording
+    /// still yield both segments inside [0, 1s].
+    func testTimedSegmentsKeepAllTextWhenRangesOvershootRecording() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized("Hello there.", endSeconds: 5)
+        tracker.finalized(" Bye.", endSeconds: 6)
+        XCTAssertEqual(tracker.pieces(sampleCount: 16_000), [], "Live pieces still reject overshoot")
+        let segments = tracker.timedSegments(
+            sampleCount: 16_000, fallbackText: "Hello there. Bye."
+        )
+        XCTAssertEqual(segments.map(\.text), ["Hello there.", "Bye."])
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertEqual(segments[0].start, 0, accuracy: 0.0001)
+        XCTAssertLessThan(segments[0].end, segments[1].end)
+        XCTAssertEqual(segments[1].end, 1.0, accuracy: 0.0001)
+        XCTAssertGreaterThan(segments[0].end, segments[0].start)
+        XCTAssertGreaterThan(segments[1].end, segments[1].start)
+    }
+
+    /// In-bounds finalized ranges keep their reported timing (scale stays 1).
+    func testTimedSegmentsPreserveInBoundsRanges() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized("Hello there.", endSeconds: 1.5)
+        tracker.finalized(" How are you?", endSeconds: 3.0)
+        let segments = tracker.timedSegments(
+            sampleCount: 52_000, fallbackText: "Hello there. How are you?"
+        )
+        XCTAssertEqual(segments.map(\.text), ["Hello there.", "How are you?"])
+        XCTAssertEqual(segments[0].end, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].end, 3.25, accuracy: 0.0001)
+    }
+
+    /// When only the last result overshoots, earlier in-bounds ends stay put
+    /// and the last result still stretches to the recording end.
+    func testTimedSegmentsKeepInBoundsEndWhenOnlyLastOvershoots() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized("Hello there.", endSeconds: 0.5)
+        tracker.finalized(" Bye.", endSeconds: 5)
+        let segments = tracker.timedSegments(
+            sampleCount: 16_000, fallbackText: "Hello there. Bye."
+        )
+        XCTAssertEqual(segments.map(\.text), ["Hello there.", "Bye."])
+        XCTAssertEqual(segments[0].end, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].start, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].end, 1.0, accuracy: 0.0001)
+    }
 }
 
 extension SpeechSegmenterTests {

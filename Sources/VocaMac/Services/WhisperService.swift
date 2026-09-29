@@ -573,10 +573,19 @@ final class WhisperService: @unchecked Sendable {
     /// same whitespace the joined words use). Used when loop collapse
     /// shortened the segment text and there is no trailing remainder.
     static func wordsPrefix(_ words: [TimedWord], matching text: String) -> [TimedWord] {
+        wordsPrefix(words, matching: text, limit: words.count)
+    }
+
+    /// Leading words among `words[0..<limit]` whose concatenation is a
+    /// prefix of `text`. Avoids copying the head slice for alignment search.
+    static func wordsPrefix(_ words: [TimedWord], matching text: String, limit: Int) -> [TimedWord] {
+        let end = min(max(limit, 0), words.count)
+        guard end > 0 else { return [] }
         var kept: [TimedWord] = []
         var built = ""
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        for word in words {
+        for index in 0..<end {
+            let word = words[index]
             let next = built + word.word
             let trimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
             guard target.hasPrefix(trimmed) || trimmed.hasPrefix(target) else { break }
@@ -591,39 +600,58 @@ final class WhisperService: @unchecked Sendable {
     /// Loop collapse keeps the first copy of a repeated phrase and anything
     /// said after it; a leading-only prefix would drop that trailing tail
     /// (e.g. "go go… go home" -> "go home" must keep timing for "home").
+    ///
+    /// Searches a capped suffix window and reuses one joined buffer so a long
+    /// recording does not pay O(n²) array copies / joins during timing
+    /// post-processing. Correctness matches the uncapped split search: first
+    /// copy of the looped phrase plus any trailing words after it.
     static func wordsAligning(with text: String, from words: [TimedWord]) -> [TimedWord] {
         let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return [] }
-        if words.map(\.word).joined().trimmingCharacters(in: .whitespacesAndNewlines) == target {
+        let parts = words.map(\.word)
+        let allJoined = parts.joined()
+        if allJoined.trimmingCharacters(in: .whitespacesAndNewlines) == target {
             return words
         }
         var best = wordsPrefix(words, matching: text)
         if best.map(\.word).joined().trimmingCharacters(in: .whitespacesAndNewlines) == target {
             return best
         }
-        // Try every split: a leading match for the head of the collapsed
-        // text, plus a trailing run of original words for the remainder.
-        for suffixCount in 1...words.count {
-            let headLimit = words.count - suffixCount
-            let suffixWords = Array(words.suffix(suffixCount))
-            let suffixJoined = suffixWords.map(\.word).joined()
-                .trimmingCharacters(in: .whitespacesAndNewlines)
+        // Suffix of kept words cannot need more tokens than the collapsed
+        // text itself (plus a short unit of slack for whitespace / punctuation
+        // splits). Cap so long recordings stay near-linear.
+        let targetTokenCount = target.split { $0.isWhitespace }.count
+        let maxSuffix = min(
+            words.count,
+            max(targetTokenCount + TranscriptRepetition.maximumUnitLength, 32)
+        )
+        // Character offsets into `allJoined` — each suffix is a slice, not a
+        // fresh `map/joined` of a copied word array.
+        var charStarts: [String.Index] = []
+        charStarts.reserveCapacity(parts.count + 1)
+        var cursor = allJoined.startIndex
+        charStarts.append(cursor)
+        for part in parts {
+            cursor = allJoined.index(cursor, offsetBy: part.count)
+            charStarts.append(cursor)
+        }
+        for suffixCount in 1...maxSuffix {
+            let suffixStart = words.count - suffixCount
+            let suffixSlice = allJoined[charStarts[suffixStart]..<charStarts[words.count]]
+            let suffixJoined = suffixSlice.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !suffixJoined.isEmpty, target.hasSuffix(suffixJoined) else { continue }
             let remainder = String(target.dropLast(suffixJoined.count))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            let headWords = headLimit == 0
-                ? []
-                : wordsPrefix(Array(words.prefix(headLimit)), matching: remainder)
+            let headWords = wordsPrefix(words, matching: remainder, limit: suffixStart)
             let headJoined = headWords.map(\.word).joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard headJoined == remainder else { continue }
-            // Skip overlap: the suffix must start after the last head word.
-            if let lastHead = headWords.last,
-               let firstSuffix = suffixWords.first,
-               firstSuffix.start < lastHead.end {
+            let firstSuffix = words[suffixStart]
+            if let lastHead = headWords.last, firstSuffix.start < lastHead.end {
                 continue
             }
-            let combined = headWords + suffixWords
+            var combined = headWords
+            combined.append(contentsOf: words[suffixStart..<words.count])
             let combinedJoined = combined.map(\.word).joined()
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard combinedJoined == target else { continue }

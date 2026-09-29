@@ -497,22 +497,61 @@ final class FinalizedPieceTracker: @unchecked Sendable {
     /// not usable as live pieces (a single result, or a join mismatch). Each
     /// result becomes a segment; with no usable results, one segment covers
     /// the full audio using `fallbackText`.
+    ///
+    /// When Apple reports result ends past the recording, a plain clamp would
+    /// hand the whole `[0, sampleCount]` range to the first overshooting
+    /// result and drop later text. Scale those ends into the recording so
+    /// every finalized result still appears in Timestamps.
     func timedSegments(sampleCount: Int, fallbackText: String) -> [TimedSegment] {
         lock.withLock {
             var segments: [TimedSegment] = []
             var start = 0
+            // Only non-last ends that already reach past the recording force a
+            // remap: a plain clamp would consume `[0, sampleCount]` and drop
+            // later text. If only the last result overshoots, stretching it to
+            // `sampleCount` already keeps every earlier in-bounds range.
+            let needsScale = finalized.dropLast().contains { $0.end > sampleCount }
+            let lastEnd = finalized.last?.end ?? 0
+            let scale: Double
+            if needsScale, lastEnd > 0 {
+                scale = Double(sampleCount) / Double(lastEnd)
+            } else {
+                scale = 1
+            }
+            var keptNonEmpty = 0
+            var seenNonEmpty = 0
             for (index, result) in finalized.enumerated() {
-                let rawEnd = index == finalized.count - 1 ? sampleCount : result.end
-                let end = min(max(rawEnd, start), sampleCount)
                 let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { seenNonEmpty += 1 }
+                let rawEnd: Int
+                if index == finalized.count - 1 {
+                    rawEnd = sampleCount
+                } else if scale < 1 {
+                    rawEnd = Int((Double(result.end) * scale).rounded())
+                } else {
+                    rawEnd = result.end
+                }
+                let end = min(max(rawEnd, start), sampleCount)
                 if end > start, !trimmed.isEmpty {
                     segments.append(TimedSegment(
                         start: Double(start) / 16_000,
                         end: Double(end) / 16_000,
                         text: trimmed, words: []
                     ))
+                    keptNonEmpty += 1
                 }
                 start = max(start, end)
+            }
+            // Scaling / rounding can still collapse a gap; never hide finalized
+            // text that the transcript kept — fall back to one full-audio segment.
+            if keptNonEmpty < seenNonEmpty {
+                let trimmed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, sampleCount > 0 else {
+                    return segments.isEmpty ? [] : segments
+                }
+                return [TimedSegment(
+                    start: 0, end: Double(sampleCount) / 16_000, text: trimmed, words: []
+                )]
             }
             if segments.isEmpty {
                 let trimmed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)

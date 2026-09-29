@@ -262,6 +262,26 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertFalse(text.contains("go go go"), "Collapsed text should not still loop")
     }
 
+    /// `wordsAligning` keeps the first loop copy plus trailing words on a
+    /// long list without scanning every recording suffix (Greptile P2).
+    func testWordsAligningKeepsFirstCopyAndTrailingOnLongInput() {
+        var words: [TimedWord] = []
+        for index in 0..<60 {
+            words.append(TimedWord(
+                word: " go", start: Double(index) * 0.05,
+                end: Double(index) * 0.05 + 0.04, probability: 0.9
+            ))
+        }
+        words.append(TimedWord(word: " home", start: 3.1, end: 3.4, probability: 0.95))
+        let kept = WhisperService.wordsAligning(with: " go home", from: words)
+        XCTAssertEqual(
+            kept.map { $0.word.trimmingCharacters(in: .whitespaces) },
+            ["go", "home"]
+        )
+        XCTAssertEqual(kept.first?.start ?? -1, 0, accuracy: 0.0001, "First copy of go")
+        XCTAssertEqual(kept.last?.word.trimmingCharacters(in: .whitespaces), "home")
+    }
+
     /// A phrase repeated across segment boundaries must collapse the same way
     /// the main transcript does after joining.
     func testFilteredTimedSegmentsCollapsesCrossSegmentLoops() {

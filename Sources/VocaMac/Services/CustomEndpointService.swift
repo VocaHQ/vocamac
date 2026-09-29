@@ -244,9 +244,11 @@ struct MultipartForm {
     }
 
     /// CR/LF in a multipart name or value would split the body into extra
-    /// parts. Drop them rather than send a malformed upload.
+    /// parts. Drop them rather than send a malformed upload. Filtered at
+    /// scalar level: a CRLF pair is one `Character` and would slip past a
+    /// Character comparison.
     static func withoutLineBreaks(_ text: String) -> String {
-        text.filter { $0 != "\r" && $0 != "\n" }
+        String(text.unicodeScalars.filter { $0 != "\r" && $0 != "\n" })
     }
 }
 

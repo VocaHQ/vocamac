@@ -523,7 +523,7 @@ final class CustomEndpointServiceTests: XCTestCase {
         var form = MultipartForm()
         form.appendField("mod\nel", "large\r\nv3")
         let body = String(decoding: form.body, as: UTF8.self)
-        XCTAssertFalse(body.contains("\r\nlarge"))
+        XCTAssertFalse(body.contains("large\r\nv3"))
         XCTAssertFalse(body.contains("mod\nel"))
         XCTAssertTrue(body.contains("name=\"model\""))
         XCTAssertTrue(body.contains("largev3"))

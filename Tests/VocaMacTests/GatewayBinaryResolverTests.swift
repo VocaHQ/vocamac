@@ -35,6 +35,18 @@ final class GatewayBinaryResolverTests: XCTestCase {
         )
     }
 
+    func testPrefersPATHOverCommonInstallLocations() throws {
+        let pathBinary = try makeExecutable(named: "vocagateway")
+        let candidate = try makeExecutable(named: "injected-vocagateway")
+
+        let resolved = GatewayBinaryResolver.resolveExecutablePath(
+            pathEnvironment: directory.path,
+            commonCandidates: [candidate]
+        )
+
+        XCTAssertEqual(resolved, pathBinary)
+    }
+
     func testFallsBackToInjectedCommonCandidate() throws {
         let candidate = try makeExecutable(named: "injected-vocagateway")
 

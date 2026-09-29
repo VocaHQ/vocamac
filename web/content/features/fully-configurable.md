@@ -8,11 +8,11 @@ icon: "⚙️"
 
 ## Make VocaMac Your Own
 
-![VocaMac Settings - General tab](/screenshots/settings-general.png)
+![VocaMac Settings - Dictation page](/screenshots/settings-general.png)
 
 VocaMac understands that everyone has different preferences. Some people use dictation occasionally. Others rely on it for hours every day. Some work in quiet offices. Others dictate in bustling environments. The app adapts to your workflow through comprehensive, intuitive settings.
 
-Every major aspect of VocaMac can be customized. Hotkeys, audio behavior, transcription models, languages, and more. The settings window is organized into clear tabs that match how you think about the app.
+Every major aspect of VocaMac can be customized. Hotkeys, audio behavior, transcription models, languages, and more. The settings window uses a sidebar that matches how you think about the app.
 
 ## Hotkey Configuration
 
@@ -48,9 +48,9 @@ Set your primary language for more accurate transcription. If you dictate in mul
 
 Language settings are remembered across sessions. Switch languages whenever you need to. The change takes effect immediately.
 
-## General Preferences
+## Application Preferences
 
-The General tab includes behavior options that fine-tune how VocaMac fits into your workflow.
+The Application page includes behavior options that fine-tune how VocaMac fits into your workflow.
 
 Preserve clipboard content. By default, VocaMac doesn't overwrite what's already in your clipboard. If you copy something before dictating, it will be safe.
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { access, readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
@@ -56,25 +57,26 @@ test("keeps navigation and anchors accessible", () => {
 });
 
 test("keeps the PRODUCT.md product boundary explicit", () => {
-  assert.match(index, /v0\.9\.0/);
+  assert.match(index, /v1\.0\.0/);
   assert.match(index, /macOS 14\+|macOS 14 Sonoma/);
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
-  assert.match(index, /Beta/);
+  assert.match(index, /Stable/);
   assert.match(index, /includes Parakeet/i);
-  assert.match(index, /Additional engines and models available in v0\.9\.0/i);
+  assert.match(index, /Additional engines and models available in v1\.0\.0/i);
   assert.match(index, /Parakeet/);
   assert.match(index, /sherpa-onnx/);
-  assert.doesNotMatch(index, /Stable release/i);
   assert.doesNotMatch(index, /macOS 13/);
   assert.doesNotMatch(index, /Zero Network Calls/i);
   assert.doesNotMatch(index, /100% Offline/i);
   assert.doesNotMatch(index, /Works in All Apps/i);
   assert.doesNotMatch(index, /99\+ Languages/i);
   assert.doesNotMatch(index, /remove local models/i);
-  assert.match(product, /status = "Beta"/);
+  assert.match(product, /status = "Stable"/);
   assert.match(product, /osShort = "macOS 14\+"/);
+  assert.match(product, /count = 43/);
+  assert.doesNotMatch(product, /count = 37/);
 });
 
 test("uses local assets and accurate social metadata", async () => {
@@ -96,7 +98,7 @@ test("emits valid structured metadata", () => {
   assert.ok(jsonLd, "homepage JSON-LD is present");
   const structured = JSON.parse(jsonLd);
   assert.equal(structured["@type"], "SoftwareApplication");
-  assert.equal(structured.softwareVersion, "0.9.0");
+  assert.equal(structured.softwareVersion, "1.0.0");
   assert.equal(structured.processorRequirements, "Apple Silicon");
 });
 
@@ -141,10 +143,12 @@ test("keeps content available without javascript", () => {
   assert.match(index, /<details[^>]+open/);
   assert.match(index, /<summary>Does my voice leave my Mac\?<\/summary>/);
   assert.match(index, /brew install --cask vocamac/);
-  assert.match(index, /Download v0\.9\.0 DMG/);
+  assert.match(index, /Download v1\.0\.0 DMG/);
   assert.match(script, /IntersectionObserver/);
   assert.match(script, /setTimeout\(function \(\) \{ revealItems\.forEach\(reveal\); \}, 800\)/);
   assert.match(script, /event\.key === "Escape"/);
+  assert.match(script, /showModal\(\)/);
+  assert.match(script, /shot-lightbox/);
 });
 
 test("every rendered page has one heading and image alternatives", async () => {
@@ -162,6 +166,68 @@ test("every rendered page has one heading and image alternatives", async () => {
       }
     }
   }
+});
+
+test("keeps the site-audit copy and a11y fixes", async () => {
+  assert.match(index, /Selected on-device engine/);
+  assert.match(index, /WhisperKit\/CoreML, Parakeet, Apple Speech, ONNX/);
+  assert.doesNotMatch(
+    index,
+    /<span class="route-name">WhisperKit \/ CoreML<\/span>/,
+  );
+  assert.match(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> on-device<\/span>/,
+  );
+  assert.doesNotMatch(
+    index,
+    /<span class="status-badge"><i aria-hidden="true"><\/i> local<\/span>/,
+  );
+
+  const clipboard = await readFile(
+    join(outputRoot, "features/clipboard-preservation/index.html"),
+    "utf8",
+  );
+  assert.match(clipboard, /On-device transcription after model download/);
+  assert.doesNotMatch(clipboard, /Works offline/);
+
+  const enterprise = await readFile(join(outputRoot, "enterprise/index.html"), "utf8");
+  assert.doesNotMatch(enterprise, /aria-labelledby="content-title"/);
+  assert.doesNotMatch(enterprise, /id="content-title"/);
+
+  for (const page of pages) {
+    const rel = relative(outputRoot, page);
+    if (!rel.startsWith("features/") || rel === "features/index.html") continue;
+    const html = await readFile(page, "utf8");
+    assert.doesNotMatch(html, /aria-labelledby="feature-content-title"/);
+    assert.doesNotMatch(html, /id="feature-content-title"/);
+  }
+
+  assert.match(script, /aria-live", "polite"/);
+  assert.match(script, /announceCopy\(label\)/);
+  assert.match(script, /copyFeedbackToken/);
+  assert.match(script, /clearTimeout\(copyFeedbackTimer\)/);
+  assert.match(script, /requestToken = \+\+copyFeedbackToken/);
+  assert.match(script, /showCopyFeedback\(button, "Copied", requestToken\)/);
+  assert.match(script, /showCopyFeedback\(button, "Press ⌘C", requestToken\)/);
+  assert.match(script, /if \(token !== copyFeedbackToken\)/);
+
+  const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
+  assert.match(ogSvg, /v1\.0\.0/);
+  assert.doesNotMatch(ogSvg, /beta/i);
+  assert.match(ogSvg, /ON-DEVICE/);
+  assert.doesNotMatch(ogSvg, />LOCAL</);
+
+  // Regenerating web/static/og-image.png requires updating this digest.
+  const ogPng = await readFile(join(outputRoot, "og-image.png"));
+  assert.equal(
+    createHash("sha256").update(ogPng).digest("hex"),
+    "cbe50386dcf13de677e488ca8506561313dc43ea724c8ee246d84d90b5ebd15d",
+  );
+
+  const languages = await readFile(join(outputRoot, "features/languages/index.html"), "utf8");
+  assert.match(languages, /43 language hints/);
+  assert.doesNotMatch(languages, /37 language hints/);
 });
 
 test("all rendered local references resolve", async () => {

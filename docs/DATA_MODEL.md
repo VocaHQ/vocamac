@@ -298,9 +298,14 @@ struct UserSettings {
     var selectedModelSize: ModelSize = .tiny
     var selectedLanguage: String = "auto"       // "auto" or ISO 639-1 code
 
-    // Output polish
+    // Output polish (global defaults)
     var appendTrailingSpace: Bool = true        // Space after each completed utterance
     var autoCapitalize: Bool = true             // Capitalize sentence starts
+
+    // Writing styles (per-app output shaping; overrides the polish defaults)
+    var writingStyleEnabled: Bool = true
+    var writingStyleDefault: WritingStyle = .plain
+    var writingStyleBindings: [AppStyleBinding] = []  // JSON envelope in UserDefaults
 
     // Performance / power
     var autoPauseEnabled: Bool = false
@@ -308,6 +313,24 @@ struct UserSettings {
     var autoPausePollIntervalSeconds: Double = 5
     var modelKeepAliveEnabled: Bool = false
     var modelKeepAliveIdleTimeoutSeconds: Double = 300
+
+    // History
+    var historyEnabled: Bool = true
+    var historyKeepsAudio: Bool = true
+    var historyRetention: HistoryRetention = .month   // day, week, month, forever
+
+    // Shortcuts beyond the activation hotkey
+    var escapeCancelsDictation: Bool = true
+    var pasteLastShortcut: String = "9:9"      // HotKeyCombo.storageString ("keyCode:modifiers"), ⌃⌘V; "" = off
+    var handsFreeShortcut: String = ""         // off until the user records one
+    var mouseTriggerButton: Int = 0            // CGEvent button number; 0 = off, 2 middle, 3 back, 4 forward
+
+    // Personal dictionary
+    var customVocabulary: String = ""          // terms, newline-separated; also the recognition hint (Whisper, Parakeet, Apple Speech)
+    var wordReplacements: [WordReplacement] = []          // JSON in UserDefaults
+    var dictionarySuggestions: [CorrectionSuggestion] = [] // JSON in UserDefaults
+    var learnCorrectionsMode: LearnCorrectionsMode = .suggest
+    var useScreenContext: Bool = true
 
     // App Behavior
     var launchAtLogin: Bool = false
@@ -328,8 +351,210 @@ vocamac.autoPause.enabled = false
 vocamac.autoPause.apps = "[]"
 vocamac.modelKeepAlive.enabled = false
 vocamac.modelKeepAlive.idleTimeoutSeconds = 300
+vocamac.writingStyle.enabled = true
+vocamac.writingStyle.defaultStyle = "plain"
+vocamac.writingStyle.bindings = "{\"schemaVersion\":1,\"bindings\":[...]}"
+vocamac.history.enabled = true
+vocamac.history.keepAudio = true
+vocamac.history.retention = "month"
+vocamac.shortcuts.escapeCancels = true
+vocamac.shortcuts.pasteLast = "9:9"
+vocamac.shortcuts.handsFree = ""
+vocamac.shortcuts.mouseButton = 0
+vocamac.dictionary.replacements = <JSON [WordReplacement]>
+vocamac.dictionary.suggestions = <JSON [CorrectionSuggestion]>
+vocamac.dictionary.dismissedSuggestions = ["heard→Corrected", ...]
+vocamac.dictionary.learnMode = "suggest"
+vocamac.dictionary.screenContext = true
 ...
 ```
+
+**Writing style bindings** are stored as a versioned JSON envelope rather than a
+bare array, so the shape can change without a lossy migration.
+
+Decoding is deliberately forgiving, because the failure mode it prevents is a
+user losing every rule they configured:
+
+- **Missing fields** in a `WritingStyleRules` payload take that field's default.
+  A rule set written before a field existed keeps working when the field is
+  added; synthesized `Codable` would throw instead.
+- **One unreadable rule** is dropped and logged. The rest of the list survives.
+- **A payload that is not JSON**, or one whose `schemaVersion` is newer than
+  this build understands, degrades to "no bindings" — the default style, never
+  a guess at an unknown shape.
+
+See `WritingStyleBindingStore.decode(json:)` and `WritingStyleRules.init(from:)`.
+
+### Wording and processing policy
+
+`AppStyleBinding` also stores `intent` (`preserve`, `professional`, `casual`) and
+`cleanup` (`inherit`, `off`, `raw`). Missing fields decode to `preserve` and
+`inherit`, keeping existing rules inert with respect to wording changes. These
+optional fields remain compatible with the version-1 binding envelope.
+
+`WritingProfile` snapshots the resolved format, rules, intent, and policy for an
+utterance. Formal/Casual require both the optional wording toggle and
+Transcript Cleanup; model choice remains global. Code/Terminal bypass inference.
+Raw returns the original speech-engine text without trimming, snippets, or polish.
+Plain formatting continues to honor the global cleanup preference.
+
+`DictationOutputPipeline` recognizes snippet triggers before inference and uses
+validated ASCII tokens for exact spans. Command-bearing utterances and literal
+escapes use deterministic formatting. Other eligible utterances receive one
+cleanup-plus-intent inference, with original-wording fallback on rejected output,
+missing models, unsupported language, or context limits. Custom cleanup prompts
+apply only to Preserve; intent prompts have their own preservation contract.
+
+`DictationOutputResult` retains original text, final text, and an outcome summary
+in memory. Recording-generation checks discard obsolete results. A changed app
+holds the result for explicit copying instead of injecting into the new app.
+The next-dictation override is in-memory only and never edits app bindings.
+
+Model evaluation: set `VOCAMAC_WRITING_EVALUATION_REPORT` to an absolute path and
+run `swift test --filter WritingProfileModelEvaluationTests`. This uses an already
+installed model, performs no downloads or text injection, and records rules-only,
+LLM-only, and hybrid outputs over three repeated passes. Automated guards and
+unit tests do not establish semantic equivalence or style quality; inspect the
+report before changing the experimental status. Browser-tab and field identity
+are not inferred from a bundle ID.
+
+### Dictation history
+
+`DictationHistoryStore` keeps a `DictationHistoryEntry` per dictation, newest
+first. Each entry holds:
+
+- the engine's raw text and the text that was typed, plus the pipeline summary
+- the target app, model, language, and timings
+- a status: `pending`, `completed`, `empty`, `failed`, `interrupted`, or `cancelled`
+- the name of its WAV file (16-bit mono 16 kHz), when audio is kept
+
+The WAV file is on disk **before** transcription starts.
+
+Every change to an entry is appended synchronously to `journal.jsonl` as one
+line holding the entry's latest state, or its deletion. The line is on disk
+before VocaMac moves on, so a completed dictation survives a crash or force
+quit. `index.json` holds the full history. It is rewritten at launch, after
+bulk changes (Delete All, Delete Audio), and whenever the journal reaches 500
+lines, and the journal is then cleared.
+
+At launch the journal is replayed over the index, and a torn last line is
+skipped. Then:
+
+- A `pending` entry becomes `interrupted`, so a crash mid-dictation still
+  leaves the audio to retry.
+- An entry whose WAV file is missing is shown without audio. That covers a
+  crash during the audio write, and a failed write.
+- A file in `audio/` that no entry refers to is deleted. Each entry is
+  journaled, naming its WAV file, before the file is written, so such a file
+  can only be audio whose deletion was saved before its removal ran. Deleted
+  recordings never come back.
+- A recording is only deleted from disk after the journal or index write that
+  drops it has succeeded. A deletion that can't be saved leaves the file in
+  place, so the history on disk never points at audio that's already gone.
+- Deleting one dictation, Delete All, and Delete Audio are all-or-nothing. If
+  the change can't be saved, the history is restored in memory, nothing is
+  removed from disk, and the user sees an error. What's on screen always
+  matches what the next launch loads.
+- Other changes stay in memory even when the disk refuses both the journal and
+  the index. Examples are a dictation finishing, failing, or being retried,
+  and retention. History is then marked as having unsaved changes, and the
+  History page shows a warning. The next save, or quitting VocaMac, rewrites
+  the whole index, so the change is kept once writes work again.
+- If a new entry can't be saved at all, no audio is written for it and the
+  dictation runs without history.
+
+Storage limits:
+
+- A successful dictation drops its audio when "Keep audio recordings" is off.
+  Failed, interrupted, and cancelled dictations keep their audio until they are
+  retried or deleted.
+- At most 2,000 entries are kept.
+- Audio is capped at 1 GB. The oldest recordings lose their audio first; their
+  text stays.
+- Retention (1 day, 7 days, 30 days, or forever) is applied at launch, at each
+  dictation, and whenever the setting changes.
+
+### Personal dictionary
+
+`DictionaryCorrector` runs inside `DictationOutputPipeline`, after the Raw
+check and before snippets, styles, and cleanup. It does three things, in this
+order:
+
+1. **Replacements.** Case-insensitive, whole-word matching; longest spoken form first.
+2. **Vocabulary terms.** Letters are matched ignoring case, spaces, and
+   punctuation, over up to four spoken words. On top of that, a conservative
+   fuzzy match fixes terms of 5 or more letters: edit distance ≤ 1 (≤ 2 for 9
+   or more letters, one more when both have the same Soundex code), same first
+   sound. It never applies when every word in the match is ordinary vocabulary
+   according to the spell checker (English only). A term with `&` also matches
+   its spoken form ("R and D" → `R&D`).
+3. **Screen terms.** Letter match only, never fuzzy. Several words are joined
+   into a camelCase, snake_case, or kebab-case identifier only for the Code and
+   Terminal formats.
+
+A term whose casing formatting could change (`iPhone`, `kubectl`, `GitHub`)
+travels through the snippet mask, so neither sentence case nor cleanup alters it.
+
+### Spoken emoji and numbers
+
+Three Dictation switches, all off by default and never applied to the Raw
+style: `vocamac.spokenEmoji` ("crying emoji" → 😭), `vocamac.numbersAsDigits`
+("twenty three" → 23), and `vocamac.numberSymbols`, which only applies with
+digits on ("fifty percent" → 50%, "five dollars and fifty cents" → $5.50,
+"minus five" → -5, "the twenty first" → the 21st, "June twenty second" → June
+22). `SpokenEmoji` and `SpokenNumbers` are ports of the VocaPhone
+implementations. The phrase table `Resources/Emoji/suggestions.tsv` is copied
+verbatim from VocaPhone's `assets/keyboard/emoji/suggestions.tsv`, which
+VocaPhone generates from Unicode emoji names and CLDR annotations (Unicode
+License v3). Update it by copying the file again rather than editing it.
+`Resources/Emoji/spoken-aliases.tsv` is laid over it for the way people say an
+emoji when CLDR names it differently ("fingers crossed", "blue heart", "US
+flag"), and replaces the few generated entries that are wrong for speech
+("salute" is 🫡). Mirror both files in VocaPhone.
+
+The shared cases in `Tests/VocaMacTests/Fixtures/spoken-numbers.tsv` and
+`spoken-emoji.tsv` are the contract for both apps, and
+`spoken-forms-plain.txt` lists dictation that must come back unchanged.
+
+Emoji: the longest name before "emoji" (or "emoticon") wins, and the prose
+before it stays: "great news party emoji" becomes "great news 🎉". A match is
+declined when a determiner or subject comes right before it ("send a fire
+emoji", "I love you emoji"), when a word that belongs to emoji names does
+("face with heart eyes", "blue car"), and when the trigger is a noun
+mid-clause ("check emoji support"). "three fire emojis", "fire emoji times
+three" and "fire fire fire emoji" repeat the glyph, up to 10; "thumbs up dark
+skin tone emoji" applies the skin tone to glyphs that take one.
+
+Numbers: a run converts only when it reads as one number, and numbers from
+10,000 up are grouped ("12,500"); a round million or more keeps its scale word
+("2.5 million"). A lone "one" stays a word unless a unit follows it or another
+number is paired with it ("one or two" → "1 or 2"). Idioms keep their words
+("high five", "cloud nine", "one sec"). Three shapes need context: digit
+strings convert after a cue ("my number is", "code", "room") or with an inner
+"oh" ("four oh four" → 404); years after "in", "since" or "year" ("in nineteen
+ninety nine" → 1999); times before am or pm ("seven thirty pm" → 7:30 pm).
+"two and a half" is 2.5; "three quarters" stays words.
+
+One deliberate difference from VocaPhone: "second" after "twenty"–"ninety",
+"hundred", or a scale word stays an ordinal when no duration can be meant —
+after a month or possessive, at the end of a sentence, or before a
+preposition, conjunction, or pronoun ("the twenty second of June"). After "a",
+or before a noun even past a comma, it is a duration: "a twenty second,
+high-quality clip" becomes "a 20 second, high-quality clip". VocaPhone treats every "second" as a
+unit.
+
+Both run inside `DictationOutputPipeline` after snippets are masked (so a
+snippet trigger wins) and before styles and cleanup, emoji first. Each glyph is
+added to the snippet mask, and digits are already protected tokens, so the
+cleanup model sees neither the glyph nor the number words and cannot drop or
+re-spell them. A full stop the model adds after an emoji that ends the
+utterance is removed.
+
+`CorrectionObserver` reads the focused field about 0.8 s after injection. It
+reads it again when the next dictation starts, or after 20 s. The text itself
+is never stored. `CorrectionLearner` reduces the two readings to spelling-level
+substitutions inside the dictated span. Depending on
+`vocamac.dictionary.learnMode`, those become suggestions or are added directly.
 
 ### 3.8 `SystemCapabilities` — Hardware Detection Result
 
@@ -433,7 +658,7 @@ enum UpdateState: Equatable {
 | User settings | `UserDefaults` | Permanent (until app uninstall or reset) |
 | Model files | `~/Library/Application Support/VocaMac/models/` | Permanent (user can delete) |
 | Audio buffers | In-memory `[Float]` | Discarded after transcription |
-| Transcription results | In-memory (MVP) | Lost on app restart (MVP) |
+| Transcription results | `~/Library/Application Support/VocaMac/History/` (`index.json` + `audio/*.wav`) | Per the history retention setting; off when history is disabled |
 | App state | In-memory `AppState` | Rebuilt on each launch |
 | System capabilities | Computed at launch | Rebuilt on each launch |
 | Update check cache | `UserDefaults` (`vocamac.update.*`) | Persisted across launches |
@@ -448,6 +673,10 @@ enum UpdateState: Equatable {
 │   ├── openai_whisper-small         ← Optional (downloaded)
 │   ├── openai_whisper-medium        ← Optional (downloaded)
 │   └── openai_whisper-large-v3     ← Optional (downloaded)
+├── History/
+│   ├── index.json             ← Dictation history snapshot
+│   ├── journal.jsonl          ← Changes since the snapshot (replayed at launch)
+│   └── audio/<entry-id>.wav   ← Recordings kept for playback and retry
 └── logs/                      ← Future: debug logging
 ```
 

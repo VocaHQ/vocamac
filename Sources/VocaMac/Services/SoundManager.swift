@@ -50,6 +50,26 @@ final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
         await playCueAsync(.start)
     }
 
+    /// Gap between the two chimes of the Command Mode cue: close enough to
+    /// read as one "double" cue, far enough apart to hear both.
+    static let commandCueGap: TimeInterval = 0.11
+
+    /// Command Mode's start cue: the start tone twice in quick succession.
+    func playCommandStartSound() {
+        playCue(.start)
+        soundQueue.asyncAfter(deadline: .now() + Self.commandCueGap) { [weak self] in
+            self?.playCue(.start)
+        }
+    }
+
+    /// Command Mode's start cue, waiting for it to finish (used when other
+    /// audio is muted, so the mute doesn't swallow the cue).
+    func playCommandStartSoundAsync() async {
+        playCue(.start)
+        try? await Task.sleep(nanoseconds: UInt64(Self.commandCueGap * 1_000_000_000))
+        await playCueAsync(.start)
+    }
+
     /// Play the recording-stopped sound (synchronous, fire-and-forget)
     func playStopSound() {
         playCue(.stop)

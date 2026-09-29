@@ -36,7 +36,7 @@ enum SVGPath {
 
             switch command {
             case "M", "m":
-                guard var point = scanner.nextPoint(relativeTo: command == "m" ? current : nil) else { return nil }
+                guard let point = scanner.nextPoint(relativeTo: command == "m" ? current : nil) else { return nil }
                 path.move(to: point)
                 markStart(point)
                 while let next = scanner.nextPoint(relativeTo: command == "m" ? current : nil) {
@@ -210,11 +210,6 @@ enum SVGPath {
         var t = theta1
         for _ in 0..<segments {
             let t2 = t + deltaEach
-            let cos1 = cos(t)
-            let sin1 = sin(t)
-            let cos2 = cos(t2)
-            let sin2 = sin(t2)
-
             let p1 = ellipsePoint(cx: cx, cy: cy, rx: rx, ry: ry, cosPhi: cosPhi, sinPhi: sinPhi, theta: t)
             let p2 = ellipsePoint(cx: cx, cy: cy, rx: rx, ry: ry, cosPhi: cosPhi, sinPhi: sinPhi, theta: t2)
             let dx1 = handle * ellipseDerivative(rx: rx, ry: ry, cosPhi: cosPhi, sinPhi: sinPhi, theta: t).dx

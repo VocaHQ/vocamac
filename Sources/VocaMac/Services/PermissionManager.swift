@@ -34,7 +34,10 @@ final class PermissionManager: ObservableObject {
     // MARK: - Private
 
     private var permissionPollTimer: Timer?
+    private var observers: [NSObjectProtocol] = []
 
+    /// Called when Accessibility and Input Monitoring are granted but the
+    /// hotkey tap is missing or was disabled, so AppState can (re)create it.
     var onAllPermissionsGranted: (() -> Void)?
 
     // MARK: - Initialization
@@ -42,6 +45,61 @@ final class PermissionManager: ObservableObject {
     init(audioEngine: AudioRecording, hotKeyManager: HotKeyMonitoring) {
         self.audioEngine = audioEngine
         self.hotKeyManager = hotKeyManager
+        observePermissionChanges()
+    }
+
+    /// Nothing polls once every permission is granted. A revoke-and-grant is
+    /// caught by these events instead: the system's Accessibility trust
+    /// notification, the hotkey tap reporting that macOS disabled it, and the
+    /// user coming back to VocaMac.
+    private func observePermissionChanges() {
+        let recheck: @Sendable (Notification) -> Void = { [weak self] _ in
+            Task { @MainActor in self?.recheckHotKeyHealth() }
+        }
+        observers.append(DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name("com.apple.accessibility.api"),
+            object: nil, queue: .main
+        ) { notification in
+            // The trust database updates just after the notification.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { recheck(notification) }
+        })
+        observers.append(NotificationCenter.default.addObserver(
+            forName: .hotKeyEventTapDisabled, object: nil, queue: .main, using: recheck
+        ))
+        observers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: recheck
+        ))
+    }
+
+    deinit {
+        for observer in observers {
+            DistributedNotificationCenter.default().removeObserver(observer)
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
+
+    /// Whether the hotkey tap exists and macOS still delivers events to it.
+    var isHotKeyTapHealthy: Bool {
+        guard hotKeyManager.isListening else { return false }
+        guard let tap = hotKeyManager.eventTap else { return true }
+        return CGEvent.tapIsEnabled(tap: tap)
+    }
+
+    /// Re-read permissions and restore the hotkey tap if it needs it; poll
+    /// while anything is still missing.
+    func recheckHotKeyHealth() {
+        checkPermissions()
+        restoreHotKeyIfPossible()
+        if !allPermissionsGranted || !isHotKeyTapHealthy {
+            startPermissionPolling()
+        }
+    }
+
+    private func restoreHotKeyIfPossible() {
+        guard accessibilityPermission == .granted,
+              inputMonitoringPermission == .granted,
+              !isHotKeyTapHealthy else { return }
+        onAllPermissionsGranted?()
     }
 
     // MARK: - Permission Checking
@@ -69,9 +127,12 @@ final class PermissionManager: ObservableObject {
     /// 1. If HotKeyManager created a tap, check if macOS has disabled it (revocation)
     /// 2. Try creating a fresh `.cghidEventTap` to trigger/check Input Monitoring
     private func checkInputMonitoringPermission() -> Bool {
-        // Strategy 1: If HotKeyManager has an active tap, check if macOS disabled it.
-        if hotKeyManager.isListening, let tap = hotKeyManager.eventTap {
-            return CGEvent.tapIsEnabled(tap: tap)
+        // Strategy 1: If HotKeyManager has an active, enabled tap, it's granted.
+        // A disabled tap stays disabled after the permission comes back, so
+        // it can't prove a denial; probe with a fresh tap instead.
+        if hotKeyManager.isListening, let tap = hotKeyManager.eventTap,
+           CGEvent.tapIsEnabled(tap: tap) {
+            return true
         }
 
         // Strategy 2: Try creating a fresh .cghidEventTap. This probes Input
@@ -120,7 +181,7 @@ final class PermissionManager: ObservableObject {
 
     /// Prompt the user to grant Accessibility permission.
     func requestAccessibilityPermission() {
-        let _ = HotKeyManager.checkAccessibilityPermission(prompt: true)
+        _ = HotKeyManager.checkAccessibilityPermission(prompt: true)
         startPermissionPolling()
     }
 
@@ -149,25 +210,61 @@ final class PermissionManager: ObservableObject {
 
     // MARK: - Permission Polling
 
-    /// Start polling permissions every 3 seconds until all are granted.
+    enum PollingDecision: Equatable {
+        case keepPolling
+        case stop
+        case giveUpOnHotKey
+    }
+
+    /// Creating the tap can fail for a moment right after a permission is
+    /// granted, while macOS still reports it as granted. About 30 s of 3 s
+    /// polls covers that; past it, app activation, wake and the Accessibility
+    /// notification still re-check.
+    static let maxHotKeyRestartPolls = 10
+
+    private var hotKeyRestartPolls = 0
+
+    static func pollingDecision(
+        allPermissionsGranted: Bool,
+        isHotKeyTapHealthy: Bool,
+        hotKeyRestartPolls: Int
+    ) -> PollingDecision {
+        guard allPermissionsGranted else { return .keepPolling }
+        if isHotKeyTapHealthy { return .stop }
+        return hotKeyRestartPolls >= maxHotKeyRestartPolls ? .giveUpOnHotKey : .keepPolling
+    }
+
+    /// Start polling permissions every 3 seconds until all are granted and
+    /// the hotkey tap is working.
     func startPermissionPolling() {
         guard permissionPollTimer == nil else { return }
-        guard !allPermissionsGranted else { return }
+        guard !allPermissionsGranted || !isHotKeyTapHealthy else { return }
 
         VocaLogger.debug(.appState, "Starting permission polling")
+        hotKeyRestartPolls = 0
         permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 guard let self = self else { return }
                 self.checkPermissions()
 
-                // Notify when all permissions granted and hotkey can start
-                if self.accessibilityPermission == .granted &&
-                    self.inputMonitoringPermission == .granted &&
-                    !self.hotKeyManager.isListening {
-                    self.onAllPermissionsGranted?()
-                }
+                // Notify when the permissions are there but the hotkey tap
+                // is missing or was disabled by a revoke.
+                self.restoreHotKeyIfPossible()
 
-                if self.allPermissionsGranted {
+                if self.allPermissionsGranted && !self.isHotKeyTapHealthy {
+                    self.hotKeyRestartPolls += 1
+                }
+                switch Self.pollingDecision(
+                    allPermissionsGranted: self.allPermissionsGranted,
+                    isHotKeyTapHealthy: self.isHotKeyTapHealthy,
+                    hotKeyRestartPolls: self.hotKeyRestartPolls
+                ) {
+                case .keepPolling:
+                    break
+                case .stop:
+                    self.stopPermissionPolling()
+                case .giveUpOnHotKey:
+                    VocaLogger.warning(.appState, "Hotkey tap still couldn't be created with every permission granted; waiting for the next activation or permission change")
                     self.stopPermissionPolling()
                 }
             }

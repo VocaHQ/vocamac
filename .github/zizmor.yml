@@ -1,0 +1,10 @@
+# zizmor (https://docs.zizmor.sh) audits the workflows in .github/workflows.
+# Run it locally with `zizmor .github/workflows`.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Reusable workflows from our own organization follow its main branch.
+        "VocaHQ/*": any
+        # Everything else is pinned to a commit SHA; Dependabot bumps the pins.
+        "*": hash-pin

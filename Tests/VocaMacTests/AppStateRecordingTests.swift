@@ -119,14 +119,16 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 0)
     }
 
-    func testStartRecordingInProcessingStateForceRecovers() async {
+    func testStartRecordingInStaleProcessingStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
+        // Processing with nothing actually being transcribed is a stuck status.
         appState.appStatus = .processing
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-                      "startRecording in processing state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+                      "a stale processing status is cleared and the same press starts recording")
+        await appState.cancelRecording()
     }
 
     func testStopRecordingWhenNotRecording() async {
@@ -208,6 +210,101 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertFalse(appState.modelKeepAliveEnabled)
     }
 
+    func testReleasingTheHotkeyWhileTheModelLoadsNeverStartsTheMicrophone() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny]
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = nil
+        whisperService.isModelLoaded = false
+        whisperService.loadDelayNanoseconds = 100_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let originalModel = appState.selectedModelSize
+        defer { appState.selectedModelSize = originalModel }
+        appState.selectedModelSize = ModelSize.tiny.rawValue
+
+        let start = Task { await appState.startRecording() }
+        for _ in 0..<200 where appState.appStatus != .processing { await Task.yield() }
+        XCTAssertEqual(appState.appStatus, .processing)
+        // Push-to-talk key-up arrives while the model is still loading.
+        await appState.stopRecordingAndTranscribe()
+        await start.value
+
+        XCTAssertTrue(mocks.whisperService.isModelLoaded)
+        XCTAssertFalse(appState.isRecording)
+        XCTAssertNotEqual(appState.appStatus, .recording)
+        XCTAssertNil(mocks.audioEngine.lastMaxDuration, "The audio engine must not be started")
+        XCTAssertGreaterThanOrEqual(mocks.hotKeyManager.resetKeyStateCallCount, 1)
+    }
+
+    func testHoldingTheHotkeyThroughTheModelLoadStillRecords() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny]
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = nil
+        whisperService.isModelLoaded = false
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let originalModel = appState.selectedModelSize
+        defer { appState.selectedModelSize = originalModel }
+        appState.selectedModelSize = ModelSize.tiny.rawValue
+
+        await appState.startRecording()
+
+        XCTAssertTrue(appState.isRecording)
+        XCTAssertNotNil(mocks.audioEngine.lastMaxDuration)
+    }
+
+    func testSystemAudioTranscriptionIgnoresAnErrorBanner() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.errorMessage = "No microphone audio detected."
+        appState.appStatus = .error
+
+        let result = try await appState.transcribeCapturedAudio([0.2, 0.1])
+
+        XCTAssertEqual(result.text, "mock transcription")
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.1])
+        XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testSystemAudioTranscriptionWaitsForAnActiveDictation() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        let transcription = Task { try await appState.transcribeCapturedAudio([0.3]) }
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData, "Must not decode during the dictation")
+        appState.isRecording = false
+        appState.appStatus = .idle
+
+        let result = try await transcription.value
+        XCTAssertEqual(result.text, "mock transcription")
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.3])
+    }
+
+    func testCancellingSystemAudioTranscriptionFreesTheModelForDictation() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.whisperService.transcribeDelayNanoseconds = 10_000_000_000
+
+        let transcription = Task { try await appState.transcribeCapturedAudio([0.3]) }
+        for _ in 0..<200 where mocks.whisperService.lastTranscribedAudioData == nil { await Task.yield() }
+        XCTAssertEqual(appState.appStatus, .processing)
+
+        transcription.cancel()
+        do {
+            _ = try await transcription.value
+            XCTFail("A cancelled capture must not produce a result")
+        } catch {
+            XCTAssertTrue(error is CancellationError, "\(error)")
+        }
+
+        XCTAssertEqual(appState.appStatus, .idle)
+        XCTAssertFalse(appState.isTranscribingMedia)
+        XCTAssertNil(appState.lastTranscription)
+        mocks.whisperService.transcribeDelayNanoseconds = 0
+        await appState.startRecording()
+        XCTAssertTrue(appState.isRecording, "Dictation must not be blocked by the discarded capture")
+    }
+
     func testStopRecordingInjectsPolishedText() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
@@ -257,6 +354,30 @@ final class AppStateRecordingTests: XCTestCase {
         )
     }
 
+    func testPracticeDictationStaysLocalWhenStoppedByHotkey() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "practice words", duration: 1, detectedLanguage: "en",
+            audioLengthSeconds: 1, modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = false
+
+        await appState.startRecording(injectResult: false)
+        XCTAssertTrue(appState.isPracticeRecording)
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertFalse(appState.isPracticeRecording)
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
+        XCTAssertEqual(appState.settingsTestResultText, "practice words")
+
+        // The next normal recording must regain ordinary text insertion.
+        await appState.startRecording()
+        XCTAssertFalse(appState.isPracticeRecording)
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+    }
+
     func testSettingsTestDictationDoesNotInject() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
@@ -269,14 +390,68 @@ final class AppStateRecordingTests: XCTestCase {
         )
         appState.appendTrailingSpace = false
         appState.autoCapitalize = true
-        appState.isRecording = true
-        appState.appStatus = .recording
 
-        await appState.stopRecordingAndTranscribe(injectResult: false)
-
+        await appState.startRecording(injectResult: false)
+        await appState.stopRecordingAndTranscribe()
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertEqual(appState.settingsTestResultText, "Settings only")
         XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testScratchpadDictationAppendsWithoutInjecting() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.scratchpadText = "Existing note"
+        mocks.audioEngine.stopRecordingResult = [0.2]
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "new thought", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+
+        await appState.toggleScratchpadRecording()
+        await appState.toggleScratchpadRecording()
+
+        XCTAssertEqual(appState.scratchpadText, "Existing note\nNew thought")
+        XCTAssertNil(mocks.textInjector.lastInjectedText)
+    }
+
+    func testFileTranscriptionUsesTheSelectedRouterWithoutInjection() async throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vocamac-file-\(UUID().uuidString).wav")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let samples = [Float](repeating: 0.2, count: 1_600)
+        try FailedAudioDump.wavData(from: samples, sampleRate: 16_000).write(to: url)
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "file transcript", duration: 0.1, detectedLanguage: "en",
+            audioLengthSeconds: 0.1, modelUsed: .tiny
+        )
+
+        let result = try await appState.transcribeFile(at: url)
+
+        XCTAssertEqual(result.text, "file transcript")
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, 1_600)
+        XCTAssertNil(mocks.textInjector.lastInjectedText)
+        XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testStopTimeInjectResultFalseCannotDemoteOrdinaryDictation() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "ordinary words",
+            duration: 1.0,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1.0,
+            modelUsed: .tiny
+        )
+        appState.appendTrailingSpace = false
+        appState.autoCapitalize = false
+
+        await appState.startRecording() // default inject true
+        await appState.stopRecordingAndTranscribe(injectResult: false) // must NOT demote
+
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+        XCTAssertNil(appState.settingsTestResultText)
     }
 
     func testStartRecordingBlockedWhenAutoPaused() async {
@@ -519,6 +694,28 @@ final class AppStateRecordingTests: XCTestCase {
                        "coreaudio-device-uid")
         XCTAssertEqual(mocks.audioEngine.lastPreferredInputChannelCount, 4)
     }
+
+    func testClosedLidPrefersAnExternalInputWithoutChangingSavedChoice() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.externalMicWhenLidClosed = true
+        appState.isLidClosed = { true }
+        appState.availableInputDevices = {
+            [
+                AudioDevice(id: "built-in", name: "MacBook Microphone", isDefault: true,
+                            sampleRate: 48_000, channelCount: 1, isBuiltIn: true),
+                AudioDevice(id: "usb", name: "USB Microphone", isDefault: false,
+                            sampleRate: 48_000, channelCount: 2, isBuiltIn: false),
+            ]
+        }
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.audioEngine.lastPreferredInputDeviceID, "usb")
+        XCTAssertEqual(mocks.audioEngine.lastPreferredInputChannelCount, 2)
+        XCTAssertEqual(appState.selectedAudioDeviceID, "")
+        XCTAssertTrue(appState.inputDeviceFallbackNotice?.contains("USB Microphone") == true)
+        await appState.cancelRecording()
+    }
 }
 
 // MARK: - AppState Error Recovery Tests
@@ -654,28 +851,30 @@ final class AppStateRecordingGuardTests: XCTestCase {
     }
 
     @MainActor
-    func testStartRecordingInErrorStateForceRecovers() async {
+    func testStartRecordingInErrorStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
         appState.appStatus = .error
         appState.errorMessage = "Previous error"
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-            "startRecording in error state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+            "an error only reports the past; the same press starts recording")
         XCTAssertNil(appState.errorMessage,
-            "Error message should be cleared after force recovery")
+            "Error message should be cleared when the new recording starts")
+        await appState.cancelRecording()
     }
 
     @MainActor
-    func testStartRecordingInProcessingStateForceRecovers() async {
+    func testStartRecordingInStaleProcessingStateStartsRecording() async {
         let (appState, _) = AppState.makeTestState()
         appState.appStatus = .processing
 
         await appState.startRecording()
 
-        XCTAssertEqual(appState.appStatus, .idle,
-            "startRecording in processing state should force recover to idle")
+        XCTAssertEqual(appState.appStatus, .recording,
+            "a stale processing status is cleared and the same press starts recording")
+        await appState.cancelRecording()
     }
 
     @MainActor
@@ -823,5 +1022,149 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
 
         await appState.stopRecordingAndTranscribe()
         XCTAssertFalse(appState.isRecording)
+    }
+}
+
+extension AppStateRecordingTests {
+    func testPartialTranscriptUpdatesObservableStateAndOverlay() async {
+        let (app, mocks) = AppState.makeTestState()
+        app.overlayStyle = .live
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                var count = 0
+                for try await chunk in chunks { count += chunk.count }
+                return VocaTranscription(text: "final", duration: 0, detectedLanguage: "en",
+                                         audioLengthSeconds: Double(count) / 16_000, modelUsed: .tiny)
+            }
+        }
+        await app.startRecording()
+        mocks.whisperService.streamingPartialHandler?("words so far")
+        await Task.yield()
+        XCTAssertEqual(app.liveTranscript, "words so far")
+        XCTAssertEqual(mocks.cursorOverlay.lastTranscript, "words so far")
+        await app.cancelRecording()
+        XCTAssertEqual(app.liveTranscript, "")
+    }
+
+    func testLiveResultReplacesBatchWithoutLosingFinalSamples() async {
+        let (app, mocks) = AppState.makeTestState()
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                var count = 0
+                for try await chunk in chunks { count += chunk.count }
+                return VocaTranscription(text: "live result", duration: 0, detectedLanguage: "en",
+                                         audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech)
+            }
+        }
+        await app.startRecording()
+        mocks.audioEngine.onAudioSamples?([0.2, 0.3], 0)
+        mocks.audioEngine.onAudioSamples?([0.4], 2)
+        mocks.audioEngine.stopRecordingResult = [0.2, 0.3, 0.4]
+        await app.stopRecordingAndTranscribe(injectResult: false)
+        XCTAssertEqual(app.lastTranscription?.text, "live result")
+        XCTAssertEqual(app.lastTranscription?.audioLengthSeconds, 3.0 / 16_000)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.audioEngine.onAudioSamples)
+    }
+
+    func testIncompleteLiveResultFallsBackToFullRecording() async {
+        let (app, mocks) = AppState.makeTestState()
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                for try await _ in chunks { }
+                return VocaTranscription(text: "partial", duration: 0, detectedLanguage: "en",
+                                         audioLengthSeconds: 0, modelUsed: .appleSpeech)
+            }
+        }
+        await app.startRecording()
+        mocks.audioEngine.onAudioSamples?([0.2], 0)
+        mocks.audioEngine.stopRecordingResult = [0.2, 0.3]
+        await app.stopRecordingAndTranscribe(injectResult: false)
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.3])
+        XCTAssertEqual(app.lastTranscription?.text, "mock transcription")
+    }
+
+    func testWhisperTranslationUsesAuthoritativeBatchResult() async {
+        let (app, mocks) = AppState.makeTestState()
+        app.translationEnabled = true
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                var count = 0
+                for try await chunk in chunks { count += chunk.count }
+                return VocaTranscription(text: "untranslated partial", duration: 0, detectedLanguage: "fr",
+                                         audioLengthSeconds: Double(count) / 16_000, modelUsed: .tiny)
+            }
+        }
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "translated final", duration: 0, detectedLanguage: "en",
+            audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
+        )
+        await app.startRecording()
+        mocks.audioEngine.onAudioSamples?([0.2], 0)
+        mocks.audioEngine.stopRecordingResult = [0.2]
+
+        await app.stopRecordingAndTranscribe(injectResult: false)
+
+        XCTAssertEqual(app.lastTranscription?.text, "translated final")
+        XCTAssertEqual(mocks.whisperService.lastTranslate, true)
+    }
+
+    func testCancelRecordingStopsLiveConsumer() async {
+        let (app, mocks) = AppState.makeTestState()
+        let cancelled = expectation(description: "live consumer cancelled")
+        mocks.whisperService.streamingFactory = { language in
+            RecordingTranscription(language: language) { chunks in
+                defer { cancelled.fulfill() }
+                for try await _ in chunks { }
+                throw CancellationError()
+            }
+        }
+        await app.startRecording()
+        await app.cancelRecording()
+        await fulfillment(of: [cancelled], timeout: 1)
+        XCTAssertNil(mocks.audioEngine.onAudioSamples)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+    }
+}
+
+// MARK: - Translation Capability
+
+@MainActor
+final class AppStateTranslationTests: XCTestCase {
+
+    private let keys = ["vocamac.translationEnabled", PreferenceKey.selectedModelSize]
+
+    override func setUp() {
+        super.setUp()
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+    }
+
+    override func tearDown() {
+        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        super.tearDown()
+    }
+
+    func testTranslationReachesAModelTrainedForIt() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.selectedModelSize = ModelSize.small.rawValue
+        appState.translationEnabled = true
+
+        _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
+
+        XCTAssertTrue(appState.translatesSpeech)
+        XCTAssertEqual(mocks.whisperService.lastTranslate, true)
+    }
+
+    func testTranslationIsNotRequestedFromAModelThatCannotTranslate() async throws {
+        let (appState, mocks) = AppState.makeTestState()
+        // Turned on with Small, then switched to Turbo.
+        appState.selectedModelSize = ModelSize.largeV3LatestTurboCompact.rawValue
+        appState.translationEnabled = true
+
+        _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
+
+        XCTAssertFalse(appState.translatesSpeech)
+        XCTAssertEqual(mocks.whisperService.lastTranslate, false)
+        XCTAssertTrue(appState.translationEnabled, "The setting itself is kept for the next model")
     }
 }

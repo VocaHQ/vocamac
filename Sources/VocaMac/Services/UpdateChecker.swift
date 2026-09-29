@@ -220,7 +220,9 @@ final class UpdateChecker: ObservableObject {
 
     func isNewerVersion(remote: String, current: String) -> Bool {
         func parse(_ version: String) -> (Int, Int, Int) {
-            let values = version.split(separator: ".").compactMap { Int($0) }
+            // "1.2.3-beta" compares as 1.2.3, not 1.2.0: read each component's
+            // leading digits and ignore any pre-release or build suffix.
+            let values = version.split(separator: ".").map { Int($0.prefix(while: \.isNumber)) ?? 0 }
             let major = values.indices.contains(0) ? values[0] : 0
             let minor = values.indices.contains(1) ? values[1] : 0
             let patch = values.indices.contains(2) ? values[2] : 0
@@ -370,31 +372,40 @@ final class UpdateChecker: ObservableObject {
         let startTime = Date()
         var fileURL: URL?
 
-        for await event in delegate.events {
-            switch event {
-            case .progress(let bytesWritten, let totalExpected):
-                let total = totalExpected > 0 ? totalExpected : totalSize
-                let fraction = total > 0 ? Double(bytesWritten) / Double(total) : 0
-                let elapsed = Date().timeIntervalSince(startTime)
-                let speed = elapsed > 0 ? Double(bytesWritten) / elapsed : 0
-                let remaining = speed > 0 ? Double(total - bytesWritten) / speed : 0
-                updateState = .downloading(
-                    progress: min(fraction, 1.0),
-                    bytesDownloaded: bytesWritten,
-                    totalBytes: total,
-                    estimatedSecondsRemaining: remaining
-                )
-            case .completed(let url):
-                fileURL = url
-            case .failed(let error):
-                session.finishTasksAndInvalidate()
-                throw error
+        // Leaving the progress loop alone doesn't stop URLSession; cancel the
+        // transfer itself so a cancelled update stops using the network.
+        try await withTaskCancellationHandler {
+            for await event in delegate.events {
+                switch event {
+                case .progress(let bytesWritten, let totalExpected):
+                    let total = totalExpected > 0 ? totalExpected : totalSize
+                    let fraction = total > 0 ? Double(bytesWritten) / Double(total) : 0
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let speed = elapsed > 0 ? Double(bytesWritten) / elapsed : 0
+                    let remaining = speed > 0 ? Double(total - bytesWritten) / speed : 0
+                    updateState = .downloading(
+                        progress: min(fraction, 1.0),
+                        bytesDownloaded: bytesWritten,
+                        totalBytes: total,
+                        estimatedSecondsRemaining: remaining
+                    )
+                case .completed(let url):
+                    fileURL = url
+                case .failed(let error):
+                    session.finishTasksAndInvalidate()
+                    throw error
+                }
             }
+        } onCancel: {
+            task.cancel()
         }
 
         session.finishTasksAndInvalidate()
 
-        guard let downloadedFile = fileURL else {
+        if Task.isCancelled, let fileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+        }
+        guard !Task.isCancelled, let downloadedFile = fileURL else {
             throw UpdateCheckerError.downloadCancelled
         }
 
@@ -409,6 +420,16 @@ final class UpdateChecker: ObservableObject {
                 try? FileManager.default.removeItem(at: downloadedFile)
                 throw UpdateCheckerError.checksumMismatch
             }
+        } else {
+            // GitHub has published `digest` on release assets since 2025, so
+            // this should not happen. Refusing the update would strand users
+            // on an old build over a missing API field, and Gatekeeper still
+            // checks the notarized signature when the DMG is opened — but a
+            // skipped verification must at least be visible in diagnostics.
+            VocaLogger.warning(
+                .updateChecker,
+                "Release asset published no SHA-256 digest; installing without checksum verification"
+            )
         }
 
         // Move to final location
@@ -458,6 +479,8 @@ private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
 
             if let httpResponse = downloadTask.response as? HTTPURLResponse,
                httpResponse.statusCode != 200 {
+                // The body is an error page, not the DMG.
+                try? FileManager.default.removeItem(at: savedURL)
                 continuation.yield(.failed(UpdateCheckerError.invalidStatusCode(httpResponse.statusCode)))
             } else {
                 continuation.yield(.completed(savedURL))

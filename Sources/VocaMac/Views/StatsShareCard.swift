@@ -1,7 +1,8 @@
 // StatsShareCard.swift
 // VocaMac
 //
-// Branded stats card rendered to an image and copied to the clipboard.
+// Branded stats card rendered to an image, copied to the clipboard,
+// posted to a social composer, or handed to the system share picker.
 // Forced dark appearance so clipboard shares match the in-app Stats look.
 
 import AppKit
@@ -40,6 +41,9 @@ struct StatsShareCard: View {
         formatter.allowedUnits = [.hour, .minute]
         formatter.unitsStyle = .abbreviated
         formatter.zeroFormattingBehavior = .dropAll
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US")
+        formatter.calendar = calendar
         return formatter
     }()
 
@@ -59,8 +63,16 @@ struct StatsShareCard: View {
             }
 
             HStack(spacing: 10) {
-                shareMetric(title: "Words", value: "\(snapshot.totalWords)", accent: .blue)
-                shareMetric(title: "Sessions", value: "\(snapshot.totalTranscriptions)", accent: .purple)
+                shareMetric(
+                    title: "Words",
+                    value: StatsShareComposer.formatCount(snapshot.totalWords),
+                    accent: brandGreen
+                )
+                shareMetric(
+                    title: "Sessions",
+                    value: StatsShareComposer.formatCount(snapshot.totalTranscriptions),
+                    accent: brandGreen
+                )
                 shareMetric(
                     title: "Time",
                     value: Self.durationFormatter.string(from: snapshot.totalAudioDurationSeconds) ?? "0m",
@@ -93,11 +105,7 @@ struct StatsShareCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(
-                    LinearGradient(
-                        colors: [brandGreen.opacity(0.55), Color.white.opacity(0.08)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
+                    brandGreen.opacity(0.4),
                     lineWidth: 1.2
                 )
         }
@@ -123,22 +131,120 @@ struct StatsShareCard: View {
     }
 }
 
+/// What `StatsShareExporter.share` managed to do, so the UI can tell the user
+/// whether the card is actually on the clipboard.
+enum StatsShareOutcome: Equatable {
+    /// Composer opened and the card image is on the clipboard.
+    case shared
+    /// Composer opened, but the card image could not be copied.
+    case sharedWithoutCard
+    /// Nothing opened.
+    case failed
+}
+
 enum StatsShareExporter {
     /// Renders the branded card and copies a PNG to the general pasteboard.
     @MainActor
     static func copyImage(toClipboard snapshot: StatsShareSnapshot) -> Bool {
-        let card = StatsShareCard(snapshot: snapshot)
-        let renderer = ImageRenderer(content: card)
-        renderer.scale = 2
-        guard let nsImage = renderer.nsImage,
-              let tiff = nsImage.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:]) else {
-            return false
-        }
+        guard let png = renderPNG(snapshot) else { return false }
 
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         return pasteboard.setData(png, forType: .png)
+    }
+
+    /// Opens the system share picker (Messages, Mail, AirDrop, Notes, …) with
+    /// the card and post text, anchored to `view`.
+    @MainActor
+    static func showSharePicker(for snapshot: StatsShareSnapshot, relativeTo view: NSView) {
+        let picker = NSSharingServicePicker(items: sharingItems(for: snapshot))
+        picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+    }
+
+    /// The card as a PNG file, then the post text. A file rather than an
+    /// `NSImage` so Mail and AirDrop send a named PNG instead of a TIFF. If the
+    /// card cannot be written, the text still goes on its own.
+    ///
+    /// Each share gets its own directory. A service can still be reading an
+    /// earlier share's file (a Mail draft, a pending AirDrop) when the next one
+    /// starts, and a shared path would swap that card for the newer one.
+    @MainActor
+    static func sharingItems(for snapshot: StatsShareSnapshot) -> [Any] {
+        var items: [Any] = []
+        if let png = renderPNG(snapshot) {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("VocaMac Share \(UUID().uuidString)", isDirectory: true)
+            let url = directory.appendingPathComponent("VocaMac Stats.png")
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try png.write(to: url, options: .atomic)
+                items.append(url)
+            } catch {
+                VocaLogger.warning(.general, "Stats share: could not write the card image: \(error.localizedDescription)")
+            }
+        }
+        items.append(StatsShareComposer.message(for: snapshot))
+        return items
+    }
+
+    @MainActor
+    private static func renderPNG(_ snapshot: StatsShareSnapshot) -> Data? {
+        let renderer = ImageRenderer(content: StatsShareCard(snapshot: snapshot))
+        renderer.scale = 2
+        guard let nsImage = renderer.nsImage,
+              let tiff = nsImage.tiffRepresentation,
+              let rep = NSBitmapImageRep(data: tiff) else {
+            return nil
+        }
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// Opens the destination's composer with prefilled text, then copies the
+    /// card image so the user can paste it in.
+    ///
+    /// Web share intents cannot carry an attachment, so the clipboard copy is
+    /// how the image gets there. A failed copy is reported separately rather
+    /// than folded into success: telling the user to paste when the clipboard
+    /// still holds their previous content would put that content in a public
+    /// post.
+    @MainActor
+    static func share(
+        _ snapshot: StatsShareSnapshot,
+        to destination: StatsShareDestination
+    ) -> StatsShareOutcome {
+        share(
+            snapshot,
+            to: destination,
+            openURL: { NSWorkspace.shared.open($0) },
+            copyCard: { copyImage(toClipboard: $0) }
+        )
+    }
+
+    @MainActor
+    static func share(
+        _ snapshot: StatsShareSnapshot,
+        to destination: StatsShareDestination,
+        openURL: (URL) -> Bool,
+        copyCard: (StatsShareSnapshot) -> Bool
+    ) -> StatsShareOutcome {
+        guard let url = StatsShareComposer.composerURL(for: snapshot, destination: destination) else {
+            VocaLogger.error(.general, "Stats share: could not build a \(destination.displayName) composer URL")
+            return .failed
+        }
+
+        // Do not overwrite the clipboard when the destination cannot open.
+        // Copy immediately after a successful open request, before the user can
+        // reach the composer and paste.
+        guard openURL(url) else {
+            VocaLogger.error(.general, "Stats share: could not open the \(destination.displayName) composer")
+            return .failed
+        }
+
+        let copiedImage = copyCard(snapshot)
+        if !copiedImage {
+            VocaLogger.warning(.general, "Stats share: card image could not be copied")
+        }
+
+        return copiedImage ? .shared : .sharedWithoutCard
     }
 }

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="og-title og-desc">
   <title id="og-title">VocaMac: native voice typing for macOS</title>
-  <desc id="og-desc">A warm paper card. On the left, the VocaMac lockup, the headline "Say it once. Your Mac types.", and the macOS 14+, Apple Silicon, v0.8.0 beta and AGPL-3.0 proof line. On the right, the menu-bar recording preview with an audio meter and a transcript landing at the cursor.</desc>
+  <desc id="og-desc">A warm paper card. On the left, the VocaMac lockup, the headline "Say it once. Your Mac types.", and the macOS 14+, Apple Silicon, v1.0.0 and AGPL-3.0 proof line. On the right, the menu-bar recording preview with an audio meter and a transcript landing at the cursor.</desc>
 
   <!-- Defs first: a forward reference to the dot pattern is what turned the
        previous card into a grey wash in strict rasterisers. -->
@@ -54,7 +54,7 @@
 
   <!-- Proof line -->
   <line x1="72" y1="486" x2="536" y2="486" stroke="#c9c8bd" stroke-width="1.5"/>
-  <text id="og-proof" class="mono" x="72" y="516" font-size="14" fill="#5f6861">macOS 14+ · Apple Silicon · v0.8.0 beta · AGPL-3.0</text>
+  <text id="og-proof" class="mono" x="72" y="516" font-size="14" fill="#5f6861">macOS 14+ · Apple Silicon · v1.0.0 · AGPL-3.0</text>
 
   <!-- Menu bar strip -->
   <rect x="616" y="140" width="512" height="46" rx="10" fill="#0b1a15"/>
@@ -85,9 +85,9 @@
   <text class="display" x="640" y="290" font-size="20" fill="#14231c">Ready to dictate</text>
   <text class="body" x="640" y="314" font-size="14" fill="#58625c">Hold Right Option to record</text>
 
-  <rect x="1014" y="270" width="90" height="27" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
-  <circle cx="1030" cy="283.5" r="3.5" fill="#0f6b57"/>
-  <text class="mono" x="1043" y="288" font-size="11" letter-spacing="0.8" fill="#0b493d">LOCAL</text>
+  <rect x="974" y="270" width="130" height="27" rx="7" fill="#e5f2eb" stroke="#cfe9dc" stroke-width="1.5"/>
+  <circle cx="990" cy="283.5" r="3.5" fill="#0f6b57"/>
+  <text class="mono" x="1003" y="288" font-size="11" letter-spacing="0.8" fill="#0b493d">ON-DEVICE</text>
 
   <!-- Audio meter: 42 bars, varied amplitude, same green as the site. -->
   <g fill="#0f6b57">

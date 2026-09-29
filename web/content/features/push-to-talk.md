@@ -30,7 +30,7 @@ Push-to-Talk eliminates that entirely:
 
 ## Choosing Your Hotkey
 
-![VocaMac Settings showing activation mode and hotkey configuration](/screenshots/settings-general.png)
+![VocaMac Settings showing activation mode and hotkey configuration on the Dictation page](/screenshots/settings-general.png)
 
 VocaMac supports a wide range of hotkeys for Push-to-Talk activation:
 
@@ -44,7 +44,7 @@ VocaMac supports a wide range of hotkeys for Push-to-Talk activation:
 
 Want a key that isn't in the list? Click **Record** next to the preset picker and press any key — VocaMac captures it and shows it as your "Custom" key (press Escape to cancel). While VocaMac is running, that key is reserved for activation.
 
-You can change your hotkey anytime in **Settings → General → Activation Key**.
+You can change your hotkey anytime in **Settings → Dictation**.
 
 ## Visual Feedback
 
@@ -81,4 +81,4 @@ VocaMac also offers a **Double-Tap Toggle** mode as an alternative. Here's how t
 
 Most users prefer Push-to-Talk for its simplicity and reliability. But if you regularly dictate for more than 30 seconds at a time, Double-Tap Toggle might be more comfortable.
 
-You can switch between modes anytime in **Settings → General → Activation Mode**.
+You can switch between modes anytime in **Settings → Dictation**.

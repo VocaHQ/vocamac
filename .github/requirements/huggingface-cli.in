@@ -1,0 +1,5 @@
+# Hugging Face CLI for fetching the bundled tiny model in release and nightly
+# builds. Regenerate the hash-locked file after changing this:
+#   uv pip compile --universal --generate-hashes --python-version 3.10 \
+#     .github/requirements/huggingface-cli.in -o .github/requirements/huggingface-cli.txt
+huggingface_hub==1.32.0

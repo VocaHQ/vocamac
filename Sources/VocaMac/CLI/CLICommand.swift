@@ -15,6 +15,9 @@ enum CLIInvocationMode: Equatable {
 enum CLICommand: Equatable {
     case help
     case transcribeFile(path: String, model: String?, language: String?)
+    /// Decode a file whole and piece by piece (as "Process while speaking"
+    /// would while recording), optionally cleaning both, and report timings.
+    case comparePieces(path: String, model: String?, language: String?, options: PieceComparisonOptions)
     case listModels
 
     /// Flags that unambiguously request the headless CLI. Any other launch
@@ -43,6 +46,10 @@ enum CLICommand: Equatable {
         var language: String?
         var wantsList = false
         var wantsJSON = false
+        var wantsPieces = false
+        var cleanupModel: CleanupModelKind?
+        var pauseSeconds: Double?
+        var minPieceSeconds: Double?
         var index = 0
 
         while index < arguments.count {
@@ -68,6 +75,40 @@ enum CLICommand: Equatable {
                     throw CLIError(.invalidArguments, "--language may only be provided once.")
                 }
                 language = try value(after: argument, in: arguments, index: &index)
+            case "--pieces":
+                guard !wantsPieces else {
+                    throw CLIError(.invalidArguments, "--pieces may only be provided once.")
+                }
+                wantsPieces = true
+            case "--cleanup":
+                guard cleanupModel == nil else {
+                    throw CLIError(.invalidArguments, "--cleanup may only be provided once.")
+                }
+                let identifier = try value(after: argument, in: arguments, index: &index)
+                guard let kind = CleanupModelKind(rawValue: identifier) else {
+                    let known = CleanupModelKind.allCases.map(\.rawValue).joined(separator: ", ")
+                    throw CLIError(.invalidArguments, "Unknown cleanup model: \(identifier). Known: \(known)")
+                }
+                cleanupModel = kind
+            case "--pause-seconds", "--min-piece-seconds":
+                let text = try value(after: argument, in: arguments, index: &index)
+                guard let seconds = Double(text), seconds > 0, seconds <= Self.maxPieceOptionSeconds else {
+                    throw CLIError(
+                        .invalidArguments,
+                        "\(argument) needs a number of seconds above 0 and at most \(Int(Self.maxPieceOptionSeconds))."
+                    )
+                }
+                if argument == "--pause-seconds" {
+                    guard pauseSeconds == nil else {
+                        throw CLIError(.invalidArguments, "--pause-seconds may only be provided once.")
+                    }
+                    pauseSeconds = seconds
+                } else {
+                    guard minPieceSeconds == nil else {
+                        throw CLIError(.invalidArguments, "--min-piece-seconds may only be provided once.")
+                    }
+                    minPieceSeconds = seconds
+                }
             case "--json":
                 guard !wantsJSON else {
                     throw CLIError(.invalidArguments, "--json may only be provided once.")
@@ -90,6 +131,9 @@ enum CLICommand: Equatable {
         }
 
         if wantsList {
+            guard !wantsPieces, cleanupModel == nil, pauseSeconds == nil, minPieceSeconds == nil else {
+                throw CLIError(.invalidArguments, "--pieces and its options only apply to --transcribe-file.")
+            }
             guard model == nil, language == nil else {
                 throw CLIError(.invalidArguments, "--model and --language only apply to --transcribe-file.")
             }
@@ -99,8 +143,23 @@ enum CLICommand: Equatable {
         guard let audioPath else {
             throw CLIError(.invalidArguments, "Missing value for --transcribe-file.")
         }
+        if !wantsPieces, cleanupModel != nil || pauseSeconds != nil || minPieceSeconds != nil {
+            throw CLIError(.invalidArguments, "--cleanup, --pause-seconds, and --min-piece-seconds require --pieces.")
+        }
+        if wantsPieces {
+            let defaults = StreamingCommitOptions()
+            return .comparePieces(path: audioPath, model: model, language: language, options: PieceComparisonOptions(
+                cleanupModel: cleanupModel,
+                pauseSeconds: pauseSeconds ?? defaults.pauseSeconds,
+                minPieceSeconds: minPieceSeconds ?? defaults.minPieceSeconds
+            ))
+        }
         return .transcribeFile(path: audioPath, model: model, language: language)
     }
+
+    /// Longest pause or minimum piece accepted: past a recording's 30-minute
+    /// limit it could never apply, and larger values overflow sample counts.
+    static let maxPieceOptionSeconds = 1_800.0
 
     private static func value(
         after argument: String,
@@ -116,4 +175,11 @@ enum CLICommand: Equatable {
         index = valueIndex
         return arguments[valueIndex]
     }
+}
+
+/// Settings for `--transcribe-file … --pieces`.
+struct PieceComparisonOptions: Equatable {
+    var cleanupModel: CleanupModelKind?
+    var pauseSeconds: Double
+    var minPieceSeconds: Double
 }

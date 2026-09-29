@@ -14,11 +14,14 @@ struct AboutTab: View {
         Form {
             identitySection
             thisMacSection
+            modelCreditsSection
             familySection
             talkToUsSection
             contributorsSection
         }
         .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .tint(VocaDesign.accent)
         .sheet(isPresented: $showingUpdateSheet) {
             if let info = updateInfoForSheet {
                 UpdateDetailView(info: info, isPresented: $showingUpdateSheet)
@@ -41,7 +44,10 @@ struct AboutTab: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
+                // Link keeps NSColor.linkColor through .tint, so the accent
+                // has to be set on the link itself or it renders system blue.
                 Link("vocamac.com", destination: URL(string: "https://vocamac.com")!)
+                    .foregroundStyle(VocaDesign.accent)
 
                 Text("Version \(appVersionDisplay) · \(buildChannelLabel)")
                     .foregroundStyle(.secondary)
@@ -95,14 +101,49 @@ struct AboutTab: View {
             }
             LabeledContent("Engine", value: activeEngineLabel)
             LabeledContent("Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
+            // Cleanup is opt-in and runs a second model, so it only earns a row
+            // once it is actually part of what this Mac is doing.
+            if let cleanupModelLabel {
+                LabeledContent("Cleanup Model", value: cleanupModelLabel)
+            }
             LabeledContent("Storage", value: appState.modelManager.diskUsageDescription())
 
             Button {
                 NotificationCenter.default.post(name: .showOnboarding, object: nil)
             } label: {
-                Label("Show Setup Wizard…", systemImage: "wand.and.stars")
+                Label("Set Up VocaMac…", systemImage: "wand.and.stars")
             }
             .help("Re-run the first-launch setup wizard")
+        }
+    }
+
+    /// The teams whose models VocaMac runs. VocaMac is the app around them.
+    private var modelCreditsSection: some View {
+        Section {
+            ForEach(ModelCreator.allCases) { creator in
+                HStack(spacing: 10) {
+                    ModelCreatorMark(creator: creator, size: 24)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(creator.displayName)
+                        Text(creator.creditedModels)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Link(destination: creator.url) {
+                        Image(systemName: "arrow.up.right.square")
+                    }
+                    .foregroundStyle(VocaDesign.accent)
+                    .help(creator.url.absoluteString)
+                    .accessibilityLabel("Open \(creator.displayName)'s models")
+                }
+            }
+        } header: {
+            Text("Model Credits")
+        } footer: {
+            Text("VocaMac runs models made by these teams. Names and logos belong to their owners and are shown for credit only. Logos from Lobe Icons (MIT).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -186,9 +227,21 @@ struct AboutTab: View {
                 Text("Made with ❤️ by ")
                     .foregroundStyle(.tertiary)
                 Link("Our contributors", destination: AboutLinks.contributors)
+                    .foregroundStyle(VocaDesign.accent)
             }
             .font(.caption2)
         }
+    }
+
+    /// The cleanup model, named only when cleanup is switched on and the model
+    /// it would use is on disk. Enabled-but-undownloaded is not "active", and
+    /// the Cleanup page already explains that case.
+    private var cleanupModelLabel: String? {
+        guard appState.transcriptCleanupEnabled else { return nil }
+        let kind = appState.selectedCleanupModelKind
+        guard appState.transcriptCleanup.isDownloaded(kind) else { return nil }
+        let descriptor = kind.descriptor
+        return "\(descriptor.displayName) · \(descriptor.sizeDescription)"
     }
 
     private var activeEngineLabel: String {
@@ -207,7 +260,7 @@ struct AboutTab: View {
     }
 
     private var buildChannelLabel: String {
-        appVersionDisplay.contains("nightly") ? "Nightly" : "Beta"
+        appVersionDisplay.contains("nightly") ? "Nightly" : "Stable"
     }
 
     private var updateStatusText: String {

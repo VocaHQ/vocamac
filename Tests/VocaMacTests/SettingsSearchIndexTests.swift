@@ -25,6 +25,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertTrue(matches.contains { $0.id == "idle-unload" })
     }
 
+    func testCleanupQueryHitsCleanupPage() {
+        let matches = SettingsSearchIndex.matches(query: "filler")
+        XCTAssertTrue(matches.contains { $0.page == .cleanup })
+        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "qwen"), .cleanup)
+    }
+
     func testTrailingQueryHitsDictation() {
         let matches = SettingsSearchIndex.matches(query: "trailing")
         XCTAssertTrue(matches.contains { $0.page == .dictation })
@@ -48,10 +54,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "resource"), .advanced)
     }
 
-    func testToneQueryHitsAudio() {
+    /// "Tone" names both the start/stop sound cues and the Formal / Casual
+    /// wording setting, so a search for it must find both.
+    func testToneQueryHitsSoundsAndWritingTone() {
         let matches = SettingsSearchIndex.matches(query: "tone")
         XCTAssertTrue(matches.contains { $0.id == "sound-effects" })
-        XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "tone"), .audio)
+        XCTAssertTrue(matches.contains { $0.id == "writing-wording" })
     }
 
     func testAboutSearchEntriesStayIndexed() {
@@ -84,5 +92,30 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "twitter"), .about)
         XCTAssertTrue(SettingsSearchIndex.matches(query: "x.com").contains { $0.id == "x" })
         XCTAssertTrue(SettingsSearchIndex.matches(query: "twitter").contains { $0.id == "x" })
+    }
+}
+
+// MARK: - Sidebar layout
+
+final class SettingsSectionTests: XCTestCase {
+    func testEveryPageAppearsInExactlyOneSection() {
+        let listed = SettingsSection.allCases.flatMap(\.pages)
+        XCTAssertEqual(listed.count, Set(listed).count, "a page is listed twice")
+        XCTAssertEqual(Set(listed), Set(SettingsPage.allCases), "a page is missing from the sidebar")
+    }
+
+    func testPerformanceSitsBesideTheSpeechModel() {
+        XCTAssertTrue(SettingsSection.dictation.pages.contains(.performance))
+        XCTAssertTrue(SettingsSection.dictation.pages.contains(.speechModel))
+    }
+
+    func testPermissionsPageKeepsItsStoredRawValue() {
+        // A remembered last page is stored by raw value.
+        XCTAssertEqual(SettingsPage.advanced.rawValue, "advanced")
+        XCTAssertEqual(SettingsPage.advanced.title, "Permissions & Logs")
+    }
+
+    func testOldAdvancedSearchTermsStillFindThePermissionsPage() {
+        XCTAssertTrue(SettingsSearchIndex.matches(query: "advanced").contains { $0.page == .advanced })
     }
 }

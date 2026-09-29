@@ -12,6 +12,7 @@ import Combine
 protocol AudioRecording: AnyObject {
     var isCurrentlyRecording: Bool { get }
     var onAudioLevel: ((Float) -> Void)? { get set }
+    var onAudioSamples: (([Float], Int) -> Void)? { get set }
     var onSilenceDetected: (() -> Void)? { get set }
     var onMaxDurationReached: (() -> Void)? { get set }
     var onAudioDeviceChanged: (() -> Void)? { get set }
@@ -34,6 +35,14 @@ protocol AudioRecording: AnyObject {
     func requestPermission(completion: @escaping (Bool) -> Void)
 }
 
+extension AudioRecording {
+    var onAudioSamples: (([Float], Int) -> Void)? {
+        get { nil }
+        // swiftlint:disable:next unused_setter_value
+        set { }
+    }
+}
+
 // MARK: - SoundPlaying
 
 protocol SoundPlaying: AnyObject {
@@ -43,13 +52,32 @@ protocol SoundPlaying: AnyObject {
     func playStopSound()
     func playStopSoundAsync() async
     func previewStartThenStop() async
+    /// Command Mode's start cue: the selected tone, twice, so an edit sounds
+    /// different from a dictation without looking at the screen.
+    func playCommandStartSound()
+    func playCommandStartSoundAsync() async
 }
 
 extension SoundPlaying {
+    func playCommandStartSound() { playStartSound() }
+    func playCommandStartSoundAsync() async { await playStartSoundAsync() }
+
     func previewStartThenStop() async {
         await playStartSoundAsync()
         await playStopSoundAsync()
     }
+}
+
+// MARK: - AudioDucking
+
+/// Silences other audio while a recording is open and brings it back afterwards.
+protocol AudioDucking: AnyObject {
+    /// Mute the default output if another app is playing and the user has not muted it already.
+    func duck()
+    /// Unmute what `duck` muted, if it is still muted.
+    func restore()
+    /// Undo a mute the previous process did not get to restore (crash, kill).
+    func restoreAfterUnexpectedExit()
 }
 
 // MARK: - HotKeyMonitoring
@@ -66,6 +94,20 @@ protocol HotKeyMonitoring: AnyObject {
     func resetKeyState()
     func _updateConfiguration(keyCode: Int?, mode: ActivationMode?, doubleTapThreshold: Double?, safetyTimeout: Double?, modifiers: HotKeyModifiers?)
 }
+
+/// Extra global shortcuts, the Escape cancel key, and the mouse trigger.
+/// Separate from `HotKeyMonitoring` so existing conformances keep compiling;
+/// the default implementations do nothing.
+protocol HotKeyShortcutMonitoring: AnyObject {
+    var onShortcut: ((HotKeyShortcutAction) -> Void)? { get set }
+    var onShortcutReleased: ((HotKeyShortcutAction) -> Void)? { get set }
+    var onCancel: (() -> Void)? { get set }
+    func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo])
+    func setCancelKeyArmed(_ armed: Bool)
+    func updateMouseTrigger(button: Int)
+}
+
+extension HotKeyManager: HotKeyShortcutMonitoring {}
 
 extension HotKeyMonitoring {
     func updateConfiguration(keyCode: Int? = nil, mode: ActivationMode? = nil, doubleTapThreshold: Double? = nil, safetyTimeout: Double? = nil, modifiers: HotKeyModifiers? = nil) {
@@ -105,6 +147,24 @@ protocol CursorOverlayManaging: AnyObject {
     func transitionToRecording()
     func transitionToProcessing()
     func updateAudioLevel(_ level: Float)
+    func updateTranscript(_ text: String)
+    /// Show the overlay as a Command Mode session (an edit of selected text)
+    /// rather than a dictation, or nil for dictation. `show` resets it.
+    func setCommandSession(_ session: CommandModeSession?)
+    /// Whether partial words will arrive for this recording, so the live
+    /// panel doesn't promise words an engine never sends.
+    func setLiveWordsAvailable(_ available: Bool)
+    /// Show a short failure message near the caret, then hide. Shown
+    /// whatever the overlay style, so callers check that overlays are on.
+    func showFailure(message: String)
+    /// Maximum recording length, for the countdown in the last seconds.
+    /// Nil shows no countdown.
+    var recordingLimit: TimeInterval? { get set }
+}
+
+extension CursorOverlayManaging {
+    func setCommandSession(_ session: CommandModeSession?) {}
+    func setLiveWordsAvailable(_ available: Bool) {}
 }
 
 // MARK: - ModelManaging
@@ -120,12 +180,17 @@ protocol ModelManaging: AnyObject {
     func modelIdentifier(for size: ModelSize) -> String
     func modelSize(from identifier: String) -> ModelSize?
     func downloadModel(size: ModelSize, onProgress: @escaping (Double) -> Void) async throws
+    func cancelDownload(for size: ModelSize)
     func deleteModel(_ size: ModelSize) async throws
     func diskUsageDescription() -> String
 }
 
 extension ModelManaging {
     func bundledModelFolder(for size: ModelSize) -> URL? { nil }
+}
+
+extension ModelManaging {
+    func cancelDownload(for size: ModelSize) {}
 }
 
 extension ModelManaging {
@@ -146,13 +211,44 @@ extension ModelManaging {
 protocol SpeechTranscribing: AnyObject {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
+    /// Start a live session. With `commit`, finished pieces are decoded while
+    /// recording (see `StreamingCommitOptions`); without it, a session exists
+    /// only for engines that stream natively or to show partial words.
+    func startStreaming(
+        language: String?,
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
+    ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
     func unloadModel() async
+    /// Discard stored state that retired engine code left behind, so callers
+    /// never reach past this facade into an individual engine to do it.
+    func removeRetiredEngineState()
 }
 
 extension SpeechTranscribing {
+    /// Conformances with no retired state to clear — the mocks, and the
+    /// individual engines — need do nothing.
+    func removeRetiredEngineState() {}
+
+    func startStreaming(
+        language: String?,
+        vocabulary: String,
+        onPartial: (@Sendable (String) -> Void)?,
+        commit: StreamingCommitOptions?
+    ) -> RecordingTranscription? { nil }
+
+    func startStreaming(
+        language: String?,
+        vocabulary: String = "",
+        onPartial: (@Sendable (String) -> Void)? = nil
+    ) -> RecordingTranscription? {
+        startStreaming(language: language, vocabulary: vocabulary, onPartial: onPartial, commit: nil)
+    }
+
     func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: ((String) -> Void)? = nil) async throws {
         try await _loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
     }
@@ -161,7 +257,57 @@ extension SpeechTranscribing {
 // MARK: - TextInjecting
 
 protocol TextInjecting: AnyObject {
+    var onFailure: ((String) -> Void)? { get set }
     func inject(text: String, preserveClipboard: Bool)
+    /// Deliver only if the same application is still in front. Command Mode
+    /// uses this after revalidating its captured selection so a delayed paste
+    /// cannot land in a different app.
+    func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t)
+}
+
+// MARK: - FrontmostAppResolving
+
+/// Identifies the app that will receive injected text, so writing styles can
+/// be chosen for it. Injectable so style resolution is testable without a
+/// window server.
+///
+/// Main-actor bound, like `StatsManaging`: the concrete resolver caches the
+/// last activated app from an `NSWorkspace` notification delivered on the main
+/// queue, and every caller reads it from `AppState`, which is `@MainActor`.
+/// Stating that here is what keeps it true once strict concurrency is on.
+@MainActor
+protocol FrontmostAppResolving: AnyObject {
+    /// The frontmost application, or `nil` when it cannot be determined or is
+    /// VocaMac itself.
+    func currentFrontmostApp() -> RunningAppSnapshot?
+
+    /// The last application other than VocaMac to be activated.
+    ///
+    /// Needed because VocaMac's own popover and Settings window take focus:
+    /// while either is open the frontmost app *is* VocaMac, and "which style
+    /// applies here" has to be answered about the app the user came from.
+    func lastActiveApp() -> RunningAppSnapshot?
+}
+
+extension FrontmostAppResolving {
+    /// The app a dictation should be styled for: whatever is in front, falling
+    /// back to the last app that was.
+    @MainActor
+    func styleTargetApp() -> RunningAppSnapshot? {
+        currentFrontmostApp() ?? lastActiveApp()
+    }
+}
+
+extension TextInjecting {
+    var onFailure: ((String) -> Void)? {
+        get { nil }
+        // swiftlint:disable:next unused_setter_value
+        set { }
+    }
+
+    func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t) {
+        inject(text: text, preserveClipboard: preserveClipboard)
+    }
 }
 
 // MARK: - StatsManaging
@@ -171,11 +317,110 @@ protocol StatsManaging: AnyObject {
     var stats: UserStats { get }
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
     func recordTranscription(_ transcription: VocaTranscription)
+    /// Remember how long a dictation took to paste after stop.
+    func recordStopWait(_ wait: StopWait)
+    func refreshCurrentStreak()
+    func flushPendingSaves()
     func resetStats()
+}
+
+extension StatsManaging {
+    func recordStopWait(_ wait: StopWait) {}
+    func refreshCurrentStreak() {}
+    func flushPendingSaves() {}
 }
 
 // MARK: - SnippetExpanding
 
 protocol SnippetExpanding: AnyObject {
     func expand(in text: String, using snippets: [Snippet]) -> String
+
+    /// Expand triggers, but leave each expansion masked as a single opaque
+    /// character so later formatting cannot reshape user-authored text.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText
+}
+
+extension SnippetExpanding {
+    /// Conformances that only implement `expand` still work; their expansions
+    /// are simply not protected from formatting.
+    func expandMasked(in text: String, using snippets: [Snippet]) -> MaskedText {
+        MaskedText(text: expand(in: text, using: snippets))
+    }
+}
+
+// MARK: - TextTransforming
+
+/// Runs Command Mode's edits of selected text. Unlike transcript cleanup, a
+/// transform may intentionally translate, expand, or substantially shorten.
+@MainActor
+protocol TextTransforming: AnyObject {
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Ask an in-flight transform to stop early. The caller discards its result.
+    func cancelTransform()
+}
+
+extension TextTransforming {
+    func cancelTransform() {}
+}
+
+// MARK: - TranscriptCleaning
+
+@MainActor
+protocol TranscriptCleaning: TextTransforming {
+    var modelState: CleanupModelState { get }
+    var isLoaded: Bool { get }
+    /// The model currently resident, when one is.
+    var loadedKind: CleanupModelKind? { get }
+    /// False when text leaves this Mac (a remote endpoint).
+    var isOnDevice: Bool { get }
+    nonisolated func inputBudget(forPrompt prompt: String) -> Int
+    nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int
+    var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
+
+    func clean(_ text: String, prompt: String) async -> String
+    func attempt(_ text: String, prompt: String) async -> CleanupAttempt
+    func preview(_ text: String, prompt: String) async -> CleanupAttempt
+    /// A dictation cleanup run while the user is still speaking. It honours
+    /// the give-up limit like `attempt` but doesn't count toward it: the
+    /// answer may never be used. The final pass reports it with
+    /// `recordOutcome` if it is.
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt
+    /// Count a speculative answer the dictation used, as `attempt` would have.
+    func recordOutcome(_ attempt: CleanupAttempt)
+    /// Stop a dictation cleanup pass in flight; it returns the raw text.
+    func cancelCleanup()
+    func availabilityProblem(for kind: CleanupModelKind) -> String?
+    func isDownloaded(_ kind: CleanupModelKind) -> Bool
+    func pruneUnknownModels()
+    func download(_ kind: CleanupModelKind) async
+    func cancelDownload()
+    func load(_ kind: CleanupModelKind) async
+    func unload()
+    func delete(_ kind: CleanupModelKind)
+}
+
+extension TranscriptCleaning {
+    nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int {
+        inputBudget(forPrompt: prompt)
+    }
+    var loadedKind: CleanupModelKind? { nil }
+    var isOnDevice: Bool { true }
+    func cancelCleanup() {}
+    func speculate(_ text: String, prompt: String) async -> CleanupAttempt {
+        await preview(text, prompt: prompt)
+    }
+    func recordOutcome(_ attempt: CleanupAttempt) {}
+
+    func availabilityProblem(for kind: CleanupModelKind) -> String? {
+        isDownloaded(kind) ? nil : "download a local cleanup model in Settings"
+    }
+
+    func attempt(_ text: String, prompt: String) async -> CleanupAttempt {
+        let output = await clean(text, prompt: prompt)
+        return CleanupAttempt(output: output, outcome: output == text ? .unchanged : .cleaned, duration: 0)
+    }
+
+    func transform(_ text: String, prompt: String) async -> CleanupAttempt {
+        await preview(text, prompt: prompt)
+    }
 }

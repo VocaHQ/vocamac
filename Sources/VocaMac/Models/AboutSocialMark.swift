@@ -238,7 +238,7 @@ struct OfficialSVGPathShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         guard let cgPath = SVGPath.makeCGPath(from: d) else { return Path() }
-        var path = Path(cgPath)
+        let path = Path(cgPath)
         let box = CGRect(x: 0, y: 0, width: 24, height: 24)
         let transform = CGAffineTransform(a: rect.width / box.width, b: 0, c: 0, d: rect.height / box.height, tx: rect.minX, ty: rect.minY)
         return path.applying(transform)

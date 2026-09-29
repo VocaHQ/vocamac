@@ -11,6 +11,7 @@ struct HotKeySelectionControl: View {
     @EnvironmentObject private var appState: AppState
     @State private var isRecording = false
     @State private var wasListeningBeforeRecording = false
+    @State private var problem: String?
 
     let pickerLabel: String
     let footerText: String?
@@ -18,6 +19,17 @@ struct HotKeySelectionControl: View {
     init(pickerLabel: String = "Preset", footerText: String? = nil) {
         self.pickerLabel = pickerLabel
         self.footerText = footerText
+    }
+
+    private var currentCombo: HotKeyCombo {
+        HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)
+    }
+
+    /// A hotkey the presets do not cover still has to name itself in the
+    /// button, the way the Picker's "Custom: …" row used to.
+    private var currentDisplayName: String {
+        let name = KeyCodeReference.displayName(for: currentCombo)
+        return KeyCodeReference.isCommonHotKey(currentCombo) ? name : "Custom: \(name)"
     }
 
     private var comboBinding: Binding<HotKeyCombo> {
@@ -35,19 +47,26 @@ struct HotKeySelectionControl: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Picker(pickerLabel, selection: comboBinding) {
-                    ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
-                        Text(hotKey.name).tag(HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers))
-                    }
+                Text(pickerLabel)
 
-                    let currentCombo = HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)
-                    if !KeyCodeReference.isCommonHotKey(currentCombo) {
-                        Divider()
-                        Text("Custom: \(KeyCodeReference.displayName(for: currentCombo))")
-                            .tag(currentCombo)
+                // A Picker builds all 18 menu items up front, which measured
+                // ~34ms of this page's load. A Menu builds them when it opens,
+                // for ~9ms, and presents the same pull-down.
+                Menu {
+                    ForEach(KeyCodeReference.commonHotKeys, id: \.name) { hotKey in
+                        let combo = HotKeyCombo(keyCode: hotKey.keyCode, modifiers: hotKey.modifiers)
+                        VocaMenuChoice(title: hotKey.name, isSelected: combo == currentCombo) {
+                            problem = nil
+                            comboBinding.wrappedValue = combo
+                        }
                     }
+                } label: {
+                    Text(currentDisplayName)
                 }
+                .fixedSize()
                 .disabled(isRecording)
+                .accessibilityLabel(pickerLabel)
+                .accessibilityValue(currentDisplayName)
 
                 HotKeyRecorderButton(
                     isRecording: $isRecording,
@@ -61,6 +80,16 @@ struct HotKeySelectionControl: View {
                 Label("Press a key, or press Escape to cancel", systemImage: "keyboard")
                     .font(.caption)
                     .foregroundStyle(Color.accentColor)
+            } else if let problem {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(VocaDesign.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let conflict = HotKeyComboRules.systemConflict(currentCombo) {
+                Label(conflict, systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if let footerText {
                 Text(footerText)
                     .font(.caption)
@@ -75,6 +104,8 @@ struct HotKeySelectionControl: View {
     }
 
     private func beginRecording() {
+        problem = nil
+        appState.isCapturingShortcut = true
         wasListeningBeforeRecording = appState.hotKeyManager.isListening
         if wasListeningBeforeRecording {
             appState.hotKeyManager.stopListening()
@@ -82,6 +113,7 @@ struct HotKeySelectionControl: View {
     }
 
     private func finishRecording() {
+        appState.isCapturingShortcut = false
         if wasListeningBeforeRecording {
             restartHotKeyListener()
         }
@@ -89,6 +121,11 @@ struct HotKeySelectionControl: View {
     }
 
     private func recordKey(_ combo: HotKeyCombo) {
+        if let reason = ShortcutValidation.dictationHotKeyProblem(with: combo, appState: appState) {
+            problem = reason
+            finishRecording()
+            return
+        }
         appState.hotKeyCode = combo.keyCode
         appState.hotKeyModifiers = combo.modifiers
         appState.syncHotKeyConfiguration()
@@ -106,7 +143,7 @@ struct HotKeySelectionControl: View {
     }
 }
 
-private struct HotKeyRecorderButton: View {
+struct HotKeyRecorderButton: View {
     @Binding var isRecording: Bool
 
     let onStart: () -> Void
@@ -251,6 +288,7 @@ private final class HotKeyComboRecorder {
     private var heldModifierKeyCodes: Set<Int> = []
 
     private static let modifierKeyCodes = [54, 55, 56, 58, 59, 60, 61, 62, 63]
+    private static let tabKeyCode = 48
 
     func start() {
         guard eventTap == nil, fallbackMonitor == nil else { return }
@@ -369,6 +407,13 @@ private final class HotKeyComboRecorder {
         if keyCode == KeyCodeReference.escapeKeyCode {
             cancel()
             return true
+        }
+
+        // Tab moves keyboard focus. Recording it as a shortcut would swallow
+        // Tab in every app, so end the recording and let the Tab through.
+        if keyCode == Self.tabKeyCode, modifiers.isEmpty {
+            cancel()
+            return false
         }
 
         finish(with: HotKeyCombo(keyCode: keyCode, modifiers: modifiers))

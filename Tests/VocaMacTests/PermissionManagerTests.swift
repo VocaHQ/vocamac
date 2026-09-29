@@ -91,3 +91,47 @@ final class PermissionManagerTests: XCTestCase {
         XCTAssertEqual(manager.accessibilityPermission, .notDetermined)
     }
 }
+
+// MARK: - Permission Polling Decision
+
+@MainActor
+final class PermissionPollingDecisionTests: XCTestCase {
+
+    func testKeepsPollingWhileAPermissionIsMissing() {
+        XCTAssertEqual(
+            PermissionManager.pollingDecision(allPermissionsGranted: false, isHotKeyTapHealthy: false, hotKeyRestartPolls: 50),
+            .keepPolling
+        )
+    }
+
+    func testStopsOnceTheHotKeyWorks() {
+        XCTAssertEqual(
+            PermissionManager.pollingDecision(allPermissionsGranted: true, isHotKeyTapHealthy: true, hotKeyRestartPolls: 3),
+            .stop
+        )
+    }
+
+    func testRetriesAFailedHotKeyRestartForAWhile() {
+        XCTAssertEqual(
+            PermissionManager.pollingDecision(allPermissionsGranted: true, isHotKeyTapHealthy: false, hotKeyRestartPolls: 1),
+            .keepPolling
+        )
+        XCTAssertEqual(
+            PermissionManager.pollingDecision(
+                allPermissionsGranted: true, isHotKeyTapHealthy: false,
+                hotKeyRestartPolls: PermissionManager.maxHotKeyRestartPolls - 1
+            ),
+            .keepPolling
+        )
+    }
+
+    func testGivesUpOnTheHotKeyAfterTheRetryWindow() {
+        XCTAssertEqual(
+            PermissionManager.pollingDecision(
+                allPermissionsGranted: true, isHotKeyTapHealthy: false,
+                hotKeyRestartPolls: PermissionManager.maxHotKeyRestartPolls
+            ),
+            .giveUpOnHotKey
+        )
+    }
+}

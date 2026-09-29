@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: read
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -18,12 +22,15 @@ jobs:
     outputs:
       app: ${{ steps.filter.outputs.app }}
       web: ${{ steps.filter.outputs.web }}
+      hf-cli: ${{ steps.filter.outputs.hf-cli }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Check paths
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -35,28 +42,51 @@ jobs:
               - 'scripts/**'
               - 'Makefile'
               - 'VocaMac.entitlements'
+              - '.swiftlint.yml'
+              # A change to this workflow must exercise the jobs it defines,
+              # or a CI edit merges having proven nothing. Scoped to this file
+              # so editing an unrelated workflow does not book three macOS
+              # runners.
+              - '.github/workflows/ci.yml'
             web:
               - 'web/**'
+              - '.github/workflows/ci.yml'
+            hf-cli:
+              - '.github/requirements/**'
+              - '.github/workflows/release.yml'
+              - '.github/workflows/nightly.yml'
+              - '.github/workflows/ci.yml'
 
-  # Build and test Swift app (only when app source changes)
-  build-and-test:
-    name: Build & Test App
+  # ── App jobs ────────────────────────────────────────────────────────────────
+  #
+  # These three ran as one 20-minute serial job. They share no output with each
+  # other — SPM debug, SPM release and the xcodebuild app bundle each compile
+  # into their own directory — so running them on separate runners cuts the
+  # wall clock to the slowest one without losing any coverage.
+
+  test:
+    name: Test (Debug)
     needs: changes
     if: needs.changes.outputs.app == 'true'
     runs-on: macos-15
-    timeout-minutes: 30
+    # Serial debug+test+release+xcodebuild bundle can exceed 30m on a cold
+    # runner (release alone has taken ~16m). Keep headroom until the job is
+    # split (#265); wall clock on a warm run is still ~20m.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Cache SPM dependencies
-        uses: actions/cache@v5
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: spm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
+          key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
-            spm-${{ runner.os }}-
+            spm-debug-${{ runner.os }}-
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -67,8 +97,125 @@ jobs:
       - name: Test
         run: swift test
 
+  release-build:
+    name: Build (Release)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache SPM dependencies
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-release-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
+
       - name: Build (Release)
         run: swift build -c release
+
+  # Builds against the macOS 27 SDK and runs the tests on macOS 27, so SDK
+  # behavior changes and OS regressions show up here before users hit them.
+  # GitHub still marks the Xcode 27 image as preview, so the CI gate below
+  # leaves this job out and a failure is reported without failing the run.
+  test-macos-27:
+    name: Test (macOS 27, Xcode 27)
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: xcode-27
+    continue-on-error: true
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache SPM dependencies
+        id: spm-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-xcode27-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-xcode27-${{ runner.os }}-
+
+      # A partial cache hit comes from a different Package.swift. SwiftBuild
+      # keeps precompiled modules for binary targets in .build/out and does not
+      # notice when a dependency bump replaces their headers, so the build
+      # fails with "has been modified since the module file was built". Keep
+      # the fetched checkouts and artifacts, drop the stale intermediates.
+      - name: Drop build products from a stale cache
+        if: steps.spm-cache.outputs.cache-hit != 'true'
+        run: rm -rf .build/out
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Resolve packages
+        run: swift package resolve
+
+      - name: Restore ONNX Runtime framework symlinks
+        run: ./scripts/fix-onnxruntime-framework-links.sh
+
+      - name: Build (Debug)
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # A trap in the test process logs only "unexpected signal code 5"; the
+      # crash report names the frame that trapped and why.
+      - name: Show test crash reports
+        if: failure()
+        run: |
+          for _ in $(seq 1 20); do
+            ls ~/Library/Logs/DiagnosticReports/xctest*.ips >/dev/null 2>&1 && break
+            sleep 3
+          done
+          for report in ~/Library/Logs/DiagnosticReports/xctest*.ips; do
+            [ -f "$report" ] || continue
+            echo "::group::$report"
+            cat "$report"
+            echo "::endgroup::"
+          done
+
+  app-bundle:
+    name: Verify App Bundle
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache Xcode build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-build/SourcePackages
+          key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            xcode-deps-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
 
       - name: Initialize Xcode tools
         run: sudo xcodebuild -runFirstLaunch
@@ -81,6 +228,51 @@ jobs:
           test -f VocaMac.app/Contents/Resources/Assets.car || echo "⚠️ Assets.car missing"
           echo "App bundle verified"
 
+  lint:
+    name: SwiftLint
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # SwiftLint loads SourceKit from the selected Xcode; use the same one as
+      # the build jobs so new Swift syntax parses.
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
+
+      # Same pinned, checksum-verified binary as `make lint`.
+      - name: Lint
+        run: ./scripts/swiftlint.sh --reporter github-actions-logging
+
+  # Release and nightly builds install the Hugging Face CLI from this lockfile
+  # to fetch the bundled tiny model. Install it the same way here, so a bad pin
+  # or hash fails the PR instead of the next release.
+  hf-cli:
+    name: Hugging Face CLI Lockfile
+    needs: changes
+    if: needs.changes.outputs.hf-cli == 'true'
+    runs-on: macos-15
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install from the hash-locked requirements
+        run: |
+          python3 -m venv "$RUNNER_TEMP/hf-venv"
+          source "$RUNNER_TEMP/hf-venv/bin/activate"
+          pip install --require-hashes -r .github/requirements/huggingface-cli.txt
+          hf version
+
   # Build website (only when web files change)
   build-website:
     name: Build Website
@@ -91,12 +283,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Hugo
-        uses: peaceiris/actions-hugo@v3
+        uses: peaceiris/actions-hugo@2752ce1d29631191ea3f27c23495fa06139a5b78 # v3.2.1
         with:
-          hugo-version: '0.165.0'
+          hugo-version: '0.166.0'
           extended: true
 
       - name: Build and test website
@@ -110,3 +304,24 @@ jobs:
       - name: Validate CSS
         working-directory: web
         run: npx --yes stylelint static/style.css
+
+  # Single pass/fail signal for the whole workflow. A path-filtered job that
+  # did not run reports "skipped", which is a pass — only a real failure or a
+  # cancellation fails the gate. Point branch protection at this one check
+  # instead of tracking each job above.
+  ci:
+    name: CI
+    needs: [changes, test, release-build, app-bundle, lint, hf-cli, build-website]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS"
+          if echo "$RESULTS" | grep -qE '"result"[[:space:]]*:[[:space:]]*"(failure|cancelled)"'; then
+            echo "❌ At least one job did not pass."
+            exit 1
+          fi
+          echo "✅ All jobs passed or were skipped."

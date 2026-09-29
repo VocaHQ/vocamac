@@ -5,6 +5,7 @@
 // Uses CoreML with Metal/Neural Engine acceleration on Apple Silicon.
 
 import Foundation
+import NaturalLanguage
 import WhisperKit
 
 // MARK: - WhisperError
@@ -35,22 +36,35 @@ final class WhisperService: @unchecked Sendable {
 
     // MARK: - Properties
 
+    /// Guards the loaded model, which the main thread reads through
+    /// `isModelLoaded` while loads and transcriptions run elsewhere.
+    private let stateLock = NSLock()
+    private var loadedKit: WhisperKit?
+    private var loadedName: String?
+
     /// The WhisperKit instance (initialized when a model is loaded)
-    private var whisperKit: WhisperKit?
+    private var whisperKit: WhisperKit? {
+        stateLock.withLock { loadedKit }
+    }
 
     /// Whether a model is currently loaded and ready
     var isModelLoaded: Bool { whisperKit != nil }
 
     /// The name/variant of the currently loaded model
-    private(set) var loadedModelName: String?
+    var loadedModelName: String? {
+        stateLock.withLock { loadedName }
+    }
 
-    /// Lock to prevent concurrent transcription
-    private let transcriptionLock = NSLock()
+    /// Key the retired prewarm ledger wrote to. Prewarm is no longer used —
+    /// loading specializes the models on its own — so the stored dictionary is
+    /// dead weight in every upgrading install's preferences.
+    static let legacyPrewarmLedgerKey = "whisperPrewarmedModels"
 
-    // MARK: - Lifecycle
-
-    deinit {
-        whisperKit = nil
+    /// Drop the retired prewarm ledger. Safe to call when it was never written.
+    static func removeLegacyPrewarmLedger(defaults: UserDefaults = .standard) {
+        guard defaults.object(forKey: legacyPrewarmLedgerKey) != nil else { return }
+        defaults.removeObject(forKey: legacyPrewarmLedgerKey)
+        VocaLogger.info(.whisperService, "Removed the retired Whisper prewarm ledger")
     }
 
     // MARK: - Model Management
@@ -91,13 +105,27 @@ final class WhisperService: @unchecked Sendable {
                 .appendingPathComponent("models")
 
             // Verbose logging for debugging
+            #if DEBUG
             config.verbose = true
+            #else
+            config.verbose = false
+            #endif
 
-            // Prewarm the model so the CoreML pipeline (Metal/ANE) is compiled
-            // at load time rather than on the first transcription request.
-            // Without this, the first transcription after switching models is
-            // extremely slow as CoreML compiles shaders and optimizes the graph.
-            config.prewarm = true
+            // Always load the CoreML models, which is what specializes them
+            // for this chip and keeps them resident. WhisperKit otherwise
+            // decides with `config.load ?? (config.modelFolder != nil)`, and
+            // `config.modelFolder` is only set below for a model already in
+            // our own cache. Leaving it to that default meant a model
+            // WhisperKit had to fetch itself was downloaded and then never
+            // loaded: `init` returned a kit whose encoder, decoder and
+            // tokenizer were all nil, which we stored and reported as ready.
+            config.load = true
+
+            // Prewarm is deliberately left off. It runs the same load and
+            // throws the result away (`model = prewarmMode ? nil : loaded`),
+            // so with `load` on it only repeats work; the real load above
+            // already pays the specialization cost once.
+            config.prewarm = false
 
             // If a local model folder is specified, use it
             if let folder = modelFolder {
@@ -109,8 +137,10 @@ final class WhisperService: @unchecked Sendable {
             let kit = try await WhisperKit(config)
 
             onPhaseChange?("Compiling neural engine…")
-            self.whisperKit = kit
-            self.loadedModelName = modelName ?? kit.modelVariant.description
+            stateLock.withLock {
+                loadedKit = kit
+                loadedName = modelName ?? kit.modelVariant.description
+            }
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             VocaLogger.info(.whisperService, "Model loaded in \(String(format: "%.2f", elapsed))s")
@@ -122,9 +152,13 @@ final class WhisperService: @unchecked Sendable {
 
     /// Unload the current model and free memory
     func unloadModel() {
-        if whisperKit != nil {
-            whisperKit = nil
-            loadedModelName = nil
+        let didUnload = stateLock.withLock {
+            guard loadedKit != nil else { return false }
+            loadedKit = nil
+            loadedName = nil
+            return true
+        }
+        if didUnload {
             VocaLogger.info(.whisperService, "Model unloaded")
         }
     }
@@ -153,6 +187,9 @@ final class WhisperService: @unchecked Sendable {
             throw WhisperError.emptyAudio
         }
 
+        // A fine-tune trained on one decoder language ignores the setting.
+        let language = modelSizeFromName(loadedModelName ?? "tiny").pinnedLanguage ?? language
+
         let audioLengthSeconds = Double(audioData.count) / 16000.0
         VocaLogger.info(.whisperService, "Transcribing \(String(format: "%.1f", audioLengthSeconds))s of audio...")
 
@@ -174,15 +211,13 @@ final class WhisperService: @unchecked Sendable {
             usePrefillPrompt: language != nil || promptTokens != nil,
             detectLanguage: language == nil,
             wordTimestamps: false,
+            windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
-            chunkingStrategy: nil  // No chunking for short dictation clips
+            chunkingStrategy: nil
         )
 
         do {
-            var results = try await kit.transcribe(
-                audioArray: audioData,
-                decodeOptions: options
-            )
+            var results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
 
             // Concatenate all segment texts
             var rawText = results.map { $0.text }.joined(separator: " ")
@@ -201,20 +236,101 @@ final class WhisperService: @unchecked Sendable {
                 )
                 options.promptTokens = nil
                 options.usePrefillPrompt = language != nil
-                results = try await kit.transcribe(audioArray: audioData, decodeOptions: options)
+                results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
                 rawText = results.map { $0.text }.joined(separator: " ")
                 fullText = Self.filterHallucinationTokens(rawText)
+            }
+
+            // Whisper can lock onto a phrase and repeat it to the token limit,
+            // most often on short clips with a vocabulary prompt. Try once
+            // without the prompt, then cut any loop that remains to one copy.
+            if options.promptTokens != nil,
+               TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Prompted transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying without custom vocabulary"
+                )
+                var unprompted = options
+                unprompted.promptTokens = nil
+                unprompted.usePrefillPrompt = language != nil
+                // The looped text still holds the phrase, and collapsing it
+                // below recovers it; only a real answer replaces it.
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: unprompted)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if Self.isUsableRetry(retriedText) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                        options = unprompted
+                    } else {
+                        VocaLogger.warning(.whisperService, "Unprompted retry was empty; keeping the first transcription")
+                    }
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Unprompted retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
+            }
+            // Greedy decoding at temperature 0 repeats the same loop every
+            // time, with or without the prompt. Sampling once at a slightly
+            // higher temperature, Whisper's own escape from a loop, usually
+            // finishes the sentence instead.
+            if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying at temperature \(Self.loopRetryTemperature)"
+                )
+                var warmer = options
+                warmer.temperature = Self.loopRetryTemperature
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: warmer)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if Self.isLoopFreeRetry(retriedText, audioSeconds: audioLengthSeconds) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                    } else {
+                        VocaLogger.warning(.whisperService, "Warmer retry still repeated itself or was empty; keeping the first transcription")
+                    }
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Warmer retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
+            }
+            if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                let collapsed = TranscriptRepetition.collapsingLoops(in: fullText, audioSeconds: audioLengthSeconds)
+                VocaLogger.warning(
+                    .whisperService,
+                    "Transcription repeated itself; kept one copy (\(fullText.count) → \(collapsed.count) characters)"
+                )
+                fullText = collapsed
+            }
+
+            let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
+
+            let scriptChecked = Self.removingUnexpectedScripts(from: fullText, model: modelUsed)
+            if scriptChecked != fullText {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Dropped words in scripts \(modelUsed.rawValue) does not write (\(fullText.count) → \(scriptChecked.count) characters)"
+                )
+                fullText = scriptChecked
             }
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
 
             // Get detected language from first result
-            let detectedLanguage = results.first?.language ?? language ?? "en"
-
-            let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
+            let decodedLanguage = results.first?.language ?? language ?? "en"
+            let detectedLanguage = Self.reportedLanguage(for: fullText, model: modelUsed, decoded: decodedLanguage)
 
             VocaLogger.info(.whisperService, "Transcription completed in \(String(format: "%.2f", elapsed))s")
-            VocaLogger.info(.whisperService, "Result: \(fullText.prefix(100))...")
+            VocaLogger.info(.whisperService, "Result: \(fullText.count) characters")
 
             return VocaTranscription(
                 text: fullText,
@@ -226,6 +342,69 @@ final class WhisperService: @unchecked Sendable {
         } catch {
             throw WhisperError.transcriptionFailed(reason: error.localizedDescription)
         }
+    }
+
+    // MARK: - Long Audio
+
+    /// One Whisper window (30 s at 16 kHz), the longest chunk.
+    static let maxChunkSamples = 480_000
+
+    /// Only long files and meetings are split (2 min at 16 kHz). Dictations
+    /// keep WhisperKit's sequential windows, which carry context across them.
+    static let chunkingThresholdSamples = 1_920_000
+
+    /// How many chunks decode at once. The encoder shares one accelerator,
+    /// so more workers mostly add memory.
+    private static let chunkWorkerCount = 4
+
+    /// Transcribe audio, splitting anything longer than one window at
+    /// silences and decoding the pieces concurrently.
+    ///
+    /// Sequential windowed decoding of a 20-minute file runs one window at a
+    /// time. WhisperKit's own `.vad` strategy parallelizes but logs and drops
+    /// any chunk that fails, which would silently remove text, so the chunks
+    /// are decoded here and a failure fails the whole transcription.
+    private static func transcribeInChunks(
+        kit: WhisperKit,
+        audioData: [Float],
+        options: DecodingOptions
+    ) async throws -> [TranscriptionResult] {
+        guard audioData.count > chunkingThresholdSamples else {
+            return try await kit.transcribe(audioArray: audioData, decodeOptions: options)
+        }
+
+        let chunks = try await VADAudioChunker(vad: EnergyVAD()).chunkAll(
+            audioArray: audioData,
+            maxChunkLength: maxChunkSamples,
+            decodeOptions: options
+        )
+        VocaLogger.info(.whisperService, "Decoding \(chunks.count) chunks of long audio")
+
+        var ordered = [[TranscriptionResult]](repeating: [], count: chunks.count)
+        try await withThrowingTaskGroup(of: (Int, [TranscriptionResult]).self) { group in
+            var running = 0
+            for (index, chunk) in chunks.enumerated() {
+                if running == chunkWorkerCount, let (finished, results) = try await group.next() {
+                    ordered[finished] = results
+                    running -= 1
+                }
+                var chunkOptions = options
+                chunkOptions.windowClipTime = chunkWindowClipTime(
+                    chunkIndex: index,
+                    chunkCount: chunks.count,
+                    sampleCount: chunk.audioSamples.count
+                )
+                let samples = chunk.audioSamples
+                group.addTask {
+                    (index, try await kit.transcribe(audioArray: samples, decodeOptions: chunkOptions))
+                }
+                running += 1
+            }
+            while let (finished, results) = try await group.next() {
+                ordered[finished] = results
+            }
+        }
+        return ordered.flatMap { $0 }
     }
 
     // MARK: - Device Recommendations
@@ -283,14 +462,109 @@ final class WhisperService: @unchecked Sendable {
     /// Parse a raw vocabulary string into individual terms. Terms are separated
     /// by newlines or commas; surrounding whitespace and blank entries are dropped.
     static func vocabularyTerms(from vocabulary: String) -> [String] {
-        vocabulary
-            .split(whereSeparator: { $0 == "\n" || $0 == "," })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        RecognitionHints.vocabularyTerms(from: vocabulary)
+    }
+
+    /// The language to report for a transcript.
+    ///
+    /// A model that writes a language in Latin letters under a pinned decoder
+    /// language (Voca Hinglish: Hindi, decoded as English) reports that
+    /// language with a Latin script tag, "hi-Latn", unless the text is
+    /// plainly English. Cleanup then treats it as the language it is rather
+    /// than as English to correct.
+    static func reportedLanguage(for text: String, model: ModelSize, decoded: String) -> String {
+        guard let romanized = model.romanizedLanguage else { return decoded }
+        return isConfidentlyEnglish(text) ? "en" : "\(romanized)-Latn"
+    }
+
+    /// Whether the language recognizer is at least 60% sure `text` is
+    /// English. Romanized Hindi never gets there (it reads as Indonesian or
+    /// Vietnamese at low confidence), while English sentences, including
+    /// ones with a Hindi word or two, score 0.7 and up.
+    static func isConfidentlyEnglish(_ text: String) -> Bool {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        return (recognizer.languageHypotheses(withMaximum: 3)[.english] ?? 0) >= 0.6
+    }
+
+    /// Scripts a romanizing fine-tune may write besides Latin: the native
+    /// script of the language it romanizes, which it falls back to now and
+    /// then.
+    private static let nativeScripts: [String: String] = ["hi": "Devanagari"]
+
+    /// `text` without the letters a romanizing model cannot mean.
+    ///
+    /// Voca Hinglish writes Latin letters, and now and then Devanagari. When
+    /// it derails it can write another script entirely: one dictation ended
+    /// in "в ктттт…". Letters from any other script are decoder garbage and
+    /// are removed; a word keeps whatever it held besides them
+    /// ("amazing.в" stays "amazing."), and a word left without letters or
+    /// digits is dropped. Other models write every language they know and
+    /// are left alone.
+    static func removingUnexpectedScripts(from text: String, model: ModelSize) -> String {
+        guard let romanized = model.romanizedLanguage else { return text }
+        let allowed = (["Latin"] + [nativeScripts[romanized]].compactMap { $0 })
+            .map { "\\p{Script=\($0)}" }
+            .joined()
+        // A run of disallowed letters, with the marks attached to them.
+        guard let offScript = try? NSRegularExpression(pattern: "(?:(?=\\p{L})[^\(allowed)]\\p{M}*)+"),
+              let words = try? NSRegularExpression(pattern: "\\S+") else { return text }
+        guard offScript.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil else {
+            return text
+        }
+
+        var result = ""
+        var copiedUpTo = text.startIndex
+        for match in words.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+            guard let range = Range(match.range, in: text) else { continue }
+            let word = String(text[range])
+            let wordRange = NSRange(word.startIndex..., in: word)
+            guard offScript.firstMatch(in: word, range: wordRange) != nil else { continue }
+            let kept = offScript.stringByReplacingMatches(in: word, range: wordRange, withTemplate: "")
+            result += text[copiedUpTo..<range.lowerBound]
+            if kept.contains(where: { $0.isLetter || $0.isNumber }) {
+                result += kept
+            }
+            copiedUpTo = range.upperBound
+        }
+        result += text[copiedUpTo...]
+        return result
+            .replacingOccurrences(of: "[ \\t]{2,}", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether a retry's text can replace the transcription it retried.
+    static func isUsableRetry(_ text: String) -> Bool {
+        !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The temperature for the one retry of a transcription that looped.
+    /// WhisperKit steps its own fallback by 0.2; one step is enough to leave
+    /// a loop without letting the decoder wander.
+    static let loopRetryTemperature: Float = 0.2
+
+    /// Whether a retry of a looped transcription can replace it: it has text
+    /// and no loop of its own.
+    static func isLoopFreeRetry(_ text: String, audioSeconds: Double) -> Bool {
+        isUsableRetry(text) && !TranscriptRepetition.containsLoop(text, audioSeconds: audioSeconds)
     }
 
     static func shouldRetryWithoutVocabulary(rawText: String, promptTokens: [Int]?) -> Bool {
         promptTokens != nil && rawText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// WhisperKit only decodes while seek < end - windowClipTime. Its default
+    /// one-second exclusion skips the entire clip at or below 16,000 samples.
+    /// Retain the default trailing-window protection for longer recordings.
+    static func windowClipTime(sampleCount: Int) -> Float {
+        sampleCount <= 16_000 ? 0 : 1
+    }
+
+    /// Window clip for a VAD chunk. Intermediate artificial splits must not
+    /// discard trailing speech; only the final chunk is the true recording end.
+    static func chunkWindowClipTime(chunkIndex: Int, chunkCount: Int, sampleCount: Int) -> Float {
+        guard chunkCount > 0, chunkIndex == chunkCount - 1 else { return 0 }
+        return windowClipTime(sampleCount: sampleCount)
     }
 
     /// Encode custom vocabulary into WhisperKit conditioning tokens.
@@ -307,8 +581,9 @@ final class WhisperService: @unchecked Sendable {
     }
 
     /// Map a model name string to our ModelSize enum
-    private func modelSizeFromName(_ name: String) -> ModelSize {
+    func modelSizeFromName(_ name: String) -> ModelSize {
         let lowered = name.lowercased()
+        if lowered.contains("hinglish") { return .vocaHinglish }
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }
         if lowered.contains("distil") && lowered.contains("turbo") { return .distilLargeV3TurboCompact }

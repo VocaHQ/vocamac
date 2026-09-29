@@ -8,8 +8,17 @@
             <h1 id="hero-title">Say it once.<br><em>Your Mac types.</em></h1>
             <p class="hero-lede">VocaMac listens when you ask, transcribes on your Mac, and puts the words at your cursor. No account. Open source. Built for Apple Silicon.</p>
             <div class="hero-actions">
-                <a class="btn btn-primary" href="#install">Get VocaMac <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
-                <a class="btn btn-secondary" href="{{ $p.links.repo }}">View the source <span class="btn-arrow" aria-hidden="true">↗</span></a>
+                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">{{ partial "brandmark.html" "apple" }}Download the DMG <span class="btn-weight">{{ $p.stable.dmgSize }}</span> <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+                <a class="btn btn-secondary" href="{{ $p.links.repo }}">{{ partial "brandmark.html" "github" }}View the source <span class="btn-arrow" aria-hidden="true">↗</span></a>
+            </div>
+            <div class="hero-install" data-copy>
+                <div class="hero-install-bar">
+                    <span class="hero-install-name">Homebrew</span>
+                    <span class="hero-install-sub">{{ $p.stable.tag }}</span>
+                </div>
+                <pre><code><span class="prompt">$ </span>{{ $p.brew.tap }}
+<span class="prompt">$ </span>{{ $p.brew.trust }}
+<span class="prompt">$ </span>{{ $p.brew.install }}</code></pre>
             </div>
         <div class="hero-proof">
                 <span>{{ $p.requirements.osShort }}</span>
@@ -19,37 +28,62 @@
             </div>
         </div>
 
-        <div class="workbench" role="img" aria-label="A VocaMac recording and text insertion preview">
-            <div class="menubar">
-                <img class="menubar-mark" src="/brand/voca-mark-white.svg" alt="" width="15" height="18">
-                <span>VocaMac</span>
-                <span class="menubar-status"><i class="rec-dot" aria-hidden="true"></i> recording</span>
+        <div class="hero-stage" role="img" aria-label="A Mac menu bar with VocaMac recording, and the dictated sentence landing in the document below">
+            <div class="stage-bar">
+                <span class="stage-bar-app">Editor</span>
+                <span class="stage-bar-extras">
+                    <img class="menubar-mark" src="/brand/voca-mark-white.svg" alt="" width="13" height="16">
+                    <span class="stage-rec"><i class="rec-dot" aria-hidden="true"></i> recording</span>
+                    <span class="stage-clock">9:41</span>
+                </span>
             </div>
-            <div class="window">
-                <div class="window-bar">
-                    <i class="window-dot window-dot-red" aria-hidden="true"></i>
-                    <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
-                    <i class="window-dot window-dot-green" aria-hidden="true"></i>
-                    <span class="window-title">VocaMac · menu bar</span>
+
+            <div class="stage-desk">
+                <div class="stage-key">
+                    <kbd>⌥</kbd>
+                    <span>Hold Right Option</span>
                 </div>
-                <div class="window-body">
-                    <div class="workbench-header">
-                        <div>
-                            <strong>Ready to dictate</strong>
-                            <span class="workbench-hint">Hold Right Option to record</span>
+
+                <p class="stage-flow"><span class="stage-flow-arrow" aria-hidden="true">↓</span> VocaMac starts listening</p>
+
+                <div class="window stage-panel">
+                    <div class="window-bar">
+                        <i class="window-dot window-dot-red" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-green" aria-hidden="true"></i>
+                        <span class="window-title">VocaMac · menu bar</span>
+                    </div>
+                    <div class="window-body">
+                        <div class="workbench-header">
+                            <div>
+                                <strong>Recording</strong>
+                                <span class="workbench-hint">Transcribing on this Mac</span>
+                            </div>
+                            <span class="status-badge"><i aria-hidden="true"></i> on-device</span>
                         </div>
-                        <span class="status-badge"><i aria-hidden="true"></i> local</span>
+                        <div class="waveform" aria-hidden="true">
+                            {{ range seq 42 }}<i></i>{{ end }}
+                        </div>
+                        <div class="workbench-meta">
+                            <span class="chip">model: {{ $p.engine.name }}</span>
+                            <span class="chip">audio stays on Mac</span>
+                        </div>
                     </div>
-                    <div class="waveform" aria-hidden="true">
-                        {{ range seq 42 }}<i></i>{{ end }}
+                </div>
+
+                <p class="stage-flow"><span class="stage-flow-arrow" aria-hidden="true">↓</span> inserted at your cursor</p>
+
+                <div class="window stage-doc">
+                    <div class="window-bar">
+                        <i class="window-dot window-dot-red" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-yellow" aria-hidden="true"></i>
+                        <i class="window-dot window-dot-green" aria-hidden="true"></i>
+                        <span class="window-title">standup-notes.md</span>
                     </div>
-                    <div class="editor-line">
+                    <div class="doc-body">
+                        <p class="doc-heading">Standup notes</p>
                         {{/* Space between words only, never after the last one, so the caret sits against the text. */}}
-                        <span class="editor-text">{{ range $i, $word := split "VocaMac puts the words where I am already working" " " }}{{ if $i }} {{ end }}<span>{{ $word }}</span>{{ end }}</span><i class="caret" aria-hidden="true"></i>
-                    </div>
-                    <div class="workbench-meta">
-                        <span class="chip">model: {{ $p.engine.name }}</span>
-                        <span class="chip">audio stays on Mac</span>
+                        <p class="doc-line"><span class="editor-text">{{ range $i, $word := split "VocaMac puts the words where I am already working" " " }}{{ if $i }} {{ end }}<span>{{ $word }}</span>{{ end }}</span><i class="caret" aria-hidden="true"></i></p>
                     </div>
                 </div>
             </div>
@@ -157,16 +191,22 @@
         </div>
         <div class="proof-grid">
             <figure class="shot reveal">
-                <img src="/screenshots/popover-panel.png" alt="VocaMac menu-bar popover showing ready status and the last transcription" width="852" height="508" loading="lazy">
+                <div class="shot-frame">
+                    <img src="/screenshots/popover-panel.png" alt="VocaMac menu-bar popover showing ready status, model, and last transcription" width="768" height="816" loading="lazy">
+                </div>
                 <figcaption><strong>The quiet center</strong>Open the popover to check status, model, and the last transcript.</figcaption>
             </figure>
             <figure class="shot reveal">
-                <img src="/screenshots/settings-models.png" alt="VocaMac Settings Models tab showing model management and system information" width="1344" height="1260" loading="lazy">
+                <div class="shot-frame">
+                    <img src="/screenshots/settings-models.png" alt="VocaMac Settings Speech Model page showing model management" width="1520" height="1288" loading="lazy">
+                </div>
                 <figcaption><strong>Choose your balance</strong>Download and switch between local models from Settings.</figcaption>
             </figure>
             <figure class="shot reveal">
-                <img src="/screenshots/cursor-indicator.png" alt="VocaMac recording indicator floating near a text cursor" width="1217" height="990" loading="lazy">
-                <figcaption><strong>Know when it is listening</strong>An optional cursor indicator keeps recording state visible without taking over your screen.</figcaption>
+                <div class="shot-frame">
+                    <img src="/screenshots/cursor-indicator.png" alt="Floating mic indicator during recording" width="3050" height="2054" loading="lazy">
+                </div>
+                <figcaption><strong>Know when it is listening</strong>Floating mic indicator during recording.</figcaption>
             </figure>
         </div>
         <p class="section-link"><a href="/screenshots/">See the full screenshot gallery <span class="btn-arrow" aria-hidden="true">→</span></a></p>
@@ -201,8 +241,8 @@
             <li class="route-step">
                 <div class="route-node">
                     <span class="route-icon">{{ partial "icon.html" "chip" }}</span>
-                    <span class="route-name">{{ $p.engine.name }} / {{ $p.engine.runtime }}</span>
-                    <span class="route-sub">Runs on your Mac</span>
+                    <span class="route-name">Selected on-device engine</span>
+                    <span class="route-sub">WhisperKit/CoreML, Parakeet, Apple Speech, ONNX</span>
                 </div>
                 <svg class="route-link" width="56" height="24" viewBox="0 0 56 24" aria-hidden="true"><path class="route-track" d="M2 12h48"/><path class="route-pulse" d="M2 12h48"/><path class="route-head" d="M46 7.5 50.5 12 46 16.5"/></svg>
             </li>
@@ -270,7 +310,7 @@
                 <span class="install-label">no terminal required / DMG</span>
                 <h3>Download the signed app</h3>
                 <p>Open the latest DMG, drag VocaMac to Applications, and launch it from Spotlight.</p>
-                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">Download {{ $p.stable.tag }} DMG <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
+                <a class="btn btn-primary" href="{{ $p.stable.dmgURL }}">{{ partial "brandmark.html" "apple" }}Download {{ $p.stable.tag }} DMG <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
                 <p class="install-detail">{{ $p.stable.dmg }} · {{ $p.stable.dmgSize }} · {{ $p.requirements.signing }}</p>
                 <a class="text-link" href="{{ $p.stable.releasesURL }}">See releases and checksums <span class="btn-arrow" aria-hidden="true">↗</span></a>
             </article>
@@ -294,6 +334,25 @@
     </div>
 </section>
 
+<section class="section deploy-section" id="managed-macs" aria-labelledby="deploy-title">
+    <div class="shell deploy-layout">
+        <div class="deploy-copy">
+            <p class="section-tag">for IT teams</p>
+            <h2 class="section-title" id="deploy-title">Deploying to a fleet of Macs?</h2>
+            <p class="section-lede">Accessibility needs an administrator to unlock, and the person using a managed Mac usually isn't one. An MDM privacy profile grants it ahead of time, so VocaMac arrives ready to use.</p>
+            <ul class="deploy-points">
+                <li>A PPPC payload for Jamf, Kandji, Mosyle, Intune, or anything else that pushes profiles</li>
+                <li>Accessibility and Input Monitoring approved before the first launch — no admin password</li>
+                <li>Only the microphone prompt is left to the person at the keyboard; Apple allows no other way</li>
+            </ul>
+            <a class="btn btn-primary" href="/enterprise/">Read the managed Macs guide <span class="btn-arrow" aria-hidden="true">→</span></a>
+        </div>
+        <figure class="deploy-glyph">
+            <img src="/brand/vocamac-enterprise-security.svg" alt="" width="200" height="200" loading="lazy" decoding="async">
+        </figure>
+    </div>
+</section>
+
 <section class="section open-source" id="open-source" aria-labelledby="open-title">
     <div class="shell oss-layout">
         <div>
@@ -314,11 +373,12 @@
         </div>
         <div class="faq" data-faq>
             <details open><summary>Does my voice leave my Mac?</summary><p>During transcription, audio is passed to the selected local speech-to-text model on your Mac. VocaMac does not send dictation audio to a Voca cloud service. Model downloads and update checks are separate network actions.</p></details>
-            <details><summary>Do I need internet access?</summary><p>You need internet access to download the app or a model that is not on your Mac yet. After the model is available, on-device transcription can work offline. VocaMac may still check GitHub for application updates when that feature is enabled.</p></details>
+            <details><summary>Do I need internet access?</summary><p>You need internet access to download the app or a model that is not on your Mac yet. After the model is available, on-device transcription can work offline. VocaMac also checks GitHub for application updates on launch when the last check is older than 24 hours; that launch-time check cannot be turned off.</p></details>
             <details><summary>Which Macs can run VocaMac?</summary><p>The current release supports {{ $p.requirements.os }} on {{ $p.requirements.arch }}. Intel Macs are not supported by the released arm64 build.</p></details>
             <details><summary>Why does VocaMac need permissions?</summary><p>Microphone access captures speech. Accessibility and Input Monitoring let the menu-bar app hear its configured shortcut and insert the resulting text into the app where you are working. Secure fields and individual apps can still restrict insertion.</p></details>
+            <details><summary>Can IT deploy VocaMac to managed Macs?</summary><p>Yes. Accessibility and Input Monitoring can be pre-approved with an MDM privacy profile, so nobody needs an administrator password to get started. The microphone prompt still has to be accepted by the person using the Mac — Apple does not let a profile grant that one. See <a href="/enterprise/">VocaMac for managed Macs</a>.</p></details>
             <details><summary>Which model should I choose?</summary><p>Start with Small on an 8 GB Mac, then choose a compact Large or Distil variant when accuracy matters and your Mac has the headroom. Tiny and Base are useful when a smaller download or lower memory use matters more.</p></details>
-            <details><summary>What is available beyond Whisper?</summary><p>{{ $p.stable.tag }} includes Parakeet (NVIDIA TDT models on the Apple Neural Engine), Apple Speech (the macOS 26+ system engine), and sherpa-onnx (CPU-only specialized models: Moonshine, SenseVoice, GigaAM v3, and Canary 180M Flash). See the model table above and the release notes for language and macOS requirements.</p></details>
+            <details><summary>What is available beyond Whisper?</summary><p>{{ $p.stable.tag }} includes Parakeet (NVIDIA TDT models on the Apple Neural Engine), Apple Speech (the macOS 26+ system engine), and sherpa-onnx (CPU-only specialized models: Moonshine, SenseVoice, GigaAM v3, Canary 180M Flash, and Qwen3 ASR 0.6B). See the model table above and the release notes for language and macOS requirements.</p></details>
         </div>
     </div>
 </section>

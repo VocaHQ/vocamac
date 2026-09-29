@@ -53,6 +53,85 @@ final class SystemInfoTests: XCTestCase {
         XCTAssertTrue(summary.contains("Metal:"))
         XCTAssertTrue(summary.contains("Recommended Model:"))
     }
+
+    // The gate tests pass explicit estimates rather than catalog models, so
+    // they keep testing the gate when a model's measured estimate changes.
+
+    func testCanFitModelRejectsWhenPhysicalMemoryIsTooLow() {
+        XCTAssertFalse(
+            SystemInfo.canFitInMemory(
+                requiredGB: 6,
+                physicalMemoryGB: 4,
+                availableBytes: UInt64(64) * 1024 * 1024 * 1024
+            )
+        )
+    }
+
+    func testCanFitModelRejectsWhenAvailableMemoryIsTooLow() {
+        XCTAssertFalse(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                physicalMemoryGB: 16,
+                availableBytes: 64 * 1024 * 1024
+            )
+        )
+    }
+
+    func testCanFitModelCreditsTheOutgoingModelsMemory() {
+        // Switching Parakeet -> a Whisper model that only fits once Parakeet
+        // has been unloaded. The outgoing model is still resident when the
+        // gate runs, so without the credit this switch was refused outright.
+        let availableBytes: UInt64 = 1024 * 1024 * 1024
+        XCTAssertFalse(
+            SystemInfo.canFitInMemory(
+                requiredGB: 1.5,
+                physicalMemoryGB: 16,
+                availableBytes: availableBytes
+            )
+        )
+        XCTAssertTrue(
+            SystemInfo.canFitInMemory(
+                requiredGB: 1.5,
+                freeingGB: 1.0,
+                physicalMemoryGB: 16,
+                availableBytes: availableBytes
+            )
+        )
+    }
+
+    func testCanFitModelStillRejectsWhatPhysicalMemoryCannotHold() {
+        // The credit is against free memory only; it must not let a model
+        // through that installed RAM cannot hold at all.
+        XCTAssertFalse(
+            SystemInfo.canFitInMemory(
+                requiredGB: 6,
+                freeingGB: 64,
+                physicalMemoryGB: 4,
+                availableBytes: UInt64(64) * 1024 * 1024 * 1024
+            )
+        )
+    }
+
+    func testCanFitModelAllowsWhenAvailableIsUnknown() {
+        XCTAssertTrue(
+            SystemInfo.canFitModelInMemory(
+                .tiny,
+                physicalMemoryGB: 8,
+                availableBytes: 0
+            )
+        )
+    }
+
+    func testCanFitModelAllowsWhenPhysicalAndAvailableAreEnough() {
+        let required = UInt64((ModelSize.base.ramRequiredGB * 1024 * 1024 * 1024).rounded(.up))
+        XCTAssertTrue(
+            SystemInfo.canFitModelInMemory(
+                .base,
+                physicalMemoryGB: 16,
+                availableBytes: required
+            )
+        )
+    }
 }
 
 // MARK: - ModelSize Tests
@@ -103,7 +182,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 21)
+        XCTAssertEqual(ModelSize.allCases.count, 23)
     }
 
     func testRawValues() {
@@ -119,6 +198,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.largeV3.rawValue, "large-v3")
         XCTAssertEqual(ModelSize.largeV3Turbo.rawValue, "large-v3_turbo")
         XCTAssertEqual(ModelSize.medium.rawValue, "medium")
+        XCTAssertEqual(ModelSize.vocaHinglish.rawValue, "voca-hinglish")
         XCTAssertEqual(ModelSize.parakeetV3.rawValue, "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(ModelSize.parakeetV2.rawValue, "parakeet-tdt-0.6b-v2")
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.rawValue, "parakeet-tdt-ctc-110m")
@@ -128,6 +208,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.senseVoiceSmall.rawValue, "sense-voice-small")
         XCTAssertEqual(ModelSize.gigaamV3.rawValue, "gigaam-v3-russian")
         XCTAssertEqual(ModelSize.canary180mFlash.rawValue, "canary-180m-flash")
+        XCTAssertEqual(ModelSize.qwen3Asr06B.rawValue, "qwen3-asr-0.6b")
     }
 
     func testStandardCatalogExcludesLegacyMedium() {
@@ -144,6 +225,16 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertTrue(ModelSize.standardCatalog.contains(.senseVoiceSmall))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.gigaamV3))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.canary180mFlash))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.qwen3Asr06B))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.vocaHinglish))
+    }
+
+    func testOnlyHinglishPinsItsDecoderLanguage() {
+        XCTAssertEqual(ModelSize.vocaHinglish.pinnedLanguage, "en")
+        XCTAssertEqual(ModelSize.vocaHinglish.engine, .whisperKit)
+        for size in ModelSize.allCases where size != .vocaHinglish {
+            XCTAssertNil(size.pinnedLanguage, size.rawValue)
+        }
     }
 
     func testEngineAssignment() {
@@ -156,10 +247,11 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.senseVoiceSmall.engine, .sherpaOnnx)
         XCTAssertEqual(ModelSize.gigaamV3.engine, .sherpaOnnx)
         XCTAssertEqual(ModelSize.canary180mFlash.engine, .sherpaOnnx)
+        XCTAssertEqual(ModelSize.qwen3Asr06B.engine, .sherpaOnnx)
 
         // Everything else is a WhisperKit model.
         let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit }
-        XCTAssertEqual(whisperCases.count, 12)
+        XCTAssertEqual(whisperCases.count, 13)
     }
 
     func testParakeetModelVersionMapping() {
@@ -205,6 +297,7 @@ final class TranscriptionRouterTests: XCTestCase {
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "sense-voice-small"), .sherpaOnnx)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "gigaam-v3-russian"), .sherpaOnnx)
         XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "canary-180m-flash"), .sherpaOnnx)
+        XCTAssertEqual(TranscriptionRouter.engine(forModelIdentifier: "qwen3-asr-0.6b"), .sherpaOnnx)
     }
 }
 
@@ -231,8 +324,27 @@ final class SherpaModelCatalogTests: XCTestCase {
             XCTAssertTrue(spec.archiveURL.lastPathComponent.hasSuffix(".tar.bz2"))
             XCTAssertEqual(spec.archiveURL.lastPathComponent, spec.directoryName + ".tar.bz2")
             XCTAssertFalse(spec.requiredFiles.isEmpty)
-            XCTAssertTrue(spec.requiredFiles.contains(spec.tokensFile))
+            if case .qwen3Asr = spec.kind {
+                XCTAssertFalse(spec.requiredFiles.contains(spec.tokensFile))
+            } else {
+                XCTAssertTrue(spec.requiredFiles.contains(spec.tokensFile))
+            }
         }
+    }
+
+    func testQwen3UsesPinnedInt8ArtifactAndCompleteTokenizer() throws {
+        let spec = try XCTUnwrap(SherpaModelCatalog.spec(for: .qwen3Asr06B))
+        XCTAssertEqual(
+            spec.archiveURL.lastPathComponent,
+            "sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25.tar.bz2"
+        )
+        XCTAssertEqual(
+            spec.sha256,
+            "393f8a14e2f5fb96746aaab342997a40641001fbd5bf9592a080a8329178ee96"
+        )
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/tokenizer_config.json"))
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/merges.txt"))
+        XCTAssertTrue(spec.requiredFiles.contains("tokenizer/vocab.json"))
     }
 }
 
@@ -254,6 +366,30 @@ final class ModelManagerTests: XCTestCase {
         XCTAssertEqual(manager.whisperKitModelName(for: .largeV3), "openai_whisper-large-v3")
         XCTAssertEqual(manager.whisperKitModelName(for: .largeV3Turbo), "openai_whisper-large-v3_turbo")
         XCTAssertEqual(manager.whisperKitModelName(for: .medium), "openai_whisper-medium")
+        XCTAssertEqual(manager.whisperKitModelName(for: .vocaHinglish), "vocahq_voca-hinglish_820MB")
+    }
+
+    func testFineTunesDownloadFromTheCommunityRepo() {
+        let manager = ModelManager()
+        XCTAssertEqual(manager.whisperKitRepo(for: .tiny), "argmaxinc/whisperkit-coreml")
+        XCTAssertEqual(manager.whisperKitRepo(for: .largeV3LatestTurbo), "argmaxinc/whisperkit-coreml")
+        XCTAssertEqual(manager.whisperKitRepo(for: .vocaHinglish), ModelManager.communityModelRepo)
+    }
+
+    func testHinglishSharesCompactLargeV3DeviceSupport() {
+        let manager = ModelManager()
+        XCTAssertEqual(ModelSize.vocaHinglish.whisperKitBaseModel, .largeV3LatestCompact)
+        XCTAssertEqual(
+            manager.isModelSupported(.vocaHinglish),
+            manager.isModelSupported(.largeV3LatestCompact)
+        )
+    }
+
+    func testHinglishIdentifierRoundTrips() {
+        let manager = ModelManager()
+        let identifier = manager.modelIdentifier(for: .vocaHinglish)
+        XCTAssertEqual(manager.modelSize(from: identifier), .vocaHinglish)
+        XCTAssertEqual(WhisperService().modelSizeFromName(identifier), .vocaHinglish)
     }
 
     func testModelSizeFromWhisperKitNameUsesExactVariant() {
@@ -478,5 +614,69 @@ final class ActivationModeTests: XCTestCase {
     func testRawValues() {
         XCTAssertEqual(ActivationMode.pushToTalk.rawValue, "pushToTalk")
         XCTAssertEqual(ActivationMode.doubleTapToggle.rawValue, "doubleTapToggle")
+    }
+}
+
+// MARK: - Reclaimable memory probe
+
+final class ReclaimableMemoryTests: XCTestCase {
+    private let gb: UInt64 = 1024 * 1024 * 1024
+
+    func testReclaimableBytesUsesKernelLevelWhenFreeAndInactiveIsLow() {
+        // A busy 16 GB Mac: 3 GB free + inactive, kernel reports 39% available.
+        let bytes = SystemInfo.reclaimableBytes(
+            freeAndInactiveBytes: 3 * gb,
+            memoryStatusLevel: 39,
+            physicalBytes: 16 * gb
+        )
+        XCTAssertEqual(bytes, 16 * gb / 100 * UInt64(39 - SystemInfo.memoryStatusReservePercent))
+        XCTAssertTrue(SystemInfo.canFitInMemory(requiredGB: 3.4, physicalMemoryGB: 16, availableBytes: bytes))
+    }
+
+    func testReclaimableBytesKeepsFreeAndInactiveWhenLarger() {
+        XCTAssertEqual(
+            SystemInfo.reclaimableBytes(freeAndInactiveBytes: 8 * gb, memoryStatusLevel: 30, physicalBytes: 16 * gb),
+            8 * gb
+        )
+    }
+
+    func testReclaimableBytesStillRefusesUnderRealPressure() {
+        for level in [0, 8, 20] {
+            let bytes = SystemInfo.reclaimableBytes(
+                freeAndInactiveBytes: gb,
+                memoryStatusLevel: level,
+                physicalBytes: 16 * gb
+            )
+            XCTAssertFalse(
+                SystemInfo.canFitInMemory(requiredGB: 3.4, physicalMemoryGB: 16, availableBytes: bytes),
+                "level \(level)"
+            )
+        }
+    }
+
+    func testReclaimableBytesTreatsAFullMachineAsKnown() {
+        // Free + inactive failed, and the kernel says the machine is full:
+        // that must refuse, not read as an unknown probe that allows the load.
+        let bytes = SystemInfo.reclaimableBytes(
+            freeAndInactiveBytes: 0,
+            memoryStatusLevel: 5,
+            physicalBytes: 16 * gb
+        )
+        XCTAssertGreaterThan(bytes, 0)
+        XCTAssertFalse(SystemInfo.canFitInMemory(requiredGB: 0.9, physicalMemoryGB: 16, availableBytes: bytes))
+    }
+
+    func testReclaimableBytesIgnoresMissingOrOutOfRangeLevel() {
+        for level in [nil, -1, 101] as [Int?] {
+            XCTAssertEqual(
+                SystemInfo.reclaimableBytes(freeAndInactiveBytes: 2 * gb, memoryStatusLevel: level, physicalBytes: 16 * gb),
+                2 * gb
+            )
+        }
+        XCTAssertEqual(
+            SystemInfo.reclaimableBytes(freeAndInactiveBytes: 0, memoryStatusLevel: nil, physicalBytes: 16 * gb),
+            0,
+            "Both probes failing still reads as unknown"
+        )
     }
 }

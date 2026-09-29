@@ -6,7 +6,7 @@ Scope: `web/` only. Root `AGENTS.md` still applies (worktrees, conventional comm
 
 | Piece | Role |
 |-------|------|
-| Hugo **0.165.0 extended** | Site generator (pin matches CI) |
+| Hugo **0.166.0 extended** | Site generator (pin matches CI) |
 | `content/` | Markdown pages (`_index.md`, `features/`, `screenshots.md`) |
 | `layouts/` | Templates and partials |
 | `static/` | Hand-written `style.css` / `script.js`, brand assets, CNAME |
@@ -20,7 +20,7 @@ Scope: `web/` only. Root `AGENTS.md` still applies (worktrees, conventional comm
 
 ```bash
 cd web
-hugo server          # live preview (install Hugo 0.165.0 extended)
+hugo server          # live preview (install Hugo 0.166.0 extended)
 npm run check        # build + tests — this is what CI runs
 ```
 

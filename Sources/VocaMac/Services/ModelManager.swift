@@ -20,6 +20,7 @@ enum ModelManagerError: LocalizedError {
     case missingModelDirectory(String)
     case tokenizerAssetsUnavailable(String)
     case checksumMismatch(model: String, expected: String, actual: String)
+    case insufficientDiskSpace(model: String, requiredBytes: Int64, availableBytes: Int64)
 
     var errorDescription: String? {
         switch self {
@@ -37,6 +38,13 @@ enum ModelManagerError: LocalizedError {
             return "The download for '\(model)' did not match its expected contents "
                 + "(expected \(expected.prefix(12))…, got \(actual.prefix(12))…). "
                 + "It was discarded. Please try again."
+        case .insufficientDiskSpace(let model, let requiredBytes, let availableBytes):
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            return "Not enough free disk space to download \(model). It needs about "
+                + "\(formatter.string(fromByteCount: requiredBytes)), but only "
+                + "\(formatter.string(fromByteCount: availableBytes)) is free. "
+                + "Free up some space and try again."
         }
     }
 }
@@ -47,8 +55,12 @@ final class ModelManager {
 
     // MARK: - Properties
 
-    /// HuggingFace repository for WhisperKit CoreML models
-    private let modelRepo = "argmaxinc/whisperkit-coreml"
+    /// HuggingFace repository for Argmax's WhisperKit CoreML models
+    private static let argmaxModelRepo = "argmaxinc/whisperkit-coreml"
+
+    /// HuggingFace repository for community fine-tunes converted to
+    /// WhisperKit CoreML, which Argmax does not publish.
+    static let communityModelRepo = "VocaHQ/whisperkit-coreml"
     private let bundledModelsDirectory = "BundledModels/whisperkit-coreml"
     private let requiredTokenizerFiles = ["tokenizer.json", "tokenizer_config.json"]
     private let requiredModelDirectories = [
@@ -67,12 +79,32 @@ final class ModelManager {
     /// invalidation. Covers model files changed outside the app.
     private static let diskUsageCacheTTL: CFAbsoluteTime = 5.0
 
+    /// In-flight downloads by model, so `cancelDownload(for:)` can reach them.
+    private var downloadTasks: [ModelSize: Task<Void, Error>] = [:]
+    private let downloadTasksLock = NSLock()
+
+    /// Reads free space on the volume holding a URL. Injectable for tests.
+    private let availableCapacity: @Sendable (URL) -> Int64?
+
+    init(availableCapacity: @escaping @Sendable (URL) -> Int64? = { ModelManager.volumeAvailableCapacity(at: $0) }) {
+        self.availableCapacity = availableCapacity
+    }
+
     private var bundledModelsBase: URL? {
         Bundle.main.resourceURL?.appendingPathComponent(bundledModelsDirectory, isDirectory: true)
     }
 
     private func installedModelDirectory(for size: ModelSize) -> URL {
-        modelStorageBase.appendingPathComponent(whisperKitModelName(for: size), isDirectory: true)
+        modelStorageBase(forRepo: whisperKitRepo(for: size))
+            .appendingPathComponent(whisperKitModelName(for: size), isDirectory: true)
+    }
+
+    /// HuggingFace repository WhisperKit downloads this model from.
+    func whisperKitRepo(for size: ModelSize) -> String {
+        switch size {
+        case .vocaHinglish:       return Self.communityModelRepo
+        default:                  return Self.argmaxModelRepo
+        }
     }
 
     private func hasRequiredModelAssets(at directory: URL) -> Bool {
@@ -214,7 +246,6 @@ final class ModelManager {
         try ensureInstalledModelReady(for: size)
     }
 
-
     /// Local base directory passed to WhisperKit's downloadBase config.
     /// WhisperKit creates its own subdirectory structure under this path.
     private var downloadBase: URL {
@@ -229,10 +260,10 @@ final class ModelManager {
 
     /// Actual directory where WhisperKit stores downloaded model files.
     /// WhisperKit nests models under: downloadBase/models/<repo>/
-    private var modelStorageBase: URL {
+    private func modelStorageBase(forRepo repo: String) -> URL {
         downloadBase
             .appendingPathComponent("models")
-            .appendingPathComponent(modelRepo)
+            .appendingPathComponent(repo)
     }
 
     // MARK: - Model Discovery
@@ -296,8 +327,11 @@ final class ModelManager {
             return "openai_whisper-large-v3_turbo"
         case .medium:
             return "openai_whisper-medium"
+        case .vocaHinglish:
+            return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
-             .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash:
+             .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
+             .qwen3Asr06B:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
         }
@@ -356,7 +390,9 @@ final class ModelManager {
         switch size.engine {
         case .whisperKit:
             let rec = WhisperKit.recommendedModels()
-            let modelName = whisperKitModelName(for: size)
+            // Fine-tunes are not in WhisperKit's device list; they run
+            // wherever the model they were tuned from does.
+            let modelName = whisperKitModelName(for: size.whisperKitBaseModel ?? size)
 
             if rec.disabled.contains(modelName) {
                 return false
@@ -467,18 +503,125 @@ final class ModelManager {
         // New files on disk in every branch that can succeed.
         defer { invalidateDiskUsageCache() }
 
-        switch size.engine {
-        case .whisperKit:
-            try await downloadWhisperKitModel(size: size, onProgress: onProgress)
-        case .parakeet:
-            try await downloadParakeetModel(size: size, onProgress: onProgress)
-        case .appleSpeech:
+        guard !size.isSystemManaged else {
             // System-managed — nothing to download here. Asset installation
             // happens in AppleSpeechService.loadModel via AssetInventory.
             onProgress(1.0)
-        case .sherpaOnnx:
-            try await downloadSherpaModel(size: size, onProgress: onProgress)
+            return
         }
+
+        let wasDownloaded = isModelDownloaded(size)
+        if !wasDownloaded {
+            try Self.ensureFreeSpace(
+                forModel: size.displayName,
+                requiredBytes: Self.requiredDownloadBytes(for: size),
+                at: downloadBase,
+                availableCapacity: availableCapacity
+            )
+        }
+        let throttledProgress = ProgressThrottle.wrap(onProgress)
+
+        // Run the transfer in a retained task so the Settings row's Cancel
+        // can reach it through `cancelDownload(for:)`.
+        let task = Task<Void, Error> { [self] in
+            switch size.engine {
+            case .whisperKit:
+                try await downloadWhisperKitModel(size: size, onProgress: throttledProgress)
+            case .parakeet:
+                try await downloadParakeetModel(size: size, onProgress: throttledProgress)
+            case .sherpaOnnx:
+                try await downloadSherpaModel(size: size, onProgress: throttledProgress)
+            case .appleSpeech:
+                break
+            }
+        }
+        downloadTasksLock.withLock { downloadTasks[size] = task }
+        defer {
+            downloadTasksLock.withLock {
+                if downloadTasks[size] == task { downloadTasks[size] = nil }
+            }
+        }
+
+        do {
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+        } catch {
+            guard task.isCancelled || error is CancellationError else { throw error }
+            if !wasDownloaded {
+                discardPartialDownload(for: size)
+            }
+            VocaLogger.info(.modelManager, "Download cancelled for \(size.displayName)")
+            throw CancellationError()
+        }
+    }
+
+    /// Remove whatever a cancelled first download left in the model's
+    /// directory, so the row goes back to not-downloaded instead of pointing
+    /// at incomplete files.
+    private func discardPartialDownload(for size: ModelSize) {
+        let directory: URL?
+        switch size.engine {
+        case .whisperKit:
+            directory = installedModelDirectory(for: size)
+        case .parakeet:
+            directory = parakeetVersion(for: size).map { parakeetDirectory(for: $0) }
+        case .sherpaOnnx, .appleSpeech:
+            // Sherpa stages downloads and removes the staging directory itself.
+            directory = nil
+        }
+        guard let directory, fileManager.fileExists(atPath: directory.path) else { return }
+        try? fileManager.removeItem(at: directory)
+    }
+
+    // MARK: - Disk Space
+
+    /// Space a download needs while it runs. ONNX archives sit on disk next
+    /// to their extracted files until extraction finishes.
+    static func requiredDownloadBytes(for size: ModelSize) -> Int64 {
+        let margin: Int64 = 200_000_000
+        switch size.engine {
+        case .sherpaOnnx:
+            return size.fileSizeBytes * 2 + margin
+        case .whisperKit, .parakeet:
+            return size.fileSizeBytes + size.fileSizeBytes / 5 + margin
+        case .appleSpeech:
+            return 0
+        }
+    }
+
+    /// Throw `insufficientDiskSpace` when the volume holding `directory` has
+    /// less room than `requiredBytes`. An unreadable capacity lets the
+    /// download proceed; the transfer itself reports a full disk.
+    static func ensureFreeSpace(
+        forModel modelName: String,
+        requiredBytes: Int64,
+        at directory: URL,
+        availableCapacity: (URL) -> Int64?
+    ) throws {
+        guard requiredBytes > 0, let available = availableCapacity(directory) else { return }
+        guard available >= requiredBytes else {
+            throw ModelManagerError.insufficientDiskSpace(
+                model: modelName,
+                requiredBytes: requiredBytes,
+                availableBytes: available
+            )
+        }
+    }
+
+    /// Free space for important data on the volume holding `url`, measured at
+    /// its nearest existing ancestor since the model directory may not exist yet.
+    static func volumeAvailableCapacity(at url: URL) -> Int64? {
+        var candidate = url.standardizedFileURL
+        while !FileManager.default.fileExists(atPath: candidate.path) {
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return nil }
+            candidate = parent
+        }
+        let values = try? candidate.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage
     }
 
     /// Download a sherpa-onnx model archive and extract it into the sherpa
@@ -488,6 +631,7 @@ final class ModelManager {
         size: ModelSize,
         onProgress: @escaping (Double) -> Void
     ) async throws {
+        try Task.checkCancellation()
         guard let spec = SherpaModelCatalog.spec(for: size) else {
             throw ModelManagerError.modelNotAvailable(size.rawValue)
         }
@@ -548,6 +692,11 @@ final class ModelManager {
                 )
             }
 
+            // Cancellation may arrive during hashing/extraction. Stop before
+            // changing the installed model; once the swap begins, finish its
+            // rollback-safe transaction without interruption.
+            try Task.checkCancellation()
+
             // Swap the finished model in without a window where neither copy
             // is in place: move any existing install aside first, and only
             // delete it once the new one has landed.
@@ -588,20 +737,38 @@ final class ModelManager {
 
             onProgress(1.0)
             VocaLogger.info(.modelManager, "ONNX model '\(size.rawValue)' installed at: \(destination.path)")
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             VocaLogger.error(.modelManager, "Download failed for '\(size.rawValue)': \(error.localizedDescription)")
             throw ModelManagerError.downloadFailed(reason: error.localizedDescription)
         }
     }
 
+    /// SHA-256 of a file on a background thread. Hashing a multi-gigabyte
+    /// model takes seconds, so callers on the main actor must use this
+    /// rather than `sha256Hex(ofFileAt:)`. Cancelling the caller stops it.
+    static func sha256HexInBackground(ofFileAt url: URL) async throws -> String {
+        let task = Task.detached(priority: .utility) {
+            try sha256Hex(ofFileAt: url)
+        }
+        return try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
     /// SHA-256 of a file, read in chunks so a large archive never has to be
     /// held in memory all at once.
     static func sha256Hex(ofFileAt url: URL) throws -> String {
+        try Task.checkCancellation()
         let handle = try FileHandle(forReadingFrom: url)
         defer { try? handle.close() }
 
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            try Task.checkCancellation()
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
@@ -609,11 +776,13 @@ final class ModelManager {
 
     /// Extract a .tar.bz2 archive using the system tar.
     static func extractTarArchive(at archive: URL, into directory: URL) throws {
+        try Task.checkCancellation()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xjf", archive.path, "-C", directory.path]
         try process.run()
         process.waitUntilExit()
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else {
             throw ModelManagerError.downloadFailed(
                 reason: "Archive extraction failed (tar exited with \(process.terminationStatus))"
@@ -646,6 +815,7 @@ final class ModelManager {
             onProgress(1.0)
             VocaLogger.info(.modelManager, "Parakeet model '\(size.rawValue)' downloaded to: \(directory.path)")
         } catch {
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
             VocaLogger.error(.modelManager, "Download failed for '\(size.rawValue)': \(error.localizedDescription)")
             throw ModelManagerError.downloadFailed(reason: error.localizedDescription)
         }
@@ -668,7 +838,10 @@ final class ModelManager {
             // WhisperKit handles downloading from HuggingFace automatically
             // when we initialize with a model name. We create a temporary
             // instance just to trigger the download.
-            let config = WhisperKitConfig(model: whisperKitModelName(for: size))
+            let config = WhisperKitConfig(
+                model: whisperKitModelName(for: size),
+                modelRepo: whisperKitRepo(for: size)
+            )
             config.downloadBase = downloadBase
             config.prewarm = false
             config.load = false  // Don't load into memory, just download
@@ -695,11 +868,12 @@ final class ModelManager {
                 }
             }
 
-            let _ = try await WhisperKit(config)
+            defer { progressTask.cancel() }
+            _ = try await WhisperKit(config)
 
-            // Stop the simulated progress and report completion
-            progressTask.cancel()
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            // The Hub downloader returns normally, with whatever files it
+            // finished, when its task is cancelled.
+            try Task.checkCancellation()
 
             // WhisperKit downloads CoreML models to a temp directory with a
             // symlink from modelStorageBase. macOS may clean up temp files,
@@ -716,16 +890,19 @@ final class ModelManager {
             onProgress(1.0)
             VocaLogger.info(.modelManager, "Model '\(whisperKitModelName(for: size))' downloaded successfully to: \(installedDir.path)")
         } catch {
+            if Task.isCancelled || error is CancellationError { throw CancellationError() }
             VocaLogger.error(.modelManager, "Download failed for '\(whisperKitModelName(for: size))': \(error.localizedDescription)")
             throw ModelManagerError.downloadFailed(reason: error.localizedDescription)
         }
     }
 
-    /// Cancel an active download (WhisperKit handles this internally)
+    /// Cancel an in-flight download. The awaiting `downloadModel` call
+    /// throws `CancellationError` once the engine's transfer has stopped.
     func cancelDownload(for size: ModelSize) {
-        // WhisperKit manages downloads internally via URLSession
-        // For MVP, we rely on task cancellation at the caller level
+        let task = downloadTasksLock.withLock { downloadTasks[size] }
+        guard let task else { return }
         VocaLogger.info(.modelManager, "Download cancellation requested for \(size.displayName)")
+        task.cancel()
     }
 
     // MARK: - Model Deletion
@@ -739,7 +916,7 @@ final class ModelManager {
         let modelDir: URL
         switch size.engine {
         case .whisperKit:
-            modelDir = modelStorageBase.appendingPathComponent(whisperKitModelName(for: size))
+            modelDir = installedModelDirectory(for: size)
         case .parakeet:
             guard let version = parakeetVersion(for: size) else {
                 throw ModelManagerError.modelNotAvailable(modelIdentifier(for: size))
@@ -767,7 +944,8 @@ final class ModelManager {
     /// Directories that hold downloaded model files, across all engines.
     private var modelStorageDirectories: [URL] {
         [
-            modelStorageBase,
+            modelStorageBase(forRepo: Self.argmaxModelRepo),
+            modelStorageBase(forRepo: Self.communityModelRepo),
             parakeetDirectory(for: .v3),
             parakeetDirectory(for: .v2),
             parakeetDirectory(for: .tdtCtc110m),

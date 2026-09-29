@@ -1,0 +1,32 @@
+name: Dependency Review
+
+# Fails a PR that adds or bumps a Swift package to a version with a known high
+# or critical advisory. The dependency graph reads Package.resolved (the
+# swift ecosystem in the GitHub Advisory Database) and records the version.
+#
+# It does not cover actions: they are pinned to commit SHAs, which advisory
+# version ranges never match. Actions are kept current by Dependabot and
+# audited by zizmor (workflow-security.yml) instead.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high

@@ -1,0 +1,107 @@
+# Dictation with no number or emoji to convert. Every line must come back from
+# SpokenNumbers (both modes) and SpokenEmoji byte for byte. Most lines use a
+# number word, an ordinal, or "emoji" in the way ordinary English does.
+No one said it would be easy.
+One of them is still broken.
+One day I'll get to it.
+That's the one I wanted.
+They helped one another.
+Which one do you mean?
+The one and only rule is to ship it.
+We went through them one by one.
+Let's do a one on one tomorrow.
+Let's do a one-on-one tomorrow.
+One more time, from the top.
+At one point we had to stop.
+At some point we should talk.
+That is the point.
+What's the point of this meeting?
+Give me a high five.
+Take five, everyone.
+I was on cloud nine all week.
+I'm going to catch forty winks.
+Hang on, one sec.
+It was a one-off thing.
+Hundreds of people showed up.
+Thousands of messages are waiting.
+There were tens of thousands of them.
+A million reasons to say no.
+I've told you a hundred times.
+A few hundred people, give or take.
+It happened for the first time.
+First of all, thank you.
+I have second thoughts about it.
+Wait a second.
+I'll be there in a second.
+The Fifth Element is a good film.
+Her thirtieth birthday is on the weekend.
+You may first want to check the logs.
+Seven thirty works for me.
+Meet me at seven thirty.
+Nineteen eighty four is a great book.
+They won twenty twenty five.
+Call nine one one if it gets worse.
+Count one two three four and jump.
+Six seven, that's the joke.
+Oh, well, never mind.
+Oh no, not again.
+Oh seven, what a year.
+Double seven is a lucky number.
+Three quarters of them agreed.
+Two thirds of the vote.
+One half of the team is remote.
+Eighteen hundreds were a long time ago.
+Send me the emoji.
+I love the fire emoji.
+Use the heart emoji here.
+What's the crying emoji called?
+Send a thumbs up emoji to confirm.
+Can you check emoji support in Safari?
+We should fix emoji rendering on Linux.
+The emoji keyboard opens with a shortcut.
+Open the emoji picker.
+I love you emoji.
+Emoji are hard to search for.
+Someone told me about it.
+Anyone can join the call.
+Tennis at noon on Saturday.
+Everyone was there.
+Nonetheless, we shipped.
+The phone is on the table.
+Enter the code you received.
+My number changed last week.
+Room service was slow.
+The flight was delayed.
+In the nineties we had pagers.
+Back in the eighties.
+We were at sixes and sevens.
+It's a twofer.
+He tends to overthink.
+Often is not always.
+The zero-sum game.
+A trillion-dollar question.
+Ship the release notes to the team before standup.
+Let's circle back after lunch.
+Please review the pull request today.
+Thanks for the quick turnaround.
+Can you share the deck?
+I'm out of office until Monday.
+The build is green again.
+Remember to water the plants.
+Happy birthday, have a great one.
+Good morning, how are you?
+The quick brown fox jumps over the lazy dog.
+We'll take it from here.
+Looks good to me.
+Let me know if anything changes.
+Fire the missiles, said nobody.
+The party is on Friday.
+I'm crying laughing at this.
+That's a big mood.
+Heart of the matter.
+Thumbs up from me.
+Put a check mark next to done items.
+The rocket launched on time.
+मुझे तीन कॉपी चाहिए
+necesito cinco copias
+とても悲しい

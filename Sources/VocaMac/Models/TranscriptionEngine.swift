@@ -9,16 +9,54 @@ import Foundation
 /// Preference keys shared between `AppState`'s `@AppStorage` properties and
 /// services that must read the same setting outside the view layer.
 enum PreferenceKey {
+    static let onboardingCompleted = "vocamac.hasCompletedOnboarding"
     static let selectedModelSize = "vocamac.selectedModelSize"
     static let selectedLanguage = "vocamac.selectedLanguage"
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"
     static let autoCapitalize = "vocamac.autoCapitalize"
+    static let numbersAsDigits = "vocamac.numbersAsDigits"
+    static let numberSymbols = "vocamac.numberSymbols"
+    static let spokenEmoji = "vocamac.spokenEmoji"
     static let autoPauseEnabled = "vocamac.autoPause.enabled"
     static let autoPauseApps = "vocamac.autoPause.apps"
     static let autoPausePollInterval = "vocamac.autoPause.pollIntervalSeconds"
     static let modelKeepAliveEnabled = "vocamac.modelKeepAlive.enabled"
     static let modelKeepAliveIdleTimeout = "vocamac.modelKeepAlive.idleTimeoutSeconds"
     static let dictationTone = "vocamac.dictationTone"
+    static let writingStyleEnabled = "vocamac.writingStyle.enabled"
+    static let writingStyleDefault = "vocamac.writingStyle.defaultStyle"
+    static let writingStyleBindings = "vocamac.writingStyle.bindings"
+    static let writingIntent = "vocamac.writingStyle.intent"
+    static let writingRewriteEnabled = "vocamac.writingStyle.experimentalRewrite"
+    static let duckOtherAudioEnabled = "vocamac.duckOtherAudio.enabled"
+    static let transcriptCleanupEnabled = "vocamac.transcriptCleanup.enabled"
+    static let transcriptCleanupModel = "vocamac.transcriptCleanup.model"
+    static let transcriptCleanupPrompt = "vocamac.transcriptCleanup.prompt"
+    static let transcriptCleanupLevel = "vocamac.transcriptCleanup.level"
+    static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
+    static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
+    static let historyEnabled = "vocamac.history.enabled"
+    static let historyKeepsAudio = "vocamac.history.keepAudio"
+    static let historyRetention = "vocamac.history.retention"
+    static let escapeCancelsDictation = "vocamac.shortcuts.escapeCancels"
+    static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
+    static let handsFreeShortcut = "vocamac.shortcuts.handsFree"
+    static let commandModeShortcut = "vocamac.shortcuts.commandMode"
+    static let commandModeEngine = "vocamac.commandMode.engine"
+    static let commandModeClipboardFallback = "vocamac.commandMode.clipboardFallback"
+    static let aiModelsKeptSeparate = "vocamac.aiModels.keepSeparate"
+    static let mouseTriggerButton = "vocamac.shortcuts.mouseButton"
+    static let wordReplacements = "vocamac.dictionary.replacements"
+    static let dictionarySuggestions = "vocamac.dictionary.suggestions"
+    static let dismissedDictionarySuggestions = "vocamac.dictionary.dismissedSuggestions"
+    static let learnCorrectionsMode = "vocamac.dictionary.learnMode"
+    static let useScreenContext = "vocamac.dictionary.screenContext"
+    static let websiteStyleBindings = "vocamac.writingStyle.websiteBindings"
+    static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
+    static let skipSilence = "vocamac.audio.skipSilence"
+    static let spokenLanguages = "vocamac.spokenLanguages"
+    /// Prefix of one key per model: the macOS build it last loaded on.
+    static let compiledModelBuildPrefix = "vocamac.models.compiledBuild."
 }
 
 /// The on-device inference engine backing a model in the catalog.
@@ -71,6 +109,12 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
     /// Whether the engine biases transcription toward user-provided vocabulary.
     var supportsCustomVocabulary: Bool {
         self == .whisperKit
+    }
+
+    /// Whether CoreML compiles this engine's models for the Neural Engine on
+    /// their first load, which can take minutes.
+    var compilesForNeuralEngine: Bool {
+        self == .whisperKit || self == .parakeet
     }
 
 }

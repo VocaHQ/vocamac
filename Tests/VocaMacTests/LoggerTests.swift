@@ -14,7 +14,8 @@ final class LogCategoryTests: XCTestCase {
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .audioDucker, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
 
         for category in categories {
@@ -28,7 +29,8 @@ final class LogCategoryTests: XCTestCase {
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .audioDucker, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
 
         for category in categories {
@@ -40,11 +42,12 @@ final class LogCategoryTests: XCTestCase {
 
     func testCategoryCount() {
         // Ensure we're testing all categories — update this if new ones are added
-        let expectedCount = 13
+        let expectedCount = 15
         let categories: [LogCategory] = [
             .appState, .audioEngine, .whisperService, .parakeetService,
             .appleSpeechService, .sherpaService, .hotKeyManager, .modelManager,
-            .soundManager, .textInjector, .cursorOverlay, .onboarding, .general
+            .soundManager, .audioDucker, .textInjector, .cursorOverlay, .onboarding,
+            .transcriptCleanup, .general
         ]
         XCTAssertEqual(categories.count, expectedCount)
     }
@@ -77,11 +80,93 @@ final class LogLevelTests: XCTestCase {
 
 final class VocaLoggerTests: XCTestCase {
 
+    func testTrimPreservesCompleteLineAtExactCutoff() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("old\nनमस्ते\n".utf8).write(to: file)
+        try LogFileStore.trimToTail(at: file, maximumBytes: Data("नमस्ते\n".utf8).count)
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "नमस्ते\n")
+    }
+
+    func testTrimDoesNotKeepPartialUnicodeEntry() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try Data("नमस्ते".utf8).write(to: file)
+        try LogFileStore.trimToTail(at: file, maximumBytes: 2)
+        XCTAssertEqual(try Data(contentsOf: file), Data())
+    }
+
+    func testRotationReplacesFullBackupSetAndPreservesOrder() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        for (name, contents) in [
+            ("vocamac.log", "current"),
+            ("vocamac.1.log", "one"),
+            ("vocamac.2.log", "two"),
+            ("vocamac.3.log", "three"),
+        ] {
+            try Data(contents.utf8).write(to: directory.appendingPathComponent(name))
+        }
+
+        try LogFileStore.rotate(in: directory, maxRotatedFiles: 3)
+
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.1.log")), "current")
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.2.log")), "one")
+        XCTAssertEqual(try String(contentsOf: directory.appendingPathComponent("vocamac.3.log")), "two")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("vocamac.log").path))
+    }
+
+    func testTailReaderHandlesLargeFileAndUnicodeBoundary() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let lines = (0..<20_000).map { "line-\($0)-नमस्ते" }
+        try (lines.joined(separator: "\n") + "\n").write(to: file, atomically: true, encoding: .utf8)
+
+        XCTAssertEqual(LogFileStore.tailLines(at: file, count: 3), Array(lines.suffix(3)))
+        XCTAssertEqual(LogFileStore.lineCount(at: file), lines.count)
+        XCTAssertEqual(LogFileStore.tailLines(at: file, count: 0), [])
+    }
+
+    func testRotationBoundsLegacyOversizedLog() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let lines = (0..<100).map { "entry-\($0)-with-padding" }
+        try (lines.joined(separator: "\n") + "\n").write(
+            to: directory.appendingPathComponent(LogFileStore.activeName),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        try LogFileStore.rotate(in: directory, maxRotatedFiles: 3, maximumFileSize: 256)
+
+        let rotated = directory.appendingPathComponent("vocamac.1.log")
+        let size = try XCTUnwrap(
+            FileManager.default.attributesOfItem(atPath: rotated.path)[.size] as? Int
+        )
+        XCTAssertLessThanOrEqual(size, 256)
+        XCTAssertEqual(LogFileStore.tailLines(at: rotated, count: 1), [try XCTUnwrap(lines.last)])
+    }
+
     func testLogFileURLIsValid() {
         let url = VocaLogger.logFileURL()
         XCTAssertFalse(url.path.isEmpty, "Log file URL should not be empty")
         XCTAssertTrue(url.path.contains("VocaMac"), "Log path should contain app name")
         XCTAssertTrue(url.path.hasSuffix(".log"), "Log file should have .log extension")
+    }
+
+    func testTestRunsDoNotWriteToTheAppsLogFolder() {
+        let appFolder = VocaLogger.defaultLogDirectory(isRunningTests: false)
+        XCTAssertTrue(appFolder.path.hasSuffix("Application Support/VocaMac/logs"))
+        XCTAssertNotEqual(VocaLogger.logDirectory().standardizedFileURL, appFolder.standardizedFileURL)
+        XCTAssertEqual(
+            VocaLogger.logDirectory().standardizedFileURL,
+            VocaLogger.defaultLogDirectory(isRunningTests: true).standardizedFileURL
+        )
     }
 
     func testLogDirectoryIsValid() {
@@ -175,7 +260,7 @@ final class VocaLoggerTests: XCTestCase {
 
     func testLogLevelFilteringErrorHidesLower() {
         VocaLogger.setLogLevel(.error)
-        let countBefore = VocaLogger.logEntryCount
+        defer { VocaLogger.setLogLevel(.info) }
 
         let marker = UUID().uuidString
         VocaLogger.debug(.general, "should-not-appear-\(marker)")
@@ -184,21 +269,16 @@ final class VocaLoggerTests: XCTestCase {
 
         Thread.sleep(forTimeInterval: 0.2)
 
-        let countAfterLower = VocaLogger.logEntryCount
-
         VocaLogger.error(.general, "should-appear-\(marker)")
 
         Thread.sleep(forTimeInterval: 0.2)
 
-        let countAfterError = VocaLogger.logEntryCount
-
-        // Debug, info, warning should have been filtered
-        XCTAssertEqual(countAfterLower, countBefore,
-                      "Debug/info/warning messages should be filtered at error level")
-        XCTAssertEqual(countAfterError, countBefore + 1,
+        // The installed app and background tasks can write to this same log.
+        // Assert this test's messages, not a process-global line-count delta.
+        let logs = VocaLogger.exportLogs(lastLines: 1000)
+        XCTAssertFalse(logs.contains("should-not-appear-\(marker)"),
+                       "Debug/info/warning messages should be filtered at error level")
+        XCTAssertTrue(logs.contains("should-appear-\(marker)"),
                       "Error message should be logged at error level")
-
-        // Reset
-        VocaLogger.setLogLevel(.info)
     }
 }

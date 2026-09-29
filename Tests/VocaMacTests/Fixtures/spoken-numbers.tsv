@@ -1,0 +1,230 @@
+# Spoken number cases, shared with VocaPhone so both clients write the same
+# text for the same transcript. Columns: input, expected, why. "\n" and "\t"
+# are escapes. A "## digits" or "## symbols" line sets the mode for the rows
+# below it: "symbols" is SpokenNumbers.digits(in:symbols: true).
+#
+# Expected == input means the words must survive exactly as spoken.
+
+## digits
+# Plain quantities
+I need five copies	I need 5 copies	a single number
+ten people came	10 people came	teen
+twenty three people	23 people	tens + unit
+twenty-three people	23 people	hyphenated
+Twenty-Three	23	capitalized and hyphenated
+TWENTY THREE	23	shouting
+ninety-nine problems	99 problems	hyphenated tens
+two hundred fifty	250	hundreds
+two hundred and fifty	250	British "and"
+five hundred and eleven	511	"and" before a teen
+one hundred and one	101	"one" inside a larger number
+twenty five hundred	2500	hundreds of a teen-like pair
+three thousand	3000	four digits stay ungrouped
+two thousand and five	2005	a year said as a number
+the year two thousand	the year 2000	year as a number
+ten thousand steps	10,000 steps	grouped from five digits
+twelve thousand five hundred dollars	12,500 dollars	grouped
+twenty-one thousand	21,000	hyphenated tens before a scale
+two hundred thousand three hundred	200,300	one hundreds group per scale
+two million three thousand five hundred	2,003,500	mixed scales
+one hundred and twenty three thousand and four	123,004	"and" after a scale
+# Round scales keep their word
+one million people	1 million people	round million
+a billion dollars	1 billion dollars	"a" before a scale and a unit
+three hundred million	300 million	hundreds of millions
+two point five million users	2.5 million users	decimal before a scale
+one trillion	1 trillion	past the maximum, still a round scale
+three trillion	3 trillion	round trillion
+# Decimals
+three point five hours	3.5 hours	decimal
+three point one four	3.14	digits after the point
+zero point five	0.5	leading zero
+nought point five	0.5	British zero
+three point oh	3.0	"oh" after the point
+one point two three	1.23	"one" before the point
+version two point one	version 2.1	version numbers
+seven point five percent	7.5 percent	decimal before a unit
+point five percent	0.5 percent	bare point before a unit
+point five	point 5	bare point with no unit is ambiguous
+# Fractions
+two and a half hours	2.5 hours	"and a half"
+one and a half	1.5	a lone "one" with a fraction is a number
+three and a quarter miles	3.25 miles	"and a quarter"
+one half	one half	a fraction word stays prose
+three quarters of them	three quarters of them	not three of a unit
+two thirds of the vote	two thirds of the vote	fraction noun
+# A lone one
+no one came	no one came	pronoun
+one of them is broken	one of them is broken	pronoun
+one day I'll get to it	one day I'll get to it	"day" is not a hard unit
+that's the one	that's the one	pronoun
+one another	one another	pronoun
+the one and only	the one and only	"and" without a number
+one by one	one by one	idiom
+one on one	one on one	idiom
+one to one	one to one	two ones do not pair
+one more time	one more time	not a quantity
+at one point	at one point	not a quantity
+which one	which one	pronoun
+one-on-one	one-on-one	hyphenated idiom
+see you at one pm	see you at 1 pm	unit after one
+one hour later	1 hour later	unit after one
+one percent of them	1 percent of them	unit after one
+one, pm	one, pm	punctuation detaches the unit
+one or two things	1 or 2 things	paired numbers convert together
+one to two hours	1 to 2 hours	a range
+between one and five	between 1 and 5	a range with "and"
+two or one	2 or 1	pair in either order
+# Idioms
+high five	high five	idiom
+give me a high five	give me a high five	idiom
+take five	take five	idiom
+cloud nine	cloud nine	idiom
+forty winks	forty winks	idiom
+zero dark thirty	zero dark thirty	idiom
+one sec	one sec	idiom
+Ocean's eleven	Ocean's eleven	title
+the big three	the big three	idiom
+four-by-four	four-by-four	idiom
+double seven	double seven	not in a digit string
+triple zero	triple zero	not in a digit string
+catch twenty two	catch 22	usually written with digits
+nine to five	9 to 5	a range, fine as digits
+twenty four seven	24/7	fixed written form
+# Digit strings
+my number is nine eight seven six five four three two one zero	my number is 9876543210	cue: number is
+code one two three four	code 1234	cue: code
+the PIN is four four two one	the PIN is 4421	cue: PIN is
+room four oh four	room 404	cue and inner oh
+four oh four	404	inner oh without a cue
+call nine one one	call nine one one	three digits with no cue stay words
+my number is double seven three two one	my number is 77321	"double" inside a digit string
+extension four five six	extension 456	cue: extension
+one two three four	one two three four	a count, not a code
+zero zero seven	zero zero seven	no cue
+oh seven	oh seven	"oh" as an exclamation
+Oh, five people came	Oh, 5 people came	punctuation separates the exclamation
+# Times
+at seven thirty pm	at 7:30 pm	time before pm
+eleven thirty am	11:30 am	time before am
+twelve oh five pm	12:05 pm	"oh" minutes
+five fifteen p.m.	5:15 p.m.	dotted meridiem
+two thirty five PM	2:35 PM	tens + unit minutes
+seven thirty	seven thirty	no meridiem, ambiguous
+meet me at seven thirty	meet me at seven thirty	no meridiem
+at five fifteen	at five fifteen	no meridiem
+six pm at office	6 pm at office	hour only
+call me at eight am	call me at 8 am	hour only
+the meeting is at eleven o'clock	the meeting is at 11 o'clock	o'clock
+five o'clock	5 o'clock	o'clock
+at 7 pm	at 7 pm	digits already
+# Years
+in nineteen ninety nine	in 1999	cue: in
+since twenty twenty	since 2020	cue: since
+in twenty twenty four	in 2024	cue: in
+the year nineteen eighty four	the year 1984	cue: year
+in twenty ten	in 2010	teen second half
+nineteen oh five	1905	inner oh
+nineteen eighty four	nineteen eighty four	no cue: a title as often as a year
+twenty twenty five	twenty twenty five	no cue: a score
+in fifteen twenty minutes	in fifteen twenty minutes	a count, not a year
+in twenty thirty days	in twenty thirty days	a count, not a year
+# Adjacent numbers
+six seven	six seven	two numbers, not one
+between five and ten	between 5 and 10	a conjunction between numbers
+two and three	2 and 3	a conjunction between numbers
+five to ten minutes	5 to 10 minutes	range
+five or six people	5 or 6 people	alternatives
+twenty to thirty dollars	20 to 30 dollars	range
+two hundred three hundred	200 300	two hundreds groups
+two hundred nineteen hundred	200 1900	two hundreds groups
+# Impossible or plural
+zero hundred	zero hundred	not a number
+twenty hundred	twenty hundred	not a number
+three thousand two million	three thousand two million	scales must descend
+eighteen hundreds	eighteen hundreds	plural scale is a noun
+hundreds of people	hundreds of people	plural scale
+tens of thousands	tens of thousands	plural scale
+a few hundred	a few hundred	no value
+several thousand	several thousand	no value
+hundred	hundred	a scale alone
+# "a" before a multiplier
+about a hundred and fifty people	about 150 people	"a" as one
+a thousand five hundred dollars	1500 dollars	"a" as one
+A hundred and one dalmatians	101 dalmatians	capitalized "a"
+a hundred times	a hundred times	idiom
+a million reasons	a million reasons	idiom
+a hundred dollars	100 dollars	a unit makes it a count
+a hundred, dollars	a hundred, dollars	punctuation detaches the unit
+# Ordinals stay words without symbols
+first of May	first of May	ordinal
+the twenty first	the twenty first	compound ordinal
+the twenty-first	the twenty-first	hyphenated ordinal
+her thirtieth birthday	her thirtieth birthday	ordinal
+the twenty second of June	the twenty second of June	"second" as an ordinal
+a twenty second delay	a 20 second delay	"second" as a unit
+one second please	1 second please	"second" as a unit
+May fifth	May fifth	a date needs symbols
+# Signs and units stay words without symbols
+fifty percent off	50 percent off	percent stays a word
+five dollars and fifty cents	5 dollars and 50 cents	currency stays words
+minus five degrees	minus 5 degrees	sign stays a word
+# Surrounding text
+Twenty people came.	20 people came.	sentence case
+at six, then seven.	at 6, then 7.	commas end runs
+(twenty three)	(23)	brackets
+six!	6!	exclamation
+it's five	it's 5	contraction before
+that's twenty three	that's 23	contraction before
+twenty\nthree	20\n3	a line break ends a run
+twenty  three	20  3	two spaces end a run
+twenty\tthree	20\t3	a tab ends a run
+Five people. Ten dogs.	5 people. 10 dogs.	two sentences
+someone told me	someone told me	number inside a word
+anyone can join	anyone can join	number inside a word
+tennis at noon	tennis at noon	number inside a word
+call 9876543210 now	call 9876543210 now	digits already
+version 2.1 is out	version 2.1 is out	digits already
+मुझे तीन कॉपी चाहिए	मुझे तीन कॉपी चाहिए	not English
+necesito cinco copias	necesito cinco copias	not English
+
+## symbols
+fifty percent off	50% off	percent sign
+twenty five per cent	25%	"per cent"
+seven point five percent	7.5%	decimal percent
+one percent of them	1% of them	lone one before percent
+five dollars	$5	currency
+a hundred dollars	$100	"a" before a unit
+five dollars and fifty cents	$5.50	dollars and cents
+twenty dollars and five cents	$20.05	padded cents
+ten dollars and twenty-five cents	$10.25	hyphenated cents
+twelve thousand five hundred dollars	$12,500	grouped currency
+five million dollars	$5 million	round scale currency
+fifty euros	€50	euro
+two hundred rupees	₹200	rupee
+five pounds	5 pounds	pounds are a weight as often as money
+five cents	5 cents	cents alone stay a word
+twenty to thirty dollars	$20 to $30	a range shares its currency
+five or ten percent	5% or 10%	a range shares its percent sign
+between two and three hundred dollars	between 2 and $300	"two" may mean two hundred: no guess
+minus five degrees	-5 degrees	minus sign
+negative ten	-10	negative sign
+ten minus five	10 minus 5	arithmetic keeps its word
+minus five dollars	-$5	sign before currency
+the twenty first	the 21st	compound ordinal
+the twenty-first century	the 21st century	hyphenated ordinal
+his forty second birthday	his 42nd birthday	"second" as an ordinal
+our one hundred second meeting	our 102nd meeting	hundreds ordinal
+the twenty third	the 23rd	rd
+the ninety ninth	the 99th	th
+the twenty second of June	the 22nd of June	"second" before "of"
+June twenty second	June 22	month before a compound ordinal is a date
+May fifth	May 5	month before an ordinal
+send it by January first	send it by January 1	month before "first"
+the fifth of May	the 5th of May	ordinal before "of" and a month
+you may first check	you may first check	lowercase "may" is a verb
+first of all	first of all	no month
+the fifth element	the fifth element	no month
+second thoughts	second thoughts	bare "second"
+a twenty second delay	a 20 second delay	"second" as a unit
+two first	two first	not an ordinal

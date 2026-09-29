@@ -40,7 +40,7 @@ The meter updates continuously while recording and disappears when you finish. N
 
 ## Floating Cursor Indicator
 
-![VocaMac cursor indicator near text caret during recording](/screenshots/cursor-indicator.png)
+![Floating mic indicator during recording](/screenshots/cursor-indicator.png)
 
 VocaMac can optionally display a small floating microphone icon that appears near your text cursor while you're recording. This is especially useful when working across multiple windows, fullscreen apps, or when your menu bar is hidden.
 
@@ -50,7 +50,7 @@ The cursor indicator provides:
 - **Window-specific confirmation**: in applications with multiple text fields, it shows which field is active for dictation
 - **Minimal distraction**: the icon is small and subtle, placed just below your cursor position
 
-You can enable or disable the cursor indicator anytime in **Settings → General → Visual Feedback → Show Cursor Indicator**. Some users love it for extra reassurance. Others prefer the menu bar icon alone. The choice is yours.
+The floating near-cursor indicator is the recording overlay. In **Settings → Application**, set **Recording Overlay Style** to Minimal or Live panel and **Position** to Near cursor. Set Style to Off if you prefer the menu bar icon alone.
 
 ## Why Visual Feedback Matters
 

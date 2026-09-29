@@ -193,6 +193,13 @@ section[id] { scroll-margin-top: 4.6rem; }
     border-color 170ms var(--ease);
 }
 
+/* Marks sit on the text baseline's optical centre and never shrink when the
+   button wraps to full width on a phone. */
+.brandmark {
+  flex: none;
+  margin-top: -1px;
+}
+
 .btn-arrow {
   display: inline-block;
   transition: transform 200ms var(--ease);
@@ -354,14 +361,18 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 /* ---------- Hero ---------- */
 
-.hero { padding: 4.5rem 0 5rem; }
+.hero { padding: 3.6rem 0 4.6rem; }
 
 .hero-inner {
   display: grid;
   gap: 3.5rem;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  align-items: center;
+  /* Stretch, so the stage matches the copy column instead of floating in the
+     middle of it. */
+  align-items: stretch;
 }
+
+.hero-copy { align-self: center; }
 
 .hero h1 {
   max-width: 15ch;
@@ -388,15 +399,15 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   display: flex;
   flex-wrap: wrap;
   gap: 0.85rem;
-  margin-top: 2.1rem;
+  margin-top: 1.8rem;
 }
 
 .hero-proof {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1rem;
-  margin-top: 2.1rem;
-  padding-top: 1.5rem;
+  margin-top: 1.8rem;
+  padding-top: 1.4rem;
   border-top: 1px solid var(--line);
   color: var(--faint);
   font-family: var(--mono);
@@ -454,9 +465,130 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   padding: 1.5rem 1.6rem 1.6rem;
 }
 
-/* ---------- Hero workbench ---------- */
+/* ---------- Hero stage ----------
 
-.workbench { display: grid; gap: 1rem; }
+   One surface instead of two floating slabs: a menu bar pinned to the top
+   edge, the VocaMac panel below it, and the document the words land in under
+   that. The stage stretches to the copy column so neither side of the hero
+   ends in dead paper. */
+
+.hero-stage {
+  display: flex;
+  flex-direction: column;
+  align-self: center;
+  max-height: 48rem;
+  overflow: hidden;
+  background: var(--paper-deep);
+  border: 1px solid var(--line-dark);
+  border-radius: 16px;
+  box-shadow: var(--shadow-window);
+}
+
+.stage-bar {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.45rem 0.9rem;
+  color: var(--paper-bright);
+  background: var(--dark-ink);
+  font-family: var(--mono);
+  font-size: 0.74rem;
+}
+
+.stage-bar-app { font-weight: 600; }
+
+.stage-bar-extras {
+  display: inline-flex;
+  gap: 0.85rem;
+  align-items: center;
+  margin-left: auto;
+}
+
+.stage-rec {
+  display: inline-flex;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--brand-soft);
+}
+
+.stage-clock { color: var(--faint-inverse); }
+
+/* align-content centres the group when the stage is taller than its contents,
+   which is the usual case next to a four-line headline. */
+/* space-between puts the panel under the menu bar it lives in and drops the
+   document to the far end, which is both the spatial truth and what keeps a
+   stretched stage from pooling empty paper at one end. */
+/* The loop reads top to bottom: hold the key, VocaMac listens, the words land
+   in the document. Centred as a group so a stretched stage keeps its
+   composition instead of drifting apart. */
+.stage-desk {
+  display: grid;
+  flex: 1;
+  gap: 1rem;
+  align-content: center;
+  padding: 1.6rem 1.5rem 1.8rem;
+}
+
+.stage-key {
+  display: inline-flex;
+  gap: 0.7rem;
+  align-items: center;
+  justify-self: end;
+  padding: 0.6rem 0.9rem;
+  color: var(--muted);
+  background: var(--paper-bright);
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-paper);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+
+.stage-key kbd {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 0.95rem;
+}
+
+.stage-panel { width: min(100%, 25rem); justify-self: end; }
+.stage-doc { width: min(100%, 26rem); justify-self: start; }
+
+.stage-flow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.stage-flow-arrow { color: var(--brand); font-size: 0.95rem; }
+
+.doc-body { padding: 1.15rem 1.25rem 1.5rem; }
+
+.doc-heading {
+  margin: 0 0 0.55rem;
+  font-family: var(--display);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+
+/* A line of the document, not an input: no field chrome around the words. */
+.doc-line {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
 
 .workbench-header {
   display: flex;
@@ -509,30 +641,10 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   animation: halo 2.4s var(--ease) infinite;
 }
 
-.menubar {
-  display: flex;
-  gap: 0.75rem;
-  align-items: center;
-  padding: 0.45rem 0.9rem;
-  color: var(--paper-bright);
-  background: var(--dark-ink);
-  border-radius: 8px;
-  font-family: var(--mono);
-  font-size: 0.74rem;
-}
-
 .menubar-mark {
   width: 15px;
   height: 15px;
   filter: brightness(0) invert(1);
-}
-
-.menubar-status {
-  display: inline-flex;
-  gap: 0.55rem;
-  align-items: center;
-  margin-left: auto;
-  color: var(--brand-soft);
 }
 
 .rec-dot {
@@ -596,16 +708,6 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 /* Inline flow, not flex: as a flex item the caret parked at the end of the
    first line instead of following the last word once the text wrapped. */
-.editor-line {
-  min-height: 4rem;
-  padding: 1.05rem 1.15rem;
-  background: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  font-size: 1rem;
-  line-height: 1.5;
-}
-
 /* Words land one after another, the way a transcript actually arrives. */
 .editor-text span {
   display: inline-block;
@@ -834,6 +936,8 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 .text-link:hover { text-decoration: underline; text-underline-offset: 0.18em; }
 
 .shot {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   background: var(--paper-bright);
   border: 1px solid var(--line);
@@ -848,14 +952,29 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   transform: translateY(-3px);
 }
 
-.shot img {
-  width: 100%;
-  border-bottom: 1px solid var(--line);
+.shot-frame {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  padding: 1.15rem;
+  overflow: hidden;
   background: var(--paper-deep);
+  border-bottom: 1px solid var(--line);
+}
+
+.shot-frame img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: transparent;
+  border-radius: 10px;
+  box-shadow: var(--shadow-window);
   transition: transform 500ms var(--ease);
 }
 
-.shot:hover img { transform: scale(1.025); }
+.shot:hover .shot-frame img { transform: scale(1.02); }
 
 .shot figcaption {
   padding: 1rem 1.15rem;
@@ -869,6 +988,83 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   color: var(--ink);
   font-family: var(--display);
   font-size: 1.02rem;
+}
+
+.shot-frame.is-zoomable,
+img.is-zoomable {
+  cursor: zoom-in;
+}
+
+.shot-lightbox {
+  position: fixed;
+  inset: 0;
+  width: fit-content;
+  height: fit-content;
+  max-width: min(96vw, 1200px);
+  max-height: 94vh;
+  margin: auto;
+  padding: 2.7rem 0.9rem 0.95rem;
+  overflow: auto;
+  color: var(--ink);
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-window);
+}
+
+.shot-lightbox::backdrop {
+  background: rgba(11, 26, 21, 0.78);
+}
+
+.shot-lightbox img {
+  display: block;
+  width: auto;
+  max-width: min(92vw, 1160px);
+  height: auto;
+  max-height: calc(94vh - 6.8rem);
+  margin: 0 auto;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: var(--shadow-paper);
+}
+
+.shot-lightbox-caption {
+  margin: 0.85rem 0 0;
+  text-align: center;
+}
+
+.shot-lightbox-caption strong {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.08rem;
+  font-weight: 760;
+}
+
+.shot-lightbox-caption span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 400;
+}
+
+.shot-lightbox-close {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.65rem;
+  padding: 0.28rem 0.7rem;
+  color: var(--ink);
+  background: var(--paper-deep);
+  border: 1px solid var(--line-control);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+
+.shot-lightbox-close:hover {
+  background: var(--brand-softer);
 }
 
 /* ---------- Privacy route ---------- */
@@ -1499,7 +1695,15 @@ details.source-install summary {
   border-radius: var(--radius-sm);
 }
 
-.prose img { margin: 1.4rem 0; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.prose img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  margin: 1.4rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
 
 .prose table {
   width: 100%;
@@ -1564,10 +1768,66 @@ details.source-install summary {
 
 .gallery {
   display: grid;
-  gap: 2rem;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  padding: 3.5rem 0;
+  gap: 1.8rem;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  padding: 2.2rem 0 3.5rem;
 }
+
+.gallery-overview {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 1.8rem;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  align-items: stretch;
+}
+
+.gallery-menu-states {
+  display: grid;
+  gap: 1.8rem;
+}
+
+.shot-menu .shot-frame {
+  aspect-ratio: auto;
+  min-height: 10.25rem;
+  padding: 1.5rem;
+}
+
+.shot-menu .shot-frame img {
+  width: 100%;
+  max-height: none;
+}
+
+.shot-popover .shot-frame {
+  height: calc(100% - 6.6rem);
+  min-height: 24rem;
+}
+
+.shot-popover .shot-frame img {
+  height: 100%;
+}
+
+.gallery-divider {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 1rem 2rem;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 1.2rem;
+  padding-top: 1.8rem;
+  border-top: 1px solid var(--line);
+}
+
+.gallery-divider > p:last-child {
+  max-width: 43ch;
+  color: var(--muted);
+}
+
+.gallery > .shot {
+  grid-column: span 4;
+  align-self: start;
+}
+.gallery > .shot-featured { grid-column: span 8; }
+.gallery > .shot-wide { grid-column: span 8; }
 
 .not-found { padding: 6rem 0; text-align: center; }
 .not-found h1 { font-size: clamp(3rem, 9vw, 5.5rem); }
@@ -1606,6 +1866,7 @@ details.source-install summary {
   .doc-aside { padding: 0 0 1rem; }
   .doc-aside-inner { position: static; }
   .prose { padding-top: 2.5rem; }
+  .gallery > .shot, .gallery > .shot-featured, .gallery > .shot-wide { grid-column: span 6; }
 }
 
 @media (max-width: 920px) {
@@ -1639,6 +1900,8 @@ details.source-install summary {
 
   .hero-inner, .models-layout, .oss-layout { grid-template-columns: minmax(0, 1fr); }
   .hero h1 { max-width: 100%; }
+  .hero-stage { max-height: none; }
+  .stage-panel, .stage-doc { width: 100%; justify-self: stretch; }
   .steps { grid-template-columns: minmax(0, 1fr); }
   .footer-inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .page-hero-icon { width: 48px; height: 48px; border-radius: 14px; }
@@ -1670,6 +1933,11 @@ details.source-install summary {
   body { font-size: 1rem; }
 
   .hero { padding: 3rem 0 3.5rem; }
+
+  /* The desktop scale's 3.7rem floor is wider than a phone: "Your Mac types."
+     ran off the screen and got clipped by the body's overflow guard. Below the
+     copy column's own width the headline has to scale with the viewport. */
+  .hero h1 { font-size: clamp(2.4rem, 11vw, 3.7rem); }
   .hero-actions .btn { width: 100%; }
   .hero-proof { gap: 0.35rem 1.1rem; font-size: 0.72rem; }
 
@@ -1682,6 +1950,14 @@ details.source-install summary {
   .feature-cta { align-items: stretch; flex-direction: column; }
   .page-hero-head { gap: 1rem; flex-direction: column; }
   .install-card .btn { width: 100%; }
+  .gallery { gap: 1.2rem; padding-top: 1.8rem; }
+  .gallery-overview { grid-template-columns: minmax(0, 1fr); gap: 1.2rem; }
+  .gallery-menu-states { gap: 1.2rem; }
+  .shot-menu .shot-frame { min-height: 8.5rem; }
+  .shot-popover .shot-frame { height: auto; min-height: 20rem; }
+  .gallery-divider { display: block; margin-top: 0.6rem; padding-top: 1.4rem; }
+  .gallery-divider > p:last-child { margin-top: 0.65rem; }
+  .gallery > .shot, .gallery > .shot-featured, .gallery > .shot-wide { grid-column: 1 / -1; }
 }
 
 /* 42 bars crowd a phone-width panel back into a solid block, so drop every
@@ -1714,4 +1990,166 @@ details.source-install summary {
 
   /* Printing never scrolls, so reveal targets must not stay hidden. */
   .js-reveal .reveal { opacity: 1; transform: none; }
+}
+
+/* Enterprise managed-Macs glyph */
+.page-hero-enterprise .page-hero-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.75rem;
+}
+.page-hero-enterprise .page-hero-copy { flex: 1 1 auto; min-width: 0; }
+.enterprise-glyph {
+  flex: 0 0 auto;
+  margin: 0;
+  width: clamp(7.5rem, 18vw, 13.75rem); /* ~120–220px */
+}
+.enterprise-glyph img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+@media (max-width: 720px) {
+  .page-hero-enterprise .page-hero-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .enterprise-glyph { width: 7.5rem; } /* ~120px mobile */
+}
+
+/* ---------- Managed Macs band (home) ---------- */
+
+.deploy-section { background: var(--paper-bright); }
+
+.deploy-layout {
+  display: grid;
+  gap: 3rem;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.6fr);
+  align-items: center;
+}
+
+.deploy-copy .section-lede { margin-bottom: 1.6rem; }
+
+.deploy-points {
+  margin: 0 0 1.8rem;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.7rem;
+}
+
+.deploy-points li {
+  position: relative;
+  padding-left: 1.6rem;
+  color: var(--muted);
+  font-size: 0.98rem;
+}
+
+/* The check is decorative; the text alone carries the meaning. */
+.deploy-points li::before {
+  content: "";
+  position: absolute;
+  top: 0.45em;
+  left: 0;
+  width: 0.55rem;
+  height: 0.3rem;
+  border-left: 2px solid var(--brand);
+  border-bottom: 2px solid var(--brand);
+  transform: rotate(-45deg);
+}
+
+.deploy-glyph {
+  margin: 0;
+  justify-self: end;
+  width: clamp(8rem, 20vw, 14rem);
+}
+
+.deploy-glyph img { display: block; width: 100%; height: auto; }
+
+@media (max-width: 860px) {
+  .deploy-layout { grid-template-columns: minmax(0, 1fr); gap: 2rem; }
+  .deploy-glyph { order: -1; justify-self: start; width: 7.5rem; }
+}
+
+/* ---------- Hero install card ---------- */
+
+/* Light, like the app window across the hero, so the commands read as part of
+   the same surface instead of a dark slab competing with the primary button. */
+.hero-install {
+  position: relative;
+  margin-top: 1.2rem;
+  overflow: hidden;
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-paper);
+}
+
+.hero-install-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  /* Matches the copy button's 44px target so the two line up exactly. */
+  min-height: 44px;
+  padding: 0 0.85rem;
+  background: var(--paper-deep);
+  border-bottom: 1px solid var(--line);
+}
+
+.hero-install-name {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.hero-install-sub {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.hero-install-sub::before { content: "\00b7"; margin-right: 0.5rem; }
+
+.hero-install pre {
+  margin: 0;
+  padding: 0.8rem 1rem;
+  overflow-x: auto;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.75;
+}
+
+.hero-install .prompt { color: var(--brand); user-select: none; }
+
+/* The button sits in the bar rather than over the commands, and keeps a 44px
+   target while reading as a quiet control on a light ground. */
+.hero-install .copy-btn {
+  top: 0;
+  right: 0;
+  min-height: 44px;
+  color: var(--brand-dark);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  font-weight: 600;
+}
+
+.hero-install .copy-btn:hover { background: var(--paper); }
+
+.hero-install .copy-btn.is-copied {
+  color: var(--brand-dark);
+  background: var(--brand-soft);
+}
+
+.btn-weight {
+  margin-left: 0.15rem;
+  opacity: 0.72;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  font-weight: 500;
 }

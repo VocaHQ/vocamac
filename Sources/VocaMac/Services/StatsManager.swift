@@ -16,12 +16,23 @@ class StatsManager: StatsManaging, ObservableObject {
 
     private let fileManager = FileManager.default
     private let statsFileURL: URL
-    private let calendar: Calendar
+    private var statisticsTimeZone: TimeZone
+    private let now: () -> Date
+
+    private var calendar: Calendar {
+        var localGregorianCalendar = Calendar(identifier: .gregorian)
+        localGregorianCalendar.timeZone = statisticsTimeZone
+        return localGregorianCalendar
+    }
 
     /// Serial queue for off-main disk writes so recording never blocks the UI.
     private let saveQueue = DispatchQueue(label: "com.vocamac.stats.save", qos: .utility)
 
-    init(statsFileURL: URL? = nil, calendar: Calendar = .current) {
+    init(
+        statsFileURL: URL? = nil,
+        calendar: Calendar = .autoupdatingCurrent,
+        now: @escaping () -> Date = Date.init
+    ) {
         if let statsFileURL {
             self.statsFileURL = statsFileURL
         } else {
@@ -29,13 +40,15 @@ class StatsManager: StatsManaging, ObservableObject {
                 ?? FileManager.default.temporaryDirectory
             let vMacDir = appSupport.appendingPathComponent("VocaMac", isDirectory: true)
 
-            // Ensure directory exists
-            if !FileManager.default.fileExists(atPath: vMacDir.path) {
-                try? FileManager.default.createDirectory(at: vMacDir, withIntermediateDirectories: true)
-            }
             self.statsFileURL = vMacDir.appendingPathComponent("stats.json")
         }
-        self.calendar = calendar
+
+        // Day keys are a documented Gregorian `yyyy-MM-dd` format. Capture the
+        // caller's time zone without letting a non-Gregorian system calendar
+        // produce keys the Stats view cannot parse or sort. Once persisted,
+        // this zone stays stable so travel cannot reinterpret historical keys.
+        self.statisticsTimeZone = calendar.timeZone
+        self.now = now
         loadStats()
     }
 
@@ -43,7 +56,28 @@ class StatsManager: StatsManaging, ObservableObject {
         do {
             if fileManager.fileExists(atPath: statsFileURL.path) {
                 let data = try Data(contentsOf: statsFileURL)
-                stats = try JSONDecoder().decode(UserStats.self, from: data)
+                let decodedStats = try JSONDecoder().decode(UserStats.self, from: data)
+                var loadedStats = decodedStats
+                if loadedStats.timeZoneIdentifier == nil {
+                    // Before per-day transcription counts existed, a retained
+                    // zero-word bucket was the only evidence of a successful
+                    // emoji/punctuation-only transcription. Negative buckets
+                    // have already been removed by decoding, so migrate every
+                    // remaining zero bucket into explicit activity.
+                    for (key, count) in loadedStats.dailyWordCounts where count == 0 {
+                        loadedStats.dailyTranscriptionCounts[key] = 1
+                    }
+                }
+                if let identifier = loadedStats.timeZoneIdentifier,
+                   let persistedTimeZone = TimeZone(identifier: identifier) {
+                    statisticsTimeZone = persistedTimeZone
+                } else {
+                    loadedStats.timeZoneIdentifier = statisticsTimeZone.identifier
+                }
+                stats = recalculatingStreaks(in: loadedStats, asOf: now())
+                if stats != decodedStats {
+                    saveStats()
+                }
                 VocaLogger.debug(.general, "User stats loaded from disk")
             } else {
                 VocaLogger.info(.general, "No stats file found, starting fresh")
@@ -66,6 +100,10 @@ class StatsManager: StatsManaging, ObservableObject {
         let url = statsFileURL
         saveQueue.async {
             do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
                 try data.write(to: url, options: .atomic)
                 VocaLogger.debug(.general, "User stats saved to disk")
             } catch {
@@ -87,27 +125,66 @@ class StatsManager: StatsManaging, ObservableObject {
 
         let dateKey = dayKey(for: transcription.timestamp)
 
-        // Update basic counts
-        stats.totalWords += words
-        stats.totalTranscriptions += 1
-        stats.totalAudioDurationSeconds += transcription.audioLengthSeconds
+        var updatedStats = stats
+
+        // Update basic counts without allowing corrupt imported values or an
+        // invalid engine duration to overflow/poison future JSON saves.
+        updatedStats.totalWords = addingWithoutOverflow(updatedStats.totalWords, words)
+        updatedStats.totalTranscriptions = addingWithoutOverflow(updatedStats.totalTranscriptions, 1)
+        updatedStats.totalAudioDurationSeconds = addingDuration(
+            transcription.audioLengthSeconds,
+            to: updatedStats.totalAudioDurationSeconds
+        )
 
         // Update daily stats
-        stats.dailyWordCounts[dateKey, default: 0] += words
+        updatedStats.dailyWordCounts[dateKey] = addingWithoutOverflow(
+            updatedStats.dailyWordCounts[dateKey, default: 0],
+            words
+        )
+        updatedStats.dailyTranscriptionCounts[dateKey] = addingWithoutOverflow(
+            updatedStats.dailyTranscriptionCounts[dateKey, default: 0],
+            1
+        )
+        updatedStats.timeZoneIdentifier = statisticsTimeZone.identifier
 
-        // Update streaks
-        updateStreaks(currentDate: transcription.timestamp)
+        if updatedStats.lastUsageDate.map({ transcription.timestamp > $0 }) ?? true {
+            updatedStats.lastUsageDate = transcription.timestamp
+        }
 
-        stats.lastUsageDate = transcription.timestamp
+        // Deriving streaks from daily activity makes late/out-of-order results
+        // deterministic instead of resetting the user's current streak.
+        stats = recalculatingStreaks(in: updatedStats, asOf: now())
 
         saveStats()
+    }
+
+    func recordStopWait(_ wait: StopWait) {
+        guard wait.isValid else { return }
+        stats.recordStopWait(wait)
+        saveStats()
+    }
+
+    /// Refresh the cached streak when the calendar day changes without a new
+    /// transcription. A streak stays active through the day after last use.
+    func refreshCurrentStreak() {
+        let refreshedStats = recalculatingStreaks(in: stats, asOf: now())
+        guard refreshedStats != stats else { return }
+        stats = refreshedStats
+        saveStats()
+    }
+
+    /// Finish queued writes before application termination. Normal recording
+    /// stays non-blocking; quitting cannot drop the most recent tiny snapshot.
+    func flushPendingSaves() {
+        saveQueue.sync {}
     }
 
     func resetStats() {
-        stats = UserStats()
+        stats = UserStats(timeZoneIdentifier: statisticsTimeZone.identifier)
         saveStats()
     }
 
+    /// Formats an instant as the persisted statistics calendar's Gregorian day key.
     private func dayKey(for date: Date) -> String {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         guard let year = components.year, let month = components.month, let day = components.day else {
@@ -116,32 +193,95 @@ class StatsManager: StatsManaging, ObservableObject {
         return String(format: "%04d-%02d-%02d", year, month, day)
     }
 
-    private func updateStreaks(currentDate: Date) {
-        guard let lastDate = stats.lastUsageDate else {
-            // First time usage
-            stats.currentStreak = 1
-            stats.bestStreak = 1
-            return
+    /// Parses a strict Gregorian day key in the persisted statistics time zone.
+    private func date(fromDayKey key: String) -> Date? {
+        let parts = key.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0].count == 4,
+              parts[1].count == 2,
+              parts[2].count == 2,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]),
+              let date = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              dayKey(for: date) == key else {
+            return nil
+        }
+        return date
+    }
+
+    /// Rebuilds cached streaks from genuine, non-future activity days.
+    ///
+    /// Positive daily word counts support files from the previous schema, while
+    /// daily transcription counts preserve valid activity that produced no words.
+    /// Future buckets remain stored but do not affect streaks until their day arrives.
+    private func recalculatingStreaks(in original: UserStats, asOf referenceDate: Date) -> UserStats {
+        var updated = original
+        let referenceDay = calendar.startOfDay(for: referenceDate)
+        let wordActivityKeys = original.dailyWordCounts.compactMap { key, count in
+            count > 0 ? key : nil
+        }
+        let transcriptionActivityKeys = original.dailyTranscriptionCounts.compactMap { key, count in
+            count > 0 ? key : nil
+        }
+        let activityDays = Set(wordActivityKeys + transcriptionActivityKeys)
+            .compactMap(date(fromDayKey:))
+            .filter { $0 <= referenceDay }
+            .sorted()
+
+        guard let latestDay = activityDays.last else {
+            updated.currentStreak = 0
+            // Files from the oldest schema may have a last-use instant but no
+            // daily buckets. Preserve their cached streak only while that
+            // instant is today or yesterday. A present-but-invalid, zero, or
+            // future bucket is not evidence of activity.
+            guard original.dailyWordCounts.isEmpty,
+                  original.dailyTranscriptionCounts.isEmpty,
+                  let lastUsageDate = original.lastUsageDate else { return updated }
+            let gap = calendar.dateComponents(
+                [.day],
+                from: calendar.startOfDay(for: lastUsageDate),
+                to: referenceDay
+            ).day
+            if gap == 0 || gap == 1 {
+                updated.currentStreak = original.currentStreak
+            }
+            return updated
         }
 
-        let lastDay = calendar.startOfDay(for: lastDate)
-        let currentDay = calendar.startOfDay(for: currentDate)
-        let daysBetween = calendar.dateComponents([.day], from: lastDay, to: currentDay).day
-
-        switch daysBetween {
-        case 0:
-            // Already used on this calendar day, streak remains same
-            break
-        case 1:
-            // Continuation of streak
-            stats.currentStreak += 1
-        default:
-            // Streak broken or older transcription recorded out of order
-            stats.currentStreak = 1
+        var run = 1
+        var latestRun = 1
+        var computedBest = 1
+        for (previous, next) in zip(activityDays, activityDays.dropFirst()) {
+            let gap = calendar.dateComponents([.day], from: previous, to: next).day
+            run = gap == 1 ? run + 1 : 1
+            latestRun = run
+            computedBest = max(computedBest, run)
         }
 
-        if stats.currentStreak > stats.bestStreak {
-            stats.bestStreak = stats.currentStreak
-        }
+        let daysSinceLatestUsage = calendar.dateComponents(
+            [.day],
+            from: latestDay,
+            to: referenceDay
+        ).day
+        updated.currentStreak = daysSinceLatestUsage == 0 || daysSinceLatestUsage == 1 ? latestRun : 0
+        // Preserve a historical best from an older schema that may not have
+        // complete daily buckets, while still repairing understated values.
+        updated.bestStreak = max(original.bestStreak, computedBest)
+        return updated
+    }
+
+    /// Adds non-negative counters and saturates at `Int.max` on overflow.
+    private func addingWithoutOverflow(_ lhs: Int, _ rhs: Int) -> Int {
+        let (sum, overflowed) = max(0, lhs).addingReportingOverflow(max(0, rhs))
+        return overflowed ? Int.max : sum
+    }
+
+    /// Adds a valid positive duration while repairing invalid totals and overflow.
+    private func addingDuration(_ duration: TimeInterval, to total: TimeInterval) -> TimeInterval {
+        let safeTotal = total.isFinite && total > 0 ? total : 0
+        guard duration.isFinite, duration > 0 else { return safeTotal }
+        let sum = safeTotal + duration
+        return sum.isFinite ? sum : Double.greatestFiniteMagnitude
     }
 }

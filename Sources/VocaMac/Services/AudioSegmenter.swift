@@ -10,7 +10,7 @@ import Foundation
 enum AudioSegmenter {
 
     /// Frame used when measuring loudness — 20ms at 16kHz.
-    private static let frameLength = 320
+    static let frameLength = 320
 
     /// How far back from the target boundary to look for a quiet point.
     ///
@@ -19,7 +19,7 @@ enum AudioSegmenter {
     /// there splits a word — the following segment then starts mid-word and
     /// the model invents something to fit. Segments come out shorter, which
     /// costs a little speed but keeps the joins clean.
-    private static let searchWindowSeconds = 4.0
+    static let searchWindowSeconds = 4.0
 
     /// Split `samples` into consecutive ranges no longer than `maxSeconds`.
     ///
@@ -88,7 +88,7 @@ enum AudioSegmenter {
     /// Quiet is judged relative to this window rather than by a fixed level,
     /// so it holds for both a whisper and a loud room. When speech never
     /// pauses there is no good cut, and the quietest single frame is used.
-    private static func bestCutOffset(
+    static func bestCutOffset(
         energies: [Float],
         frameOffsets: [Int],
         fallback: Int
@@ -96,7 +96,10 @@ enum AudioSegmenter {
         guard !energies.isEmpty else { return fallback }
 
         let sorted = energies.sorted()
-        let quietThreshold = sorted[sorted.count / 4]
+        // A percentile alone marks flat/continuous sound as quiet and can
+        // bury short pauses when they occupy less than a quarter of the window.
+        // Require a 10 dB energy drop relative to the louder frames as well.
+        let quietThreshold = min(sorted[sorted.count / 4], sorted[sorted.count * 3 / 4] * 0.1)
 
         var bestStart = 0, bestLength = 0
         var runStart = 0, runLength = 0
@@ -118,7 +121,11 @@ enum AudioSegmenter {
             return frameOffsets[min(middle, frameOffsets.count - 1)] + frameLength / 2
         }
 
-        // No real pause — fall back to the single quietest frame.
+        // With no meaningful energy dip, use the full window instead of
+        // inventing an early boundary in continuous sound.
+        guard let minimum = sorted.first, minimum <= quietThreshold else { return fallback }
+
+        // No sustained pause — fall back to the single quietest frame.
         var quietestIndex = 0
         for (index, energy) in energies.enumerated() where energy < energies[quietestIndex] {
             quietestIndex = index
@@ -128,7 +135,13 @@ enum AudioSegmenter {
 
     /// Convenience wrapper that measures energy directly from the samples.
     static func segment(_ samples: [Float], maxSeconds: Double, sampleRate: Int = 16_000) -> [[Float]] {
-        let ranges = segmentRanges(
+        let ranges = ranges(for: samples, maxSeconds: maxSeconds, sampleRate: sampleRate)
+        if ranges.count <= 1 { return samples.isEmpty ? [] : [samples] }
+        return ranges.map { Array(samples[$0]) }
+    }
+
+    static func ranges(for samples: [Float], maxSeconds: Double, sampleRate: Int = 16_000) -> [Range<Int>] {
+        segmentRanges(
             sampleCount: samples.count,
             maxSeconds: maxSeconds,
             sampleRate: sampleRate
@@ -137,10 +150,5 @@ enum AudioSegmenter {
             for i in range { sum += samples[i] * samples[i] }
             return sum / Float(range.count)
         }
-
-        if ranges.count <= 1 {
-            return samples.isEmpty ? [] : [samples]
-        }
-        return ranges.map { Array(samples[$0]) }
     }
 }

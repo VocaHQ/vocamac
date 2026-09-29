@@ -67,7 +67,7 @@ The paste-and-restore window is kept to roughly 200 milliseconds, giving the tar
 
 Clipboard preservation is enabled by default in VocaMac. It's the smart, safe default.
 
-If you ever need to disable it (though this is rare), you can do so in **Settings → General → Text Injection → Preserve Clipboard**.
+If you ever need to disable it (though this is rare), you can do so in **Settings → Application**.
 
 When disabled, VocaMac will inject text without saving and restoring your clipboard. This is slightly faster but carries the risk of losing your clipboard contents. We recommend keeping it enabled.
 
@@ -117,7 +117,7 @@ Many voice-to-text apps on macOS handle clipboard carelessly. VocaMac is one of 
 | Feature | VocaMac | Typical App |
 |---------|---------|-------------|
 | **Preserves clipboard** | Yes | No |
-| **Works offline** | Yes | No |
+| **On-device transcription after model download** | Yes | No |
 | **Adjustable silence detection** | Yes | Rare |
 | **Menu bar integration** | Yes | No |
 | **Open source** | Yes | No |

@@ -8,15 +8,38 @@ import Foundation
 import AppKit
 import Carbon.HIToolbox
 
+extension Notification.Name {
+    /// Posted on the main queue when macOS disabled the hotkey event tap and
+    /// re-enabling it failed, which is what revoking Accessibility or Input
+    /// Monitoring looks like from inside the tap.
+    static let hotKeyEventTapDisabled = Notification.Name("com.vocamac.hotKeyEventTapDisabled")
+}
+
 final class HotKeyManager {
 
     // MARK: - Properties
 
+    /// Guards all key-tracking and configuration state. The event tap runs on
+    /// its own thread so a busy main thread can't delay typing system-wide;
+    /// configuration changes and recovery resets arrive from the main thread.
+    private let stateLock = NSLock()
+
+    private func withState<T>(_ body: () throws -> T) rethrows -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return try body()
+    }
+
+    private var _eventTap: CFMachPort?
+
     /// Event tap Mach port
-    private(set) var eventTap: CFMachPort?
+    var eventTap: CFMachPort? { withState { _eventTap } }
 
     /// Run loop source for the event tap
     private var runLoopSource: CFRunLoopSource?
+
+    /// Run loop of the dedicated event tap thread.
+    private var tapRunLoop: CFRunLoop?
 
     /// Whether the event tap is currently active
     private(set) var isListening = false
@@ -68,6 +91,48 @@ final class HotKeyManager {
     /// has had a chance to fire.
     private var safetyTimeoutSeconds: Double = 65.0
 
+    /// Extra shortcuts (paste last dictation, hands-free toggle) matched on
+    /// key-down with exactly these modifiers.
+    private var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
+
+    /// Base keys of shortcuts whose key-down was consumed, so the matching
+    /// key-up and any autorepeat are consumed too.
+    private var heldShortcutKeyCodes: Set<Int> = []
+    private var heldShortcutActions: [Int: HotKeyShortcutAction] = [:]
+
+    /// Whether Escape cancels right now. Armed only while a dictation is
+    /// recording or transcribing, so Escape reaches other apps the rest of
+    /// the time.
+    private var isCancelKeyArmed = false
+
+    /// Whether the current Escape press was consumed as a cancel.
+    private var isCancelKeyHeld = false
+
+    /// `CGEvent` button number that works like the hotkey (2 = middle,
+    /// 3 = back, 4 = forward). 0 turns the mouse trigger off.
+    private var mouseTriggerButton = 0
+
+    /// Whether the mouse trigger button's press was consumed.
+    private var isMouseButtonHeld = false
+
+    // MARK: - Secure Input Fallback
+
+    /// Watches Secure Event Input, which silences key events in the tap.
+    private let secureInputMonitor = SecureInputMonitor()
+
+    /// Keyed bindings registered through Carbon while Secure Event Input is on.
+    private let carbonFallback = CarbonHotKeyRegistry()
+
+    /// When the fallback last pressed the activation key, so the tap does not
+    /// treat the same press as a second key-down if it sees it too.
+    private var lastFallbackActivationPress: CFAbsoluteTime = 0
+
+    private enum FallbackID {
+        static let activation: UInt32 = 1
+        static let cancel: UInt32 = 2
+        static let shortcutBase: UInt32 = 100
+    }
+
     // MARK: - Callbacks
 
     /// Called when recording should start
@@ -75,6 +140,22 @@ final class HotKeyManager {
 
     /// Called when recording should stop
     var onRecordingStop: (() -> Void)?
+
+    /// Called when one of the extra shortcuts is pressed.
+    var onShortcut: ((HotKeyShortcutAction) -> Void)?
+
+    /// Called when a consumed shortcut's base key is released. Command Mode
+    /// uses this for its hold-to-command gesture; toggle shortcuts ignore it.
+    var onShortcutReleased: ((HotKeyShortcutAction) -> Void)?
+
+    /// Called when Escape is pressed while the cancel key is armed.
+    var onCancel: (() -> Void)?
+
+    /// Called on the main thread when Secure Event Input turns on or off.
+    var onSecureInputChange: ((Bool) -> Void)?
+
+    /// Whether Secure Event Input is on, as last seen.
+    var isSecureInputActive: Bool { secureInputMonitor.isEnabled }
 
     // MARK: - Accessibility Permission
 
@@ -109,22 +190,28 @@ final class HotKeyManager {
             return
         }
 
-        self.targetKeyCode = keyCode
-        self.requiredModifiers = modifiers
-        self.mode = mode
-        self.doubleTapThreshold = doubleTapThreshold
-        self.safetyTimeoutSeconds = safetyTimeout
-        self.lastKeyDownTime = 0
-        self.isKeyHeld = false
-        self.isToggled = false
-        self.isModifierKeyHeld = false
-        self.isBaseKeyHeld = false
+        withState {
+            self.targetKeyCode = keyCode
+            self.requiredModifiers = modifiers
+            self.mode = mode
+            self.doubleTapThreshold = doubleTapThreshold
+            self.safetyTimeoutSeconds = safetyTimeout
+            self.lastKeyDownTime = 0
+            self.isKeyHeld = false
+            self.isToggled = false
+            self.isModifierKeyHeld = false
+            self.isBaseKeyHeld = false
+        }
 
-        // Create event tap for key events and flags changed (modifier keys)
+        // Create event tap for key events, flags changed (modifier keys),
+        // and the extra mouse buttons that can act as the hotkey. Moves and
+        // primary clicks are not included, so the tap stays out of the way.
         let eventMask: CGEventMask = (
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.keyUp.rawValue) |
-            (1 << CGEventType.flagsChanged.rawValue)
+            (1 << CGEventType.flagsChanged.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseUp.rawValue)
         )
 
         // We need to pass `self` as a raw pointer to the C callback
@@ -142,52 +229,89 @@ final class HotKeyManager {
             return
         }
 
-        self.eventTap = tap
+        withState { self._eventTap = tap }
 
         let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
         self.runLoopSource = source
 
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: tap, enable: true)
+        // Every keystroke on the Mac passes through this tap, and the system
+        // waits for the callback. On the main run loop, any main-thread stall
+        // would delay typing in every app and eventually get the tap disabled.
+        let startup = EventTapThreadStartup(tap: tap, source: source)
+        let thread = Thread { startup.run() }
+        thread.name = "com.vocamac.hotkey-event-tap"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        startup.ready.wait()
+        tapRunLoop = startup.runLoop
 
         isListening = true
         VocaLogger.info(.hotKeyManager, "Event tap created successfully. Listening for keyCode \(keyCode) in \(mode.rawValue) mode")
+        startSecureInputFallback()
     }
 
     /// Stop listening for global hotkey events
     func stopListening() {
         guard isListening else { return }
 
-        if let tap = eventTap {
+        let tap = withState { () -> CFMachPort? in
+            let tap = _eventTap
+            _eventTap = nil
+            return tap
+        }
+        if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
         }
 
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+        if let runLoop = tapRunLoop {
+            if let source = runLoopSource {
+                CFRunLoopRemoveSource(runLoop, source, .commonModes)
+            }
+            CFRunLoopStop(runLoop)
+        }
+        if let tap {
+            CFMachPortInvalidate(tap)
         }
 
-        eventTap = nil
+        tapRunLoop = nil
         runLoopSource = nil
         isListening = false
-        isKeyHeld = false
-        isToggled = false
-        isModifierKeyHeld = false
-        isBaseKeyHeld = false
-        cancelSafetyTimer()
+        stopSecureInputFallback()
+        withState {
+            isKeyHeld = false
+            isToggled = false
+            isModifierKeyHeld = false
+            isBaseKeyHeld = false
+            heldShortcutKeyCodes = []
+            heldShortcutActions = [:]
+            isCancelKeyHeld = false
+            isMouseButtonHeld = false
+            cancelSafetyTimer()
+        }
 
         VocaLogger.info(.hotKeyManager, "Stopped listening")
     }
 
+    /// Whether the tap exists and macOS still has it enabled. A tap that was
+    /// disabled after a permission was revoked stays disabled.
+    var isEventTapHealthy: Bool {
+        guard isListening, let tap = eventTap else { return false }
+        return CGEvent.tapIsEnabled(tap: tap)
+    }
+
     /// Reset internal key tracking state without stopping the listener.
-    /// Used when the app forcibly recovers from a stuck recording state
-    /// (e.g., after an audio device change) so that the next keypress
-    /// is treated as a fresh key-down rather than a recovery key-down.
+    /// Used whenever a recording ends some way other than the hotkey
+    /// (silence, time limit, menu, cancel, errors, recovery), so the next
+    /// press or double-tap starts a fresh recording instead of acting as a stop.
     func resetKeyState() {
-        isKeyHeld = false
-        isToggled = false
-        isModifierKeyHeld = false
-        isBaseKeyHeld = false
-        cancelSafetyTimer()
+        withState {
+            isKeyHeld = false
+            isToggled = false
+            isModifierKeyHeld = false
+            isBaseKeyHeld = false
+            isMouseButtonHeld = false
+            cancelSafetyTimer()
+        }
         VocaLogger.debug(.hotKeyManager, "Key state reset")
     }
 
@@ -206,17 +330,137 @@ final class HotKeyManager {
         safetyTimeout: Double? = nil,
         modifiers: HotKeyModifiers? = nil
     ) {
-        if let keyCode = keyCode { self.targetKeyCode = keyCode }
-        if let mode = mode { self.mode = mode }
-        if let threshold = doubleTapThreshold { self.doubleTapThreshold = threshold }
-        if let timeout = safetyTimeout { self.safetyTimeoutSeconds = timeout }
-        if let modifiers = modifiers { self.requiredModifiers = modifiers }
+        withState {
+            if let keyCode = keyCode { self.targetKeyCode = keyCode }
+            if let mode = mode { self.mode = mode }
+            if let threshold = doubleTapThreshold { self.doubleTapThreshold = threshold }
+            if let timeout = safetyTimeout { self.safetyTimeoutSeconds = timeout }
+            if let modifiers = modifiers { self.requiredModifiers = modifiers }
+        }
+        refreshSecureInputFallback()
+    }
+
+    /// Replace the extra shortcuts. An action missing from the map is off.
+    func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo]) {
+        withState { self.shortcuts = shortcuts }
+        refreshSecureInputFallback()
+    }
+
+    /// Arm or disarm Escape as the cancel key.
+    func setCancelKeyArmed(_ armed: Bool) {
+        withState { isCancelKeyArmed = armed }
+        refreshSecureInputFallback()
+    }
+
+    /// Use a mouse button as the hotkey (0 turns it off).
+    func updateMouseTrigger(button: Int) {
+        withState {
+            mouseTriggerButton = button
+            isMouseButtonHeld = false
+        }
+    }
+
+    // MARK: - Secure Input Fallback
+
+    private func startSecureInputFallback() {
+        DispatchQueue.main.async { [self] in
+            secureInputMonitor.onChange = { [weak self] enabled in
+                self?.refreshSecureInputFallback()
+                self?.onSecureInputChange?(enabled)
+            }
+            carbonFallback.onPress = { [weak self] id in self?.handleFallbackPress(id) }
+            carbonFallback.onRelease = { [weak self] id in self?.handleFallbackRelease(id) }
+            secureInputMonitor.start()
+        }
+    }
+
+    private func stopSecureInputFallback() {
+        DispatchQueue.main.async { [self] in
+            secureInputMonitor.stop()
+            carbonFallback.unregisterAll()
+        }
+    }
+
+    /// Register the keyed bindings with Carbon while Secure Event Input is
+    /// on, and remove them when it is off.
+    private func refreshSecureInputFallback() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.refreshSecureInputFallback() }
+            return
+        }
+        guard isListening, secureInputMonitor.isEnabled else {
+            carbonFallback.unregisterAll()
+            return
+        }
+        carbonFallback.register(withState { fallbackCombos() })
+    }
+
+    /// Keyed bindings the tap cannot see under Secure Event Input. Must be
+    /// called with `stateLock` held.
+    private func fallbackCombos() -> [UInt32: HotKeyCombo] {
+        var combos: [UInt32: HotKeyCombo] = [:]
+        let activation = HotKeyCombo(keyCode: targetKeyCode, modifiers: requiredModifiers)
+        if !KeyCodeReference.isModifierKeyCode(targetKeyCode) {
+            combos[FallbackID.activation] = activation
+        }
+        // Escape is only claimed while a dictation can be cancelled, since a
+        // Carbon hot key takes it from every app.
+        if isCancelKeyArmed {
+            combos[FallbackID.cancel] = HotKeyCombo(keyCode: KeyCodeReference.escapeKeyCode, modifiers: [])
+        }
+        for (index, action) in HotKeyShortcutAction.allCases.enumerated() {
+            guard let combo = shortcuts[action], combo != activation else { continue }
+            combos[FallbackID.shortcutBase + UInt32(index)] = combo
+        }
+        return combos
+    }
+
+    private func handleFallbackPress(_ id: UInt32) {
+        switch id {
+        case FallbackID.activation:
+            withState {
+                guard !isBaseKeyHeld else { return }
+                isBaseKeyHeld = true
+                lastFallbackActivationPress = CFAbsoluteTimeGetCurrent()
+                handleKeyDown()
+            }
+        case FallbackID.cancel:
+            guard withState({ isCancelKeyArmed }) else { return }
+            onCancel?()
+        default:
+            guard let action = fallbackAction(for: id) else { return }
+            onShortcut?(action)
+        }
+    }
+
+    private func handleFallbackRelease(_ id: UInt32) {
+        switch id {
+        case FallbackID.activation:
+            withState {
+                guard isBaseKeyHeld else { return }
+                isBaseKeyHeld = false
+                handleKeyUp()
+            }
+        case FallbackID.cancel:
+            break
+        default:
+            guard let action = fallbackAction(for: id) else { return }
+            onShortcutReleased?(action)
+        }
+    }
+
+    private func fallbackAction(for id: UInt32) -> HotKeyShortcutAction? {
+        guard id >= FallbackID.shortcutBase else { return nil }
+        let index = Int(id - FallbackID.shortcutBase)
+        let actions = HotKeyShortcutAction.allCases
+        return actions.indices.contains(index) ? actions[actions.index(actions.startIndex, offsetBy: index)] : nil
     }
 
     // MARK: - Event Tap Callback
 
-    /// Static C callback for CGEventTap — dispatches to the instance method
-    private static let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
+    /// Static C callback for CGEventTap — dispatches to the instance method.
+    /// Runs on the dedicated event tap thread.
+    private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo = userInfo else { return Unmanaged.passUnretained(event) }
 
         let manager = Unmanaged<HotKeyManager>.fromOpaque(userInfo).takeUnretainedValue()
@@ -225,6 +469,12 @@ final class HotKeyManager {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = manager.eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
+                if !CGEvent.tapIsEnabled(tap: tap) {
+                    VocaLogger.warning(.hotKeyManager, "Event tap stayed disabled after re-enable; a permission was probably revoked")
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .hotKeyEventTapDisabled, object: manager)
+                    }
+                }
             }
             return Unmanaged.passUnretained(event)
         }
@@ -244,6 +494,15 @@ final class HotKeyManager {
     ///   should be consumed so it doesn't also affect the frontmost app.
     private func handleEvent(type: CGEventType, event: CGEvent) -> Bool {
         guard !isSelfGeneratedEvent(event) else { return false }
+        return withState { handleEventLocked(type: type, event: event) }
+    }
+
+    /// Must be called with `stateLock` held.
+    private func handleEventLocked(type: CGEventType, event: CGEvent) -> Bool {
+
+        if type == .otherMouseDown || type == .otherMouseUp {
+            return handleMouseEvent(isDown: type == .otherMouseDown, event: event)
+        }
 
         let keyCode = Int(event.getIntegerValueField(.keyboardEventKeycode))
 
@@ -258,10 +517,86 @@ final class HotKeyManager {
             }
             return handleModifierReleaseDuringCombo(flags: event.flags)
         } else if type == .keyDown || type == .keyUp {
-            return handleRegularKeyEvent(keyCode: keyCode, isKeyDown: type == .keyDown, event: event)
+            let isKeyDown = type == .keyDown
+            if handleCancelKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event) {
+                return true
+            }
+            if handleShortcutKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event) {
+                return true
+            }
+            return handleRegularKeyEvent(keyCode: keyCode, isKeyDown: isKeyDown, event: event)
         }
 
         return false
+    }
+
+    /// Escape cancels while armed, whatever modifiers are held — in
+    /// push-to-talk the hotkey itself is usually still down.
+    private func handleCancelKeyEvent(keyCode: Int, isKeyDown: Bool, event: CGEvent) -> Bool {
+        guard keyCode == KeyCodeReference.escapeKeyCode else { return false }
+        if isKeyDown {
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+                return isCancelKeyHeld
+            }
+            guard isCancelKeyArmed else { return false }
+            isCancelKeyHeld = true
+            VocaLogger.debug(.hotKeyManager, "Escape pressed — cancelling dictation")
+            DispatchQueue.main.async { [weak self] in
+                self?.onCancel?()
+            }
+            return true
+        }
+        guard isCancelKeyHeld else { return false }
+        isCancelKeyHeld = false
+        return true
+    }
+
+    /// Extra shortcuts fire on key-down with exactly their modifiers. One
+    /// identical to the activation hotkey is ignored so the hotkey keeps working.
+    private func handleShortcutKeyEvent(keyCode: Int, isKeyDown: Bool, event: CGEvent) -> Bool {
+        guard isKeyDown else {
+            let consumed = heldShortcutKeyCodes.remove(keyCode) != nil
+            if let action = heldShortcutActions.removeValue(forKey: keyCode) {
+                DispatchQueue.main.async { [weak self] in
+                    self?.onShortcutReleased?(action)
+                }
+            }
+            return consumed
+        }
+        if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 {
+            return heldShortcutKeyCodes.contains(keyCode)
+        }
+        let modifiers = HotKeyModifiers(cgEventFlags: event.flags)
+        let activation = HotKeyCombo(keyCode: targetKeyCode, modifiers: requiredModifiers)
+        guard let action = HotKeyShortcutAction.allCases.first(where: { action in
+            guard let combo = shortcuts[action] else { return false }
+            return combo.keyCode == keyCode && combo.modifiers == modifiers && combo != activation
+        }) else { return false }
+
+        heldShortcutKeyCodes.insert(keyCode)
+        heldShortcutActions[keyCode] = action
+        VocaLogger.debug(.hotKeyManager, "Shortcut pressed: \(action.rawValue)")
+        DispatchQueue.main.async { [weak self] in
+            self?.onShortcut?(action)
+        }
+        return true
+    }
+
+    /// The configured mouse button behaves exactly like the hotkey.
+    private func handleMouseEvent(isDown: Bool, event: CGEvent) -> Bool {
+        guard mouseTriggerButton > 0,
+              Int(event.getIntegerValueField(.mouseEventButtonNumber)) == mouseTriggerButton else {
+            return false
+        }
+        if isDown {
+            isMouseButtonHeld = true
+            handleKeyDown()
+            return true
+        }
+        guard isMouseButtonHeld else { return false }
+        isMouseButtonHeld = false
+        handleKeyUp()
+        return true
     }
 
     /// Detect a required modifier being released while a combo hotkey's base
@@ -365,6 +700,8 @@ final class HotKeyManager {
                 return isBaseKeyHeld
             }
             guard modifiersMatch(event.flags) else { return false }
+            // The Carbon fallback already handled this press.
+            if isBaseKeyHeld, CFAbsoluteTimeGetCurrent() - lastFallbackActivationPress < 0.3 { return true }
             isBaseKeyHeld = true
             handleKeyDown()
         } else {
@@ -420,9 +757,10 @@ final class HotKeyManager {
             if timeSinceLastTap < doubleTapThreshold && timeSinceLastTap > 0.05 {
                 // This is a double-tap!
                 isToggled.toggle()
+                let shouldStart = isToggled
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
-                    if self.isToggled {
+                    if shouldStart {
                         self.onRecordingStart?()
                     } else {
                         self.onRecordingStop?()
@@ -472,12 +810,15 @@ final class HotKeyManager {
 
         let timeout = safetyTimeoutSeconds
         let work = DispatchWorkItem { [weak self] in
-            guard let self = self, self.isKeyHeld else { return }
-            VocaLogger.warning(.hotKeyManager, "Safety timer fired — forcing key-up (key held for >\(timeout)s)")
-            self.isKeyHeld = false
-            DispatchQueue.main.async { [weak self] in
-                self?.onRecordingStop?()
+            guard let self else { return }
+            let fired = self.withState { () -> Bool in
+                guard self.isKeyHeld else { return false }
+                self.isKeyHeld = false
+                return true
             }
+            guard fired else { return }
+            VocaLogger.warning(.hotKeyManager, "Safety timer fired — forcing key-up (key held for >\(timeout)s)")
+            self.onRecordingStop?()
         }
         keyHeldSafetyTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: work)
@@ -496,6 +837,31 @@ final class HotKeyManager {
     }
 }
 
+/// Installs the event tap on the thread that runs it and hands that thread's
+/// run loop back to `startListening`, which waits on `ready`.
+private final class EventTapThreadStartup: @unchecked Sendable {
+    let tap: CFMachPort
+    let source: CFRunLoopSource?
+    let ready = DispatchSemaphore(value: 0)
+    private(set) var runLoop: CFRunLoop?
+
+    init(tap: CFMachPort, source: CFRunLoopSource?) {
+        self.tap = tap
+        self.source = source
+    }
+
+    func run() {
+        let current = CFRunLoopGetCurrent()
+        runLoop = current
+        if let source {
+            CFRunLoopAddSource(current, source, .commonModes)
+        }
+        CGEvent.tapEnable(tap: tap, enable: true)
+        ready.signal()
+        CFRunLoopRun()
+    }
+}
+
 // MARK: - HotKeyMonitoring Conformance
 
 extension HotKeyManager: HotKeyMonitoring {
@@ -506,6 +872,65 @@ extension HotKeyManager: HotKeyMonitoring {
     func _updateConfiguration(keyCode: Int?, mode: ActivationMode?, doubleTapThreshold: Double?, safetyTimeout: Double?, modifiers: HotKeyModifiers?) {
         updateConfiguration(keyCode: keyCode, mode: mode, doubleTapThreshold: doubleTapThreshold, safetyTimeout: safetyTimeout, modifiers: modifiers)
     }
+}
+
+// MARK: - Extra Shortcuts
+
+/// Actions bound to their own global shortcut, besides the activation hotkey.
+enum HotKeyShortcutAction: String, CaseIterable, Identifiable {
+    /// Type the last dictation again at the cursor.
+    case pasteLastDictation
+    /// Start or stop a dictation without holding anything.
+    case handsFreeToggle
+    /// Hold while speaking an instruction that transforms selected text.
+    case commandMode
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .pasteLastDictation: return "Paste last dictation"
+        case .handsFreeToggle: return "Hands-free dictation"
+        case .commandMode: return "Command Mode"
+        }
+    }
+}
+
+/// Mouse buttons that can start dictation, by `CGEvent` button number.
+enum MouseTriggerButton: Int, CaseIterable, Identifiable {
+    case off = 0
+    case middle = 2
+    case back = 3
+    case forward = 4
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .middle: return "Middle button"
+        case .back: return "Back button (button 4)"
+        case .forward: return "Forward button (button 5)"
+        }
+    }
+
+    static func resolved(stored: Int) -> MouseTriggerButton {
+        MouseTriggerButton(rawValue: stored) ?? .off
+    }
+}
+
+extension HotKeyCombo {
+    /// Compact preference form: "keyCode:modifiers".
+    var storageString: String { "\(keyCode):\(modifiers.rawValue)" }
+
+    init?(storageString: String) {
+        let parts = storageString.split(separator: ":")
+        guard parts.count == 2, let keyCode = Int(parts[0]), let modifiers = Int(parts[1]) else { return nil }
+        self.init(keyCode: keyCode, modifiers: HotKeyModifiers(rawValue: modifiers))
+    }
+
+    /// ⌃⌘V, matching Wispr Flow's paste-last shortcut.
+    static let defaultPasteLast = HotKeyCombo(keyCode: 9, modifiers: [.control, .command])
 }
 
 // MARK: - HotKeyModifiers Conversion
@@ -556,8 +981,8 @@ enum KeyCodeReference {
         ("F10", 109, []),
         ("F11", 103, []),
         ("F12", 111, []),
-        ("⌘ Space", 49, .command),
-        ("⌃ Space", 49, .control),
+        // ⌘Space (Spotlight) and ⌃Space (input source switching) are left out:
+        // both belong to the system. A saved hotkey using either still works.
         ("⌥ Space", 49, .option),
         ("⌃⌥ Space", 49, [.control, .option]),
     ]

@@ -148,3 +148,27 @@ final class AutoPauseMonitorTests: XCTestCase {
         XCTAssertEqual(AutoPauseMonitor.clampPollInterval(120), 60)
     }
 }
+
+extension AutoPauseMonitorTests {
+    func testTimerOnlyRunsWhenEnabledWithConfiguredApps() {
+        var enabled = false
+        var apps: [AutoPauseAppEntry] = []
+        var scans = 0
+        let monitor = AutoPauseMonitor(getConfig: { (enabled, apps, 5) }, processSnapshot: { scans += 1; return [] })
+        monitor.start()
+        defer { monitor.stop() }
+        XCTAssertFalse(monitor.isPolling)
+        enabled = true
+        monitor.configurationDidChange()
+        XCTAssertFalse(monitor.isPolling)
+        XCTAssertEqual(scans, 0)
+        apps = [AutoPauseAppEntry(id: "test", displayName: "Test")]
+        monitor.configurationDidChange()
+        XCTAssertTrue(monitor.isPolling)
+        XCTAssertEqual(scans, 1)
+        enabled = false
+        monitor.configurationDidChange()
+        XCTAssertFalse(monitor.isPolling)
+        XCTAssertEqual(scans, 1)
+    }
+}

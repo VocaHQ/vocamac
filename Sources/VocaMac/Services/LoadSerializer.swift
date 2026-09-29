@@ -19,16 +19,32 @@ actor LoadSerializer {
     /// Run `operation` after every operation queued before it has settled.
     ///
     /// A failure in one operation does not prevent later ones from running;
-    /// the error is delivered to whoever queued that operation.
+    /// the error is delivered to whoever queued that operation. Cancellation
+    /// reaches queued/running work, but it still owns its queue position until
+    /// it finishes. Cleanup can opt out so cancellation cannot skip teardown.
     func run<T: Sendable>(
+        cancellable: Bool = true,
         _ operation: @escaping @Sendable () async throws -> T
     ) async throws -> T {
+        // Reject a caller that arrives already cancelled before it takes a
+        // queue slot. The task below is unstructured, so it is only cancelled
+        // by the handler at the end of this function — and reaching that
+        // handler leaves this actor, which lets the task start and clear its
+        // own cancellation check first. Without this the operation of an
+        // already-cancelled caller sometimes ran.
+        if cancellable { try Task.checkCancellation() }
+
         let previous = tail
+        let queueInterval = PerformanceTrace.begin("OperationQueueWait")
 
         let task = Task<Result<T, Error>, Never> {
             await previous?.value
+            PerformanceTrace.end(queueInterval)
             do {
-                return .success(try await operation())
+                if cancellable { try Task.checkCancellation() }
+                let value = try await operation()
+                if cancellable { try Task.checkCancellation() }
+                return .success(value)
             } catch {
                 return .failure(error)
             }
@@ -38,7 +54,12 @@ actor LoadSerializer {
         // a thrown error cannot cancel the queue.
         tail = Task { _ = await task.value }
 
-        switch await task.value {
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            if cancellable { task.cancel() }
+        }
+        switch result {
         case .success(let value):
             return value
         case .failure(let error):

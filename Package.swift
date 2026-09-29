@@ -15,23 +15,40 @@ let package = Package(
         )
     ],
     dependencies: [
-        // WhisperKit — local, on-device speech-to-text powered by CoreML
-        // https://github.com/argmaxinc/WhisperKit
-        .package(url: "https://github.com/argmaxinc/WhisperKit.git", from: "0.9.4"),
+        // WhisperKit — local, on-device speech-to-text powered by CoreML.
+        // Since 1.0 it ships inside the Argmax Open-Source SDK, which vendors
+        // swift-transformers' Hub and Tokenizers into ArgmaxCore.
+        // https://github.com/argmaxinc/argmax-oss-swift
+        // Held to 1.1.x. A bare `from:` accepts every future 1.x, so a release
+        // built from a clean checkout could silently pick up an untested minor.
+        .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", .upToNextMinor(from: "1.1.0")),
         // FluidAudio — NVIDIA Parakeet TDT models as CoreML on the Neural Engine
         // https://github.com/FluidInference/FluidAudio
         // Held to 0.15.x: this is the version the engine is tested against, and
         // the APIs used here (AsrManager.loadModels, throwing TdtDecoderState,
         // the transcribe language hint) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.5")),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.7")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
-        // Pinned to a revision: the SPM manifest is not in a tagged release
-        // yet; the pinned manifest references the v1.13.4 binary xcframework.
+        // Pin the release and its matching binary xcframework for reproducible builds.
+        // Do not go below 1.13.8: earlier Canary decoders return an empty
+        // transcript whenever end-of-transcript wins the first token. On long
+        // recordings that silently drops whole ~20s segments, and the
+        // reframing retries in SherpaService do not recover them
+        // (k2-fsa/sherpa-onnx#3919).
         .package(
             url: "https://github.com/k2-fsa/sherpa-onnx",
-            revision: "00ad9a19a63751a6c4b12050a00eacfeb204814e"
+            exact: "1.13.8"
+        ),
+        // LLM.swift — llama.cpp GGUF runtime for optional on-device transcript cleanup.
+        // Pin the exact release: the package is pre-1.0 in spirit (it re-vendors
+        // a specific llama.cpp xcframework per tag), and the cleanup service
+        // depends on APIs that move between releases — `respond(to:thinking:)`,
+        // `updateThinking`, `historyLimit`, and `LLMCore.interrupt()`.
+        .package(
+            url: "https://github.com/eastriverlee/LLM.swift.git",
+            exact: "3.0.3"
         ),
     ],
     targets: [
@@ -46,9 +63,10 @@ let package = Package(
             name: "VocaMac",
             dependencies: [
                 "VocaMacObjC",
-                .product(name: "WhisperKit", package: "WhisperKit"),
+                .product(name: "WhisperKit", package: "argmax-oss-swift"),
                 .product(name: "FluidAudio", package: "FluidAudio"),
                 .product(name: "sherpa-onnx", package: "sherpa-onnx"),
+                .product(name: "LLM", package: "LLM.swift"),
             ],
             path: "Sources/VocaMac",
             resources: [
@@ -62,7 +80,8 @@ let package = Package(
         .testTarget(
             name: "VocaMacTests",
             dependencies: ["VocaMac"],
-            path: "Tests/VocaMacTests"
+            path: "Tests/VocaMacTests",
+            exclude: ["Fixtures"]
         )
     ]
 )

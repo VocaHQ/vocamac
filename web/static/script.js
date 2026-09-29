@@ -61,8 +61,67 @@
   /* ---------- Copy buttons ---------- */
 
   var canCopy = !!(navigator.clipboard && navigator.clipboard.writeText);
+  var copyBlocks = document.querySelectorAll("[data-copy]");
+  var copyStatus = null;
 
-  document.querySelectorAll("[data-copy]").forEach(function (block) {
+  if (canCopy && copyBlocks.length) {
+    copyStatus = document.createElement("div");
+    copyStatus.className = "sr-only";
+    copyStatus.setAttribute("aria-live", "polite");
+    copyStatus.setAttribute("aria-atomic", "true");
+    document.body.appendChild(copyStatus);
+  }
+
+  var announceCopy = function (message) {
+    if (!copyStatus) { return; }
+    copyStatus.textContent = "";
+    copyStatus.textContent = message;
+  };
+
+  // Generation advances on each click. Clipboard settlements and restore
+  // timers ignore stale generations so out-of-order promises cannot wipe the
+  // newest button or live-region feedback.
+  var copyFeedbackToken = 0;
+  var copyFeedbackTimer = null;
+  var activeCopyButton = null;
+
+  var restoreCopyButton = function (button) {
+    button.textContent = "Copy";
+    button.classList.remove("is-copied");
+  };
+
+  var clearCopyFeedbackTimer = function () {
+    if (copyFeedbackTimer) {
+      clearTimeout(copyFeedbackTimer);
+      copyFeedbackTimer = null;
+    }
+  };
+
+  var showCopyFeedback = function (button, label, token) {
+    if (token !== copyFeedbackToken) { return; }
+    if (activeCopyButton && activeCopyButton !== button) {
+      restoreCopyButton(activeCopyButton);
+    }
+    activeCopyButton = button;
+    button.textContent = label;
+    if (label === "Copied") {
+      button.classList.add("is-copied");
+    } else {
+      button.classList.remove("is-copied");
+    }
+    announceCopy(label);
+
+    clearCopyFeedbackTimer();
+    copyFeedbackTimer = setTimeout(function () {
+      if (token !== copyFeedbackToken) { return; }
+      restoreCopyButton(button);
+      if (activeCopyButton === button) { activeCopyButton = null; }
+      announceCopy("");
+      copyFeedbackTimer = null;
+    }, 2000);
+  };
+
+  copyBlocks.forEach(function (block) {
     var source = block.querySelector("code");
     if (!source || !canCopy) { return; }
 
@@ -81,20 +140,15 @@
         .join("")
         .trim();
 
-      var restore = function () {
-        button.textContent = "Copy";
-        button.classList.remove("is-copied");
-      };
+      var requestToken = ++copyFeedbackToken;
+      clearCopyFeedbackTimer();
 
       navigator.clipboard.writeText(text).then(
         function () {
-          button.textContent = "Copied";
-          button.classList.add("is-copied");
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Copied", requestToken);
         },
         function () {
-          button.textContent = "Press ⌘C";
-          setTimeout(restore, 2000);
+          showCopyFeedback(button, "Press ⌘C", requestToken);
         }
       );
     });
@@ -180,6 +234,78 @@
       headings.forEach(function (heading) { tocObserver.observe(heading); });
       setCurrent(headings[0].id);
     }
+  }
+
+  /* ---------- Screenshot lightbox ---------- */
+
+  var shotImages = document.querySelectorAll(".shot-frame img, .prose img[src*='/screenshots/']");
+
+  if (shotImages.length && typeof HTMLDialogElement === "function") {
+    var lightbox = document.createElement("dialog");
+    lightbox.className = "shot-lightbox";
+    lightbox.setAttribute("aria-label", "Enlarged screenshot");
+    lightbox.innerHTML =
+      '<button type="button" class="shot-lightbox-close">Close</button>' +
+      '<img alt="">' +
+      '<p class="shot-lightbox-caption"><strong></strong><span></span></p>';
+    document.body.appendChild(lightbox);
+
+    var lightboxImage = lightbox.querySelector("img");
+    var lightboxCaption = lightbox.querySelector(".shot-lightbox-caption");
+    var lightboxTitle = lightboxCaption.querySelector("strong");
+    var lightboxRest = lightboxCaption.querySelector("span");
+    var lightboxClose = lightbox.querySelector(".shot-lightbox-close");
+
+    var closeLightbox = function () {
+      if (lightbox.open) { lightbox.close(); }
+    };
+
+    var openLightbox = function (img) {
+      lightboxImage.src = img.currentSrc || img.src;
+      lightboxImage.alt = img.alt || "";
+      var title = "";
+      var rest = "";
+      var figure = img.closest("figure");
+      if (figure) {
+        var figcaption = figure.querySelector("figcaption");
+        if (figcaption) {
+          var heading = figcaption.querySelector("strong");
+          title = heading ? heading.textContent.trim() : "";
+          var clone = figcaption.cloneNode(true);
+          var cloneHeading = clone.querySelector("strong");
+          if (cloneHeading) { cloneHeading.remove(); }
+          rest = clone.textContent.replace(/\s+/g, " ").trim();
+        }
+      }
+      if (!title && !rest) { rest = img.alt || ""; }
+      lightboxTitle.textContent = title;
+      lightboxRest.textContent = rest;
+      lightboxTitle.hidden = !title;
+      lightboxRest.hidden = !rest;
+      lightboxCaption.hidden = !title && !rest;
+      lightbox.showModal();
+      lightboxClose.focus();
+    };
+
+    shotImages.forEach(function (img) {
+      var hit = img.closest(".shot-frame") || img;
+      hit.classList.add("is-zoomable");
+      hit.setAttribute("role", "button");
+      hit.setAttribute("tabindex", "0");
+      hit.setAttribute("aria-label", "Enlarge screenshot: " + (img.alt || "product image"));
+      hit.addEventListener("click", function () { openLightbox(img); });
+      hit.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openLightbox(img);
+        }
+      });
+    });
+
+    lightboxClose.addEventListener("click", closeLightbox);
+    lightbox.addEventListener("click", function (event) {
+      if (event.target === lightbox) { closeLightbox(); }
+    });
   }
 
   /* ---------- FAQ convenience ---------- */

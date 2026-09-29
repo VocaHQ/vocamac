@@ -12,24 +12,58 @@ import SwiftUI
 enum OnboardingStep: Int, CaseIterable, Identifiable {
     case welcome = 0
     case permissions = 1
-    case hotkeyConfig = 2
-    case quickTest = 3
-    case complete = 4
+    case modelSetup = 2
+    case hotkeyConfig = 3
+    case quickTest = 4
+    case complete = 5
 
     var id: Int { rawValue }
 
     var title: String {
         switch self {
-        case .welcome: return "Welcome to VocaMac"
-        case .permissions: return "Grant Permissions"
-        case .hotkeyConfig: return "Configure Hotkey"
-        case .quickTest: return "Quick Test"
-        case .complete: return "All Set!"
+        case .welcome: return "Speak freely. Write anywhere."
+        case .permissions: return "Connect your voice to your Mac"
+        case .modelSetup: return "Tune VocaMac to your voice"
+        case .hotkeyConfig: return "One shortcut. Your flow."
+        case .quickTest: return "Try your first dictation"
+        case .complete: return "Make it part of your day"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .welcome: return "Welcome"
+        case .permissions: return "Permissions"
+        case .modelSetup: return "Language & model"
+        case .hotkeyConfig: return "Your shortcut"
+        case .quickTest: return "Try it out"
+        case .complete: return "Ready to go"
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .welcome: return "Private voice typing that feels at home on macOS."
+        case .permissions: return "Three permissions, each with a clear purpose."
+        case .modelSetup: return "Tell us what you speak most; VocaMac will recommend a local model."
+        case .hotkeyConfig: return "Choose the gesture that feels natural to you."
+        case .quickTest: return "Record a sentence and see your words appear here."
+        case .complete: return "VocaMac lives in your menu bar, ready when you need it."
         }
     }
 
     var stepNumber: String {
         "Step \(rawValue + 1) of \(OnboardingStep.allCases.count)"
+    }
+
+    /// Keep the final escape hatch available while optional background work finishes.
+    func disablesNavigation(
+        practiceBusy: Bool,
+        isRecording: Bool,
+        appStatus: AppStatus
+    ) -> Bool {
+        guard self != .complete else { return false }
+        return practiceBusy || isRecording || appStatus == .processing
     }
 }
 
@@ -39,138 +73,135 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @State private var currentStep: OnboardingStep = .welcome
+    let onFinished: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var practiceBusy = false
 
     var body: some View {
-        ZStack {
-            // Background
-            Color(nsColor: .controlBackgroundColor)
-                .ignoresSafeArea()
-
+        HStack(spacing: 0) {
+            journeySidebar
+            Divider()
             VStack(spacing: 0) {
-                // Step indicator
-                HStack {
-                    Text(currentStep.stepNumber)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    HStack(spacing: 4) {
-                        ForEach(OnboardingStep.allCases, id: \.self) { step in
-                            Circle()
-                                .fill(step.rawValue <= currentStep.rawValue ? Color.blue : Color.gray.opacity(0.3))
-                                .frame(width: 8, height: 8)
-                        }
-                    }
-                }
-                .padding()
-                .borderBottom()
-
-                // Step content (scrollable to handle varying content heights)
+                VocaPageHeader(title: currentStep.title, subtitle: currentStep.subtitle)
                 ScrollView {
                     Group {
                         switch currentStep {
-                        case .welcome:
-                            WelcomeStep()
-                        case .permissions:
-                            PermissionsStep()
-                        case .hotkeyConfig:
-                            HotkeyConfigStep()
-                        case .quickTest:
-                            QuickTestStep()
-                        case .complete:
-                            CompleteStep()
+                        case .welcome: WelcomeStep()
+                        case .permissions: PermissionsStep()
+                        case .modelSetup: ModelSetupStep()
+                        case .hotkeyConfig: HotkeyConfigStep()
+                        case .quickTest: QuickTestStep(isBusy: $practiceBusy)
+                        case .complete: CompleteStep()
                         }
                     }
                     .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                    .id(currentStep)
+                    .transition(.opacity)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-
                 Divider()
-
-                // Navigation buttons
                 HStack(spacing: 12) {
-                    if currentStep == .welcome {
-                        Button(action: skipOnboarding) {
-                            Text("Skip Setup")
-                                .font(.body)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.gray.opacity(0.2))
-                                .foregroundStyle(.primary)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Skip setup and don't show again. You can re-run it from Menu Bar → Setup Wizard.")
-                    } else if currentStep != .complete {
-                        Button(action: skipOnboarding) {
-                            Text("Skip")
-                                .font(.body)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Skip setup and don't show again.")
-                    }
                     if currentStep != .welcome {
-                        Button(action: goToPreviousStep) {
-                            Text("Back")
-                                .font(.body)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.gray.opacity(0.2))
-                                .foregroundStyle(.primary)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.cancelAction)
+                        Button("Back", action: goToPreviousStep)
+                            .buttonStyle(.bordered)
                     }
-
-                    Spacer()
-
                     if currentStep != .complete {
-                        Button(action: goToNextStep) {
-                            Text(currentStep == .quickTest ? "Finish" : "Continue")
-                                .font(.body)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundStyle(.white)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.defaultAction)
-                    } else {
-                        Button(action: completeOnboarding) {
-                            Text("Start Using VocaMac")
-                                .font(.body)
-                                .fontWeight(.medium)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 8)
-                                .background(Color.blue)
-                                .foregroundStyle(.white)
-                                .cornerRadius(8)
-                        }
-                        .buttonStyle(.plain)
-                        .keyboardShortcut(.defaultAction)
+                        Button("Set up later", action: skipOnboarding)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("You can adjust permissions, language, models, and shortcuts later in Settings.")
                     }
+                    Spacer()
+                    Button(action: currentStep == .complete ? completeOnboarding : goToNextStep) {
+                        HStack(spacing: 8) {
+                            Text(primaryActionTitle)
+                            Image(systemName: currentStep == .complete ? "checkmark" : "arrow.right")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(VocaDesign.accentSolid)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .padding()
+                .disabled(currentStep.disablesNavigation(
+                    practiceBusy: practiceBusy,
+                    isRecording: appState.isRecording,
+                    appStatus: appState.appStatus
+                ))
+                .padding(22)
             }
         }
-        .frame(width: 600, height: 550)
+        .frame(minWidth: 780, idealWidth: 840, minHeight: 600, idealHeight: 650)
+        .background(VocaDesign.canvas)
+        .tint(VocaDesign.accent)
         .onAppear {
-            Task { @MainActor in
-                await appState.performStartup()
-            }
+            appState.triggerStartupIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            appState.checkPermissions()
+        }
+    }
+
+    private var primaryActionTitle: String {
+        switch currentStep {
+        case .welcome: return "Let's get started"
+        case .quickTest: return "Continue"
+        case .complete: return "Finish setup"
+        default: return "Continue"
+        }
+    }
+
+    private var journeySidebar: some View {
+        VStack(alignment: .leading, spacing: 28) {
+            HStack(spacing: 10) {
+                BrandLogoView(size: 36)
+                Text("VocaMac").font(.title3.weight(.semibold))
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text("A little setup.\nA lot less typing.")
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                Text("Make room for your voice.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(OnboardingStep.allCases) { step in
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle().fill(step == currentStep ? VocaDesign.accent : Color.primary.opacity(0.06))
+                            if step.rawValue < currentStep.rawValue {
+                                Image(systemName: "checkmark").foregroundStyle(VocaDesign.accent)
+                            } else {
+                                Text("\(step.rawValue + 1)")
+                                    .foregroundStyle(step == currentStep ? Color(nsColor: .windowBackgroundColor) : .secondary)
+                            }
+                        }
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 28, height: 28)
+                        Text(step.shortTitle)
+                            .font(.callout.weight(step == currentStep ? .semibold : .regular))
+                            .foregroundStyle(step == currentStep ? .primary : .secondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(step.shortTitle), \(step == currentStep ? "current step" : step.rawValue < currentStep.rawValue ? "completed" : "upcoming")")
+                }
+            }
+            Spacer()
+            Label("Speech stays on this Mac", systemImage: "lock.shield")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(24)
+        .frame(width: 220)
+        .frame(maxHeight: .infinity)
+        .background(VocaSidebarMaterial())
     }
 
     // MARK: - Navigation
 
     private func goToNextStep() {
         if let nextStep = OnboardingStep(rawValue: currentStep.rawValue + 1) {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                 currentStep = nextStep
             }
         }
@@ -178,7 +209,7 @@ struct OnboardingView: View {
 
     private func goToPreviousStep() {
         if let prevStep = OnboardingStep(rawValue: currentStep.rawValue - 1) {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
                 currentStep = prevStep
             }
         }
@@ -186,10 +217,12 @@ struct OnboardingView: View {
 
     private func skipOnboarding() {
         appState.completeOnboarding()
+        onFinished()
     }
 
     private func completeOnboarding() {
         appState.completeOnboarding()
+        onFinished()
     }
 }
 
@@ -197,64 +230,74 @@ struct OnboardingView: View {
 
 struct WelcomeStep: View {
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            BrandLogoView(size: 80)
-
-            // App name and tagline
-            VStack(spacing: 8) {
-                Text("VocaMac")
-                    .font(.system(size: 40, weight: .bold))
-
-                Text("Your voice, your Mac, your privacy")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 18) {
+                Label("FROM THOUGHT TO TEXT", systemImage: "waveform")
+                    .font(.caption.weight(.semibold)).tracking(1.3)
+                    .foregroundStyle(VocaDesign.accent)
+                Text("“Let's turn that idea into something.”")
+                    .font(.system(size: 27, weight: .medium, design: .rounded))
+                    .fixedSize(horizontal: false, vertical: true)
+                Divider()
+                HStack(spacing: 12) {
+                    Label("Activate", systemImage: "keyboard")
+                    Image(systemName: "arrow.right")
+                    Label("Speak", systemImage: "mic")
+                    Image(systemName: "arrow.right")
+                    Label("Done", systemImage: "checkmark")
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
-
-            // Description
-            VStack(alignment: .leading, spacing: 12) {
-                Label("Dictate directly into any app", systemImage: "doc.text")
-                Label("All processing happens on your Mac", systemImage: "lock.fill")
-                Label("No internet required, no data leaves your device", systemImage: "network.slash")
-            }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
-
-            Spacer()
-
-            Text("This guide will set up VocaMac in just a few minutes.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            Spacer()
+            .vocaCard()
+            welcomeFeature("Write where you work", detail: "Dictate into messages, documents, and text fields.", icon: "text.cursor")
+            welcomeFeature("Your speech stays yours", detail: "Speech-to-text runs locally on your Mac.", icon: "lock.shield")
+            welcomeFeature("Start small. Make it yours.", detail: "Tiny is included. Download other speech models later for more languages or accuracy.", icon: "slider.horizontal.3")
         }
-        .padding()
+        .padding(16)
+    }
+
+    private func welcomeFeature(_ title: String, detail: String, icon: String) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: icon).font(.title3).foregroundStyle(VocaDesign.accent)
+                .frame(width: 28, height: 28)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                Text(detail).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 
 // MARK: - Step 2: Permissions
 
+/// What stops working for each permission still missing, in step order.
+enum OnboardingPermissionGaps {
+    static func consequences(
+        microphone: PermissionStatus,
+        accessibility: PermissionStatus,
+        inputMonitoring: PermissionStatus
+    ) -> [String] {
+        var gaps: [String] = []
+        if microphone != .granted {
+            gaps.append("Without Microphone, VocaMac can't hear you, so dictation won't work.")
+        }
+        if accessibility != .granted {
+            gaps.append("Without Accessibility, VocaMac can't type your words into other apps.")
+        }
+        if inputMonitoring != .granted {
+            gaps.append("Without Input Monitoring, your shortcut won't start dictation.")
+        }
+        return gaps
+    }
+}
+
 struct PermissionsStep: View {
     @EnvironmentObject var appState: AppState
 
-    private var allPermissionsGranted: Bool {
-        appState.micPermission == .granted &&
-        appState.accessibilityPermission == .granted &&
-        appState.inputMonitoringPermission == .granted
-    }
-
     var body: some View {
         VStack(spacing: 16) {
-            Text("VocaMac needs a few permissions to work properly.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
             VStack(spacing: 12) {
                 OnboardingPermissionRow(
                     icon: "mic.fill",
@@ -267,7 +310,7 @@ struct PermissionsStep: View {
                 OnboardingPermissionRow(
                     icon: "hand.raised.fill",
                     name: "Accessibility",
-                    description: "Monitor hotkey presses to activate recording",
+                    description: "Insert your words into the app you are using",
                     status: appState.accessibilityPermission,
                     action: { appState.requestAccessibilityPermission() }
                 )
@@ -280,43 +323,45 @@ struct PermissionsStep: View {
                     action: { appState.requestInputMonitoringPermission() }
                 )
             }
-            .padding()
 
-            Spacer()
-
-            if !allPermissionsGranted {
-                HStack(spacing: 8) {
+            let gaps = OnboardingPermissionGaps.consequences(
+                microphone: appState.micPermission,
+                accessibility: appState.accessibilityPermission,
+                inputMonitoring: appState.inputMonitoringPermission
+            )
+            if !gaps.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.caption)
-                        .foregroundStyle(.yellow)
-                    Text("Some permissions are missing. VocaMac may not work correctly until all permissions are granted. You can set them later in Settings → Debug.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(VocaDesign.busy)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(gaps, id: \.self) { gap in
+                            Text(gap)
+                        }
+                        Text("You can continue now and enable these later in Settings.")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption)
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
-                .background(Color.yellow.opacity(0.05))
-                .cornerRadius(8)
-                .padding(.horizontal)
+                .vocaCard()
+                .accessibilityElement(children: .combine)
             }
 
             HStack(spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.blue)
-                Text("You can grant these permissions in System Settings > Privacy & Security.")
+                    .foregroundStyle(VocaDesign.accent)
+                Text("After enabling VocaMac in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color.blue.opacity(0.05))
-            .cornerRadius(8)
-            .padding(.horizontal)
-
-            Spacer()
+            .vocaCard()
         }
-        .padding()
+        .padding(16)
     }
 }
 
@@ -350,17 +395,17 @@ struct OnboardingPermissionRow: View {
 
             HStack(spacing: 8) {
                 if status == .granted {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
-                        .foregroundStyle(.green)
+                    Label("Enabled", systemImage: "checkmark.circle.fill")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(VocaDesign.accent)
                 } else {
                     Button(action: action) {
-                        Text(status == .notDetermined ? "Grant" : "Open Settings")
+                        Text(status == .notDetermined ? "Enable" : "Open Settings")
                             .font(.caption)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 6)
-                            .background(Color.blue)
-                            .foregroundStyle(.white)
+                            .background(VocaDesign.accent)
+                            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
                             .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
@@ -368,268 +413,201 @@ struct OnboardingPermissionRow: View {
             }
         }
         .padding(12)
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(8)
+        .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(VocaDesign.line))
     }
 
     private var statusColor: Color {
         switch status {
-        case .granted: return .green
+        case .granted: return VocaDesign.accent
         case .denied: return .red
-        case .notDetermined: return .gray
+        case .notDetermined: return .secondary
         }
     }
 }
 
-// MARK: - Step 3: Model Selection
+// MARK: - Step 3: Language and Model
 
-struct ModelSelectionStep: View {
+struct ModelSetupStep: View {
     @EnvironmentObject var appState: AppState
+    @State private var didRequestRecommendation = false
 
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Choose a model based on your device and needs.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-            if let recommended = appState.deviceRecommendedModel,
-               let recommendedSize = appState.modelManager.modelSize(from: recommended) {
-                HStack(spacing: 12) {
-                    Image(systemName: "lightbulb.fill")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
-                    Text("We recommend: **\(recommendedSize.displayName)**")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-                .padding(.horizontal)
-            }
-
-            ScrollView {
-                VStack(spacing: 12) {
-                    ForEach(appState.availableModels) { modelInfo in
-                        ModelSelectionCard(
-                            modelInfo: modelInfo,
-                            isRecommended: {
-                                guard let recommended = appState.deviceRecommendedModel else { return false }
-                                return appState.modelManager.modelSize(from: recommended) == modelInfo.size
-                            }(),
-                            onSelect: {
-                                Task { @MainActor in
-                                    await appState.loadModel(modelInfo.size)
-                                }
-                            },
-                            onDownload: {
-                                Task { @MainActor in
-                                    await appState.downloadModel(modelInfo.size)
-                                }
-                            }
-                        )
-                    }
-                }
-                .padding()
-            }
-
-            Spacer()
-        }
-        .padding()
-    }
-}
-
-// MARK: - Model Selection Card
-
-struct ModelSelectionCard: View {
-    let modelInfo: WhisperModelInfo
-    let isRecommended: Bool
-    let onSelect: () -> Void
-    let onDownload: () -> Void
-    @State private var showForceDownloadAlert = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(modelInfo.size.displayName)
-                            .font(.body)
-                            .fontWeight(.semibold)
-                        if isRecommended {
-                            Label("Recommended", systemImage: "star.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.1))
-                                .cornerRadius(4)
-                        }
-                        Spacer()
-                    }
-
-                    HStack(spacing: 16) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Size")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(modelInfo.size.fileSizeDescription)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Speed")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("\(modelInfo.size.relativeSpeed)x")
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Quality")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(modelInfo.size.qualityDescription)
-                                .font(.caption)
-                                .fontWeight(.medium)
-                        }
-
-                        Spacer()
-                    }
-                }
-
-                Spacer()
-            }
-
-            HStack(spacing: 12) {
-                if let progress = modelInfo.downloadProgress {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: progress)
-                        Text("\(Int(progress * 100))%")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if modelInfo.isLoading {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(modelInfo.loadingStatus)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                } else if modelInfo.isDownloaded {
-                    if modelInfo.isActive {
-                        Label("Active", systemImage: "checkmark.circle.fill")
-                            .font(.caption)
-                            .foregroundStyle(.green)
-                    } else {
-                        Button(action: onSelect) {
-                            Text("Use This Model")
-                                .font(.caption)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color.blue)
-                                .foregroundStyle(.white)
-                                .cornerRadius(6)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                } else if !modelInfo.isSupported {
-                    Button {
-                        showForceDownloadAlert = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "sparkles")
-                            Text("Try Anyway")
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundStyle(.secondary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                } else {
-                    Button(action: onDownload) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "arrow.down.circle")
-                            Text("Download")
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color.gray.opacity(0.2))
-                        .foregroundStyle(.primary)
-                        .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Spacer()
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.05))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(isRecommended ? Color.orange : Color.clear, lineWidth: 1.5)
+    private var recommendation: OnboardingModelRecommendation? {
+        OnboardingModelGuidance.recommendation(
+            for: appState.selectedLanguage,
+            availableModels: appState.availableModels
         )
-        .alert("Use Experimental Model?", isPresented: $showForceDownloadAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Download Anyway", role: .destructive) {
-                onDownload()
+    }
+
+    private var recommendedModel: WhisperModelInfo? {
+        guard let recommendation else { return nil }
+        return appState.availableModels.first { $0.size == recommendation.model }
+    }
+
+    private var selectedLanguageName: String {
+        TranscriptionLanguage.catalog.first { $0.code == appState.selectedLanguage }?.displayName
+            ?? "your language"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Which language do you speak most?")
+                    .font(.headline)
+                Picker("Most-used language", selection: $appState.selectedLanguage) {
+                    Text("I switch between languages").tag(TranscriptionLanguage.auto.code)
+                    Divider()
+                    ForEach(TranscriptionLanguage.selectable) { language in
+                        Text(language.displayName).tag(language.code)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 300, alignment: .leading)
+
+                Text(appState.selectedLanguage == TranscriptionLanguage.auto.code
+                     ? "VocaMac will detect the language for each dictation."
+                     : "Pinning \(selectedLanguageName) helps recognition avoid guessing the wrong language.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-        } message: {
-            Text("WhisperKit hasn't verified this model on your chip family. It will likely work but may be slower than tuned models.")
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vocaCard()
+
+            if let recommendation, let model = recommendedModel {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "sparkles")
+                            .font(.title3)
+                            .foregroundStyle(VocaDesign.accent)
+                            .frame(width: 28)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Recommended for you")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(VocaDesign.accent)
+                            Text(recommendation.title)
+                                .font(.headline)
+                            Text(recommendation.explanation)
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    HStack(spacing: 10) {
+                        Label(model.size.displayName, systemImage: "waveform")
+                        Text("•")
+                        Text(model.size.fileSizeDescription)
+                        Text("•")
+                        Text("~\(String(format: "%.1f", model.size.ramRequiredGB)) GB RAM")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                    modelAction(for: model)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .vocaCard()
+            } else {
+                Label("The bundled starter model will be used on this Mac.", systemImage: "checkmark.circle")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .vocaCard()
+            }
+
+            Text("This step is optional. Downloads continue in the background, and the recommended model is loaded automatically when it is ready.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+        }
+        .padding(16)
+        .onChange(of: appState.selectedLanguage) {
+            Task { @MainActor in
+                await appState.languageDidChange()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func modelAction(for model: WhisperModelInfo) -> some View {
+        if model.isActive {
+            Label("Ready to use", systemImage: "checkmark.circle.fill")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(VocaDesign.success)
+        } else if let progress = model.downloadProgress {
+            HStack(spacing: 10) {
+                ProgressView(value: progress)
+                    .frame(maxWidth: 180)
+                Text("\(Int(progress * 100))%")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                // Only onboarding's own download is ours to cancel; the same
+                // model may be downloading because Settings asked for it.
+                if appState.isPreparingOnboardingModel {
+                    Button("Cancel") {
+                        appState.cancelOnboardingModelPreparation()
+                    }
+                    .controlSize(.small)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Downloading \(model.size.displayName)")
+            .accessibilityValue("\(Int(progress * 100)) percent")
+        } else if model.isLoading {
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(model.loadingStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .help(model.loadingStatus == ModelSize.firstLoadStatus ? ModelSize.firstLoadExplanation : "")
+        } else {
+            HStack(spacing: 10) {
+                Button(model.isDownloaded ? "Use this model" : "Download & use") {
+                    didRequestRecommendation = true
+                    Task { @MainActor in
+                        await appState.prepareOnboardingRecommendedModel()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(VocaDesign.accentSolid)
+                .disabled(appState.isPreparingOnboardingModel)
+
+                if didRequestRecommendation, let error = appState.errorMessage {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(VocaDesign.warning)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
     }
 }
-
-// MARK: - Step 4: Hotkey Configuration
 
 struct HotkeyConfigStep: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Choose how to activate VocaMac.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-            VStack(spacing: 16) {
-                // Activation Mode
+            VStack(alignment: .leading, spacing: 16) {
+                // Activation Mode — the same control the Dictation settings
+                // page uses, so the choice looks the same in both places.
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Activation Mode")
+                    Text("Activation mode")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
 
-                    Picker("Mode", selection: $appState.activationMode) {
-                        ForEach(ActivationMode.allCases) { mode in
-                            VStack(alignment: .leading) {
-                                Text(mode.displayName)
-                            }
-                            .tag(mode)
-                        }
-                    }
-                    .pickerStyle(.radioGroup)
-
-                    Text(appState.activationMode.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    ActivationModeSelector(selection: $appState.activationMode)
                 }
 
                 Divider()
 
                 // Hotkey Selection
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Hotkey")
+                    Text("Shortcut")
                         .font(.caption)
                         .fontWeight(.semibold)
                         .foregroundStyle(.secondary)
@@ -644,7 +622,7 @@ struct HotkeyConfigStep: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Double-tap Speed")
+                        Text("Double-tap speed")
                             .font(.caption)
                             .fontWeight(.semibold)
                             .foregroundStyle(.secondary)
@@ -671,13 +649,10 @@ struct HotkeyConfigStep: View {
                     }
                 }
             }
-            .padding()
-            .background(Color.gray.opacity(0.05))
-            .cornerRadius(8)
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vocaCard()
         }
-        .padding()
+        .padding(16)
         // Keep the live listener aligned with wizard fields.
         // Completion syncs the full persisted config.
         .onChange(of: appState.activationMode) {
@@ -696,28 +671,26 @@ struct HotkeyConfigStep: View {
 
 struct QuickTestStep: View {
     @EnvironmentObject var appState: AppState
-    @State private var isRecording = false
+    @Binding var isBusy: Bool
     @State private var testResult: String?
+    @State private var testFeedback: String?
+    @State private var isPreparing = false
+    private var isRecording: Bool { appState.isPracticeRecording }
+    private var externalRecording: Bool {
+        (appState.isRecording || appState.appStatus == .recording) && !appState.isPracticeRecording
+    }
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("Let's test your setup with a quick recording.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal)
-
-            Spacer()
-
             VStack(spacing: 16) {
                 // Recording button
                 Button(action: toggleRecording) {
                     VStack(spacing: 8) {
                         Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
                             .font(.system(size: 48))
-                            .foregroundStyle(isRecording ? .red : .blue)
+                            .foregroundStyle(isRecording ? Color.red : VocaDesign.accent)
 
-                        Text(isRecording ? "Recording..." : "Click to Record")
+                        Text(isRecording ? "Finish recording" : testFeedback != nil ? "Try again" : "Record a sentence")
                             .font(.body)
                             .fontWeight(.semibold)
 
@@ -735,70 +708,173 @@ struct QuickTestStep: View {
                         }
                     }
                 }
-                .disabled(appState.appStatus == .processing)
+                .buttonStyle(.plain)
+                .padding(24)
+                .disabled(isBusy || externalRecording || appState.appStatus == .processing)
+
+                if externalRecording {
+                    Text("Dictation is active in another app. Finish it with your shortcut before trying a practice recording.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                if let feedback = testFeedback ?? appState.errorMessage {
+                    Label(feedback, systemImage: "info.circle")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 // Test result display
                 if let result = testResult {
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
                             Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                            Text("Transcription Result")
+                                .foregroundStyle(VocaDesign.accent)
+                            Text("Transcription result")
                                 .font(.caption)
                                 .fontWeight(.semibold)
                         }
 
                         Text(result)
                             .font(.subheadline)
-                            .lineLimit(4)
-                            .padding()
-                            .background(Color.green.opacity(0.1))
-                            .cornerRadius(6)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                            .background(VocaDesign.accent.opacity(0.12),
+                                        in: RoundedRectangle(cornerRadius: 8))
+
+                        // Only offered when the transcript actually shows the
+                        // problem. A clean first dictation is no argument for
+                        // downloading a model.
+                        if TranscriptCleanup.containsFillers(result) {
+                            cleanupOffer
+                        }
                     }
                 } else if appState.appStatus == .processing {
                     HStack(spacing: 8) {
                         ProgressView()
                             .scaleEffect(0.8, anchor: .center)
-                        Text("Transcribing...")
+                        Text(isPreparing ? "Preparing your speech model…" : "Transcribing…")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding()
-            .background(Color.gray.opacity(0.05))
-            .cornerRadius(8)
+            .vocaCard()
 
-            Spacer()
-
-            HStack(spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "info.circle.fill")
                     .font(.caption)
-                    .foregroundStyle(.blue)
-                Text("Try saying a short phrase like 'Hello world'.")
+                    .foregroundStyle(VocaDesign.accent)
+                Text("Try: “Today is a good day to try something new.” Use the button above; this practice stays here and is not pasted into another app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Spacer()
+            .padding(.horizontal, 4)
         }
-        .padding()
+        .padding(16)
+        .onChange(of: appState.settingsTestResultText) { _, result in
+            testResult = result
+        }
+    }
+
+    /// Optional, inline, and never blocking: the download runs in the
+    /// background and onboarding continues regardless.
+    @ViewBuilder
+    private var cleanupOffer: some View {
+        let descriptor = appState.selectedCleanupModelKind.descriptor
+
+        VStack(alignment: .leading, spacing: 6) {
+            Divider()
+            if appState.transcriptCleanupEnabled {
+                HStack(spacing: 8) {
+                    if case .downloading(_, let progress) = appState.transcriptCleanup.modelState {
+                        ProgressView(value: progress).frame(width: 60)
+                        Text("Downloading cleanup model — \(Int(progress * 100))%")
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                    } else if case .error(let message) = appState.transcriptCleanup.modelState {
+                        // A failed download must not read as success. Onboarding
+                        // is the one place the user cannot go and check.
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(VocaDesign.warning)
+                        Text("\(message) You can retry in Settings → Cleanup.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
+                        ProgressView().controlSize(.small)
+                        Text("Starting cleanup model download…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(VocaDesign.accent)
+                        Text("Cleanup is on. You can carry on — it finishes in the background.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.caption)
+                        .foregroundStyle(VocaDesign.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Notice the filler words?")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        Text("VocaMac can drop “um” and “uh” and punctuate what you said, all on this Mac. Downloads \(descriptor.sizeDescription) in the background — you can set it up later in Settings → Cleanup instead.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Set Up") {
+                        appState.startCleanupSetupInBackground()
+                    }
+                    .controlSize(.small)
+                }
+            }
+        }
+        .padding(.top, 2)
     }
 
     private func toggleRecording() {
-        if isRecording {
-            Task { @MainActor in
-                await appState.stopRecordingAndTranscribe()
-                isRecording = false
-                testResult = appState.lastTranscription?.text
+        guard !isBusy, !externalRecording else { return }
+        isBusy = true
+        Task { @MainActor in
+            defer {
+                isBusy = false
+                isPreparing = false
             }
-        } else {
-            Task { @MainActor in
+            testFeedback = nil
+            if isRecording {
+                await appState.stopRecordingAndTranscribe()
+                testResult = appState.settingsTestResultText
+                testFeedback = appState.errorMessage
+                if testResult == nil && testFeedback == nil {
+                    testFeedback = "No speech was detected. Try again and speak a little closer to your microphone."
+                }
+            } else {
                 testResult = nil
-                await appState.startRecording()
-                isRecording = appState.appStatus == .recording || appState.isRecording
+                appState.settingsTestResultText = nil
+                isPreparing = true
+                if appState.appStatus == .error { appState.forceRecovery() }
+                // Re-check after the Task hop: a hotkey may have started ordinary dictation.
+                if (appState.isRecording || appState.appStatus == .recording) && !appState.isPracticeRecording {
+                    testFeedback = "Dictation is active in another app. Finish it with your shortcut before trying a practice recording."
+                    isPreparing = false
+                } else if appState.isPracticeRecording || appState.appStatus != .idle || appState.isRecording {
+                    isPreparing = false
+                } else {
+                    await appState.startRecording(injectResult: false)
+                    if !isRecording { testFeedback = appState.errorMessage }
+                }
             }
         }
     }
@@ -809,41 +885,53 @@ struct QuickTestStep: View {
 struct CompleteStep: View {
     @EnvironmentObject var appState: AppState
 
+    private var permissionsReady: Bool {
+        appState.micPermission == .granted && appState.accessibilityPermission == .granted
+            && appState.inputMonitoringPermission == .granted
+    }
+
     var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            // Success icon
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 80))
-                .foregroundStyle(.green)
-
-            // Heading
-            VStack(spacing: 8) {
-                Text("You're All Set!")
-                    .font(.title)
-                    .fontWeight(.bold)
-
-                Text("VocaMac is ready to use")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+        // The wizard header already carries this step's title, so the panel
+        // states the outcome once, on the same left margin as every other step.
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                Image(systemName: permissionsReady ? "checkmark.circle.fill" : "exclamationmark.circle")
+                    .font(.system(size: 30))
+                    .foregroundStyle(permissionsReady ? VocaDesign.accent : VocaDesign.warning)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(permissionsReady ? "Your voice has a new home." : "Finish permissions to start.")
+                        .font(.title3.weight(.semibold))
+                    Text("Find the microphone in your menu bar.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
             }
 
             // Summary
             VStack(alignment: .leading, spacing: 12) {
-                SummaryItem(icon: "mic.fill", text: "Microphone access enabled")
+                if appState.micPermission == .granted {
+                    SummaryItem(icon: "mic.fill", text: "Microphone access enabled")
+                } else {
+                    Label("Microphone access still needed", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(VocaDesign.warning)
+                }
                 if appState.accessibilityPermission == .granted {
                     SummaryItem(icon: "hand.raised.fill", text: "Accessibility permission granted")
+                } else {
+                    Label("Accessibility access still needed", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 if appState.inputMonitoringPermission == .granted {
                     SummaryItem(icon: "keyboard.fill", text: "Input monitoring enabled")
+                } else {
+                    Label("Input Monitoring access still needed", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(VocaDesign.warning)
                 }
                 SummaryItem(icon: "keyboard", text: "Hotkey: \(KeyCodeReference.displayName(for: HotKeyCombo(keyCode: appState.hotKeyCode, modifiers: appState.hotKeyModifiers)))")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding()
-            .background(Color.green.opacity(0.05))
-            .cornerRadius(8)
+            .vocaCard()
 
             // Launch at Login option
             Toggle(isOn: Binding(
@@ -852,7 +940,7 @@ struct CompleteStep: View {
             )) {
                 HStack(spacing: 10) {
                     Image(systemName: "sunrise.fill")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.accent)
                         .frame(width: 20)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Launch at Login")
@@ -861,24 +949,30 @@ struct CompleteStep: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    Spacer(minLength: 16)
                 }
             }
             .toggleStyle(.switch)
-            .controlSize(.small)
-            .padding()
-            .background(Color.blue.opacity(0.05))
-            .cornerRadius(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .vocaCard()
 
-            Spacer()
+            if !appState.transcriptCleanupEnabled {
+                HStack(spacing: 8) {
+                    Image(systemName: "wand.and.stars")
+                        .font(.caption)
+                        .foregroundStyle(VocaDesign.accent)
+                    Text("Want “um” and “uh” removed automatically? Settings → Cleanup.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Text("You can adjust settings anytime from the VocaMac menu.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-
-            Spacer()
         }
-        .padding()
+        .padding(16)
     }
 }
 
@@ -890,7 +984,7 @@ struct SummaryItem: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(.green)
+                .foregroundStyle(VocaDesign.accent)
                 .frame(width: 20)
 
             Text(text)
@@ -914,7 +1008,7 @@ extension View {
 
 #if DEBUG
 #Preview {
-    OnboardingView()
+    OnboardingView(onFinished: {})
         .environmentObject(AppState.production())
 }
 #endif

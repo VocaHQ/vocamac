@@ -35,13 +35,20 @@ enum MenuBarIconStyle: Equatable {
     case brandMarkTemplate
     /// Mark tinted with brand teal while recording (mic hot).
     case brandMarkTinted
+    /// SF Symbol drawn as a template so macOS follows the menu bar appearance.
+    case systemSymbolTemplate(name: String)
     /// SF Symbol for processing / error.
     case systemSymbol(name: String)
 
-    static func style(for status: AppStatus) -> MenuBarIconStyle {
+    static func style(for status: AppStatus, isCommandMode: Bool = false) -> MenuBarIconStyle {
+        // A wand while Command Mode listens or rewrites, so the menu bar says
+        // an edit of the selection is under way rather than a dictation.
+        if isCommandMode, status == .recording || status == .processing {
+            return .systemSymbol(name: "wand.and.stars")
+        }
         switch status {
         case .idle:
-            return .brandMarkTemplate
+            return .systemSymbolTemplate(name: "mic.fill")
         case .recording:
             return .brandMarkTinted
         case .processing:

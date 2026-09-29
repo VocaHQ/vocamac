@@ -4,6 +4,7 @@
 // Tests for WhisperService: translation and hallucination filtering.
 
 import XCTest
+import WhisperKit
 @testable import VocaMac
 
 // MARK: - WhisperService Translation Tests
@@ -18,7 +19,6 @@ final class WhisperServiceTranslationTests: XCTestCase {
         XCTAssertNotNil(service)
     }
 }
-
 
 // MARK: - WhisperService Hallucination Filtering Tests
 
@@ -94,5 +94,121 @@ final class WhisperServiceVocabularyTests: XCTestCase {
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "transcribed", promptTokens: [1]))
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "[BLANK_AUDIO]", promptTokens: [1]))
         XCTAssertFalse(WhisperService.shouldRetryWithoutVocabulary(rawText: "", promptTokens: nil))
+    }
+}
+
+// MARK: - WhisperService Short Audio Tests
+
+final class WhisperServiceShortAudioTests: XCTestCase {
+    func testShortClipsEnterWhisperKitDecodeLoop() {
+        for count in [1, 7_970, 15_999, 16_000] {
+            let options = DecodingOptions(windowClipTime: WhisperService.windowClipTime(sampleCount: count))
+            let excludedSamples = Int(options.windowClipTime * Float(WhisperKit.sampleRate))
+            XCTAssertGreaterThan(count - excludedSamples, 0, "Clip of \(count) samples must be decoded")
+        }
+    }
+
+    func testLongerClipsKeepDefaultTrailingWindowProtection() {
+        for count in [16_001, 17_600, 480_000, 960_000] {
+            XCTAssertEqual(WhisperService.windowClipTime(sampleCount: count), DecodingOptions().windowClipTime)
+        }
+    }
+}
+
+// MARK: - WhisperService Chunk Window Clip Tests
+
+final class WhisperServiceChunkWindowClipTests: XCTestCase {
+    func testIntermediateChunksAlwaysGetZeroClip() {
+        let chunkCount = 4
+        for index in 0..<(chunkCount - 1) {
+            for count in [1, 16_000, 16_001, 480_000, 960_000] {
+                XCTAssertEqual(
+                    WhisperService.chunkWindowClipTime(
+                        chunkIndex: index,
+                        chunkCount: chunkCount,
+                        sampleCount: count
+                    ),
+                    0,
+                    "Intermediate chunk \(index) of \(chunkCount) must not clip \(count) samples"
+                )
+            }
+        }
+    }
+
+    func testLastChunkUsesWindowClipTimeRules() {
+        let chunkCount = 3
+        let lastIndex = chunkCount - 1
+        for count in [1, 7_970, 15_999, 16_000] {
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: lastIndex,
+                    chunkCount: chunkCount,
+                    sampleCount: count
+                ),
+                0,
+                "Last chunk of \(count) samples should match windowClipTime 0"
+            )
+        }
+        for count in [16_001, 17_600, 480_000, 960_000] {
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: lastIndex,
+                    chunkCount: chunkCount,
+                    sampleCount: count
+                ),
+                WhisperService.windowClipTime(sampleCount: count),
+                "Last chunk of \(count) samples should match windowClipTime"
+            )
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: lastIndex,
+                    chunkCount: chunkCount,
+                    sampleCount: count
+                ),
+                DecodingOptions().windowClipTime
+            )
+        }
+    }
+
+    func testSingleChunkStillAppliesWindowClipTime() {
+        for count in [1, 16_000] {
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: 0,
+                    chunkCount: 1,
+                    sampleCount: count
+                ),
+                WhisperService.windowClipTime(sampleCount: count)
+            )
+        }
+        for count in [16_001, 480_000] {
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: 0,
+                    chunkCount: 1,
+                    sampleCount: count
+                ),
+                WhisperService.windowClipTime(sampleCount: count)
+            )
+            XCTAssertEqual(
+                WhisperService.chunkWindowClipTime(
+                    chunkIndex: 0,
+                    chunkCount: 1,
+                    sampleCount: count
+                ),
+                DecodingOptions().windowClipTime
+            )
+        }
+    }
+
+    func testZeroChunkCountReturnsZero() {
+        XCTAssertEqual(
+            WhisperService.chunkWindowClipTime(chunkIndex: 0, chunkCount: 0, sampleCount: 480_000),
+            0
+        )
+        XCTAssertEqual(
+            WhisperService.chunkWindowClipTime(chunkIndex: -1, chunkCount: 0, sampleCount: 16_000),
+            0
+        )
     }
 }

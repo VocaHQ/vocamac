@@ -8,8 +8,9 @@
 # 3. Code signs — Developer ID if CODE_SIGN_IDENTITY is set, ad-hoc otherwise
 #
 # Environment variables:
-#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 0.9.0.
-#                         Set by CI for nightly builds (e.g., 0.9.0-nightly.20260512+abc1234).
+#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 1.0.0.
+#                         Set by CI for nightly builds (e.g., 1.0.0-nightly.20260512+abc1234).
+#   VOCAMAC_KEEP_RUNNING — Set to 1 for isolated validation without stopping the installed app.
 #   CODE_SIGN_IDENTITY  — Signing identity to use. Defaults to auto-detect
 #                         Developer ID Application in the login keychain.
 #                         Set to "-" to force ad-hoc signing.
@@ -29,31 +30,50 @@ BUNDLE_ID="com.vocamac.app"
 APP_NAME="VocaMac"
 APP_DIR="${APP_NAME}.app"
 ENTITLEMENTS="VocaMac.entitlements"
-APP_VERSION="${APP_VERSION:-0.9.0}"
+APP_VERSION="${APP_VERSION:-1.0.0}"
 
 # Resolve signing identity:
 # 1. Use CODE_SIGN_IDENTITY env var if set
-# 2. Auto-detect Developer ID Application in the login keychain
-# 3. Fall back to ad-hoc signing (-)
+# 2. Auto-detect Developer ID Application in the login keychain (distribution)
+# 3. Auto-detect Apple Development in the login keychain (local development)
+# 4. Fall back to ad-hoc signing (-)
+#
+# An ad-hoc signature gets a fresh code identity on every build, so macOS
+# treats each rebuild as a different app and drops its Accessibility and
+# Input Monitoring grants. Any real certificate — including the free Apple
+# Development one — keeps that identity stable across rebuilds, so prefer
+# one over ad-hoc even when there is nothing to distribute.
+SIGNING_MODE="ad-hoc"
 if [ -z "${CODE_SIGN_IDENTITY+x}" ]; then
-    DETECTED=$(security find-identity -v -p codesigning 2>/dev/null | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+    IDENTITIES=$(security find-identity -v -p codesigning 2>/dev/null || true)
+    DETECTED=$(echo "$IDENTITIES" | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+    if [ -n "$DETECTED" ]; then
+        SIGNING_MODE="Developer ID"
+    else
+        DETECTED=$(echo "$IDENTITIES" | grep "Apple Development" | head -1 | sed 's/.*"\(.*\)"/\1/' || true)
+        if [ -n "$DETECTED" ]; then
+            SIGNING_MODE="Apple Development"
+        fi
+    fi
     if [ -n "$DETECTED" ]; then
         CODE_SIGN_IDENTITY="$DETECTED"
         echo "🔐 Auto-detected signing identity: $CODE_SIGN_IDENTITY"
     else
         CODE_SIGN_IDENTITY="-"
-        echo "⚠️  No Developer ID found — using ad-hoc signing"
+        echo "⚠️  No signing certificate found — using ad-hoc signing"
     fi
+elif [ "$CODE_SIGN_IDENTITY" != "-" ]; then
+    SIGNING_MODE="explicit ($CODE_SIGN_IDENTITY)"
 fi
 
 if [ "$CODE_SIGN_IDENTITY" = "-" ]; then
     echo "🔏 Signing mode: ad-hoc (permissions reset on every rebuild)"
 else
-    echo "🔏 Signing mode: Developer ID"
+    echo "🔏 Signing mode: $SIGNING_MODE"
 fi
 
 # Kill any running VocaMac instances before building
-if pgrep -f "VocaMac" > /dev/null 2>&1; then
+if [ "${VOCAMAC_KEEP_RUNNING:-0}" != "1" ] && pgrep -f "VocaMac" > /dev/null 2>&1; then
     echo "🛑 Stopping running VocaMac..."
     pkill -f "VocaMac" 2>/dev/null
     sleep 1
@@ -77,11 +97,17 @@ echo "🔨 Building VocaMac ($CONFIG)..."
 DERIVED_DATA=".xcode-build"
 XCODE_CONFIG="$(echo "${CONFIG}" | sed 's/release/Release/; s/debug/Debug/')"
 
+# LLM.swift builds a Swift macro plugin (LLMMacros). Without the two skip
+# flags, xcodebuild stops for interactive "trust this plugin?" approval, which
+# never resolves in a script. Safe here because every package is version-pinned
+# in Package.swift, so the code being trusted only changes on a deliberate bump.
 xcodebuild build \
     -scheme VocaMac \
     -configuration "$XCODE_CONFIG" \
     -derivedDataPath "$DERIVED_DATA" \
     -destination 'platform=macOS,arch=arm64' \
+    -skipMacroValidation \
+    -skipPackagePluginValidation \
     ONLY_ACTIVE_ARCH=YES \
     -quiet
 
@@ -119,13 +145,68 @@ fi
 # Update binary
 cp -f "$BINARY" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 
+# App Intents metadata. xcodebuild doesn't run Xcode's metadata extraction for
+# a Swift package executable, and without Contents/Resources/Metadata.appintents
+# the Shortcuts app and Spotlight never see VocaMac's actions. Run the same
+# extractor on the compiler's const-value output.
+#
+# The objects directory is searched for rather than spelled out: SwiftPM's
+# xcodebuild integration builds the executable as a product target, so the
+# files land in "${APP_NAME}-p.build", and the hardcoded "${APP_NAME}.build"
+# quietly skipped this step — every bundle shipped without its Shortcuts
+# actions, including release DMGs.
+SWIFT_FILE_LIST="$(find "${DERIVED_DATA}/Build/Intermediates.noindex/${APP_NAME}.build/${XCODE_CONFIG}" \
+    -name "${APP_NAME}.SwiftFileList" -print -quit 2>/dev/null || true)"
+mkdir -p "${APP_DIR}/Contents/Resources"
+rm -rf "${APP_DIR}/Contents/Resources/Metadata.appintents"
+if [ -n "$SWIFT_FILE_LIST" ]; then
+    OBJECTS_DIR="$(dirname "$SWIFT_FILE_LIST")"
+    CONST_VALUES_LIST="$(mktemp -t vocamac-constvalues)"
+    find "$OBJECTS_DIR" -name '*.swiftconstvalues' > "$CONST_VALUES_LIST"
+    if xcrun appintentsmetadataprocessor \
+        --output "${APP_DIR}/Contents/Resources" \
+        --toolchain-dir "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain" \
+        --module-name "${APP_NAME}" \
+        --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+        --xcode-version "$(xcodebuild -version | awk '/Build version/ {print $3}')" \
+        --platform-family macOS \
+        --deployment-target 14.0 \
+        --target-triple arm64-apple-macos14.0 \
+        --source-file-list "$SWIFT_FILE_LIST" \
+        --swift-const-vals-list "$CONST_VALUES_LIST" \
+        --force --quiet-warnings > /dev/null 2>&1 \
+        && [ -d "${APP_DIR}/Contents/Resources/Metadata.appintents" ]; then
+        echo "🔗 App Intents metadata generated"
+    else
+        echo "⚠️  App Intents metadata could not be generated; Shortcuts actions will be missing." >&2
+    fi
+    rm -f "$CONST_VALUES_LIST"
+else
+    echo "⚠️  ${APP_NAME}.SwiftFileList not found under ${DERIVED_DATA}; skipping App Intents metadata." >&2
+fi
+
+# Embed llama.cpp (LLM.swift). The binary's rpath is @executable_path/../lib,
+# so the framework has to land there or the app dies at launch with a dyld
+# error. Missing it is a build failure, not something to ship quietly.
+LLAMA_FRAMEWORK="${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}/llama.framework"
+if [ ! -d "$LLAMA_FRAMEWORK" ]; then
+    echo "Error: llama.framework not found at ${LLAMA_FRAMEWORK}" >&2
+    echo "LLM.swift's binary target did not build; the app would crash on launch." >&2
+    exit 1
+fi
+mkdir -p "${APP_DIR}/Contents/lib"
+rm -rf "${APP_DIR}/Contents/lib/llama.framework"
+cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
+
 # Update resource bundles — copy to Contents/Resources/
 # xcodebuild's Bundle.module accessor checks Bundle.main.resourceURL first,
 # which resolves to Contents/Resources/ for .app bundles. This is the correct
 # and codesign-compatible location.
 #
-# Clean up any stale bundles at the app root from previous builds.
+# Clean up stale bundles from previous builds, both at the app root and in
+# Contents/Resources/, so bundles from removed dependencies don't linger.
 find "${APP_DIR}" -maxdepth 1 -name "*.bundle" ! -name "Contents" -exec rm -rf {} + 2>/dev/null || true
+find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec rm -rf {} + 2>/dev/null || true
 
 find "${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}" -maxdepth 1 -name "*.bundle" | while read -r bundle; do
     bundle_name="$(basename "$bundle")"
@@ -222,12 +303,31 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <string>14.0</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.vocamac.app.actions</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>vocamac</string></array>
+        </dict>
+    </array>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VocaMac needs microphone access to capture your voice for transcription.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <!-- Ollama and LM Studio serve plain HTTP on this Mac or the LAN. -->
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>VocaMac connects to an AI model server you run yourself, such as Ollama or LM Studio, when you point it at one on your network.</string>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
@@ -242,9 +342,36 @@ if [ "$CODE_SIGN_IDENTITY" != "-" ]; then
     CODESIGN_OPTIONS="--options runtime"
 fi
 
-# Sign nested bundles in Contents/Resources/
-find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle" -exec \
-    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS {} \; 2>/dev/null || true
+# Sign nested bundles in Contents/Resources/ that carry code.
+#
+# SPM's `Bundle.module` payloads (VocaMac_VocaMac.bundle,
+# FluidAudio_FluidAudio.bundle) hold only resources: no CFBundleExecutable and
+# no Mach-O anywhere inside. They need no signature of their own — the app's
+# signature seals them as data in _CodeSignature/CodeResources, which is how
+# every shipped release has been notarized. codesign rejects them outright
+# ("unsealed contents present in the bundle root") because SPM leaves a stray
+# Info.plist beside Contents/, so attempting it can only ever fail.
+#
+# Real nested code is a different matter, and its failures are NOT suppressed:
+# an unsigned one builds fine and then fails notarization or Gatekeeper on a
+# user's Mac, long after the fact. (`find -exec` reports find's own status
+# rather than codesign's, which is why this is a loop.)
+while IFS= read -r nested_bundle; do
+    # Counted in a substitution rather than an `if ! ... | grep -q` pipeline:
+    # under `pipefail` a partial `find` failure would make that read as "no
+    # code here" and silently skip a bundle that does carry some.
+    nested_macho_count="$(find "$nested_bundle" -type f -exec file {} + 2>/dev/null | grep -c "Mach-O" || true)"
+    if [ "$nested_macho_count" -eq 0 ]; then
+        echo "   Skipping resource-only bundle: $(basename "$nested_bundle")"
+        continue
+    fi
+    echo "   Signing nested bundle: $(basename "$nested_bundle")"
+    codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS "$nested_bundle"
+done < <(find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle")
+
+# Nested code must be signed before the app that contains it.
+codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \
+    "${APP_DIR}/Contents/lib/llama.framework"
 
 # Sign the main app
 codesign --force --sign "$CODE_SIGN_IDENTITY" \

@@ -25,6 +25,14 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertFalse(checker.isNewerVersion(remote: "0.9.0", current: "0.10.0"))
     }
 
+    @MainActor
+    func testVersionComparisonIgnoresPreReleaseSuffixes() {
+        let checker = UpdateChecker()
+        // Previously read as 1.2.0, so it looked older than 1.2.1.
+        XCTAssertTrue(checker.isNewerVersion(remote: "1.2.3-beta", current: "1.2.1"))
+        XCTAssertFalse(checker.isNewerVersion(remote: "1.2.3-beta", current: "1.2.3"))
+    }
+
     func testGitHubReleaseDecoding() throws {
         let json = #"{"tag_name":"v0.4.0","name":"v0.4.0-beta","body":"Release notes","html_url":"https://github.com/VocaHQ/vocamac/releases/tag/v0.4.0","prerelease":false,"draft":false,"published_at":"2026-04-10T18:46:58Z","assets":[{"name":"VocaMac-0.4.0-arm64.dmg","size":1234,"browser_download_url":"https://github.com/VocaHQ/vocamac/releases/download/v0.4.0/VocaMac-0.4.0-arm64.dmg","content_type":"application/x-apple-diskimage","digest":"sha256:abc123"}]}"#
 

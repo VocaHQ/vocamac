@@ -60,7 +60,12 @@ final class KeyCodeReferenceTests: XCTestCase {
     }
 
     func testComboPresetIsRecognizedAsCommonHotKey() {
-        XCTAssertTrue(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .command)))
+        XCTAssertTrue(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .option)))
+    }
+
+    func testSystemSpaceShortcutsAreNotOffered() {
+        XCTAssertFalse(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .command)))
+        XCTAssertFalse(KeyCodeReference.isCommonHotKey(HotKeyCombo(keyCode: 49, modifiers: .control)))
     }
 
     func testCommonHotKeysValid() {
@@ -105,22 +110,25 @@ final class TextInjectorTests: XCTestCase {
     /// A delayed clipboard change must not become the value consumed by the
     /// paste event. This models a clipboard manager or an older restore task
     /// racing with the current transcription.
-    func testClipboardFallbackReassertsTranscriptionBeforePaste() {
-        let pasteboard = NSPasteboard.general
+    @MainActor
+    func testClipboardFallbackReassertsTranscriptionBeforePaste() async {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         pasteboard.setString("original clipboard", forType: .string)
 
         var pastedTexts: [String] = []
         let pasteExpectation = expectation(description: "transcription paste event")
-        let finishedExpectation = expectation(description: "clipboard restoration")
 
         let injector = TextInjector(
+            pasteboard: pasteboard,
             accessibilityTrustedOverride: true,
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: {
                 pastedTexts.append(pasteboard.string(forType: .string) ?? "")
                 pasteExpectation.fulfill()
-            }
+            },
+            frontmostPIDProvider: { 123 }
         )
 
         injector.inject(text: "spoken transcription", preserveClipboard: true)
@@ -132,11 +140,12 @@ final class TextInjectorTests: XCTestCase {
             pasteboard.clearContents()
             pasteboard.setString("clipboard manager value", forType: .string)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            finishedExpectation.fulfill()
-        }
 
-        wait(for: [pasteExpectation, finishedExpectation], timeout: 1.0)
+        await fulfillment(of: [pasteExpectation], timeout: 5.0)
+        // Wait for the injection to finish restoring the clipboard rather
+        // than a fixed delay: a busy CI runner can hold the main thread long
+        // enough for a timer to fire before the restore has run.
+        await TextInjector.waitForInjectionQueueIdleForTesting()
 
         XCTAssertEqual(pastedTexts, ["spoken transcription"])
         XCTAssertEqual(
@@ -149,34 +158,33 @@ final class TextInjectorTests: XCTestCase {
     /// Consecutive transcriptions must not share an asynchronous clipboard
     /// window. Each paste event should consume its own transcription, and the
     /// original clipboard should be restored only after both are complete.
-    func testRapidClipboardInjectionsAreSerialized() {
-        let pasteboard = NSPasteboard.general
+    @MainActor
+    func testRapidClipboardInjectionsAreSerialized() async {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
         pasteboard.clearContents()
         pasteboard.setString("original clipboard", forType: .string)
 
         var pastedTexts: [String] = []
         let pasteExpectation = expectation(description: "two transcription paste events")
         pasteExpectation.expectedFulfillmentCount = 2
-        let finishedExpectation = expectation(description: "queued clipboard restoration")
 
         let injector = TextInjector(
+            pasteboard: pasteboard,
             accessibilityTrustedOverride: true,
             accessibilityInjectionOverride: { _ in false },
             pasteActionOverride: {
                 pastedTexts.append(pasteboard.string(forType: .string) ?? "")
                 pasteExpectation.fulfill()
-                if pastedTexts.count == 2 {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                        finishedExpectation.fulfill()
-                    }
-                }
-            }
+            },
+            frontmostPIDProvider: { 123 }
         )
 
         injector.inject(text: "first transcription", preserveClipboard: true)
         injector.inject(text: "second transcription", preserveClipboard: true)
 
-        wait(for: [pasteExpectation, finishedExpectation], timeout: 1.5)
+        await fulfillment(of: [pasteExpectation], timeout: 5.0)
+        await TextInjector.waitForInjectionQueueIdleForTesting()
 
         XCTAssertEqual(pastedTexts, ["first transcription", "second transcription"])
         XCTAssertEqual(pasteboard.string(forType: .string), "original clipboard")
@@ -324,7 +332,7 @@ final class TextInjectorTests: XCTestCase {
             throw XCTSkip("Accessibility permission is not granted; clipboard fallback cannot be triggered (AX is not even attempted).")
         }
 
-        let injector = TextInjector()
+        let injector = TextInjector(frontmostPIDProvider: { 123 })
         let expected = "fallback text after ax failure"
 
         // Seed the pasteboard with a known value so we can detect a change.
@@ -422,8 +430,6 @@ final class SoundManagerTests: XCTestCase {
     }
 }
 
-
-
 // MARK: - AudioEngine Tests
 
 /// Shared guard for tests that need a real audio capture session.
@@ -445,6 +451,75 @@ extension XCTestCase {
 }
 
 final class AudioEngineTests: XCTestCase {
+
+    func testCachedConversionMatchesFreshConverterAcrossBuffersAndRouteChanges() throws {
+        let cache = AudioConverterCache()
+        for rate in [48_000.0, 48_000.0, 44_100.0, 44_100.0] {
+            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
+            let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
+            input.frameLength = 4_096
+            let samples = try XCTUnwrap(input.floatChannelData?[0])
+            for frame in 0..<4_096 {
+                samples[frame] = Float(sin(Double(frame) * 2 * .pi * 440 / rate)) * 0.25
+            }
+            let fresh = try XCTUnwrap(AudioEngine.convertToWhisperFormat(input, from: format))
+            let cached = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+                input, from: format, converterProvider: { cache.converter(from: $0, to: $1) }
+            ))
+            XCTAssertEqual(cached.frameLength, fresh.frameLength)
+            let expected = try XCTUnwrap(fresh.floatChannelData?[0])
+            let actual = try XCTUnwrap(cached.floatChannelData?[0])
+            for frame in 0..<Int(fresh.frameLength) {
+                XCTAssertEqual(actual[frame], expected[frame], accuracy: 0.000_001)
+            }
+        }
+    }
+
+    func testConverterCacheReusesMatchingFormatAndReplacesChangedFormat() throws {
+        let cache = AudioConverterCache()
+        let destination = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 16_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let firstSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 48_000,
+            channels: 1,
+            interleaved: false
+        ))
+        let secondSource = try XCTUnwrap(AVAudioFormat(
+            commonFormat: .pcmFormatFloat32,
+            sampleRate: 44_100,
+            channels: 1,
+            interleaved: false
+        ))
+
+        let first = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        let reused = try XCTUnwrap(cache.converter(from: firstSource, to: destination))
+        XCTAssertTrue(first === reused)
+        XCTAssertEqual(cache.creationCount, 1)
+
+        let replacement = try XCTUnwrap(cache.converter(from: secondSource, to: destination))
+        XCTAssertFalse(first === replacement)
+        XCTAssertEqual(cache.creationCount, 2)
+    }
+
+    func testCapturedSamplesBulkAppendPreservesSamplesAndMute() throws {
+        let source: [Float] = [0.25, -0.5, 0.75]
+        var captured: [Float] = [1]
+        try source.withUnsafeBufferPointer { buffer in
+            let samples = try XCTUnwrap(buffer.baseAddress)
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: false, to: &captured
+            )
+            AudioEngine.appendCapturedSamples(
+                samples, count: buffer.count, muted: true, to: &captured
+            )
+        }
+        XCTAssertEqual(captured, [1, 0.25, -0.5, 0.75, 0, 0, 0])
+    }
 
     func testInputTapUsesLiveHardwareFormat() {
         XCTAssertNil(
@@ -666,7 +741,7 @@ final class AudioEngineTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 2.0)
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         // The detector should notify at most once for one continuous silent period.
         XCTAssertLessThanOrEqual(silenceCallCount, 1,
@@ -696,7 +771,7 @@ final class AudioEngineTests: XCTestCase {
         }
         wait(for: [expectation], timeout: 2.0)
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         // The callback should have fired at most once
         XCTAssertLessThanOrEqual(maxDurationCallCount, 1,
@@ -870,7 +945,6 @@ final class AudioEngineStartFailureTests: XCTestCase {
     }
 }
 
-
 // MARK: - AudioEngine Force Reset Tests
 
 final class AudioEngineForceResetTests: XCTestCase {
@@ -989,7 +1063,7 @@ final class AudioEngineForceResetTests: XCTestCase {
         XCTAssertTrue(engine.isCurrentlyRecording,
             "Engine should be recording after startRecording")
 
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
 
         XCTAssertFalse(engine.isCurrentlyRecording,
             "Engine should not be recording after stopRecording")
@@ -1394,7 +1468,7 @@ final class AudioEngineDeviceChangeTests: XCTestCase {
 
         XCTAssertTrue(engine.isCurrentlyRecording,
             "Should be able to record again after device change recovery")
-        let _ = engine.stopRecording()
+        _ = engine.stopRecording()
     }
 
     func testDeviceChangeCallbackNotFiredWhenNotRecording() {

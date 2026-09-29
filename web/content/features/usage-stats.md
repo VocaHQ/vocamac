@@ -1,7 +1,7 @@
 ---
 title: "Usage Statistics"
 subtitle: "See how much you dictate, how fast you speak, and how consistent you've been. All stored locally."
-description: "VocaMac's Stats tab tracks words transcribed, speaking speed, daily streaks, and lifetime totals — stored locally on your Mac and never uploaded."
+description: "VocaMac's Stats page tracks words transcribed, speaking speed, daily streaks, and lifetime totals — stored locally on your Mac and never uploaded."
 keywords: "dictation statistics, words per minute tracker, voice typing stats, speaking speed macOS, local usage stats, dictation streak"
 icon: "📈"
 ---
@@ -10,8 +10,7 @@ icon: "📈"
 
 Every transcription adds up. The **Stats** tab in Settings turns that into a picture of how you actually use your voice: total words transcribed, number of transcriptions, and total time spoken across the lifetime of the app.
 
-<!-- SCREENSHOT PLACEHOLDER: add web/static/screenshots/settings-stats.png (Stats tab, ~1344×1260, ideally with real usage so it isn't all zeros) -->
-![VocaMac Settings showing the Stats tab](/screenshots/settings-stats.png)
+![VocaMac Settings showing the Stats page](/screenshots/settings-stats.png)
 
 ## Speed, Streaks, and Recent Activity
 
@@ -23,4 +22,4 @@ It's a light, motivating way to keep a habit going, without turning dictation in
 
 ## Private by Design
 
-Your stats are yours alone. They're saved locally on your Mac and never uploaded, synced, or shared — nothing about how much you dictate ever leaves your machine. Want a clean slate? A single button in the Stats tab resets everything.
+Your stats are yours alone. They're saved locally on your Mac and never uploaded, synced, or shared — nothing about how much you dictate ever leaves your machine. Want a clean slate? A single button in the Stats page resets everything.

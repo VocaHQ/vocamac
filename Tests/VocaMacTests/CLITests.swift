@@ -48,6 +48,68 @@ final class CLITests: XCTestCase {
         }
     }
 
+    // MARK: - Piece comparison
+
+    func testPiecesFlagParsesWithItsOptions() throws {
+        XCTAssertEqual(
+            try CLICommand.parse(arguments: [
+                "--transcribe-file", "a.wav", "--json", "--pieces",
+                "--cleanup", "ministral3_3b_q4_k_m", "--min-piece-seconds", "5",
+            ]),
+            .comparePieces(path: "a.wav", model: nil, language: nil, options: PieceComparisonOptions(
+                cleanupModel: .ministral3_3b_q4_k_m, pauseSeconds: 0.6, minPieceSeconds: 5
+            ))
+        )
+    }
+
+    func testPieceOptionsNeedPiecesAndValidValues() {
+        for arguments in [
+            ["--transcribe-file", "a.wav", "--json", "--cleanup", "ministral3_3b_q4_k_m"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--cleanup", "gpt-5"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "-1"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--pause-seconds", "1e300"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--min-piece-seconds", "inf"],
+            ["--list-models", "--json", "--pieces"],
+        ] {
+            XCTAssertThrowsError(try CLICommand.parse(arguments: arguments), "\(arguments)") { error in
+                XCTAssertCLIError(error, category: .invalidArguments)
+            }
+        }
+    }
+
+    func testPieceComparisonDecodesWholeAndPieceByPiece() async throws {
+        let dependencies = makeDependencies(selectedModel: .tiny)
+        let tone: [Float] = (0..<80_000).map { index in
+            let phase: Float = Float(index) * 2 * Float.pi * 220 / 16_000
+            return 0.3 * sin(phase)
+        }
+        let audio = tone + [Float](repeating: 0, count: 16_000) + Array(tone.prefix(48_000))
+        dependencies.audioLoader.loadedAudio = LoadedAudioFile(samples: audio, durationSeconds: Double(audio.count) / 16_000)
+
+        let response = try await dependencies.headless.comparePieces(
+            fileURL: URL(fileURLWithPath: "/mock/audio.wav"), modelOverride: nil, languageOverride: nil,
+            options: PieceComparisonOptions(cleanupModel: nil, pauseSeconds: 0.6, minPieceSeconds: 4)
+        )
+
+        XCTAssertEqual(response.batch.text, "mock transcription")
+        XCTAssertEqual(response.pieces.count, 2)
+        // The fake engine answers the same for every decode, so the tail's
+        // merged decode adds nothing after the first piece. The tail holds
+        // speech, so it is decoded alone, as a live session does.
+        XCTAssertEqual(response.pieces.map(\.text), ["mock transcription", "mock transcription"])
+        XCTAssertEqual(response.pieceMode.text, "mock transcription mock transcription")
+        XCTAssertEqual(response.pieceMode.wordDifferenceRate, 1)
+        XCTAssertFalse(response.pieceMode.fallsBackToBatch)
+        XCTAssertNil(response.batch.cleanedText)
+    }
+
+    func testWordDifferenceCountsEditsOverReferenceWords() {
+        XCTAssertEqual(WordDifference.rate(reference: "Ship it on Friday.", hypothesis: "ship it on friday"), 0)
+        XCTAssertEqual(WordDifference.rate(reference: "ship it on friday", hypothesis: "ship it friday"), 0.25)
+        XCTAssertEqual(WordDifference.rate(reference: "ship it", hypothesis: "we ship it now"), 1)
+        XCTAssertEqual(WordDifference.rate(reference: "", hypothesis: ""), 0)
+    }
+
     // MARK: - Preference and model resolution
 
     func testOmittedModelReadsInjectedAppSelection() async throws {
@@ -345,6 +407,34 @@ final class CLITests: XCTestCase {
         }
     }
 
+    func testHeadlessTranscriptionRecordsTheLoad() async throws {
+        let suiteName = "CLITests.compiledModels"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let record = CompiledModelRecord(defaults: defaults, osBuild: "27A1", compileCacheExists: { true })
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small]
+        let headless = HeadlessTranscriber(
+            modelManager: modelManager,
+            preferences: MockCLIPreferences(
+                selectedModelIdentifier: ModelSize.small.rawValue,
+                selectedLanguageIdentifier: "auto"
+            ),
+            audioLoader: MockAudioFileLoader(),
+            transcriber: MockWhisperService(),
+            compiledModels: record
+        )
+
+        _ = try await headless.transcribe(
+            fileURL: URL(fileURLWithPath: "/mock/audio.wav"),
+            modelOverride: nil,
+            languageOverride: nil
+        )
+
+        XCTAssertTrue(record.hasLoaded(.small))
+    }
+
     // MARK: - Helpers
 
     private func makeDependencies(selectedModel: ModelSize) -> TestDependencies {
@@ -437,5 +527,22 @@ private final class MockAudioFileLoader: AudioFileLoading {
     func loadAudio(at url: URL) throws -> LoadedAudioFile {
         loadCount += 1
         return loadedAudio
+    }
+}
+
+final class SingleInstanceTests: XCTestCase {
+    func testOnlyOtherGUIVocaMacExecutablesAreTerminated() {
+        let output = """
+          100 VocaMac          /Applications/VocaMac.app/Contents/MacOS/VocaMac
+          200 VocaMac          /usr/local/bin/VocaMac --transcribe-file /tmp/a b.wav --json
+          300 tail             tail -f /Users/me/Library/Logs/VocaMac/vocamac.log
+          400 xcodebuild       xcodebuild -scheme VocaMac build
+          500 VocaMac          /Users/me/vocamac/.build/debug/VocaMac -hidden-flag
+          600 VocaMac          /Applications/VocaMac.app/Contents/MacOS/VocaMac
+        """
+        XCTAssertEqual(
+            VocaMacApp.previousGUIInstancePIDs(psOutput: output, currentPID: 600),
+            [100, 500]
+        )
     }
 }

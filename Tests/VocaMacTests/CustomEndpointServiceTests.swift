@@ -710,13 +710,37 @@ final class CustomEndpointServiceTests: XCTestCase {
         XCTAssertEqual(allowedLocalHTTP?.url?.scheme, "http")
     }
 
-    private func redirectDecision(from origin: String, to target: String) async -> URLRequest? {
+    func testRedirectDelegateStripsAPIKeyOnCrossHostRedirect() async {
+        let crossHost = await redirectDecision(
+            from: "https://speech.example.com/v1/audio/transcriptions",
+            to: "https://cdn.speech.example.com/v1/audio/transcriptions",
+            authorization: "Bearer sk-secret"
+        )
+        XCTAssertEqual(crossHost?.url?.host, "cdn.speech.example.com")
+        XCTAssertNil(crossHost?.value(forHTTPHeaderField: "Authorization"))
+
+        let sameHost = await redirectDecision(
+            from: "https://speech.example.com/v1/audio/transcriptions",
+            to: "https://speech.example.com/v1/audio/other",
+            authorization: "Bearer sk-secret"
+        )
+        XCTAssertEqual(sameHost?.value(forHTTPHeaderField: "Authorization"), "Bearer sk-secret")
+    }
+
+    private func redirectDecision(
+        from origin: String,
+        to target: String,
+        authorization: String? = nil
+    ) async -> URLRequest? {
         let delegate = SpeechEndpointRedirectDelegate()
         let session = URLSession(configuration: .ephemeral)
         defer { session.finishTasksAndInvalidate() }
         let original = URL(string: origin)!
         let task = session.dataTask(with: original)
-        let newRequest = URLRequest(url: URL(string: target)!)
+        var newRequest = URLRequest(url: URL(string: target)!)
+        if let authorization {
+            newRequest.setValue(authorization, forHTTPHeaderField: "Authorization")
+        }
         let response = HTTPURLResponse(
             url: original, statusCode: 307, httpVersion: nil,
             headerFields: ["Location": target]

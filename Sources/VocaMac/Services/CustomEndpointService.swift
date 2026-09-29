@@ -285,6 +285,12 @@ final class SpeechEndpointRedirectDelegate: NSObject, URLSessionTaskDelegate, @u
             completionHandler(nil)
             return
         }
-        completionHandler(request)
+        // The API key is for the configured endpoint only; a redirect to a
+        // different host must not forward it.
+        var redirected = request
+        if url.host?.lowercased() != response.url?.host?.lowercased() {
+            redirected.setValue(nil, forHTTPHeaderField: "Authorization")
+        }
+        completionHandler(redirected)
     }
 }

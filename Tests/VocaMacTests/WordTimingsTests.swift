@@ -152,6 +152,82 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertEqual(timed.first?.text, " Hello world.")
     }
 
+    func testFilteredTimedSegmentsStripsHallucinations() {
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 1.0,
+                text: " Hello [BLANK_AUDIO] world (music)",
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 1, noSpeechProb: 0.01,
+                words: [
+                    WordTiming(word: " Hello", tokens: [1], start: 0, end: 0.3, probability: 0.9),
+                    WordTiming(word: " [BLANK_AUDIO]", tokens: [2], start: 0.3, end: 0.5, probability: 0.1),
+                    WordTiming(word: " world", tokens: [3], start: 0.5, end: 0.8, probability: 0.9),
+                    WordTiming(word: " (music)", tokens: [4], start: 0.8, end: 1.0, probability: 0.1),
+                ]
+            ),
+            TranscriptionSegment(
+                id: 1, seek: 0, start: 1.0, end: 1.5,
+                text: "[BLANK_AUDIO]",
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 1, noSpeechProb: 0.9,
+                words: nil
+            ),
+        ]
+        let timed = WhisperService.filteredTimedSegments(from: segments, model: .tiny, audioSeconds: 1.5)
+        XCTAssertEqual(timed.count, 1, "A segment that is only a hallucination is dropped")
+        XCTAssertFalse(timed[0].text.contains("BLANK_AUDIO"))
+        XCTAssertFalse(timed[0].text.lowercased().contains("music"))
+        XCTAssertEqual(timed[0].words.map(\.word), [" Hello", " world"])
+    }
+
+    func testFilteredTimedSegmentsCollapsesLoops() {
+        let looped = String(repeating: "Chalo. ", count: 20)
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 0.5,
+                text: looped,
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 8, noSpeechProb: 0.01,
+                words: nil
+            )
+        ]
+        let timed = WhisperService.filteredTimedSegments(from: segments, model: .tiny, audioSeconds: 0.5)
+        XCTAssertEqual(timed.count, 1)
+        XCTAssertEqual(
+            timed[0].text,
+            WhisperService.filteredTimingText(looped, model: .tiny, audioSeconds: 0.5)
+        )
+        XCTAssertLessThan(
+            timed[0].text.count,
+            looped.trimmingCharacters(in: .whitespacesAndNewlines).count,
+            "Looped segment text is collapsed like the main transcript"
+        )
+    }
+
+    func testFilteredTimedSegmentsStripsUnexpectedScripts() {
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 1.0,
+                text: "Haan 谢谢 thik hai",
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 1, noSpeechProb: 0.01,
+                words: [
+                    WordTiming(word: " Haan", tokens: [1], start: 0, end: 0.3, probability: 0.9),
+                    WordTiming(word: " 谢谢", tokens: [2], start: 0.3, end: 0.6, probability: 0.2),
+                    WordTiming(word: " thik", tokens: [3], start: 0.6, end: 0.8, probability: 0.9),
+                    WordTiming(word: " hai", tokens: [4], start: 0.8, end: 1.0, probability: 0.9),
+                ]
+            )
+        ]
+        let timed = WhisperService.filteredTimedSegments(
+            from: segments, model: .vocaHinglish, audioSeconds: 1.0
+        )
+        XCTAssertEqual(timed.count, 1)
+        XCTAssertFalse(timed[0].text.contains("谢谢"))
+        XCTAssertEqual(timed[0].words.map(\.word), [" Haan", " thik", " hai"])
+    }
+
     func testMappingTimesShiftsSegmentAndWords() {
         let segment = TimedSegment(
             start: 1, end: 2, text: " hi",
@@ -261,14 +337,36 @@ final class PieceTimingCutTests: XCTestCase {
         // occupies 4–6 s on the recording's timeline.
         let range = Int(4 * rate)..<Int(6 * rate)
         let timed = [
-            segment(start: 0.5, end: 4.5, words: [word(" old", 0.5, 1.0), word(" new", 4.2, 4.5)]),
-            segment(start: 4.8, end: 5.5, words: [word(" words", 4.8, 5.0), word(" here", 5.1, 5.5)]),
+            TimedSegment(
+                start: 0.5, end: 4.5, text: " old new",
+                words: [word(" old", 0.5, 1.0), word(" new", 4.2, 4.5)]
+            ),
+            TimedSegment(
+                start: 4.8, end: 5.5, text: " words here",
+                words: [word(" words", 4.8, 5.0), word(" here", 5.1, 5.5)]
+            ),
         ]
         let cut = IncrementalAudioTranscriber.segments(inside: range, of: timed)
         XCTAssertEqual(cut.count, 2)
         XCTAssertEqual(cut[0].words.map(\.word), [" new"], "Context words before the piece are gone")
+        XCTAssertEqual(cut[0].text, " new", "Segment text is rebuilt from kept words, not the merged context")
+        XCTAssertFalse(cut[0].text.contains("old"))
         XCTAssertEqual(cut[0].start, 4.0, accuracy: 0.0001, "A segment spanning the boundary is clamped to it")
         XCTAssertEqual(cut[1].words.map(\.word), [" words", " here"])
+        XCTAssertEqual(cut[1].text, " words here")
+    }
+
+    func testSegmentWithOnlyContextWordsIsDropped() {
+        let range = Int(4 * rate)..<Int(6 * rate)
+        let timed = [
+            TimedSegment(
+                start: 0.5, end: 4.2, text: " old context",
+                words: [word(" old", 0.5, 1.0), word(" context", 1.0, 1.5)]
+            )
+        ]
+        // Overlaps the piece start but every word is outside — drop it.
+        let cut = IncrementalAudioTranscriber.segments(inside: range, of: timed)
+        XCTAssertTrue(cut.isEmpty)
     }
 
     func testSegmentFullyOutsideIsDropped() {

@@ -442,7 +442,8 @@ extension TranscriptionRouter: SpeechTranscribing {
                 audioData: audioData,
                 language: language,
                 translate: translate,
-                vocabulary: vocabulary
+                vocabulary: vocabulary,
+                includeWordTimestamps: true
             )
         case .parakeet:
             return try await parakeet.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)

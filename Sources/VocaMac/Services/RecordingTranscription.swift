@@ -877,6 +877,7 @@ extension IncrementalAudioTranscriber {
         let upper = Double(range.upperBound) / 16_000
         return timed.compactMap { segment -> TimedSegment? in
             guard segment.end > lower, segment.start < upper else { return nil }
+            let hadWords = !segment.words.isEmpty
             let words = segment.words.compactMap { word -> TimedWord? in
                 guard word.end > lower, word.start < upper else { return nil }
                 return TimedWord(
@@ -886,11 +887,23 @@ extension IncrementalAudioTranscriber {
                     probability: word.probability
                 )
             }
-            return TimedSegment(
-                start: min(max(segment.start, lower), upper),
-                end: min(max(segment.end, lower), upper),
-                text: segment.text, words: words
-            )
+            // Context-only words fell outside the piece — drop the segment.
+            if hadWords && words.isEmpty { return nil }
+            let start = min(max(segment.start, lower), upper)
+            let end = min(max(segment.end, lower), upper)
+            let text: String
+            if !words.isEmpty {
+                // Rebuild from kept words so Timestamps never shows context
+                // the word list already dropped.
+                text = words.map(\.word).joined()
+            } else if start == segment.start && end == segment.end {
+                text = segment.text
+            } else {
+                // Wordless and clamped: cannot safely trim the string, so
+                // leave it empty rather than show out-of-range context.
+                text = ""
+            }
+            return TimedSegment(start: start, end: end, text: text, words: words)
         }
     }
 

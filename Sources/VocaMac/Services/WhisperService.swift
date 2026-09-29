@@ -172,12 +172,17 @@ final class WhisperService: @unchecked Sendable {
     ///   - translate: Whether to translate to English (if true) or transcribe as-is (if false)
     ///   - vocabulary: Custom terms (newline/comma separated) to bias transcription toward,
     ///     e.g. proper nouns and jargon like names. Empty string disables it.
+    ///   - includeWordTimestamps: When true, WhisperKit runs DTW word alignment so
+    ///     history Timestamps can show per-word ranges. Off by default — that path
+    ///     is a latency cost and is not needed for streaming/commit piece decodes
+    ///     that only need the transcript text.
     /// - Returns: VocaTranscription with the transcribed text and metadata
     func transcribe(
         audioData: [Float],
         language: String? = nil,
         translate: Bool = false,
-        vocabulary: String = ""
+        vocabulary: String = "",
+        includeWordTimestamps: Bool = false
     ) async throws -> VocaTranscription {
         guard let kit = whisperKit else {
             throw WhisperError.modelNotLoaded
@@ -202,7 +207,10 @@ final class WhisperService: @unchecked Sendable {
         // the terms would be silently ignored in auto-detect mode.
         let promptTokens = Self.promptTokens(for: vocabulary, tokenizer: kit.tokenizer)
 
-        // Configure decoding options — optimized for low latency dictation
+        // Low-latency dictation defaults: no temperature fallback. Word-level
+        // timestamps ask WhisperKit for DTW alignment — only when the caller
+        // needs them for history Timestamps (batch/final), not on every
+        // streaming or commit-piece decode.
         var options = DecodingOptions(
             task: translate ? .translate : .transcribe,
             language: language,
@@ -210,7 +218,7 @@ final class WhisperService: @unchecked Sendable {
             temperatureFallbackCount: 0,  // No fallback for speed
             usePrefillPrompt: language != nil || promptTokens != nil,
             detectLanguage: language == nil,
-            wordTimestamps: true,
+            wordTimestamps: includeWordTimestamps,
             windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
             promptTokens: promptTokens,
             chunkingStrategy: nil
@@ -338,7 +346,11 @@ final class WhisperService: @unchecked Sendable {
                 detectedLanguage: detectedLanguage,
                 audioLengthSeconds: audioLengthSeconds,
                 modelUsed: modelUsed,
-                segments: Self.timedSegments(from: results.flatMap(\.segments))
+                segments: Self.filteredTimedSegments(
+                    from: results.flatMap(\.segments),
+                    model: modelUsed,
+                    audioSeconds: audioLengthSeconds
+                )
             )
         } catch {
             throw WhisperError.transcriptionFailed(reason: error.localizedDescription)
@@ -417,6 +429,9 @@ final class WhisperService: @unchecked Sendable {
     /// The segments of `results` as engine-neutral timings for the
     /// transcript: each segment's range and, when WhisperKit aligned them,
     /// its words' ranges. Seconds on the decoded audio's timeline.
+    /// Special tokens are stripped from segment text; hallucination / loop /
+    /// script filtering happens in `filteredTimedSegments` so Timestamps
+    /// matches the cleaned transcript.
     static func timedSegments(from segments: [TranscriptionSegment]) -> [TimedSegment] {
         segments.map { segment in
             let words = (segment.words ?? []).map { word in
@@ -430,6 +445,97 @@ final class WhisperService: @unchecked Sendable {
                 text: Self.removingSpecialTokens(from: segment.text), words: words
             )
         }
+    }
+
+    /// `timedSegments` after the same post-processing `transcribe` applies to
+    /// `fullText`, so history Timestamps never shows content the main
+    /// transcript already hid. Empty-after-filter segments are dropped.
+    static func filteredTimedSegments(
+        from segments: [TranscriptionSegment],
+        model: ModelSize,
+        audioSeconds: Double
+    ) -> [TimedSegment] {
+        timedSegments(from: segments).compactMap { segment in
+            filteredTimedSegment(segment, model: model, audioSeconds: audioSeconds)
+        }
+    }
+
+    /// One timing segment with hallucination tokens, loops, and unexpected
+    /// scripts removed from its text and words.
+    static func filteredTimedSegment(
+        _ segment: TimedSegment,
+        model: ModelSize,
+        audioSeconds: Double
+    ) -> TimedSegment? {
+        let words = segment.words.compactMap { word -> TimedWord? in
+            guard let cleaned = filteredTimingWord(word.word, model: model) else { return nil }
+            return TimedWord(
+                word: cleaned, start: word.start, end: word.end,
+                probability: word.probability
+            )
+        }
+        let text: String
+        if words.isEmpty {
+            text = filteredTimingText(segment.text, model: model, audioSeconds: audioSeconds)
+        } else {
+            // Rebuild from kept words so text and the word list stay aligned,
+            // then collapse any phrase loop the same way fullText does.
+            let joined = words.map(\.word).joined()
+            text = filteredTimingText(joined, model: model, audioSeconds: audioSeconds)
+        }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        // When a phrase loop was collapsed out of the joined words, keep only
+        // as many leading words as still appear in the collapsed text.
+        let keptWords: [TimedWord]
+        if words.isEmpty {
+            keptWords = []
+        } else if words.map(\.word).joined() == text {
+            keptWords = words
+        } else {
+            keptWords = wordsPrefix(words, matching: text)
+        }
+        return TimedSegment(start: segment.start, end: segment.end, text: text, words: keptWords)
+    }
+
+    /// Hallucination filter + loop collapse + unexpected-script strip — the
+    /// same pipeline `transcribe` runs on `fullText`.
+    static func filteredTimingText(_ text: String, model: ModelSize, audioSeconds: Double) -> String {
+        var cleaned = filterHallucinationTokens(text)
+        cleaned = TranscriptRepetition.collapsingLoops(in: cleaned, audioSeconds: audioSeconds)
+        return removingUnexpectedScripts(from: cleaned, model: model)
+    }
+
+    /// A single timing word after hallucination and unexpected-script strip.
+    /// Preserves a leading space when Whisper embedded one so joining words
+    /// still reads naturally. Returns nil when nothing usable remains.
+    static func filteredTimingWord(_ word: String, model: ModelSize) -> String? {
+        let hadLeadingSpace = word.first?.isWhitespace == true
+        var cleaned = removingSpecialTokens(from: word)
+        for pattern in hallucinationPatterns {
+            cleaned = cleaned.replacingOccurrences(of: pattern, with: "", options: .caseInsensitive)
+        }
+        cleaned = removingUnexpectedScripts(from: cleaned, model: model)
+        let core = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !core.isEmpty else { return nil }
+        return hadLeadingSpace ? " " + core : core
+    }
+
+    /// Leading words whose concatenation is a prefix of `text` (after the
+    /// same whitespace the joined words use). Used when loop collapse
+    /// shortened the segment text.
+    static func wordsPrefix(_ words: [TimedWord], matching text: String) -> [TimedWord] {
+        var kept: [TimedWord] = []
+        var built = ""
+        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        for word in words {
+            let next = built + word.word
+            let trimmed = next.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard target.hasPrefix(trimmed) || trimmed.hasPrefix(target) else { break }
+            kept.append(word)
+            built = next
+            if trimmed == target || trimmed.count >= target.count { break }
+        }
+        return kept
     }
 
     /// `TranscriptionSegment.text` still carries the decoder's control

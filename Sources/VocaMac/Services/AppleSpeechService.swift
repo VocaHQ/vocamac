@@ -174,16 +174,25 @@ final class AppleSpeechService: @unchecked Sendable {
             try Task.checkCancellation()
             let hints = RecognitionHints.contextualStrings(from: vocabulary)
             let detectedLanguage = language ?? locale.language.languageCode?.identifier ?? "auto"
-            let tracker = onPiece.map { FinalizedPieceTracker(language: detectedLanguage, onPiece: $0) }
+            // Always track finalized results so batch (no onPiece) still gets
+            // segment timings for history. Live callers keep their callback.
+            let tracker = FinalizedPieceTracker(
+                language: detectedLanguage, onPiece: onPiece ?? { _, _ in }
+            )
             let (text, count) = try await session.transcribe(chunks, contextualStrings: hints) { text, endSeconds in
-                tracker?.finalized(text, endSeconds: endSeconds)
+                tracker.finalized(text, endSeconds: endSeconds)
             }
-            let pieces = tracker?.pieces(sampleCount: count) ?? []
+            let pieces = tracker.pieces(sampleCount: count)
+            // pieces() needs >= 2 aligned results for live commit mode. Batch
+            // and single-result decodes still need a segment for history.
+            let segments = pieces.isEmpty
+                ? tracker.timedSegments(sampleCount: count, fallbackText: text)
+                : pieces.map(TimedSegment.init(piece:))
             return VocaTranscription(
                 text: text, duration: CFAbsoluteTimeGetCurrent() - start,
                 detectedLanguage: detectedLanguage,
                 audioLengthSeconds: Double(count) / 16_000, modelUsed: .appleSpeech,
-                pieces: pieces, segments: pieces.map(TimedSegment.init(piece:))
+                pieces: pieces, segments: segments
             )
         } catch {
             await session.cancel()
@@ -481,6 +490,38 @@ final class FinalizedPieceTracker: @unchecked Sendable {
             let joined = finalized.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             guard pieces.count >= 2, TranscribedPiece.join(pieces) == joined else { return [] }
             return pieces
+        }
+    }
+
+    /// Segment timings from finalized results for history, even when they are
+    /// not usable as live pieces (a single result, or a join mismatch). Each
+    /// result becomes a segment; with no usable results, one segment covers
+    /// the full audio using `fallbackText`.
+    func timedSegments(sampleCount: Int, fallbackText: String) -> [TimedSegment] {
+        lock.withLock {
+            var segments: [TimedSegment] = []
+            var start = 0
+            for (index, result) in finalized.enumerated() {
+                let rawEnd = index == finalized.count - 1 ? sampleCount : result.end
+                let end = min(max(rawEnd, start), sampleCount)
+                let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if end > start, !trimmed.isEmpty {
+                    segments.append(TimedSegment(
+                        start: Double(start) / 16_000,
+                        end: Double(end) / 16_000,
+                        text: trimmed, words: []
+                    ))
+                }
+                start = max(start, end)
+            }
+            if segments.isEmpty {
+                let trimmed = fallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty, sampleCount > 0 else { return [] }
+                return [TimedSegment(
+                    start: 0, end: Double(sampleCount) / 16_000, text: trimmed, words: []
+                )]
+            }
+            return segments
         }
     }
 }

@@ -450,14 +450,17 @@ final class WhisperService: @unchecked Sendable {
     /// `timedSegments` after the same post-processing `transcribe` applies to
     /// `fullText`, so history Timestamps never shows content the main
     /// transcript already hid. Empty-after-filter segments are dropped.
+    /// Loop collapse runs per segment and again across the joined result so
+    /// repeats that only appear across boundaries match the main transcript.
     static func filteredTimedSegments(
         from segments: [TranscriptionSegment],
         model: ModelSize,
         audioSeconds: Double
     ) -> [TimedSegment] {
-        timedSegments(from: segments).compactMap { segment in
+        let filtered = timedSegments(from: segments).compactMap { segment in
             filteredTimedSegment(segment, model: model, audioSeconds: audioSeconds)
         }
+        return collapsingCrossSegmentLoops(in: filtered, audioSeconds: audioSeconds)
     }
 
     /// One timing segment with hallucination tokens, loops, and unexpected
@@ -484,17 +487,63 @@ final class WhisperService: @unchecked Sendable {
             text = filteredTimingText(joined, model: model, audioSeconds: audioSeconds)
         }
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        // When a phrase loop was collapsed out of the joined words, keep only
-        // as many leading words as still appear in the collapsed text.
+        // When a phrase loop was collapsed out of the joined words, keep the
+        // words that still appear in the collapsed text (first copy plus any
+        // trailing words after the loop, not only a leading prefix).
         let keptWords: [TimedWord]
         if words.isEmpty {
             keptWords = []
         } else if words.map(\.word).joined() == text {
             keptWords = words
         } else {
-            keptWords = wordsPrefix(words, matching: text)
+            keptWords = wordsAligning(with: text, from: words)
         }
         return TimedSegment(start: segment.start, end: segment.end, text: text, words: keptWords)
+    }
+
+    /// Collapse phrase loops that only show up once segments are joined, the
+    /// same way `transcribe` collapses `fullText`. Within-segment loops are
+    /// already handled in `filteredTimedSegment`.
+    static func collapsingCrossSegmentLoops(
+        in segments: [TimedSegment], audioSeconds: Double
+    ) -> [TimedSegment] {
+        guard segments.count >= 2 else { return segments }
+        let joined = segments.map(\.text).joined()
+        let collapsed = TranscriptRepetition.collapsingLoops(in: joined, audioSeconds: audioSeconds)
+        let joinedTrimmed = joined.trimmingCharacters(in: .whitespacesAndNewlines)
+        let collapsedTrimmed = collapsed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard collapsedTrimmed != joinedTrimmed else { return segments }
+
+        let allWords = segments.flatMap(\.words)
+        if allWords.isEmpty {
+            return [TimedSegment(
+                start: segments.first!.start, end: segments.last!.end,
+                text: collapsed, words: []
+            )]
+        }
+        let kept = wordsAligning(with: collapsed, from: allWords)
+        let keptJoined = kept.map(\.word).joined()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        // If word realignment could not rebuild the collapsed text, keep one
+        // segment spanning the whole range rather than partial timings.
+        if keptJoined != collapsedTrimmed {
+            return [TimedSegment(
+                start: segments.first!.start, end: segments.last!.end,
+                text: collapsed, words: kept
+            )]
+        }
+        // Re-bucket kept words into the original segments by their times so
+        // Timestamps still shows multiple ranges when speech spans them.
+        return segments.compactMap { segment -> TimedSegment? in
+            let words = kept.filter { word in
+                word.end > segment.start && word.start < segment.end
+            }
+            guard !words.isEmpty else { return nil }
+            let text = words.map(\.word).joined()
+            let start = min(segment.start, words.map(\.start).min() ?? segment.start)
+            let end = max(segment.end, words.map(\.end).max() ?? segment.end)
+            return TimedSegment(start: start, end: end, text: text, words: words)
+        }
     }
 
     /// Hallucination filter + loop collapse + unexpected-script strip — the
@@ -522,7 +571,7 @@ final class WhisperService: @unchecked Sendable {
 
     /// Leading words whose concatenation is a prefix of `text` (after the
     /// same whitespace the joined words use). Used when loop collapse
-    /// shortened the segment text.
+    /// shortened the segment text and there is no trailing remainder.
     static func wordsPrefix(_ words: [TimedWord], matching text: String) -> [TimedWord] {
         var kept: [TimedWord] = []
         var built = ""
@@ -536,6 +585,51 @@ final class WhisperService: @unchecked Sendable {
             if trimmed == target || trimmed.count >= target.count { break }
         }
         return kept
+    }
+
+    /// Words from `words` whose concatenation matches collapsed `text`.
+    /// Loop collapse keeps the first copy of a repeated phrase and anything
+    /// said after it; a leading-only prefix would drop that trailing tail
+    /// (e.g. "go go… go home" -> "go home" must keep timing for "home").
+    static func wordsAligning(with text: String, from words: [TimedWord]) -> [TimedWord] {
+        let target = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty else { return [] }
+        if words.map(\.word).joined().trimmingCharacters(in: .whitespacesAndNewlines) == target {
+            return words
+        }
+        var best = wordsPrefix(words, matching: text)
+        if best.map(\.word).joined().trimmingCharacters(in: .whitespacesAndNewlines) == target {
+            return best
+        }
+        // Try every split: a leading match for the head of the collapsed
+        // text, plus a trailing run of original words for the remainder.
+        for suffixCount in 1...words.count {
+            let headLimit = words.count - suffixCount
+            let suffixWords = Array(words.suffix(suffixCount))
+            let suffixJoined = suffixWords.map(\.word).joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !suffixJoined.isEmpty, target.hasSuffix(suffixJoined) else { continue }
+            let remainder = String(target.dropLast(suffixJoined.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let headWords = headLimit == 0
+                ? []
+                : wordsPrefix(Array(words.prefix(headLimit)), matching: remainder)
+            let headJoined = headWords.map(\.word).joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard headJoined == remainder else { continue }
+            // Skip overlap: the suffix must start after the last head word.
+            if let lastHead = headWords.last,
+               let firstSuffix = suffixWords.first,
+               firstSuffix.start < lastHead.end {
+                continue
+            }
+            let combined = headWords + suffixWords
+            let combinedJoined = combined.map(\.word).joined()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard combinedJoined == target else { continue }
+            if combined.count > best.count { best = combined }
+        }
+        return best
     }
 
     /// `TranscriptionSegment.text` still carries the decoder's control

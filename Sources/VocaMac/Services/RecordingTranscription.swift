@@ -500,6 +500,15 @@ extension IncrementalAudioTranscriber {
                     if let revised = decode.revisedPrevious, let last = pieces.indices.last {
                         pieces[last] = revised
                         onPiece?(last, revised)
+                        // Drop timings that belonged to the previous piece and
+                        // replace them so history matches the corrected text.
+                        let lower = Double(revised.range.lowerBound) / 16_000
+                        let upper = Double(revised.range.upperBound) / 16_000
+                        timed.removeAll { $0.end > lower && $0.start < upper }
+                        let revisedTimed = decode.revisedPreviousSegments.isEmpty
+                            ? [TimedSegment(piece: revised)]
+                            : decode.revisedPreviousSegments
+                        timed.append(contentsOf: revisedTimed)
                     }
                     modelUsed = decode.modelUsed ?? modelUsed
                     pieces.append(decode.piece)
@@ -532,6 +541,7 @@ extension IncrementalAudioTranscriber {
                                 ),
                                 segments: segments(inside: next.piece.range, of: early.decode.segments),
                                 revisedPrevious: early.decode.revisedPrevious,
+                                revisedPreviousSegments: early.decode.revisedPreviousSegments,
                                 modelUsed: early.decode.modelUsed
                             ))
                         } else {
@@ -656,6 +666,10 @@ extension IncrementalAudioTranscriber {
         /// The previous piece as this decode heard it, when its words differ
         /// and the caller asked for revisions.
         let revisedPrevious: TranscribedPiece?
+        /// Timings for `revisedPrevious` on the recording's timeline. Empty
+        /// when there was no revision; `keep` then builds a piece-range
+        /// segment from the revised text.
+        let revisedPreviousSegments: [TimedSegment]
         /// Nil when nothing was decoded (a silent piece).
         let modelUsed: ModelSize?
     }
@@ -684,6 +698,7 @@ extension IncrementalAudioTranscriber {
         var modelUsed: ModelSize?
         var contextual: TranscribedPiece?
         var revised: TranscribedPiece?
+        var revisedTimed: [TimedSegment] = []
         var timed: [TimedSegment]?
         if let previous, !isSilent(samples),
            let previousAudio = await audio(previous.range),
@@ -700,7 +715,14 @@ extension IncrementalAudioTranscriber {
                 // only timings inside the piece's own range belong to it.
                 timed = segments(inside: range, of: merged.segments)
                 if revisesPrevious, let text = split.revisedPrevious {
-                    revised = TranscribedPiece(range: previous.range, text: text, language: previous.language)
+                    let revisedPiece = TranscribedPiece(
+                        range: previous.range, text: text, language: previous.language
+                    )
+                    revised = revisedPiece
+                    // Same merged decode: timings inside the previous piece's
+                    // range replace the stale ones when keep applies the revision.
+                    let prevTimed = segments(inside: previous.range, of: merged.segments)
+                    revisedTimed = prevTimed.isEmpty ? [TimedSegment(piece: revisedPiece)] : prevTimed
                 }
             }
         }
@@ -716,6 +738,7 @@ extension IncrementalAudioTranscriber {
             // First piece, or the merged text couldn't be lined up with the
             // previous piece: decode this one alone.
             revised = nil
+            revisedTimed = []
             let standalone = try await decodePiece(range, samples: samples, transcribe: transcribe) { modelUsed = $0 }
             piece = standalone.piece
             let inRange = segments(inside: range, of: standalone.segments)
@@ -727,7 +750,10 @@ extension IncrementalAudioTranscriber {
             VocaLogger.warning(.general, "A piece with speech decoded to nothing; decoding the complete recording instead")
             throw RecordingTranscription.StreamError.incomplete
         }
-        return CommittedDecode(piece: piece, segments: pieceSegments, revisedPrevious: revised, modelUsed: modelUsed)
+        return CommittedDecode(
+            piece: piece, segments: pieceSegments, revisedPrevious: revised,
+            revisedPreviousSegments: revisedTimed, modelUsed: modelUsed
+        )
     }
 
     /// Less context than this (2 s) barely helps a piece and still costs a
@@ -899,9 +925,10 @@ extension IncrementalAudioTranscriber {
             } else if start == segment.start && end == segment.end {
                 text = segment.text
             } else {
-                // Wordless and clamped: cannot safely trim the string, so
-                // leave it empty rather than show out-of-range context.
-                text = ""
+                // Wordless and clamped: cannot safely trim the string. Drop
+                // the segment so an empty timing list still triggers the
+                // piece-text fallback instead of a blank Timestamps range.
+                return nil
             }
             return TimedSegment(start: start, end: end, text: text, words: words)
         }

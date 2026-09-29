@@ -171,6 +171,27 @@ final class FinalizedPieceTrackerTests: XCTestCase {
         tracker.finalized(" Bye.", endSeconds: 6)
         XCTAssertEqual(tracker.pieces(sampleCount: 16_000), [])
     }
+
+    /// Batch path has no live pieces, but finalized results still yield
+    /// segment timings for history.
+    func testTimedSegmentsFromSingleFinalizedResult() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized(" Hello world.", endSeconds: 1.5)
+        XCTAssertEqual(tracker.pieces(sampleCount: 32_000), [], "A single result is not live pieces")
+        let segments = tracker.timedSegments(sampleCount: 32_000, fallbackText: "Hello world.")
+        XCTAssertEqual(segments.count, 1)
+        XCTAssertEqual(segments[0].text, "Hello world.")
+        XCTAssertEqual(segments[0].start, 0, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].end, 2.0, accuracy: 0.0001)
+    }
+
+    func testTimedSegmentsFallbackWhenNoFinalizedResults() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        let segments = tracker.timedSegments(sampleCount: 16_000, fallbackText: "Only the join")
+        XCTAssertEqual(segments.count, 1)
+        XCTAssertEqual(segments[0].text, "Only the join")
+        XCTAssertEqual(segments[0].end, 1.0, accuracy: 0.0001)
+    }
 }
 
 extension SpeechSegmenterTests {

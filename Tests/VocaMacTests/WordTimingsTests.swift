@@ -228,6 +228,95 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertEqual(timed[0].words.map(\.word), [" Haan", " thik", " hai"])
     }
 
+
+    /// Loop collapse that keeps a trailing word must keep that word's timing
+    /// too ("go go… go home" -> "go home", not timing for only the first "go").
+    func testFilteredTimedSegmentsKeepsTrailingWordsAfterLoopCollapse() {
+        var words: [WordTiming] = []
+        for index in 0..<8 {
+            let start = Double(index) * 0.2
+            words.append(WordTiming(
+                word: " go", tokens: [1], start: Float(start), end: Float(start + 0.15),
+                probability: 0.9
+            ))
+        }
+        words.append(WordTiming(
+            word: " home", tokens: [2], start: 1.6, end: 2.0, probability: 0.95
+        ))
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 2.0,
+                text: words.map(\.word).joined(),
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 8, noSpeechProb: 0.01,
+                words: words
+            )
+        ]
+        let timed = WhisperService.filteredTimedSegments(from: segments, model: .tiny, audioSeconds: 0.5)
+        XCTAssertEqual(timed.count, 1)
+        let kept = timed[0].words.map { $0.word.trimmingCharacters(in: .whitespaces) }
+        XCTAssertTrue(kept.contains("home"), "Trailing word after a collapsed loop keeps its timing")
+        XCTAssertTrue(kept.contains("go"), "First copy of the looped word is kept")
+        XCTAssertLessThan(kept.filter { $0 == "go" }.count, 8, "Looped copies are not all kept")
+        let text = timed[0].text.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(text.contains("home"))
+        XCTAssertFalse(text.contains("go go go"), "Collapsed text should not still loop")
+    }
+
+    /// A phrase repeated across segment boundaries must collapse the same way
+    /// the main transcript does after joining.
+    func testFilteredTimedSegmentsCollapsesCrossSegmentLoops() {
+        let unit = "Chalo. "
+        let seg1Words = (0..<6).map { index in
+            WordTiming(
+                word: " Chalo.", tokens: [1],
+                start: Float(index) * 0.3, end: Float(index) * 0.3 + 0.25,
+                probability: 0.9
+            )
+        }
+        let seg2Words = (0..<6).map { index in
+            WordTiming(
+                word: " Chalo.", tokens: [1],
+                start: 2.0 + Float(index) * 0.3, end: 2.0 + Float(index) * 0.3 + 0.25,
+                probability: 0.9
+            )
+        }
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 1.8,
+                text: String(repeating: unit, count: 6),
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 4, noSpeechProb: 0.01,
+                words: seg1Words
+            ),
+            TranscriptionSegment(
+                id: 1, seek: 0, start: 2.0, end: 3.8,
+                text: String(repeating: unit, count: 6),
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 4, noSpeechProb: 0.01,
+                words: seg2Words
+            ),
+        ]
+        let joined = segments.map(\.text).joined()
+        let collapsed = TranscriptRepetition.collapsingLoops(in: joined, audioSeconds: 0.5)
+        XCTAssertLessThan(
+            collapsed.trimmingCharacters(in: .whitespacesAndNewlines).count,
+            joined.trimmingCharacters(in: .whitespacesAndNewlines).count,
+            "Joined text must actually collapse for this fixture"
+        )
+        let timed = WhisperService.filteredTimedSegments(from: segments, model: .tiny, audioSeconds: 0.5)
+        let timedText = timed.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertEqual(
+            timedText,
+            collapsed.trimmingCharacters(in: .whitespacesAndNewlines),
+            "Timestamps text matches the main transcript after cross-segment collapse"
+        )
+        let goCount = timed.flatMap(\.words).filter {
+            $0.word.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("Chalo")
+        }.count
+        XCTAssertLessThan(goCount, 12, "Cross-segment loop copies are not all kept in timings")
+    }
+
     func testMappingTimesShiftsSegmentAndWords() {
         let segment = TimedSegment(
             start: 1, end: 2, text: " hi",
@@ -381,6 +470,71 @@ final class PieceTimingCutTests: XCTestCase {
         let cut = IncrementalAudioTranscriber.segments(inside: range, of: timed)
         XCTAssertEqual(cut.first?.words.first?.start ?? -1, 4.0, accuracy: 0.0001)
         XCTAssertEqual(cut.first?.words.first?.end ?? -1, 4.6, accuracy: 0.0001)
+    }
+
+    /// A wordless segment clamped to the piece boundary is dropped so the
+    /// caller can fall back to the piece's own text instead of an empty range.
+    func testWordlessClampedSegmentIsDropped() {
+        let range = Int(4 * rate)..<Int(6 * rate)
+        let timed = [
+            TimedSegment(start: 3.5, end: 5.0, text: " committed speech", words: [])
+        ]
+        let cut = IncrementalAudioTranscriber.segments(inside: range, of: timed)
+        XCTAssertTrue(cut.isEmpty, "Clamped wordless segments are dropped for piece-text fallback")
+    }
+
+    /// Revising a previous piece replaces its timings, not only its text.
+    func testRevisionReplacesPreviousTimings() {
+        let previous = TranscribedPiece(range: 0..<32_000, text: "old words", language: "en")
+        let revised = TranscribedPiece(range: 0..<32_000, text: "new words", language: "en")
+        var pieces = [previous]
+        var timed = [
+            TimedSegment(
+                start: 0, end: 2.0, text: " old words",
+                words: [
+                    TimedWord(word: " old", start: 0, end: 0.8, probability: 0.9),
+                    TimedWord(word: " words", start: 0.9, end: 2.0, probability: 0.9),
+                ]
+            )
+        ]
+        let revisedSegments = [
+            TimedSegment(
+                start: 0, end: 2.0, text: " new words",
+                words: [
+                    TimedWord(word: " new", start: 0, end: 0.8, probability: 0.9),
+                    TimedWord(word: " words", start: 0.9, end: 2.0, probability: 0.9),
+                ]
+            )
+        ]
+        let decode = IncrementalAudioTranscriber.CommittedDecode(
+            piece: TranscribedPiece(range: 32_000..<64_000, text: "next", language: "en"),
+            segments: [
+                TimedSegment(start: 2.0, end: 4.0, text: " next", words: [
+                    TimedWord(word: " next", start: 2.0, end: 4.0, probability: 0.9)
+                ])
+            ],
+            revisedPrevious: revised,
+            revisedPreviousSegments: revisedSegments,
+            modelUsed: .tiny
+        )
+        // Mirror keep()'s revision handling.
+        if let revisedPiece = decode.revisedPrevious, let last = pieces.indices.last {
+            pieces[last] = revisedPiece
+            let lower = Double(revisedPiece.range.lowerBound) / 16_000
+            let upper = Double(revisedPiece.range.upperBound) / 16_000
+            timed.removeAll { $0.end > lower && $0.start < upper }
+            let revisedTimed = decode.revisedPreviousSegments.isEmpty
+                ? [TimedSegment(piece: revisedPiece)]
+                : decode.revisedPreviousSegments
+            timed.append(contentsOf: revisedTimed)
+        }
+        pieces.append(decode.piece)
+        timed.append(contentsOf: decode.segments)
+        XCTAssertEqual(pieces[0].text, "new words")
+        XCTAssertEqual(timed.count, 2)
+        XCTAssertEqual(timed[0].text, " new words")
+        XCTAssertEqual(timed[0].words.map(\.word), [" new", " words"])
+        XCTAssertFalse(timed.contains { $0.text.contains("old") })
     }
 }
 

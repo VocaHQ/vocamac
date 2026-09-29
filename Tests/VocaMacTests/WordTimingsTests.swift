@@ -136,6 +136,22 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertTrue(timed[1].words.isEmpty, "A segment without words still has its own range")
     }
 
+    func testSpecialTokensStrippedFromSegmentText() {
+        // With wordTimestamps on, segment text carries the decoder's control
+        // tokens; result.text does not, so neither should ours.
+        let segments = [
+            TranscriptionSegment(
+                id: 0, seek: 0, start: 0, end: 4.0,
+                text: "<|startoftranscript|><|en|><|transcribe|><|0.00|> Hello world.<|4.00|>",
+                tokens: [], tokenLogProbs: [], temperature: 0,
+                avgLogprob: -0.2, compressionRatio: 1, noSpeechProb: 0.01,
+                words: nil
+            )
+        ]
+        let timed = WhisperService.timedSegments(from: segments)
+        XCTAssertEqual(timed.first?.text, " Hello world.")
+    }
+
     func testMappingTimesShiftsSegmentAndWords() {
         let segment = TimedSegment(
             start: 1, end: 2, text: " hi",

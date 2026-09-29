@@ -427,9 +427,17 @@ final class WhisperService: @unchecked Sendable {
             }
             return TimedSegment(
                 start: Double(segment.start), end: Double(segment.end),
-                text: segment.text, words: words
+                text: Self.removingSpecialTokens(from: segment.text), words: words
             )
         }
+    }
+
+    /// `TranscriptionSegment.text` still carries the decoder's control
+    /// tokens — `<|startoftranscript|>`, `<|en|>`, `<|transcribe|>`, and a
+    /// `<|0.00|>` time marker every few seconds — where `result.text` is
+    /// already cleaned. Drop them so a segment's text is words only.
+    static func removingSpecialTokens(from text: String) -> String {
+        text.replacingOccurrences(of: "<\\|[^|]*\\|>", with: "", options: .regularExpression)
     }
 
     // MARK: - Device Recommendations

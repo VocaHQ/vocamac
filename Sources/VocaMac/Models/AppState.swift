@@ -317,6 +317,7 @@ final class AppState: ObservableObject {
     /// dictations paste sooner. Off by default until measured on more Macs.
     @AppStorage(PreferenceKey.processWhileSpeaking) var processWhileSpeaking: Bool = false
     @AppStorage(PreferenceKey.cleanupEndpoint) var cleanupEndpointJSON: String = ""
+    @AppStorage(PreferenceKey.speechEndpoint) var speechEndpointJSON: String = ""
     @AppStorage(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
     @AppStorage(PreferenceKey.historyKeepsAudio) var historyKeepsAudio: Bool = false
     @AppStorage(PreferenceKey.historyRetention) var historyRetention: HistoryRetention = .defaultRetention
@@ -344,6 +345,11 @@ final class AppState: ObservableObject {
     var cleanupEndpoint: CleanupEndpointConfiguration {
         get { CleanupEndpointConfiguration.decode(cleanupEndpointJSON) }
         set { cleanupEndpointJSON = newValue.encoded(); objectWillChange.send() }
+    }
+
+    var speechEndpoint: SpeechEndpointConfiguration {
+        get { SpeechEndpointConfiguration.decode(speechEndpointJSON) }
+        set { speechEndpointJSON = newValue.encoded(); objectWillChange.send() }
     }
 
     var websiteStyleBindings: [WebsiteStyleBinding] {
@@ -2063,8 +2069,11 @@ final class AppState: ObservableObject {
     private func commitOptionsForRecording(injectResult: Bool, generation: UUID) -> StreamingCommitOptions? {
         recordingSpeculator = nil
         recordingVocabulary = nil
+        // The custom endpoint is batch-only: one upload per recording. Commit
+        // mode would mean an upload per piece, so it stays off for it.
         guard processWhileSpeaking, injectResult, activeCommandSelection == nil,
               let engine = ModelSize(rawValue: selectedModelSize)?.engine,
+              engine != .customEndpoint,
               !(engine == .whisperKit && translatesSpeech) else { return nil }
         guard !isPowerConstrained() else {
             VocaLogger.info(.appState, "Process while speaking paused: Low Power Mode or thermal pressure")
@@ -3528,16 +3537,30 @@ final class AppState: ObservableObject {
     }
 
     var cleanupEndpointHasAPIKey: Bool {
-        CleanupCredentialStore().readAPIKey()?.isEmpty == false
+        KeychainCredentialStore.cleanupEndpoint.readAPIKey()?.isEmpty == false
     }
 
     func saveCleanupAPIKey(_ key: String) throws {
-        try CleanupCredentialStore().saveAPIKey(key)
+        try KeychainCredentialStore.cleanupEndpoint.saveAPIKey(key)
         objectWillChange.send()
     }
 
     func deleteCleanupAPIKey() throws {
-        try CleanupCredentialStore().deleteAPIKey()
+        try KeychainCredentialStore.cleanupEndpoint.deleteAPIKey()
+        objectWillChange.send()
+    }
+
+    var speechEndpointHasAPIKey: Bool {
+        KeychainCredentialStore.speechEndpoint.readAPIKey()?.isEmpty == false
+    }
+
+    func saveSpeechEndpointAPIKey(_ key: String) throws {
+        try KeychainCredentialStore.speechEndpoint.saveAPIKey(key)
+        objectWillChange.send()
+    }
+
+    func deleteSpeechEndpointAPIKey() throws {
+        try KeychainCredentialStore.speechEndpoint.deleteAPIKey()
         objectWillChange.send()
     }
 

@@ -15,6 +15,7 @@ final class TranscriptionRouter: @unchecked Sendable {
     private let parakeet = ParakeetService()
     private let appleSpeech = AppleSpeechService()
     private let sherpa = SherpaService()
+    private let customEndpoint = CustomEndpointService()
 
     /// Trims silence before batch decodes; see `SpeechActivityTrimmer`.
     private let voiceActivity = VoiceActivityDetector()
@@ -87,6 +88,7 @@ final class TranscriptionRouter: @unchecked Sendable {
         case .parakeet:    return parakeet.loadedModelName
         case .appleSpeech: return appleSpeech.loadedModelName
         case .sherpaOnnx:  return sherpa.loadedModelName
+        case .customEndpoint: return customEndpoint.loadedModelName
         }
     }
 
@@ -106,6 +108,7 @@ final class TranscriptionRouter: @unchecked Sendable {
         case .parakeet:    return parakeet.isModelLoaded
         case .appleSpeech: return appleSpeech.isModelLoaded
         case .sherpaOnnx:  return sherpa.isModelLoaded
+        case .customEndpoint: return customEndpoint.isModelLoaded
         }
     }
 }
@@ -154,6 +157,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         if engine != .sherpaOnnx {
             sherpa.unloadModel()
         }
+        if engine != .customEndpoint {
+            customEndpoint.unloadModel()
+        }
 
         switch engine {
         case .whisperKit:
@@ -168,6 +174,8 @@ extension TranscriptionRouter: SpeechTranscribing {
                 language: languagePreference,
                 onPhaseChange: onPhaseChange
             )
+        case .customEndpoint:
+            try await customEndpoint.loadModel(name: name, onPhaseChange: onPhaseChange)
         }
 
         activeEngine = engine
@@ -202,6 +210,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         // Without a consumer the final decode is the same batch decode, so
         // skip the session and its second copy of the recording.
         guard activeEngine == .appleSpeech || onPartial != nil else { return nil }
+        // A remote endpoint is batch-only — one upload per recording — so it
+        // never gets a live session or per-piece decodes.
+        guard activeEngine != .customEndpoint else { return nil }
         let expectedEngine = activeEngine
         let sherpaPreviewWindow = Self.sherpaPreviewWindowSamples(
             for: loadedModelName.flatMap(ModelSize.init(rawValue:))
@@ -246,6 +257,8 @@ extension TranscriptionRouter: SpeechTranscribing {
                         },
                         onPartial: onPartial
                     )
+                case .customEndpoint:
+                    throw RecordingTranscription.StreamError.incomplete
                 }
             }
         }
@@ -367,7 +380,7 @@ extension TranscriptionRouter: SpeechTranscribing {
             previewTranscribe = { [sherpa] samples in
                 try await sherpa.transcribe(audioData: samples, language: language, isPreview: true)
             }
-        case .appleSpeech:
+        case .appleSpeech, .customEndpoint:
             transcribe = { _ in throw RecordingTranscription.StreamError.incomplete }
         }
         let preview = previewTranscribe
@@ -442,6 +455,10 @@ extension TranscriptionRouter: SpeechTranscribing {
             return try await appleSpeech.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)
         case .sherpaOnnx:
             return try await sherpa.transcribe(audioData: audioData, language: language)
+        case .customEndpoint:
+            return try await customEndpoint.transcribe(
+                audioData: audioData, language: language, translate: translate, vocabulary: vocabulary
+            )
         }
     }
 
@@ -456,7 +473,8 @@ extension TranscriptionRouter: SpeechTranscribing {
         case WhisperError.modelNotLoaded, WhisperError.emptyAudio,
              ParakeetError.modelNotLoaded, ParakeetError.emptyAudio,
              AppleSpeechError.modelNotLoaded, AppleSpeechError.emptyAudio,
-             SherpaError.modelNotLoaded, SherpaError.emptyAudio:
+             SherpaError.modelNotLoaded, SherpaError.emptyAudio,
+             CustomEndpointError.modelNotLoaded, CustomEndpointError.emptyAudio:
             return false
         default:
             return true
@@ -504,6 +522,7 @@ extension TranscriptionRouter: SpeechTranscribing {
         await parakeet.unloadModelAndWait()
         await appleSpeech.unloadModel()
         sherpa.unloadModel()
+        customEndpoint.unloadModel()
         await voiceActivity.unload()
         consecutiveFailures = 0
     }

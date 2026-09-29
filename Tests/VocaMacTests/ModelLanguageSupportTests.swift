@@ -36,7 +36,7 @@ final class ModelLanguageSupportTests: XCTestCase {
     /// `accuracyScore` reads `qualityDescription`, so a renamed label would
     /// silently fall back to the default score.
     func testAccuracyScoreRecognisesEveryQualityLabel() {
-        let known: Set<String> = ["Good", "Better", "Great", "Excellent", "Best", "Legacy", "Best for Hindi"]
+        let known: Set<String> = ["Good", "Better", "Great", "Excellent", "Best", "Legacy", "Best for Hindi", "Varies"]
         for size in ModelSize.allCases {
             XCTAssertTrue(known.contains(size.qualityDescription), "\(size): \(size.qualityDescription)")
         }

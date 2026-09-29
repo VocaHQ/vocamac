@@ -7,15 +7,28 @@ import Combine
 import Foundation
 import Security
 
-protocol CleanupCredentialStoring {
+/// Read/write access to one API key, so endpoint services can be tested
+/// without touching the real Keychain.
+protocol EndpointCredentialStoring {
     func readAPIKey() -> String?
     func saveAPIKey(_ value: String) throws
     func deleteAPIKey() throws
 }
 
-struct CleanupCredentialStore: CleanupCredentialStoring {
-    private let service = "com.vocamac.app.cleanup-endpoint"
-    private let account = "api-key"
+/// A Keychain generic-password item holding one endpoint's API key.
+struct KeychainCredentialStore: EndpointCredentialStoring {
+    let service: String
+    let account: String
+
+    /// The transcript-cleanup endpoint's key.
+    static let cleanupEndpoint = KeychainCredentialStore(
+        service: "com.vocamac.app.cleanup-endpoint", account: "api-key"
+    )
+
+    /// The custom speech endpoint's key.
+    static let speechEndpoint = KeychainCredentialStore(
+        service: "com.vocamac.app.speech-endpoint", account: "api-key"
+    )
 
     func readAPIKey() -> String? {
         let query: [String: Any] = [
@@ -77,7 +90,7 @@ struct CleanupCredentialStore: CleanupCredentialStoring {
 @MainActor
 final class RemoteCleanupService: TranscriptCleaning {
     let configuration: CleanupEndpointConfiguration
-    private let credentials: CleanupCredentialStoring
+    private let credentials: EndpointCredentialStoring
     private let session: URLSession
     private let changes = PassthroughSubject<Void, Never>()
     private var transformTask: Task<CleanupAttempt, Never>?
@@ -98,7 +111,7 @@ final class RemoteCleanupService: TranscriptCleaning {
 
     init(
         configuration: CleanupEndpointConfiguration,
-        credentials: CleanupCredentialStoring = CleanupCredentialStore(),
+        credentials: EndpointCredentialStoring = KeychainCredentialStore.cleanupEndpoint,
         session: URLSession = .shared
     ) {
         self.configuration = configuration

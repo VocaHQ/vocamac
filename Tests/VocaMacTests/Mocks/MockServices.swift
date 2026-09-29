@@ -462,7 +462,7 @@ final class MockModelManager: ModelManaging {
             return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B:
+             .qwen3Asr06B, .customEndpoint:
             return size.rawValue
         }
     }
@@ -888,6 +888,7 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
+            PreferenceKey.speechEndpoint,
             PreferenceKey.processWhileSpeaking,
             PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine,
             PreferenceKey.commandModeClipboardFallback, PreferenceKey.websiteStyleBindings,

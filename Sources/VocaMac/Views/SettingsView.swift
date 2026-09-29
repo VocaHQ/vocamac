@@ -1124,6 +1124,9 @@ struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
     @State private var languageSearch = ""
     @State private var isLanguageSectionExpanded = false
+    @State private var isEndpointSectionExpanded = false
+    @State private var endpointAPIKeyDraft = ""
+    @State private var endpointNotice: String?
     @State private var scope: ModelPickerScope = .forYou
     @State private var modelSearch = ""
     @State private var showsAllSuggestions = false
@@ -1284,6 +1287,8 @@ struct ModelSettingsTab: View {
                     .foregroundStyle(.secondary)
                     .help("Larger models are more accurate but slower and use more memory. Apple Speech assets are managed by macOS.")
 
+                customEndpointSection
+
                 if showsLanguageHints {
                     languageAndHintsSection
                 }
@@ -1293,6 +1298,111 @@ struct ModelSettingsTab: View {
         .task {
             await appState.refreshAppleSpeechLanguages()
         }
+    }
+
+    /// Where the Custom Endpoint model sends recordings: the same two
+    /// contracts VocaLinux offers, configured the same way cleanup's
+    /// endpoint is.
+    private var customEndpointSection: some View {
+        VocaDisclosureCard(
+            title: "Custom Endpoint",
+            subtitle: "Send dictation to a Whisper-compatible server instead of a model on this Mac.",
+            systemImage: "network",
+            badge: appState.speechEndpoint.kind.displayName,
+            isExpanded: $isEndpointSectionExpanded
+        ) {
+            Picker("Endpoint kind", selection: endpointKind) {
+                ForEach(SpeechEndpointKind.allCases) { kind in
+                    Text(kind.displayName).tag(kind)
+                }
+            }
+
+            TextField("Base URL", text: endpointBaseURL)
+                .textFieldStyle(.roundedBorder)
+
+            if appState.speechEndpoint.kind == .openAICompatible {
+                TextField("Model", text: endpointModel)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            SecureField(
+                appState.speechEndpointHasAPIKey
+                    ? "API key saved in Keychain"
+                    : "API key (optional)",
+                text: $endpointAPIKeyDraft
+            )
+            HStack {
+                Button("Save API Key") {
+                    do {
+                        try appState.saveSpeechEndpointAPIKey(endpointAPIKeyDraft)
+                        endpointAPIKeyDraft = ""
+                        endpointNotice = "API key saved in Keychain."
+                    } catch {
+                        endpointNotice = "Could not save the key: \(error.localizedDescription)"
+                    }
+                }
+                .disabled(endpointAPIKeyDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if appState.speechEndpointHasAPIKey {
+                    Button("Remove Key", role: .destructive) {
+                        do {
+                            try appState.deleteSpeechEndpointAPIKey()
+                            endpointNotice = "API key removed."
+                        } catch {
+                            endpointNotice = "Could not remove the key: \(error.localizedDescription)"
+                        }
+                    }
+                }
+                Spacer()
+            }
+
+            if let problem = appState.speechEndpoint.validationProblem() {
+                Label(problem, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(VocaDesign.warning)
+            }
+
+            Text("Each recording is uploaded as a WAV file while Custom Endpoint is the selected model. Use HTTPS unless the server is on this Mac or your local network. Endpoint settings and API keys are never exported.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let endpointNotice {
+                Text(endpointNotice).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var endpointKind: Binding<SpeechEndpointKind> {
+        Binding(
+            get: { appState.speechEndpoint.kind },
+            set: { kind in
+                var configuration = appState.speechEndpoint
+                configuration.kind = kind
+                appState.speechEndpoint = configuration
+            }
+        )
+    }
+
+    private var endpointBaseURL: Binding<String> {
+        Binding(
+            get: { appState.speechEndpoint.baseURL },
+            set: { value in
+                var configuration = appState.speechEndpoint
+                configuration.baseURL = value
+                appState.speechEndpoint = configuration
+            }
+        )
+    }
+
+    private var endpointModel: Binding<String> {
+        Binding(
+            get: { appState.speechEndpoint.model },
+            set: { value in
+                var configuration = appState.speechEndpoint
+                configuration.model = value
+                appState.speechEndpoint = configuration
+            }
+        )
     }
 
     private var scopePicker: some View {
@@ -1559,7 +1669,9 @@ struct ModelRow: View {
                         .font(.callout.weight(model.isActive ? .semibold : .medium))
                     if model.isDownloaded && !model.isActive {
                         ModelTag(
-                            text: model.size.isSystemManaged ? "Built In" : "Downloaded",
+                            text: model.size.isRemotelyHosted
+                                ? "Remote"
+                                : model.size.isSystemManaged ? "Built In" : "Downloaded",
                             systemImage: "checkmark"
                         )
                     }
@@ -1706,7 +1818,9 @@ struct ModelRow: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .help(model.size.isSystemManaged ? "Built into macOS" : "Downloaded to this Mac")
+                .help(model.size.isRemotelyHosted
+                      ? "Transcribed by your endpoint"
+                      : model.size.isSystemManaged ? "Built into macOS" : "Downloaded to this Mac")
             }
         } else {
             Button {

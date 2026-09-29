@@ -42,6 +42,9 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case canary180mFlash              = "canary-180m-flash"
     case qwen3Asr06B                  = "qwen3-asr-0.6b"
 
+    // Remote endpoint (no on-device model)
+    case customEndpoint               = "custom-endpoint"
+
     var id: String { rawValue }
 
     /// Which engine runs this model.
@@ -54,6 +57,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B:
             return .sherpaOnnx
+        case .customEndpoint:
+            return .customEndpoint
         default:
             return .whisperKit
         }
@@ -80,13 +85,22 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .sherpaOnnx:
             // ONNX Runtime ships universal binaries; runs on any Mac.
             return true
+        case .customEndpoint:
+            // Any Mac can post audio to a server.
+            return true
         }
     }
 
-    /// Whether the model's assets are owned by the OS rather than downloaded
-    /// and stored by VocaMac.
+    /// Whether the model's assets live outside VocaMac's storage — owned by
+    /// the OS or hosted on a remote endpoint — so there is nothing to
+    /// download, keep, or delete.
     var isSystemManaged: Bool {
-        self == .appleSpeech
+        self == .appleSpeech || self == .customEndpoint
+    }
+
+    /// Whether the model runs on a remote server rather than on this Mac.
+    var isRemotelyHosted: Bool {
+        engine == .customEndpoint
     }
 
     /// Whether the transcription language is fixed when this model loads, so
@@ -159,6 +173,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .gigaamV3,
         .canary180mFlash,
         .qwen3Asr06B,
+        .customEndpoint,
     ]
 
     /// Whether this model is kept only for compatibility or explicit support.
@@ -192,6 +207,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .gigaamV3:                  return "GigaAM v3 (Russian)"
         case .canary180mFlash:           return "Canary 180M (EN/ES/DE/FR)"
         case .qwen3Asr06B:               return "Qwen3 ASR 0.6B (30 Languages)"
+        case .customEndpoint:            return "Custom Endpoint"
         }
     }
 
@@ -225,7 +241,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .parakeetV3:                return 483_257_242
         case .parakeetV2:                return 464_413_250
         case .parakeetTdtCtc110m:        return 227_468_698
-        case .appleSpeech:               return 0
+        case .appleSpeech, .customEndpoint: return 0
         case .moonshineTiny:             return 44_441_158
         case .moonshineBase:             return 141_498_518
         case .senseVoiceSmall:           return 240_506_435
@@ -237,6 +253,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
 
     /// Human-readable file size string
     var fileSizeDescription: String {
+        if isRemotelyHosted { return "Remote endpoint" }
         if isSystemManaged { return "Managed by macOS" }
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
@@ -319,6 +336,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .gigaamV3:                  return 3
         case .canary180mFlash:           return 4
         case .qwen3Asr06B:               return 4
+        case .customEndpoint:            return 1
         }
     }
 
@@ -348,6 +366,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .gigaamV3:                  return "Great"
         case .canary180mFlash:           return "Great"
         case .qwen3Asr06B:               return "Excellent"
+        case .customEndpoint:            return "Varies"
         }
     }
 }

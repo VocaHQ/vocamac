@@ -97,6 +97,7 @@ extension TranscriptionEngine {
         case .parakeet: return "parakeet"
         case .appleSpeech: return "apple_speech"
         case .sherpaOnnx: return "sherpa_onnx"
+        case .customEndpoint: return "custom_endpoint"
         }
     }
 }

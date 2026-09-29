@@ -71,6 +71,9 @@ extension ModelSize {
             return .only(["en", "es", "de", "fr"])
         case .qwen3Asr06B:
             return .only(Self.qwen3AsrLanguages)
+        // Whatever the server runs — most Whisper deployments are multilingual.
+        case .customEndpoint:
+            return .broad
         }
     }
 
@@ -96,6 +99,8 @@ extension ModelSize {
         case "Great":     return 0.7
         case "Best":      return 1.0
         case "Legacy":    return 0.55
+        // "Varies": a remote endpoint's accuracy is the server's to choose.
+        case "Varies":    return 0.7
         default:          return 0.85
         }
     }
@@ -138,6 +143,7 @@ extension ModelSize {
         case .gigaamV3:                  return "A Russian specialist that adds punctuation."
         case .canary180mFlash:           return "English, Spanish, German, and French in a compact model."
         case .qwen3Asr06B:               return "30 languages, including Hindi, Arabic, and Thai."
+        case .customEndpoint:            return "Your Whisper-compatible server — dictation goes to it over the network."
         }
     }
 }

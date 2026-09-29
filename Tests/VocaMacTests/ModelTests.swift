@@ -147,8 +147,10 @@ final class ModelSizeTests: XCTestCase {
     func testSystemManagedModelsReportNoDownloadSize() {
         for size in ModelSize.allCases where size.isSystemManaged {
             XCTAssertEqual(size.fileSizeBytes, 0)
-            XCTAssertEqual(size.fileSizeDescription, "Managed by macOS")
+            XCTAssertFalse(size.fileSizeDescription.isEmpty)
         }
+        XCTAssertEqual(ModelSize.appleSpeech.fileSizeDescription, "Managed by macOS")
+        XCTAssertEqual(ModelSize.customEndpoint.fileSizeDescription, "Remote endpoint")
     }
 
     func testFileSizeDescription() {
@@ -182,7 +184,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 23)
+        XCTAssertEqual(ModelSize.allCases.count, 24)
     }
 
     func testRawValues() {

@@ -35,6 +35,7 @@ enum PreferenceKey {
     static let transcriptCleanupLevel = "vocamac.transcriptCleanup.level"
     static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
     static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
+    static let speechEndpoint = "vocamac.speech.endpoint"
     static let historyEnabled = "vocamac.history.enabled"
     static let historyKeepsAudio = "vocamac.history.keepAudio"
     static let historyRetention = "vocamac.history.retention"
@@ -75,6 +76,10 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
     /// (tiny English models, Chinese, Russian, European languages).
     case sherpaOnnx
 
+    /// A Whisper-compatible HTTP endpoint the user hosts — no model on this
+    /// Mac; each recording is uploaded for the server to transcribe.
+    case customEndpoint
+
     var id: String { rawValue }
 
     /// Section title shown in the model picker.
@@ -84,6 +89,7 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
         case .whisperKit:  return "Whisper"
         case .appleSpeech: return "Apple Speech"
         case .sherpaOnnx:  return "Specialized (ONNX)"
+        case .customEndpoint: return "Custom Endpoint"
         }
     }
 
@@ -98,6 +104,8 @@ enum TranscriptionEngine: String, CaseIterable, Codable, Identifiable {
             return "Managed by macOS — no model files in VocaMac's folder, though the system may download language assets the first time you use one."
         case .sherpaOnnx:
             return "Community models for specific needs — tiny English models for low-RAM Macs, plus Chinese, Russian, and European language specialists. Runs on CPU."
+        case .customEndpoint:
+            return "A Whisper-compatible server you run — VocaMac sends each recording to your endpoint and pastes its transcript."
         }
     }
 

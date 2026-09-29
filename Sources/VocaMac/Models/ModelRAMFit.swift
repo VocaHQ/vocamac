@@ -39,17 +39,19 @@ struct ModelRAMFit: Equatable {
 
     /// Estimates set by hand, used for every load in place of the fits.
     ///
-    /// Apple Speech has no model file to size. The others keep the values
-    /// they had before the fits; measured on the M1 Pro, Voca Hinglish
-    /// peaked at 3.06 GB on its first load (0.36 GB in the app, the rest in
-    /// the Neural Engine compiler) and Qwen3 ASR at 2.49 GB over 10 min.
+    /// Apple Speech and the custom endpoint have no model file to size. The
+    /// others keep the values they had before the fits; measured on the M1
+    /// Pro, Voca Hinglish peaked at 3.06 GB on its first load (0.36 GB in
+    /// the app, the rest in the Neural Engine compiler) and Qwen3 ASR at
+    /// 2.49 GB over 10 min.
     static func handSetGB(for size: ModelSize) -> Double? {
         switch size {
-        case .appleSpeech:   return 1.0
-        case .vocaHinglish:  return 1.5
-        case .qwen3Asr06B:   return 2.0
-        case .moonshineTiny: return 0.5
-        default:             return nil
+        case .appleSpeech:    return 1.0
+        case .customEndpoint: return 0.5
+        case .vocaHinglish:   return 1.5
+        case .qwen3Asr06B:    return 2.0
+        case .moonshineTiny:  return 0.5
+        default:              return nil
         }
     }
 
@@ -60,7 +62,7 @@ struct ModelRAMFit: Equatable {
         case .whisperKit:  return size.hasPalettizedWeights ? whisperPalettizedLoaded : whisperLoaded
         case .parakeet:    return parakeetLoaded
         case .sherpaOnnx:  return sherpaOnnx
-        case .appleSpeech: return nil
+        case .appleSpeech, .customEndpoint: return nil
         }
     }
 

@@ -295,7 +295,7 @@ final class ModelManager {
         switch size.engine {
         case .whisperKit:
             return whisperKitModelName(for: size)
-        case .parakeet, .appleSpeech, .sherpaOnnx:
+        case .parakeet, .appleSpeech, .sherpaOnnx, .customEndpoint:
             return size.rawValue
         }
     }
@@ -331,7 +331,7 @@ final class ModelManager {
             return "vocahq_voca-hinglish_820MB"
         case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B:
+             .qwen3Asr06B, .customEndpoint:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
         }
@@ -348,6 +348,9 @@ final class ModelManager {
             return AsrModels.modelsExist(at: parakeetDirectory(for: version), version: version)
         case .appleSpeech:
             // Assets are system-managed; installation happens at load time.
+            return true
+        case .customEndpoint:
+            // The model lives on the user's server; nothing to install here.
             return true
         case .sherpaOnnx:
             guard let spec = SherpaModelCatalog.spec(for: size) else { return false }
@@ -368,7 +371,7 @@ final class ModelManager {
             guard let version = parakeetVersion(for: size),
                   isModelDownloaded(size) else { return nil }
             return parakeetDirectory(for: version)
-        case .appleSpeech:
+        case .appleSpeech, .customEndpoint:
             return nil
         case .sherpaOnnx:
             guard let spec = SherpaModelCatalog.spec(for: size),
@@ -399,7 +402,7 @@ final class ModelManager {
             }
 
             return rec.supported.contains(modelName)
-        case .parakeet, .appleSpeech, .sherpaOnnx:
+        case .parakeet, .appleSpeech, .sherpaOnnx, .customEndpoint:
             return size.isAvailableOnThisSystem
         }
     }
@@ -531,7 +534,7 @@ final class ModelManager {
                 try await downloadParakeetModel(size: size, onProgress: throttledProgress)
             case .sherpaOnnx:
                 try await downloadSherpaModel(size: size, onProgress: throttledProgress)
-            case .appleSpeech:
+            case .appleSpeech, .customEndpoint:
                 break
             }
         }
@@ -568,8 +571,9 @@ final class ModelManager {
             directory = installedModelDirectory(for: size)
         case .parakeet:
             directory = parakeetVersion(for: size).map { parakeetDirectory(for: $0) }
-        case .sherpaOnnx, .appleSpeech:
-            // Sherpa stages downloads and removes the staging directory itself.
+        case .sherpaOnnx, .appleSpeech, .customEndpoint:
+            // Sherpa stages downloads and removes the staging directory itself;
+            // the endpoint and the system keep their own files.
             directory = nil
         }
         guard let directory, fileManager.fileExists(atPath: directory.path) else { return }
@@ -587,7 +591,7 @@ final class ModelManager {
             return size.fileSizeBytes * 2 + margin
         case .whisperKit, .parakeet:
             return size.fileSizeBytes + size.fileSizeBytes / 5 + margin
-        case .appleSpeech:
+        case .appleSpeech, .customEndpoint:
             return 0
         }
     }
@@ -922,8 +926,8 @@ final class ModelManager {
                 throw ModelManagerError.modelNotAvailable(modelIdentifier(for: size))
             }
             modelDir = parakeetDirectory(for: version)
-        case .appleSpeech:
-            // System-managed assets cannot be deleted by the app.
+        case .appleSpeech, .customEndpoint:
+            // System-managed or remotely hosted: the app owns no files to delete.
             return
         case .sherpaOnnx:
             guard let spec = SherpaModelCatalog.spec(for: size) else {

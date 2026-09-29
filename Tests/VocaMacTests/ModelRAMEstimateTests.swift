@@ -89,9 +89,15 @@ final class ModelRAMEstimateTests: XCTestCase {
         }
     }
 
-    func testOnlyAppleSpeechHasNoFit() {
+    func testOnlyModelsWithNoLocalFootprintHaveNoFit() {
+        // Apple Speech assets live in the OS; the endpoint's model lives on
+        // the user's server — neither has a load estimate here.
         for size in ModelSize.allCases {
-            XCTAssertEqual(ModelRAMFit.loaded(for: size) == nil, size == .appleSpeech, "\(size)")
+            XCTAssertEqual(
+                ModelRAMFit.loaded(for: size) == nil,
+                size == .appleSpeech || size == .customEndpoint,
+                "\(size)"
+            )
         }
     }
 

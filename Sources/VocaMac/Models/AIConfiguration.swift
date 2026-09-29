@@ -235,6 +235,103 @@ struct CleanupEndpointConfiguration: Codable, Equatable {
     }
 }
 
+/// Which request shape a remote speech endpoint expects. These are the two
+/// contracts VocaLinux's Remote API engine speaks, so a server that works
+/// with one app works with the other.
+enum SpeechEndpointKind: String, CaseIterable, Codable, Identifiable {
+    /// OpenAI's audio API: `POST <base>/v1/audio/transcriptions`.
+    case openAICompatible
+    /// A whisper.cpp server's built-in endpoint: `POST <base>/inference`.
+    case whisperCpp
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .openAICompatible: return "OpenAI-compatible"
+        case .whisperCpp:       return "whisper.cpp server"
+        }
+    }
+
+    /// Request path appended to the base URL, without a leading slash.
+    var path: String {
+        switch self {
+        case .openAICompatible: return "v1/audio/transcriptions"
+        case .whisperCpp:       return "inference"
+        }
+    }
+}
+
+/// Non-secret settings for the Custom Endpoint speech model: where audio is
+/// sent and which contract the server speaks. The optional API key lives in
+/// Keychain and is never exported.
+struct SpeechEndpointConfiguration: Codable, Equatable {
+    var kind: SpeechEndpointKind = .openAICompatible
+    var baseURL: String = ""
+    var model: String = ""
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, baseURL, model
+    }
+
+    /// Partial or hand-edited JSON falls back to the defaults per field
+    /// instead of dropping the whole config.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(SpeechEndpointKind.self, forKey: .kind) ?? .openAICompatible
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? ""
+    }
+
+    init() {}
+
+    var resolvedBaseURL: String {
+        baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The `model` field OpenAI's API requires; whisper.cpp ignores it.
+    var resolvedModel: String {
+        let trimmed = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "whisper-1" : trimmed
+    }
+
+    func validationProblem() -> String? {
+        guard let url = URL(string: resolvedBaseURL),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              url.host != nil else {
+            return "Enter an HTTP or HTTPS endpoint."
+        }
+        // The cleanup endpoint's rule: plain HTTP is only acceptable on this
+        // Mac or the local network, which ATS also lets through. Recordings
+        // are more sensitive than cleanup text, so the rule applies at least
+        // as strictly here.
+        guard scheme == "https" || CleanupEndpointConfiguration.isLocalNetworkHost(url.host) else {
+            return "Use HTTPS for servers outside this Mac or your local network."
+        }
+        return nil
+    }
+
+    /// Where recordings are posted, or nil while the settings are invalid.
+    var transcriptionsURL: URL? {
+        guard validationProblem() == nil else { return nil }
+        let base = resolvedBaseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: base + "/" + kind.path)
+    }
+
+    static func decode(_ json: String?) -> SpeechEndpointConfiguration {
+        guard let data = json?.data(using: .utf8),
+              let value = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
+        return value
+    }
+
+    func encoded() -> String {
+        guard let data = try? JSONEncoder().encode(self),
+              let value = String(data: data, encoding: .utf8) else { return "" }
+        return value
+    }
+}
+
 /// A browser-specific writing rule. The app binding remains the fallback.
 struct WebsiteStyleBinding: Codable, Identifiable, Hashable {
     var id: UUID = UUID()

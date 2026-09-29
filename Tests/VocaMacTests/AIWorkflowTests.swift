@@ -1,7 +1,7 @@
 import XCTest
 @testable import VocaMac
 
-private struct StubCleanupCredentials: CleanupCredentialStoring {
+private struct StubCleanupCredentials: EndpointCredentialStoring {
     let apiKey: String?
     func readAPIKey() -> String? { apiKey }
     func saveAPIKey(_ value: String) throws {}

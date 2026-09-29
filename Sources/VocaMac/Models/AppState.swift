@@ -1197,14 +1197,17 @@ final class AppState: ObservableObject {
         // Quit and Restart call `terminate` without setting `isRecording` to
         // false, so the didSet restore never runs. Unmute other audio here
         // directly. A second restore is a no-op when nothing is pending.
-        // Spotify resume is fire-and-forget like the ducker: a sync wait on
-        // AppleScript can stall quit behind Automation consent or a hung
-        // Spotify. The pending-pause flag recovers on the next launch if play
-        // does not finish before exit.
+        // Mirror AudioDucker: core unmute/resume runs before we return from
+        // willTerminate (ducker sync; Spotify sync-with-timeout so Automation
+        // consent or a hung Spotify cannot stall quit forever). Only the
+        // ducker's settle check is deferred. Pending-pause recovers on the
+        // next launch if play does not finish before the timeout.
         NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
             .sink { [weak self] _ in
                 self?.audioDucker.restore()
-                self?.spotifyPauser.resume()
+                self?.spotifyPauser.resumeSynchronouslyForTermination(
+                    timeout: SpotifyPauser.terminationResumeTimeout
+                )
                 self?.statsManager.flushPendingSaves()
                 self?.historyStore.saveIfNeeded()
             }

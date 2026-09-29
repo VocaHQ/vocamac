@@ -120,10 +120,12 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
 ///
 /// The work runs on a serial queue rather than the caller's thread: a first
 /// run can block on macOS's Automation consent prompt, which must never stall
-/// dictation or app quit. Ordering pause before resume is the queue's job.
-/// Quit uses the same async `resume()` as recording end so AppleScript never
-/// holds termination; a pause that does not finish before exit is recovered
-/// via the pending flag on the next launch.
+/// dictation. Ordering pause before resume is the queue's job. Quit is the
+/// exception: `resumeSynchronouslyForTermination` waits on that queue so
+/// AppleScript play can finish before process exit, but only up to a short
+/// hard timeout so Automation consent or a hung Spotify cannot stall quit
+/// indefinitely. A pause that does not finish in time stays pending for
+/// next-launch recovery.
 ///
 /// A pause the user undoes mid-recording and a pause the user makes
 /// mid-recording look identical to ours — the resume at recording end sends
@@ -136,6 +138,11 @@ final class SpotifyPauser: SpotifyPausing {
     /// user has had plenty of time to reach for Spotify themselves.
     static let maxPendingAge: TimeInterval = 24 * 60 * 60
 
+    /// Default bound for quit-path resume: long enough for a normal AppleScript
+    /// round-trip, short enough that Automation consent / hung Spotify cannot
+    /// hold termination open.
+    static let terminationResumeTimeout: TimeInterval = 1.5
+
     private let control: SpotifyControlling
     private let defaults: UserDefaults
     private let now: () -> Date
@@ -143,9 +150,14 @@ final class SpotifyPauser: SpotifyPausing {
     /// call order. Production passes a serial background queue; tests run the
     /// work inline so the policy is synchronous there.
     private let perform: (@escaping () -> Void) -> Void
+    /// Runs `work` for `resumeSynchronouslyForTermination` on the same serial
+    /// queue as `perform`, waiting up to `timeout` for it — and any earlier
+    /// `perform` work — to finish. Production enqueues then `wait`s; tests
+    /// run it inline (ignoring the timeout).
+    private let performSync: (TimeInterval, @escaping () -> Void) -> Void
 
     /// Whether a `pause` is in effect, i.e. we told Spotify to pause and have
-    /// not undone it. Touched only from inside `perform`.
+    /// not undone it. Touched only from inside `perform` / `performSync`.
     private var paused = false
 
     private static let workQueue = DispatchQueue(label: "com.vocamac.spotify-pauser")
@@ -156,12 +168,18 @@ final class SpotifyPauser: SpotifyPausing {
         now: @escaping () -> Date = Date.init,
         perform: @escaping (@escaping () -> Void) -> Void = { work in
             SpotifyPauser.workQueue.async(execute: work)
+        },
+        performSync: @escaping (TimeInterval, @escaping () -> Void) -> Void = { timeout, work in
+            let item = DispatchWorkItem(block: work)
+            SpotifyPauser.workQueue.async(execute: item)
+            _ = item.wait(timeout: .now() + timeout)
         }
     ) {
         self.control = control
         self.defaults = defaults
         self.now = now
         self.perform = perform
+        self.performSync = performSync
     }
 
     // MARK: SpotifyPausing
@@ -200,6 +218,12 @@ final class SpotifyPauser: SpotifyPausing {
         }
     }
 
+    func resumeSynchronouslyForTermination(timeout: TimeInterval = SpotifyPauser.terminationResumeTimeout) {
+        performSync(timeout) { [self] in
+            resumeIfPaused(reason: "app terminating")
+        }
+    }
+
     func resumeAfterUnexpectedExit() {
         perform { [self] in
             guard let date = persistedPause() else { return }
@@ -216,8 +240,8 @@ final class SpotifyPauser: SpotifyPausing {
 
     // MARK: Undo
 
-    /// Shared resume body for in-session and quit-time `resume`. Touched only
-    /// from inside `perform`.
+    /// Shared resume body for in-session `resume` and quit. Touched only from
+    /// inside `perform` / `performSync`.
     private func resumeIfPaused(reason: String) {
         guard paused else { return }
         paused = false

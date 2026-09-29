@@ -88,6 +88,12 @@ protocol SpotifyPausing: AnyObject {
     func pause()
     /// Resume what `pause` paused, if it is still paused.
     func resume()
+    /// Resume on app quit, waiting up to `timeout` for AppleScript play so
+    /// quit mid-pause does not leave Spotify/Connect paused. Returns when
+    /// play finishes or the timeout elapses — never stalls termination
+    /// indefinitely on Automation consent or a hung Spotify. Keep normal
+    /// in-session `resume()` async.
+    func resumeSynchronouslyForTermination(timeout: TimeInterval)
     /// Resume what the previous process paused but never got to (crash, kill).
     func resumeAfterUnexpectedExit()
 }

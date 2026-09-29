@@ -16,6 +16,8 @@ final class FakeSpotifyControl: SpotifyControlling {
     var playerState: SpotifyPlayerState? = .playing
     var pauseSucceeds = true
     var playSucceeds = true
+    /// Optional delay applied inside `playSpotify` (for termination timeout tests).
+    var playDelay: TimeInterval = 0
 
     private(set) var runningChecks = 0
     private(set) var stateReads = 0
@@ -42,6 +44,9 @@ final class FakeSpotifyControl: SpotifyControlling {
 
     func playSpotify() -> Bool {
         playCallCount += 1
+        if playDelay > 0 {
+            Thread.sleep(forTimeInterval: playDelay)
+        }
         if playSucceeds {
             playerState = .playing
         }
@@ -84,8 +89,26 @@ final class SpotifyPauserTests: XCTestCase {
             control: control,
             defaults: defaults,
             now: { [unowned self] in self.clock },
-            perform: { $0() }
+            perform: { $0() },
+            performSync: { _, work in work() }
         )
+    }
+
+    /// Production-shaped enqueue + bounded wait on a real serial queue.
+    private func makeQueuedPauser() -> (SpotifyPauser, DispatchQueue) {
+        let queue = DispatchQueue(label: "SpotifyPauserTests.terminate")
+        let pauser = SpotifyPauser(
+            control: control,
+            defaults: defaults,
+            now: { [unowned self] in self.clock },
+            perform: { work in queue.async(execute: work) },
+            performSync: { timeout, work in
+                let item = DispatchWorkItem(block: work)
+                queue.async(execute: item)
+                _ = item.wait(timeout: .now() + timeout)
+            }
+        )
+        return (pauser, queue)
     }
 
     // MARK: Pause
@@ -291,6 +314,54 @@ final class SpotifyPauserTests: XCTestCase {
 
         XCTAssertEqual(control.playCallCount, 0)
         XCTAssertNotNil(defaults.object(forKey: SpotifyPauser.pendingPauseKey))
+    }
+
+    // MARK: Termination resume
+
+    func testResumeSynchronouslyForTerminationDrainsBeforeReturning() {
+        let (pauser, queue) = makeQueuedPauser()
+
+        pauser.pause()
+        queue.sync {}  // drain the async pause so `paused` is set
+
+        XCTAssertEqual(control.pauseCallCount, 1)
+        XCTAssertEqual(control.playerState, .paused)
+
+        pauser.resumeSynchronouslyForTermination(timeout: SpotifyPauser.terminationResumeTimeout)
+
+        XCTAssertEqual(control.playCallCount, 1, "play must have run before resumeSynchronouslyForTermination returns")
+        XCTAssertEqual(control.playerState, .playing)
+        XCTAssertNil(defaults.object(forKey: SpotifyPauser.pendingPauseKey))
+    }
+
+    func testResumeSynchronouslyForTerminationWithoutAPauseIsNoOp() {
+        makePauser().resumeSynchronouslyForTermination(timeout: SpotifyPauser.terminationResumeTimeout)
+
+        XCTAssertEqual(control.playCallCount, 0)
+        XCTAssertEqual(control.stateReads, 0)
+    }
+
+    func testResumeSynchronouslyForTerminationReturnsAfterTimeout() {
+        let (pauser, queue) = makeQueuedPauser()
+        control.playDelay = 1.0
+
+        pauser.pause()
+        queue.sync {}
+
+        let started = Date()
+        pauser.resumeSynchronouslyForTermination(timeout: 0.15)
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(elapsed, 0.5, "must return when the hard timeout elapses, not wait for hung play")
+        // Play was started (or at least enqueued and entered) but may still be
+        // sleeping; pending flag must stay until play succeeds.
+        XCTAssertNotNil(
+            defaults.object(forKey: SpotifyPauser.pendingPauseKey),
+            "timeout before play succeeds must keep pending-pause for next launch"
+        )
+
+        // Let the slow play finish so the queue is idle for tearDown.
+        queue.sync {}
     }
 
 }

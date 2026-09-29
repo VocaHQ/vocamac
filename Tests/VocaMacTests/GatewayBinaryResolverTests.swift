@@ -2,21 +2,26 @@ import XCTest
 @testable import VocaMac
 
 final class GatewayBinaryResolverTests: XCTestCase {
-    private var directory: URL!
+    private var directory: URL?
 
     override func setUpWithError() throws {
         try super.setUpWithError()
-        directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("gateway-resolver-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        self.directory = directory
     }
 
     override func tearDownWithError() throws {
-        try? FileManager.default.removeItem(at: directory)
+        if let directory {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        directory = nil
         try super.tearDownWithError()
     }
 
     private func makeExecutable(named name: String) throws -> String {
+        let directory = try XCTUnwrap(directory)
         let url = directory.appendingPathComponent(name, isDirectory: false)
         try Data().write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -28,7 +33,7 @@ final class GatewayBinaryResolverTests: XCTestCase {
 
         XCTAssertEqual(
             GatewayBinaryResolver.resolveExecutablePath(
-                pathEnvironment: directory.path,
+                pathEnvironment: try XCTUnwrap(directory).path,
                 commonCandidates: []
             ),
             path
@@ -40,7 +45,7 @@ final class GatewayBinaryResolverTests: XCTestCase {
         let candidate = try makeExecutable(named: "injected-vocagateway")
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
-            pathEnvironment: directory.path,
+            pathEnvironment: try XCTUnwrap(directory).path,
             commonCandidates: [candidate]
         )
 
@@ -51,7 +56,7 @@ final class GatewayBinaryResolverTests: XCTestCase {
         let candidate = try makeExecutable(named: "injected-vocagateway")
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
-            pathEnvironment: directory.path,
+            pathEnvironment: try XCTUnwrap(directory).path,
             commonCandidates: [candidate]
         )
 
@@ -62,7 +67,7 @@ final class GatewayBinaryResolverTests: XCTestCase {
         _ = try makeExecutable(named: "something-else")
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
-            pathEnvironment: directory.path,
+            pathEnvironment: try XCTUnwrap(directory).path,
             commonCandidates: []
         )
 
@@ -70,12 +75,12 @@ final class GatewayBinaryResolverTests: XCTestCase {
     }
 
     func testIgnoresNonExecutableFileOnPATH() throws {
-        let url = directory.appendingPathComponent("vocagateway", isDirectory: false)
+        let url = try XCTUnwrap(directory).appendingPathComponent("vocagateway", isDirectory: false)
         try Data().write(to: url)
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: url.path)
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
-            pathEnvironment: directory.path,
+            pathEnvironment: try XCTUnwrap(directory).path,
             commonCandidates: []
         )
 

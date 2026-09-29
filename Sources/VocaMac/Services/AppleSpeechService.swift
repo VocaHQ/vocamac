@@ -500,8 +500,9 @@ final class FinalizedPieceTracker: @unchecked Sendable {
     ///
     /// When Apple reports result ends past the recording, a plain clamp would
     /// hand the whole `[0, sampleCount]` range to the first overshooting
-    /// result and drop later text. Scale those ends into the recording so
-    /// every finalized result still appears in Timestamps.
+    /// result and drop later text. Scale only those overshooting ends into
+    /// the recording so every finalized result still appears in Timestamps,
+    /// and leave already in-bounds earlier boundaries unchanged.
     func timedSegments(sampleCount: Int, fallbackText: String) -> [TimedSegment] {
         lock.withLock {
             var segments: [TimedSegment] = []
@@ -526,7 +527,10 @@ final class FinalizedPieceTracker: @unchecked Sendable {
                 let rawEnd: Int
                 if index == finalized.count - 1 {
                     rawEnd = sampleCount
-                } else if scale < 1 {
+                } else if result.end > sampleCount, scale < 1 {
+                    // Overshooting non-last end: remap into the recording so
+                    // later text is not zero-width-dropped. In-bounds ends
+                    // stay put even when a sibling result overshoots.
                     rawEnd = Int((Double(result.end) * scale).rounded())
                 } else {
                     rawEnd = result.end

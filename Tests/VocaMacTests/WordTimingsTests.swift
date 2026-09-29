@@ -282,6 +282,34 @@ final class TimedSegmentMappingTests: XCTestCase {
         XCTAssertEqual(kept.last?.word.trimmingCharacters(in: .whitespaces), "home")
     }
 
+    /// Whitespace-free Whisper pieces after a loop can exceed the old fixed
+    /// suffix floor of 32; alignment must still keep the first loop copy and
+    /// every trailing piece (Greptile P1 follow-up).
+    func testWordsAligningKeepsLongWhitespaceFreeTrailingAfterLoop() {
+        var words: [TimedWord] = []
+        for index in 0..<20 {
+            words.append(TimedWord(
+                word: "x", start: Double(index) * 0.05,
+                end: Double(index) * 0.05 + 0.04, probability: 0.9
+            ))
+        }
+        var trailing: [String] = []
+        for index in 0..<40 {
+            let piece = "t\(index)"
+            trailing.append(piece)
+            let start = 1.0 + Double(index) * 0.05
+            words.append(TimedWord(
+                word: piece, start: start, end: start + 0.04, probability: 0.9
+            ))
+        }
+        let target = "x" + trailing.joined()
+        let kept = WhisperService.wordsAligning(with: target, from: words)
+        XCTAssertEqual(kept.count, 41, "First loop copy plus all >32 trailing pieces")
+        XCTAssertEqual(kept.first?.word, "x")
+        XCTAssertEqual(kept.first?.start ?? -1, 0, accuracy: 0.0001)
+        XCTAssertEqual(kept.dropFirst().map(\.word), trailing)
+    }
+
     /// A phrase repeated across segment boundaries must collapse the same way
     /// the main transcript does after joining.
     func testFilteredTimedSegmentsCollapsesCrossSegmentLoops() {

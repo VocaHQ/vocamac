@@ -617,13 +617,22 @@ final class WhisperService: @unchecked Sendable {
         if best.map(\.word).joined().trimmingCharacters(in: .whitespacesAndNewlines) == target {
             return best
         }
-        // Suffix of kept words cannot need more tokens than the collapsed
-        // text itself (plus a short unit of slack for whitespace / punctuation
-        // splits). Cap so long recordings stay near-linear.
-        let targetTokenCount = target.split { $0.isWhitespace }.count
+        // Bound the suffix window by how many trailing pieces are needed to
+        // cover `target` by character length (plus a short unit of slack).
+        // Whitespace token count under-counts space-free Whisper pieces
+        // (CJK / BPE fragments): a floor of 32 alone can miss long post-loop
+        // tails while loop cleanup still keeps that text. Cap so long
+        // recordings stay near-linear without full O(n²) rejoins.
+        var charsCovered = 0
+        var piecesCoveringTarget = 0
+        for part in parts.reversed() {
+            piecesCoveringTarget += 1
+            charsCovered += part.count
+            if charsCovered >= target.count { break }
+        }
         let maxSuffix = min(
             words.count,
-            max(targetTokenCount + TranscriptRepetition.maximumUnitLength, 32)
+            max(piecesCoveringTarget + TranscriptRepetition.maximumUnitLength, 32)
         )
         // Character offsets into `allJoined` — each suffix is a slice, not a
         // fresh `map/joined` of a copied word array.

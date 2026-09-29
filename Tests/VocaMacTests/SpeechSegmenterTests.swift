@@ -240,6 +240,27 @@ final class FinalizedPieceTrackerTests: XCTestCase {
         XCTAssertEqual(segments[1].start, 0.5, accuracy: 0.0001)
         XCTAssertEqual(segments[1].end, 1.0, accuracy: 0.0001)
     }
+
+    /// Mixed in-bounds + overshooting ends: keep every finalized text, leave
+    /// the already-valid earlier boundary put, and only remap overshooting
+    /// ranges (Greptile P1 follow-up: 0.25 must not shift to ~0.21).
+    func testTimedSegmentsPreserveInBoundsEndWhenSiblingOvershoots() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized("First.", endSeconds: 0.25)
+        tracker.finalized(" Second.", endSeconds: 1.1)
+        tracker.finalized(" Third.", endSeconds: 1.2)
+        let segments = tracker.timedSegments(
+            sampleCount: 16_000, fallbackText: "First. Second. Third."
+        )
+        XCTAssertEqual(segments.map(\.text), ["First.", "Second.", "Third."])
+        XCTAssertEqual(segments.count, 3)
+        XCTAssertEqual(segments[0].start, 0, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].end, 0.25, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].start, 0.25, accuracy: 0.0001)
+        XCTAssertGreaterThan(segments[1].end, segments[1].start)
+        XCTAssertLessThan(segments[1].end, segments[2].end)
+        XCTAssertEqual(segments[2].end, 1.0, accuracy: 0.0001)
+    }
 }
 
 extension SpeechSegmenterTests {

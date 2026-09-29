@@ -211,6 +211,29 @@ final class UndoCenterTests: XCTestCase {
         XCTAssertFalse(AppStyleBinding.sharesApp(original, other))
     }
 
+    func testABundledAppAndAnUnbundledToolWithTheSameExecutableAreDifferentApps() {
+        let bundled = AppStyleBinding(id: "com.example.Foo", displayName: "Foo",
+                                      bundleIdentifier: "com.example.Foo", processName: "foo", style: .plain)
+        let cliTool = AppStyleBinding(id: "foo", displayName: "foo", processName: "foo", style: .code)
+        XCTAssertFalse(AppStyleBinding.sharesApp(bundled, cliTool))
+        XCTAssertFalse(AppStyleBinding.sharesApp(cliTool, bundled))
+    }
+
+    func testTerminalByBundleAndByProcessNameAreTheSameApp() {
+        let bundled = AppStyleBinding(id: "com.apple.Terminal", displayName: "Terminal",
+                                      bundleIdentifier: "com.apple.Terminal", style: .plain)
+        let typed = AppStyleBinding(id: "Terminal", displayName: "Terminal", processName: "Terminal", style: .plain)
+        XCTAssertTrue(AppStyleBinding.sharesApp(bundled, typed))
+    }
+
+    func testTwoDifferentBundleIDsAreDifferentAppsEvenWithTheSameExecutable() {
+        let a = AppStyleBinding(id: "com.example.Code", displayName: "Code",
+                                bundleIdentifier: "com.example.Code", processName: "Electron", style: .code)
+        let b = AppStyleBinding(id: "com.example.Fork", displayName: "Fork",
+                                bundleIdentifier: "com.example.Fork", processName: "Electron", style: .code)
+        XCTAssertFalse(AppStyleBinding.sharesApp(a, b))
+    }
+
     func testRemoveAllUndoSkipsAnAppRuleImportedUnderAnotherID() {
         final class Holder { var rules: [AppStyleBinding] = [] }
         let holder = Holder()

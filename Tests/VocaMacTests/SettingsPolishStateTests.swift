@@ -115,4 +115,56 @@ final class SettingsPolishStateTests: XCTestCase {
         XCTAssertFalse(appState.overlayPreview.isRunning)
         XCTAssertGreaterThan(mocks.cursorOverlay.hideCallCount, hidesBefore)
     }
+
+    // MARK: - Undoable removals
+
+    func testRemovingASnippetOffersUndoThroughAppState() {
+        appState.snippets = [Snippet(trigger: "a", expansion: "1"), Snippet(trigger: "b", expansion: "2")]
+        let first = appState.snippets[0]
+
+        appState.removeSnippet(first)
+        XCTAssertEqual(appState.snippets.map(\.trigger), ["b"])
+        XCTAssertNotNil(appState.undoCenter.current)
+
+        appState.undoCenter.undo()
+        XCTAssertEqual(appState.snippets.map(\.trigger), ["a", "b"])
+        appState.snippets = []
+    }
+
+    func testUndoingASnippetRemovalDoesNotResurrectAReplacedTrigger() {
+        appState.snippets = [Snippet(trigger: "mail", expansion: "old@example.com")]
+        appState.removeSnippet(appState.snippets[0])
+        appState.snippets.append(Snippet(trigger: "Mail", expansion: "new@example.com"))
+
+        appState.undoCenter.undo()
+
+        XCTAssertEqual(appState.snippets.map(\.expansion), ["new@example.com"])
+        appState.snippets = []
+    }
+
+    func testRemovingAVocabularyTermUndoesToItsPosition() {
+        appState.setVocabularyTerms(["alpha", "beta", "gamma"])
+
+        appState.removeVocabularyTermWithUndo("beta")
+        XCTAssertEqual(appState.vocabularyTerms, ["alpha", "gamma"])
+
+        appState.undoCenter.undo()
+        XCTAssertEqual(appState.vocabularyTerms, ["alpha", "beta", "gamma"])
+    }
+
+    func testRemovingAllAppRulesUndoesAndRunsTheCallback() {
+        let saved = appState.writingStyleBindings
+        defer { appState.writingStyleBindings = saved }
+        appState.writingStyleBindings = [
+            AppStyleBinding(id: "com.apple.mail", displayName: "Mail", bundleIdentifier: "com.apple.mail", style: .plain),
+        ]
+        var undone = false
+
+        appState.removeAllAppStyleBindingsWithUndo { undone = true }
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+
+        appState.undoCenter.undo()
+        XCTAssertEqual(appState.writingStyleBindings.map(\.id), ["com.apple.mail"])
+        XCTAssertTrue(undone)
+    }
 }

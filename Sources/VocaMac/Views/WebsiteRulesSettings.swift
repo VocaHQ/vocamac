@@ -5,7 +5,6 @@ import SwiftUI
 
 struct WebsiteRulesSettings: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
     @State private var editing: WebsiteStyleBinding?
     @State private var isAdding = false
 
@@ -37,11 +36,7 @@ struct WebsiteRulesSettings: View {
                             .help("Customize \(rule.displayName)")
                             .accessibilityLabel("Customize \(rule.displayName)")
                         Button(role: .destructive) {
-                            undo.remove(
-                                id: rule.id, from: \.websiteStyleBindings, of: appState,
-                                message: "Removed \(rule.displayName)",
-                                conflictsWith: WebsiteStyleBinding.sharesHost
-                            )
+                            appState.removeWebsiteRule(rule)
                         } label: { Image(systemName: "minus.circle.fill") }
                         .buttonStyle(.borderless)
                         .help("Remove \(rule.displayName)")

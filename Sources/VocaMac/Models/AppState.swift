@@ -708,6 +708,9 @@ final class AppState: ObservableObject {
     /// The Settings overlay preview. Owned here so a real dictation can end it
     /// before it starts: a preview left up while the speech model loads would
     /// look like the microphone is already listening.
+    /// The one pending "Undo" offered after a Settings list removal.
+    let undoCenter = UndoCenter()
+
     private(set) lazy var overlayPreview = OverlayPreviewController(
         overlay: cursorOverlay,
         isIdle: { [weak self] in

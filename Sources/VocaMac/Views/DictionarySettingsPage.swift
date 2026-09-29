@@ -8,7 +8,6 @@ import SwiftUI
 
 struct DictionarySettingsPage: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
     @State private var newTerm = ""
     @State private var newHeard = ""
     @State private var newReplacement = ""
@@ -27,9 +26,7 @@ struct DictionarySettingsPage: View {
             VocaSettingsGroup("Vocabulary", subtitle: "Names and jargon, spelled exactly your way.") {
                 if !appState.vocabularyTerms.isEmpty {
                     FlowTermList(terms: appState.vocabularyTerms) { term in
-                        let index = appState.vocabularyTerms.firstIndex(of: term) ?? 0
-                        appState.removeVocabularyTerm(term)
-                        undo.offer("Removed “\(term)”") { appState.restoreVocabularyTerm(term, at: index) }
+                        appState.removeVocabularyTermWithUndo(term)
                     }
                 }
                 HStack {
@@ -174,7 +171,6 @@ struct DictionarySuggestionRow: View {
 
 struct WordReplacementRow: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
     @Binding var replacement: WordReplacement
 
     var body: some View {
@@ -185,11 +181,7 @@ struct WordReplacementRow: View {
             TextField("Type", text: $replacement.replacement)
                 .textFieldStyle(.roundedBorder)
             Button(role: .destructive) {
-                undo.remove(
-                    id: replacement.id, from: \.wordReplacements, of: appState,
-                    message: "Removed replacement for “\(replacement.replacement)”",
-                    conflictsWith: WordReplacement.overlaps
-                )
+                appState.removeWordReplacement(replacement)
             } label: {
                 Image(systemName: "minus.circle.fill")
             }

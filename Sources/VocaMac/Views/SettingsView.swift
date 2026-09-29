@@ -22,7 +22,6 @@ struct SettingsView: View {
     @AppStorage("settings.sidebarVisible") private var sidebarVisible = true
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var didRestore = false
-    @State private var undoCenter = UndoCenter()
 
     private var matchCounts: [SettingsPage: Int] {
         SettingsSearchIndex.matchCounts(query: searchText)
@@ -54,9 +53,8 @@ struct SettingsView: View {
             }
             .frame(minHeight: 0, maxHeight: .infinity)
             .background(VocaDesign.canvas)
-            .overlay(alignment: .bottom) { UndoToastView(undoCenter: undoCenter) }
+            .overlay(alignment: .bottom) { UndoToastView(undoCenter: appState.undoCenter) }
         }
-        .environment(undoCenter)
         .navigationSplitViewStyle(.balanced)
         .onChange(of: columnVisibility) { _, value in
             sidebarVisible = value != .detailOnly
@@ -734,7 +732,6 @@ struct SnippetsSettingsTab: View {
 
 struct SnippetRow: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
     let snippet: Snippet
     @State private var isEditing = false
     @State private var editedTrigger: String
@@ -799,11 +796,7 @@ struct SnippetRow: View {
                 .accessibilityLabel("Edit Snippet")
 
                 Button(role: .destructive) {
-                    undo.remove(
-                        id: snippet.id, from: \.snippets, of: appState,
-                        message: "Removed snippet “\(snippet.trigger)”",
-                        conflictsWith: Snippet.sharesTrigger
-                    )
+                    appState.removeSnippet(snippet)
                 } label: {
                     Image(systemName: "minus.circle.fill")
                 }
@@ -930,7 +923,6 @@ struct PermissionRow: View {
 
 struct PerformanceSettingsTab: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
     @State private var showingAppPicker = false
 
     private let idleTimeoutChoices: [(label: String, seconds: Double)] = [
@@ -1005,10 +997,7 @@ struct PerformanceSettingsTab: View {
                                 }
                                 Spacer()
                                 Button(role: .destructive) {
-                                    undo.remove(
-                                        id: app.id, from: \.autoPauseApps, of: appState,
-                                        message: "Removed \(app.displayName)"
-                                    )
+                                    appState.removeAutoPauseApp(app)
                                 } label: {
                                     Image(systemName: "minus.circle.fill")
                                 }

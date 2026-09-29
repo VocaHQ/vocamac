@@ -10,7 +10,6 @@ import UniformTypeIdentifiers
 
 struct WritingStylesSettingsTab: View {
     @EnvironmentObject var appState: AppState
-    @Environment(UndoCenter.self) private var undo
 
     @State private var showingAppPicker = false
     @State private var editingBinding: AppStyleBinding?
@@ -85,11 +84,7 @@ struct WritingStylesSettingsTab: View {
                                 update(binding) { $0.isEnabled = isEnabled }
                             },
                             onRemove: {
-                                undo.remove(
-                                    id: binding.id, from: \.writingStyleBindings, of: appState,
-                                    message: "Removed \(binding.displayName)",
-                                    conflictsWith: AppStyleBinding.sharesApp
-                                )
+                                appState.removeAppStyleBinding(binding)
                             }
                         )
                         if binding.id != appState.writingStyleBindings.last?.id {
@@ -129,13 +124,7 @@ struct WritingStylesSettingsTab: View {
                         Button("Import App List…") { importRules() }
                         Divider()
                         Button("Remove All Apps", role: .destructive) {
-                            let count = appState.writingStyleBindings.count
-                            undo.removeAll(
-                                from: \.writingStyleBindings, of: appState,
-                                message: "Removed \(count) apps",
-                                conflictsWith: AppStyleBinding.sharesApp,
-                                afterUndo: { suggestionNotice = nil }
-                            )
+                            appState.removeAllAppStyleBindingsWithUndo { suggestionNotice = nil }
                             suggestionNotice = "Removed every app. All apps now use \(appState.writingStyleDefault.displayName)."
                         }
                         .disabled(appState.writingStyleBindings.isEmpty)

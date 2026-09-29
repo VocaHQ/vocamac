@@ -80,6 +80,18 @@ protocol AudioDucking: AnyObject {
     func restoreAfterUnexpectedExit()
 }
 
+// MARK: - SpotifyPausing
+
+/// Pauses Spotify playback while a recording is open and resumes it afterwards.
+protocol SpotifyPausing: AnyObject {
+    /// Pause Spotify if it is running and currently playing.
+    func pause()
+    /// Resume what `pause` paused, if it is still paused.
+    func resume()
+    /// Resume what the previous process paused but never got to (crash, kill).
+    func resumeAfterUnexpectedExit()
+}
+
 // MARK: - HotKeyMonitoring
 
 protocol HotKeyMonitoring: AnyObject {

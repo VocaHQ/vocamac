@@ -328,6 +328,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <string>VocaMac connects to an AI model server you run yourself, such as Ollama or LM Studio, when you point it at one on your network.</string>
     <key>NSAudioCaptureUsageDescription</key>
     <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>VocaMac pauses and resumes Spotify while you dictate, when you enable "Pause Spotify while dictating".</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

@@ -29,6 +29,7 @@ enum PreferenceKey {
     static let writingIntent = "vocamac.writingStyle.intent"
     static let writingRewriteEnabled = "vocamac.writingStyle.experimentalRewrite"
     static let duckOtherAudioEnabled = "vocamac.duckOtherAudio.enabled"
+    static let pauseSpotifyEnabled = "vocamac.pauseSpotify.enabled"
     static let transcriptCleanupEnabled = "vocamac.transcriptCleanup.enabled"
     static let transcriptCleanupModel = "vocamac.transcriptCleanup.model"
     static let transcriptCleanupPrompt = "vocamac.transcriptCleanup.prompt"

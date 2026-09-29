@@ -1808,6 +1808,9 @@ struct AudioSettingsTab: View {
 
                 Toggle("Mute other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
                     .help("Mutes speakers or headphones while the microphone is open, only when something is playing.")
+
+                Toggle("Pause Spotify while dictating", isOn: $appState.pauseSpotifyEnabled)
+                    .help("Pauses Spotify while the microphone is open and resumes when dictation ends — covers Spotify Connect playback on other devices, which muting cannot reach. The first use asks for permission to control Spotify.")
             }
         }
         .formStyle(.grouped)

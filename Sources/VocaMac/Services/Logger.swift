@@ -138,6 +138,7 @@ enum LogCategory: String {
     case modelManager = "ModelManager"
     case soundManager = "SoundManager"
     case audioDucker = "AudioDucker"
+    case spotifyPauser = "SpotifyPauser"
     case textInjector = "TextInjector"
     case cursorOverlay = "CursorOverlay"
     case updateChecker = "UpdateChecker"

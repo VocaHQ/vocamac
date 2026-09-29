@@ -377,6 +377,13 @@ enum SettingsSearchIndex {
             subtitle: "Mute music while dictating",
             keywords: ["duck", "mute", "music", "volume", "quiet", "lower", "playback", "youtube"]
         ),
+        SettingsSearchEntry(
+            id: "spotify-pause",
+            page: .audio,
+            title: "Spotify While Dictating",
+            subtitle: "Holds playback while the mic is open, Connect included",
+            keywords: ["spotify", "connect", "music", "resume", "playback", "speaker"]
+        ),
 
         // Performance
         SettingsSearchEntry(

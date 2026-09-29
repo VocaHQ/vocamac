@@ -57,6 +57,7 @@ enum SettingsArchiveService {
         "vocamac.translationEnabled": .bool, PreferenceKey.appendTrailingSpace: .bool,
         PreferenceKey.autoCapitalize: .bool, PreferenceKey.autoPauseEnabled: .bool,
         PreferenceKey.duckOtherAudioEnabled: .bool, PreferenceKey.escapeCancelsDictation: .bool,
+        PreferenceKey.pauseSpotifyEnabled: .bool,
         PreferenceKey.externalMicWhenLidClosed: .bool, PreferenceKey.skipSilence: .bool,
         PreferenceKey.historyEnabled: .bool,
         PreferenceKey.historyKeepsAudio: .bool, PreferenceKey.modelKeepAliveEnabled: .bool,

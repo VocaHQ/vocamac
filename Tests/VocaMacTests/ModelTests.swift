@@ -616,3 +616,67 @@ final class ActivationModeTests: XCTestCase {
         XCTAssertEqual(ActivationMode.doubleTapToggle.rawValue, "doubleTapToggle")
     }
 }
+
+// MARK: - Reclaimable memory probe
+
+final class ReclaimableMemoryTests: XCTestCase {
+    private let gb: UInt64 = 1024 * 1024 * 1024
+
+    func testReclaimableBytesUsesKernelLevelWhenFreeAndInactiveIsLow() {
+        // A busy 16 GB Mac: 3 GB free + inactive, kernel reports 39% available.
+        let bytes = SystemInfo.reclaimableBytes(
+            freeAndInactiveBytes: 3 * gb,
+            memoryStatusLevel: 39,
+            physicalBytes: 16 * gb
+        )
+        XCTAssertEqual(bytes, 16 * gb / 100 * UInt64(39 - SystemInfo.memoryStatusReservePercent))
+        XCTAssertTrue(SystemInfo.canFitInMemory(requiredGB: 3.4, physicalMemoryGB: 16, availableBytes: bytes))
+    }
+
+    func testReclaimableBytesKeepsFreeAndInactiveWhenLarger() {
+        XCTAssertEqual(
+            SystemInfo.reclaimableBytes(freeAndInactiveBytes: 8 * gb, memoryStatusLevel: 30, physicalBytes: 16 * gb),
+            8 * gb
+        )
+    }
+
+    func testReclaimableBytesStillRefusesUnderRealPressure() {
+        for level in [0, 8, 20] {
+            let bytes = SystemInfo.reclaimableBytes(
+                freeAndInactiveBytes: gb,
+                memoryStatusLevel: level,
+                physicalBytes: 16 * gb
+            )
+            XCTAssertFalse(
+                SystemInfo.canFitInMemory(requiredGB: 3.4, physicalMemoryGB: 16, availableBytes: bytes),
+                "level \(level)"
+            )
+        }
+    }
+
+    func testReclaimableBytesTreatsAFullMachineAsKnown() {
+        // Free + inactive failed, and the kernel says the machine is full:
+        // that must refuse, not read as an unknown probe that allows the load.
+        let bytes = SystemInfo.reclaimableBytes(
+            freeAndInactiveBytes: 0,
+            memoryStatusLevel: 5,
+            physicalBytes: 16 * gb
+        )
+        XCTAssertGreaterThan(bytes, 0)
+        XCTAssertFalse(SystemInfo.canFitInMemory(requiredGB: 0.9, physicalMemoryGB: 16, availableBytes: bytes))
+    }
+
+    func testReclaimableBytesIgnoresMissingOrOutOfRangeLevel() {
+        for level in [nil, -1, 101] as [Int?] {
+            XCTAssertEqual(
+                SystemInfo.reclaimableBytes(freeAndInactiveBytes: 2 * gb, memoryStatusLevel: level, physicalBytes: 16 * gb),
+                2 * gb
+            )
+        }
+        XCTAssertEqual(
+            SystemInfo.reclaimableBytes(freeAndInactiveBytes: 0, memoryStatusLevel: nil, physicalBytes: 16 * gb),
+            0,
+            "Both probes failing still reads as unknown"
+        )
+    }
+}

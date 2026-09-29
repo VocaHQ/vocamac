@@ -86,6 +86,7 @@ make install       # Build + install to /Applications (recommended)
 make build         # .app in repo root (fast iteration)
 make install-cli   # vocamac / vocamac-build → ~/.local/bin
 make test          # swift test (what CI runs for the app)
+make lint          # pinned SwiftLint, strict (CI fails on any violation)
 make dmg           # Dist DMG → dist/
 make run           # open the locally built .app
 make clean
@@ -118,13 +119,14 @@ Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/i
 - `async/await` over callbacks. `guard` for early returns; avoid deep nesting.
 - Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/). Names: `isRecording`, not `flag`.
 - `// MARK: -` sections. `///` on public types/methods and non-trivial private methods.
+- SwiftLint (`.swiftlint.yml`) must pass with `--strict`. Fix the code rather than adding `swiftlint:disable`; when a disable is warranted, scope it to the line (`disable:next`) and say why.
 
 ### Errors and logging
 
 - Never force-unwrap (`!`) unless the value is guaranteed (e.g. system symbols).
 - `do/catch` with meaningful error types. Surface user-visible failures via `AppState.appStatus = .error`.
 - Log with **`VocaLogger`** (`debug` / `info` / `warning` / `error` + `LogCategory`). Do **not** use `print()`.
-- Logs go to Console.app (`os.Logger`) and `~/Library/Application Support/VocaMac/logs/` (rotated files).
+- Logs go to Console.app (`os.Logger`) and `~/Library/Application Support/VocaMac/logs/` (rotated files). Test runs write to `$TMPDIR/VocaMac-tests/logs/` instead, so `swift test` never touches the app's logs.
 
 ### Performance
 
@@ -204,6 +206,14 @@ Cleanup models must not use a hybrid attention/recurrent architecture. Read `gen
 Keep dependencies minimal. Do not bump FluidAudio across a minor without checking `AsrManager.loadModels` / TDT decoder APIs. Do not unpin LLM.swift to a branch or a bare `revision:` — pin the release tag so the vendored llama.cpp xcframework moves only on a deliberate bump.
 
 `Package.resolved` is **tracked**, not ignored. Release builds resolve from a clean checkout, so the lockfile is the only thing that makes a tagged build reproducible. Commit it with any dependency change, and never add it back to `.gitignore`.
+
+### GitHub Actions
+
+- Pin every third-party action to a full commit SHA with the version in a trailing comment: `uses: actions/checkout@<sha> # v7.0.1`. Dependabot bumps both. Reusable workflows from `VocaHQ/*` may track `main`.
+- Start new workflows at `permissions: {}` (or `contents: read`) and grant write scopes on the job that needs them.
+- Pass `${{ … }}` values into `run:` scripts through `env:`, never inline.
+- Check out with `persist-credentials: false` unless a later step pushes with that token.
+- Run `zizmor .github/workflows` before pushing a workflow change; CI reports its findings to code scanning.
 
 ---
 

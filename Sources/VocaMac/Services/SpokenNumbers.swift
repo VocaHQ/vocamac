@@ -184,8 +184,7 @@ enum SpokenNumbers {
               words.isJoiner(after: last),
               let next = words.token(last + 1, isDecimal: tokens.contains(.point)),
               next.mayExtend(tokens),
-              !startsASecondHundreds(next, after: tokens, at: last + 1, in: words)
-        {
+              !startsASecondHundreds(next, after: tokens, at: last + 1, in: words) {
             tokens.append(next)
             last += 1
         }

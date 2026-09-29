@@ -20,7 +20,7 @@ struct DictationOutputOptions {
     var autoCapitalize: Bool
     var trailingSpace: Bool
     var preview: Bool = false
-    var dictionary: DictionaryContext? = nil
+    var dictionary: DictionaryContext?
     var numbersAsDigits: Bool = false
     var numberSymbols: Bool = false
     var spokenEmoji: Bool = false
@@ -494,7 +494,7 @@ struct DictationOutputPipeline {
 
         let intent = (options.rewritingEnabled && !technical) ? profile.intent : .preserve
         if intent != .preserve,
-           (!prepared.isEnglishText || RewriteValidation.containsNonLatinLetters(masked.text)) {
+           !prepared.isEnglishText || RewriteValidation.containsNonLatinLetters(masked.text) {
             return .finished(text: fallback, summary: noting("Writing intent skipped — English preview only"))
         }
         // Commands and code stay on this Mac: a remote cleanup endpoint gets

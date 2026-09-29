@@ -159,6 +159,16 @@ final class VocaLoggerTests: XCTestCase {
         XCTAssertTrue(url.path.hasSuffix(".log"), "Log file should have .log extension")
     }
 
+    func testTestRunsDoNotWriteToTheAppsLogFolder() {
+        let appFolder = VocaLogger.defaultLogDirectory(isRunningTests: false)
+        XCTAssertTrue(appFolder.path.hasSuffix("Application Support/VocaMac/logs"))
+        XCTAssertNotEqual(VocaLogger.logDirectory().standardizedFileURL, appFolder.standardizedFileURL)
+        XCTAssertEqual(
+            VocaLogger.logDirectory().standardizedFileURL,
+            VocaLogger.defaultLogDirectory(isRunningTests: true).standardizedFileURL
+        )
+    }
+
     func testLogDirectoryIsValid() {
         let url = VocaLogger.logDirectory()
         XCTAssertFalse(url.path.isEmpty, "Log directory URL should not be empty")

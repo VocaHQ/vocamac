@@ -84,7 +84,7 @@ struct WritingStylesSettingsTab: View {
                                 update(binding) { $0.isEnabled = isEnabled }
                             },
                             onRemove: {
-                                appState.writingStyleBindings.removeAll { $0.id == binding.id }
+                                appState.removeAppStyleBinding(binding)
                             }
                         )
                         if binding.id != appState.writingStyleBindings.last?.id {
@@ -124,7 +124,7 @@ struct WritingStylesSettingsTab: View {
                         Button("Import App List…") { importRules() }
                         Divider()
                         Button("Remove All Apps", role: .destructive) {
-                            appState.removeAllWritingStyleBindings()
+                            appState.removeAllAppStyleBindingsWithUndo { suggestionNotice = nil }
                             suggestionNotice = "Removed every app. All apps now use \(appState.writingStyleDefault.displayName)."
                         }
                         .disabled(appState.writingStyleBindings.isEmpty)
@@ -261,11 +261,11 @@ struct WritingStylesSettingsTab: View {
             if !appState.transcriptCleanupEnabled {
                 Label("Turn on Smart Cleanup in the Cleanup page to use Formal or Casual.", systemImage: "info.circle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
             } else if !appState.transcriptCleanup.isDownloaded(appState.selectedCleanupModelKind) {
                 Label("Finish setting up the Smart Cleanup model in the Cleanup page to use Formal or Casual.", systemImage: "arrow.down.circle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
             }
         }
     }

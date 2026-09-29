@@ -7,9 +7,9 @@ import XCTest
 @testable import VocaMac
 
 final class SnippetTests: XCTestCase {
-    
+
     var appState: AppState!
-    
+
     @MainActor
     override func setUp() async throws {
         // Snippets persist to shared UserDefaults; start from a clean slate so
@@ -29,7 +29,7 @@ final class SnippetTests: XCTestCase {
         UserDefaults.standard.removeObject(forKey: "vocamac.snippets")
         appState = nil
     }
-    
+
     @MainActor
     func testSnippetExpansion() {
         // Given
@@ -37,50 +37,50 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "My Mail", expansion: "kanishk@example.com"),
             Snippet(trigger: "vmac", expansion: "VocaMac")
         ]
-        
+
         // When
         let input1 = "Please send it to My Mail"
         let output1 = appState.expandSnippets(in: input1)
-        
+
         let input2 = "I love vmac"
         let output2 = appState.expandSnippets(in: input2)
-        
+
         // Then
         XCTAssertEqual(output1, "Please send it to kanishk@example.com")
         XCTAssertEqual(output2, "I love VocaMac")
     }
-    
+
     @MainActor
     func testCaseInsensitiveExpansion() {
         // Given
         appState.snippets = [
             Snippet(trigger: "My Mail", expansion: "kanishk@example.com")
         ]
-        
+
         // When
         let input = "please send it to my mail"
         let output = appState.expandSnippets(in: input)
-        
+
         // Then
         XCTAssertEqual(output, "please send it to kanishk@example.com")
     }
-    
+
     @MainActor
     func testWordBoundaries() {
         // Given
         appState.snippets = [
             Snippet(trigger: "mail", expansion: "kanishk@example.com")
         ]
-        
+
         // When
         let input = "Check the mailbox for mail"
         let output = appState.expandSnippets(in: input)
-        
+
         // Then
         // "mailbox" should NOT be replaced, but "mail" should.
         XCTAssertEqual(output, "Check the mailbox for kanishk@example.com")
     }
-    
+
     @MainActor
     func testOverlappingSnippets() {
         // Given
@@ -89,11 +89,11 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "mail", expansion: "SHORT"),
             Snippet(trigger: "mail address", expansion: "LONG")
         ]
-        
+
         // When
         let input = "my mail address"
         let output = appState.expandSnippets(in: input)
-        
+
         // Then
         XCTAssertEqual(output, "my LONG")
     }
@@ -104,11 +104,11 @@ final class SnippetTests: XCTestCase {
         appState.snippets = [
             Snippet(trigger: "price", expansion: "$100")
         ]
-        
+
         // When
         let input = "The price is right"
         let output = appState.expandSnippets(in: input)
-        
+
         // Then
         // If expansion is not escaped, $1 would be treated as a capture group reference.
         XCTAssertEqual(output, "The $100 is right")
@@ -121,18 +121,18 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "@home", expansion: "at home"),
             Snippet(trigger: "sig.", expansion: "Regards, J.")
         ]
-        
+
         // When & Then
         // Basic expansion
         XCTAssertEqual(appState.expandSnippets(in: "I am @home"), "I am at home")
         XCTAssertEqual(appState.expandSnippets(in: "This is my sig."), "This is my Regards, J.")
-        
+
         // Verify boundaries for leading punctuation (@home)
         // Current implementation uses (?<!\S) which requires whitespace or start of string
         XCTAssertEqual(appState.expandSnippets(in: "mail@home"), "mail@home") // No match (preceded by 'l')
         XCTAssertEqual(appState.expandSnippets(in: "!@home"), "!@home") // No match (preceded by '!')
         XCTAssertEqual(appState.expandSnippets(in: "(@home)"), "(@home)") // No match (preceded by '(')
-        
+
         // Verify boundaries for trailing punctuation (sig.)
         // Current implementation uses \b prefix and (?!\S) suffix
         XCTAssertEqual(appState.expandSnippets(in: "mysig."), "mysig.") // No match (word-word prefix \b fails)
@@ -147,11 +147,11 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "report", expansion: "weekly mail"),
             Snippet(trigger: "mail", expansion: "me@example.com")
         ]
-        
+
         // When
         let input = "send the report"
         let output = appState.expandSnippets(in: input)
-        
+
         // Then
         // Should expand to "weekly mail", but "mail" should NOT be further expanded in the same pass.
         XCTAssertEqual(output, "send the weekly mail")
@@ -165,13 +165,13 @@ final class SnippetTests: XCTestCase {
             Snippet(trigger: "@me", expansion: "myself")
         ]
         appState.snippets = originalSnippets
-        
+
         // When
         appState.saveSnippets()
 
         // Load into a new AppState instance
         let (newState, _) = AppState.makeTestState()
-        
+
         // Then
         XCTAssertEqual(newState.snippets, originalSnippets)
     }

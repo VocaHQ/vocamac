@@ -35,6 +35,11 @@ enum AppIdentityMatching {
         ("iterm2", "com.googlecode.iterm2")
     ]
 
+    /// Whether a bundle ID and a bare process name are a known pair for one app.
+    static func isKnownPair(bundle: String, process: String) -> Bool {
+        processBundleAliases.contains { $0.bundle == bundle.lowercased() && $0.process == process }
+    }
+
     /// If `keys` holds either side of a known process↔bundle alias, insert
     /// both so occupancy / exclusion treats them as one app identity.
     static func expandProcessBundleAliases(into keys: inout Set<String>) {

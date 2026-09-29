@@ -679,9 +679,9 @@ final class AppState: ObservableObject {
     private var activeCommandTransformer: TextTransforming?
     /// A local Command Mode model loading while the user speaks.
     private var commandModelWarmup: Task<Void, Never>?
-    /// Frees a large Command Mode model a while after its last use.
+    /// Frees a Command Mode model after its last use, when "Unload model
+    /// when idle" is on.
     private var commandModelIdleUnload: Task<Void, Never>?
-    static let commandModelIdleSeconds: TimeInterval = 300
     private lazy var appleIntelligenceService = AppleIntelligenceTextService()
     /// A quick press toggles Command Mode; holding past this point stops on
     /// release. Internal so flow tests can exercise both gestures instantly.
@@ -704,6 +704,20 @@ final class AppState: ObservableObject {
     let soundManager: SoundPlaying
     let audioDucker: AudioDucking
     let cursorOverlay: CursorOverlayManaging
+
+    /// The Settings overlay preview. Owned here so a real dictation can end it
+    /// before it starts: a preview left up while the speech model loads would
+    /// look like the microphone is already listening.
+    /// The one pending "Undo" offered after a Settings list removal.
+    let undoCenter = UndoCenter()
+
+    private(set) lazy var overlayPreview = OverlayPreviewController(
+        overlay: cursorOverlay,
+        isIdle: { [weak self] in
+            guard let self else { return false }
+            return appStatus == .idle && !isRecording
+        }
+    )
     let statsManager: StatsManaging
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
@@ -1367,6 +1381,19 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The chosen speech model is not on this Mac and none is on the way.
+    ///
+    /// A model that is downloaded but not loaded yet, or unloaded on purpose
+    /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
+    var needsSpeechModel: Bool {
+        appStatus == .idle
+            && !whisperService.isModelLoaded
+            // Not yet populated at launch: nothing is known to be missing.
+            && !availableModels.isEmpty
+            && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
+            && !availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
+    }
+
     /// Ensure a model is loaded before dictation (lazy reload after idle unload).
     func ensureModelLoaded() async {
         guard !whisperService.isModelLoaded else { return }
@@ -1770,6 +1797,7 @@ final class AppState: ObservableObject {
     ) async {
         let interval = PerformanceTrace.begin("RecordingStart")
         defer { PerformanceTrace.end(interval) }
+        overlayPreview.stop()
         // If we're already recording, this is a recovery attempt — the user
         // pressed the hotkey again because a previous key-up was missed.
         // Stop the current recording and transcribe what we have.
@@ -1952,12 +1980,10 @@ final class AppState: ObservableObject {
         }
         recordingProcessesWhileSpeaking = commit != nil && session != nil
         // Only promise live words when an engine will actually send them:
-        // Whisper and Parakeet decode partial snapshots, and so does ONNX when
-        // it commits pieces; the Apple Speech session streams audio but
-        // reports text only when it finishes.
+        // Whisper, Parakeet and ONNX decode partial snapshots; the Apple
+        // Speech session streams audio but reports text only when it finishes.
         let recordingEngine = ModelSize(rawValue: selectedModelSize)?.engine
-        let engineSendsPartials = [.whisperKit, .parakeet].contains(recordingEngine)
-            || (commit != nil && recordingEngine == .sherpaOnnx)
+        let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in
@@ -4228,13 +4254,28 @@ extension AppState {
             }
             return
         }
-        // Nothing else needs the slot: keep the model warm for a follow-up
-        // edit, then free its memory.
+        // Nothing else needs the slot. Keep the model resident unless the
+        // user asked for idle unloading: a fixed timer here dropped it behind
+        // their back, and the reload could then be refused for memory.
+        guard let delay = commandModelIdleUnloadDelay else { return }
         commandModelIdleUnload = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.commandModelIdleSeconds * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.activeCommandEngine == nil else { return }
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self, !Task.isCancelled, self.commandModelIdleUnloadIsDue else { return }
             await self.releaseCommandModelSlot()
         }
+    }
+
+    /// Checked again when the timer fires, as `ModelKeepAlive` does: the user
+    /// may have turned idle unloading off, or started another edit, since.
+    var commandModelIdleUnloadIsDue: Bool {
+        commandModelIdleUnloadDelay != nil && activeCommandEngine == nil
+    }
+
+    /// How long a Command Mode model stays loaded after its last use, or nil
+    /// to keep it loaded. Follows the "Unload model when idle" setting.
+    var commandModelIdleUnloadDelay: TimeInterval? {
+        guard modelKeepAliveEnabled else { return nil }
+        return ModelKeepAlive.clampIdleTimeout(modelKeepAliveIdleTimeoutSeconds)
     }
 
     private var cleanupUsesLocalModel: Bool {
@@ -4346,6 +4387,17 @@ extension AppState {
         guard !trimmed.isEmpty else { return }
         var terms = vocabularyTerms.filter { $0.lowercased() != trimmed.lowercased() }
         terms.append(trimmed)
+        setVocabularyTerms(terms)
+    }
+
+    /// Put a removed term back where it was, so undoing an early term in a long
+    /// list does not push a different one out of the recognition hints (which
+    /// keep the last terms). Does nothing if the term was added again meanwhile.
+    func restoreVocabularyTerm(_ term: String, at index: Int) {
+        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        var terms = vocabularyTerms
+        guard !trimmed.isEmpty, !terms.contains(where: { $0.lowercased() == trimmed.lowercased() }) else { return }
+        terms.insert(trimmed, at: min(max(index, 0), terms.count))
         setVocabularyTerms(terms)
     }
 

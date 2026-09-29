@@ -49,14 +49,14 @@ struct GatewaySettingsTab: View {
                     }
                 } else {
                     Label("Native vocagateway binary not found on PATH", systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                         .font(.caption)
                 }
 
                 if let message = gateway.lastErrorMessage, case .error = gateway.status {
                     Text(message)
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(VocaDesign.warning)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -115,8 +115,8 @@ struct GatewaySettingsTab: View {
                 }
 
                 Text("Required when auto-discovery returns localhost. Maps to VOCAGATEWAY_PUBLIC_URL when VocaMac starts Gateway.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
 
                 if gateway.pairingPayload != nil {
                     HStack {
@@ -151,7 +151,7 @@ struct GatewaySettingsTab: View {
                         systemImage: "qrcode.viewfinder"
                     )
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
                 }
             }
 
@@ -249,7 +249,7 @@ struct GatewaySettingsTab: View {
     private var statusColor: Color {
         switch gateway.status {
         case .stopped: return .secondary
-        case .starting: return .orange
+        case .starting: return VocaDesign.warning
         case .pairable: return .blue
         case .ready: return .green
         case .error: return .red

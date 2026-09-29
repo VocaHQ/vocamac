@@ -243,9 +243,15 @@ struct WebsiteStyleBinding: Codable, Identifiable, Hashable {
     var style: WritingStyle
     var intent: WritingIntent = .preserve
     var cleanup: WritingCleanupPolicy = .inherit
-    var cleanupLevel: CleanupLevel? = nil
-    var cleanupPrompt: String? = nil
+    var cleanupLevel: CleanupLevel?
+    var cleanupPrompt: String?
     var isEnabled = true
+
+    /// Two rules name the same site.
+    static func sharesHost(_ a: WebsiteStyleBinding, _ b: WebsiteStyleBinding) -> Bool {
+        a.hostPattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            == b.hostPattern.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 
     func matches(_ url: URL) -> Bool {
         guard isEnabled, let host = url.host?.lowercased() else { return false }

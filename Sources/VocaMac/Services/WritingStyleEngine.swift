@@ -420,7 +420,6 @@ enum WritingStyleEngine {
     // Ordinals ("one", "first", "second") are deliberately absent: "line one
     // new line line two" is numbering, not "one new line".
 
-
     /// Words that, immediately after the phrase, make it the sentence's
     /// subject rather than a break in one.
     ///

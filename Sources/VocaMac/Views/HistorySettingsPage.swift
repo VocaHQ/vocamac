@@ -23,7 +23,7 @@ struct HistorySettingsPage: View {
                 Label("Recent history changes couldn't be saved to disk. VocaMac keeps trying; check that your disk has free space.",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .vocaCard()
             }
@@ -319,9 +319,9 @@ struct HistoryEntryRow: View {
 
     private var statusColor: Color {
         switch entry.status {
-        case .failed, .interrupted: return .orange
+        case .failed, .interrupted: return VocaDesign.warning
         case .cancelled, .empty: return .secondary
-        case .pending: return .yellow
+        case .pending: return VocaDesign.busy
         case .completed: return VocaDesign.success
         }
     }

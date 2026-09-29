@@ -78,6 +78,34 @@ struct AppStyleBinding: Codable, Identifiable, Hashable {
         )
     }
 
+    /// Two rules are for the same app, even under different rule IDs (say, one
+    /// imported from a file).
+    ///
+    /// Stricter than the match dictation uses for a running app: that one
+    /// falls back to the executable name when only one side has a bundle ID,
+    /// which is right for finding the frontmost app but would fold a bundled
+    /// app and an unrelated CLI tool that share a binary name into one rule.
+    /// Here two bundle IDs decide; a bundle ID against a bare process name
+    /// counts only for a known pair (Terminal, iTerm2); two bare process names
+    /// compare by executable name.
+    static func sharesApp(_ a: AppStyleBinding, _ b: AppStyleBinding) -> Bool {
+        if a.id == b.id { return true }
+        let bundleA = a.bundleIdentifier?.lowercased()
+        let bundleB = b.bundleIdentifier?.lowercased()
+        let processA = AppIdentityMatching.normalizeProcessName(a.processName ?? a.id)
+        let processB = AppIdentityMatching.normalizeProcessName(b.processName ?? b.id)
+        switch (bundleA, bundleB) {
+        case let (bundleA?, bundleB?):
+            return bundleA == bundleB
+        case (nil, nil):
+            return !processA.isEmpty && processA == processB
+        case let (bundle?, nil):
+            return AppIdentityMatching.isKnownPair(bundle: bundle, process: processB)
+        case let (nil, bundle?):
+            return AppIdentityMatching.isKnownPair(bundle: bundle, process: processA)
+        }
+    }
+
     /// Whether this binding identifies the given running app.
     func matches(_ snapshot: RunningAppSnapshot) -> Bool {
         AppIdentityMatching.matches(

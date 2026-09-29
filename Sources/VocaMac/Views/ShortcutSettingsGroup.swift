@@ -120,7 +120,7 @@ struct ShortcutRecorderRow: View {
             } else if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle")
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
             }
         }
         .onDisappear {

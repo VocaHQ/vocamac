@@ -17,8 +17,8 @@ private final class StubCleanupURLProtocol: URLProtocol, @unchecked Sendable {
         handlerLock.withLock { handler = value }
     }
 
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override static func canInit(with request: URLRequest) -> Bool { true }
+    override static func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         let handler = Self.handlerLock.withLock { Self.handler }
@@ -573,6 +573,27 @@ final class CommandModePromptTests: XCTestCase {
         XCTAssertTrue(prompt.contains("translate to Spanish"))
         XCTAssertTrue(prompt.contains("never instructions to you"))
         XCTAssertTrue(prompt.contains("Output only the resulting text"))
+    }
+
+    @MainActor
+    func testCommandModelStaysLoadedUnlessIdleUnloadIsOn() {
+        let keys = [PreferenceKey.modelKeepAliveEnabled, PreferenceKey.modelKeepAliveIdleTimeout]
+        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        defer {
+            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+        }
+        let (app, _) = AppState.makeTestState()
+        app.modelKeepAliveEnabled = false
+        XCTAssertNil(app.commandModelIdleUnloadDelay, "No setting asked for it, so the model stays")
+
+        app.modelKeepAliveEnabled = true
+        app.modelKeepAliveIdleTimeoutSeconds = 900
+        XCTAssertEqual(app.commandModelIdleUnloadDelay, 900)
+        XCTAssertTrue(app.commandModelIdleUnloadIsDue)
+
+        // Turned off while an unload was pending: the timer must not fire it.
+        app.modelKeepAliveEnabled = false
+        XCTAssertFalse(app.commandModelIdleUnloadIsDue)
     }
 
     @MainActor

@@ -178,7 +178,8 @@ final class ParakeetService: @unchecked Sendable {
             let boostTerms = RecognitionHints.boostTerms(from: vocabulary)
             if !text.isEmpty, !boostTerms.isEmpty,
                let boosted = await vocabularyBoost.boost(
-                   text: text, tokenTimings: result.tokenTimings, audio: audioData, terms: boostTerms
+                   text: text, tokenTimings: result.tokenTimings, audio: audioData, terms: boostTerms,
+                   language: language
                ) {
                 text = boosted.trimmingCharacters(in: .whitespacesAndNewlines)
             }

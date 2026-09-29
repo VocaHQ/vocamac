@@ -127,8 +127,7 @@ final class AudioFileLoader: AudioFileLoading {
             }
 
             var conversionError: NSError?
-            let status = converter.convert(to: outputBuffer, error: &conversionError) {
-                requestedFrames, inputStatus in
+            let status = converter.convert(to: outputBuffer, error: &conversionError) { requestedFrames, inputStatus in
                 guard audioFile.framePosition < audioFile.length else {
                     inputStatus.pointee = .endOfStream
                     return nil

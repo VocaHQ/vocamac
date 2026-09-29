@@ -30,7 +30,6 @@ final class TranslationToggleTests: XCTestCase {
     }
 }
 
-
 // MARK: - OnboardingStep Tests
 
 final class OnboardingStepTests: XCTestCase {
@@ -82,7 +81,6 @@ final class OnboardingStepTests: XCTestCase {
         )
     }
 }
-
 
 // MARK: - Launch at Login Tests
 

@@ -1,0 +1,91 @@
+name: Bug report
+description: Something in VocaMac does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Search [existing issues](https://github.com/VocaHQ/vocamac/issues?q=is%3Aissue) first.
+
+        **Privacy:** remove transcripts, recordings, names, API keys, gateway tokens, and private addresses from anything you paste or attach.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select the Parakeet v3 model
+        2. Hold the hotkey and dictate into Notes
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: VocaMac version
+      description: Settings → About.
+      placeholder: 1.0.0 or 1.0.0-nightly.20260924+abc1234
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - DMG from GitHub Releases
+        - Homebrew (vocamac)
+        - Homebrew (vocamac-nightly)
+        - Built from source
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac
+      placeholder: macOS 26.1, MacBook Pro M3 Pro, 18 GB
+    validations:
+      required: true
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Speech engine
+      options:
+        - Whisper
+        - Parakeet
+        - Apple Speech
+        - Specialized (ONNX)
+        - Not engine-specific
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model and language
+      placeholder: Whisper Large v3 Turbo, English
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Debug logs
+      description: Settings → Advanced → Debug Logs → Copy. Paste the lines around the problem, with transcripts removed.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, the app you were dictating into, other settings you changed.

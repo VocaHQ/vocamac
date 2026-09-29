@@ -206,6 +206,17 @@ final class CleanupModelTests: XCTestCase {
         )
     }
 
+    func testSwitchingModelsCreditsTheResidentModel() {
+        let cleanup = CleanupModelKind.qwen25_0_5b_q4_k_m
+        let command = CleanupModelKind.ministral3_3b_q4_k_m
+        XCTAssertEqual(
+            TranscriptCleanupService.freeingGB(resident: cleanup, incoming: command),
+            cleanup.descriptor.ramRequiredGB
+        )
+        XCTAssertEqual(TranscriptCleanupService.freeingGB(resident: nil, incoming: command), 0)
+        XCTAssertEqual(TranscriptCleanupService.freeingGB(resident: command, incoming: command), 0)
+    }
+
     func testAttemptSummariesExplainThemselves() {
         let rejected = CleanupAttempt(output: "x", outcome: .rejected("the model returned nothing"), duration: 1)
         XCTAssertTrue(rejected.summary.contains("the model returned nothing"))
@@ -331,7 +342,7 @@ final class CleanupModelTests: XCTestCase {
         }
 
         let service = TranscriptCleanupService(modelsDirectory: directory)
-        service.modelFitsInMemory = { _ in true }
+        service.modelFitsInMemory = { _, _ in true }
         return (service, CleanupModelCatalog.recommended)
     }
 
@@ -377,7 +388,7 @@ final class CleanupModelTests: XCTestCase {
         try handle.close()
 
         let service = TranscriptCleanupService(modelsDirectory: directory)
-        service.modelFitsInMemory = { _ in true }
+        service.modelFitsInMemory = { _, _ in true }
         XCTAssertTrue(service.isDownloaded(descriptor.kind))
 
         let first = Task { await service.load(descriptor.kind) }
@@ -421,7 +432,7 @@ final class CleanupModelTests: XCTestCase {
         try handle.close()
 
         let service = TranscriptCleanupService(modelsDirectory: directory)
-        service.modelFitsInMemory = { _ in true }
+        service.modelFitsInMemory = { _, _ in true }
 
         let stale = Task { await service.load(descriptor.kind) }
         try await Task.sleep(nanoseconds: 50_000_000)

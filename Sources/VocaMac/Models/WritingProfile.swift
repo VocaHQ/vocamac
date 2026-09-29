@@ -46,9 +46,9 @@ struct WritingProfile: Equatable {
     var intent: WritingIntent = .preserve
     var cleanup: WritingCleanupPolicy = .inherit
     /// Nil inherits the global cleanup level.
-    var cleanupLevel: CleanupLevel? = nil
+    var cleanupLevel: CleanupLevel?
     /// Nil or blank inherits the global cleanup prompt.
-    var cleanupPrompt: String? = nil
+    var cleanupPrompt: String?
 
     var allowsRewrite: Bool {
         cleanup == .inherit && format.supportsWording

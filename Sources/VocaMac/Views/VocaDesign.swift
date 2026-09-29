@@ -30,6 +30,21 @@ enum VocaDesign {
             ? NSColor(red: 0.72, green: 0.62, blue: 1.0, alpha: 1)
             : NSColor(red: 0.44, green: 0.28, blue: 0.86, alpha: 1)
     }
+    /// Something needs attention. System orange and yellow fall under 3:1
+    /// against a light window, so text and glyphs use a deeper amber there.
+    static let warning = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 1.0, green: 0.62, blue: 0.04, alpha: 1)
+            : NSColor(red: 0.74, green: 0.36, blue: 0.0, alpha: 1)
+    })
+
+    /// Work in progress ("Transcribing…"): distinct from `warning`, since
+    /// waiting is not a problem.
+    static let busy = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 1.0, green: 0.80, blue: 0.25, alpha: 1)
+            : NSColor(red: 0.62, green: 0.45, blue: 0.0, alpha: 1)
+    })
     static let canvas = Color(nsColor: .windowBackgroundColor)
     static let surface = Color(nsColor: .controlBackgroundColor)
     static let line = Color.primary.opacity(0.10)
@@ -429,5 +444,80 @@ struct VocaMenuChoice: View {
     var body: some View {
         // Choosing the checked item selects it again, as the plain buttons did.
         Toggle(title, isOn: Binding(get: { isSelected }, set: { _ in select() }))
+    }
+}
+
+/// The placeholder for a list with nothing in it yet: what the list is for,
+/// and the one action that starts it.
+struct VocaEmptyState: View {
+    let title: String
+    let message: String
+    var systemImage: String
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+                .padding(.bottom, 2)
+            Text(title).font(.headline)
+            Text(message)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .tint(VocaDesign.accentSolid)
+                    .padding(.top, 8)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// "Removed · Undo" bar shown at the bottom of a settings page.
+struct UndoToastView: View {
+    let undoCenter: UndoCenter
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack {
+            if let entry = undoCenter.current {
+                HStack(spacing: 12) {
+                    Text(entry.message).font(.callout)
+                    Button("Undo") { undoCenter.undo() }
+                        .buttonStyle(.borderless)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(VocaDesign.accent)
+                    Button {
+                        undoCenter.dismiss()
+                    } label: {
+                        Image(systemName: "xmark").font(.caption.weight(.bold))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Dismiss")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(.regularMaterial, in: Capsule())
+                .overlay(Capsule().strokeBorder(VocaDesign.line))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .padding(.bottom, 16)
+                .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                .id(entry.id)
+                .accessibilityElement(children: .combine)
+                .accessibilityAddTraits(.updatesFrequently)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .bottom)
+        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.85), value: undoCenter.current?.id)
     }
 }

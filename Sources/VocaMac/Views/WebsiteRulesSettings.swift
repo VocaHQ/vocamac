@@ -11,15 +11,18 @@ struct WebsiteRulesSettings: View {
     var body: some View {
         VocaSettingsGroup("Websites", subtitle: "Use a different style on one site in your browser.") {
             if appState.websiteStyleBindings.isEmpty {
-                Text("No websites set up yet.")
-                    .foregroundStyle(.secondary)
-                    .help("VocaMac reads the focused tab's URL through Accessibility. URLs are never saved to history.")
+                VocaEmptyState(
+                    title: "No websites set up yet",
+                    message: "VocaMac reads the focused tab's address through Accessibility. Addresses are never saved to history.",
+                    systemImage: "globe",
+                    actionTitle: "Add Website…"
+                ) { isAdding = true }
             } else {
                 ForEach(appState.websiteStyleBindings) { rule in
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(rule.displayName)
-                            Text(rule.hostPattern).font(.caption2).foregroundStyle(.secondary)
+                            Text(rule.hostPattern).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
                         Text(rule.style.displayName).font(.caption).foregroundStyle(.secondary)
@@ -30,16 +33,22 @@ struct WebsiteRulesSettings: View {
                         .labelsHidden().controlSize(.mini)
                         Button { editing = rule } label: { Image(systemName: "slider.horizontal.3") }
                             .buttonStyle(.borderless)
+                            .help("Customize \(rule.displayName)")
+                            .accessibilityLabel("Customize \(rule.displayName)")
                         Button(role: .destructive) {
-                            appState.websiteStyleBindings.removeAll { $0.id == rule.id }
+                            appState.removeWebsiteRule(rule)
                         } label: { Image(systemName: "minus.circle.fill") }
                         .buttonStyle(.borderless)
+                        .help("Remove \(rule.displayName)")
+                        .accessibilityLabel("Remove \(rule.displayName)")
                     }
                     if rule.id != appState.websiteStyleBindings.last?.id { Divider() }
                 }
             }
 
-            Button("Add Website…") { isAdding = true }
+            if !appState.websiteStyleBindings.isEmpty {
+                Button("Add Website…") { isAdding = true }
+            }
         }
         .sheet(isPresented: $isAdding) {
             WebsiteRuleEditor(rule: WebsiteStyleBinding(

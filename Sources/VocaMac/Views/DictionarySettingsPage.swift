@@ -26,7 +26,7 @@ struct DictionarySettingsPage: View {
             VocaSettingsGroup("Vocabulary", subtitle: "Names and jargon, spelled exactly your way.") {
                 if !appState.vocabularyTerms.isEmpty {
                     FlowTermList(terms: appState.vocabularyTerms) { term in
-                        appState.removeVocabularyTerm(term)
+                        appState.removeVocabularyTermWithUndo(term)
                     }
                 }
                 HStack {
@@ -181,8 +181,7 @@ struct WordReplacementRow: View {
             TextField("Type", text: $replacement.replacement)
                 .textFieldStyle(.roundedBorder)
             Button(role: .destructive) {
-                let id = replacement.id
-                appState.wordReplacements.removeAll { $0.id == id }
+                appState.removeWordReplacement(replacement)
             } label: {
                 Image(systemName: "minus.circle.fill")
             }

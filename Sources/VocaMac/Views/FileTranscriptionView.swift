@@ -85,7 +85,7 @@ struct FileTranscriptionView: View {
             }
             if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
-                    .font(.caption).foregroundStyle(.orange)
+                    .font(.caption).foregroundStyle(VocaDesign.warning)
             }
         }
         .padding(20)

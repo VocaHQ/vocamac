@@ -477,13 +477,13 @@ enum SettingsSearchIndex {
             id: "logs",
             page: .advanced,
             title: "Debug Logs",
-            keywords: ["log", "debug", "export"]
+            keywords: ["log", "debug", "export", "advanced", "diagnostics"]
         ),
         SettingsSearchEntry(
             id: "permissions",
             page: .advanced,
             title: "Permissions",
-            keywords: ["mic", "accessibility", "input monitoring"]
+            keywords: ["mic", "accessibility", "input monitoring", "advanced", "diagnostics"]
         ),
         SettingsSearchEntry(
             id: "about",

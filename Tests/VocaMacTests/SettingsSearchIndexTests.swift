@@ -94,3 +94,28 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertTrue(SettingsSearchIndex.matches(query: "twitter").contains { $0.id == "x" })
     }
 }
+
+// MARK: - Sidebar layout
+
+final class SettingsSectionTests: XCTestCase {
+    func testEveryPageAppearsInExactlyOneSection() {
+        let listed = SettingsSection.allCases.flatMap(\.pages)
+        XCTAssertEqual(listed.count, Set(listed).count, "a page is listed twice")
+        XCTAssertEqual(Set(listed), Set(SettingsPage.allCases), "a page is missing from the sidebar")
+    }
+
+    func testPerformanceSitsBesideTheSpeechModel() {
+        XCTAssertTrue(SettingsSection.dictation.pages.contains(.performance))
+        XCTAssertTrue(SettingsSection.dictation.pages.contains(.speechModel))
+    }
+
+    func testPermissionsPageKeepsItsStoredRawValue() {
+        // A remembered last page is stored by raw value.
+        XCTAssertEqual(SettingsPage.advanced.rawValue, "advanced")
+        XCTAssertEqual(SettingsPage.advanced.title, "Permissions & Logs")
+    }
+
+    func testOldAdvancedSearchTermsStillFindThePermissionsPage() {
+        XCTAssertTrue(SettingsSearchIndex.matches(query: "advanced").contains { $0.page == .advanced })
+    }
+}

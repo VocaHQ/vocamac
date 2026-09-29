@@ -138,7 +138,7 @@ final class ProcessWhileSpeakingBenchmarkTests: XCTestCase {
         // The app's reclaimable-memory estimate is conservative while the
         // test runner and toolchain are resident; the benchmark is run on
         // purpose, so load anyway.
-        cleaner.modelFitsInMemory = { _ in true }
+        cleaner.modelFitsInMemory = { _, _ in true }
         let pipeline = DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
         if let cleanupKind {
             await cleaner.load(cleanupKind)

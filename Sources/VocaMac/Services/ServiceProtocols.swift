@@ -38,6 +38,7 @@ protocol AudioRecording: AnyObject {
 extension AudioRecording {
     var onAudioSamples: (([Float], Int) -> Void)? {
         get { nil }
+        // swiftlint:disable:next unused_setter_value
         set { }
     }
 }
@@ -300,6 +301,7 @@ extension FrontmostAppResolving {
 extension TextInjecting {
     var onFailure: ((String) -> Void)? {
         get { nil }
+        // swiftlint:disable:next unused_setter_value
         set { }
     }
 

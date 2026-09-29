@@ -79,7 +79,10 @@ final class CLITests: XCTestCase {
 
     func testPieceComparisonDecodesWholeAndPieceByPiece() async throws {
         let dependencies = makeDependencies(selectedModel: .tiny)
-        let tone = (0..<80_000).map { 0.3 * sin(Float($0) * 2 * .pi * 220 / 16_000) }
+        let tone: [Float] = (0..<80_000).map { index in
+            let phase: Float = Float(index) * 2 * Float.pi * 220 / 16_000
+            return 0.3 * sin(phase)
+        }
         let audio = tone + [Float](repeating: 0, count: 16_000) + Array(tone.prefix(48_000))
         dependencies.audioLoader.loadedAudio = LoadedAudioFile(samples: audio, durationSeconds: Double(audio.count) / 16_000)
 

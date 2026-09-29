@@ -119,13 +119,13 @@ enum SpokenSymbolTransformer {
     /// case" is matched before "snake case".
     private static let caseCommands: [(phrase: [String], style: IdentifierCase)] = [
         (["screaming", "snake", "case"], .screamingSnake),
-        (["constant", "case"],           .screamingSnake),
-        (["camel", "case"],              .camel),
-        (["pascal", "case"],             .pascal),
-        (["upper", "camel", "case"],     .pascal),
-        (["snake", "case"],              .snake),
-        (["kebab", "case"],              .kebab),
-        (["dash", "case"],               .kebab)
+        (["constant", "case"], .screamingSnake),
+        (["camel", "case"], .camel),
+        (["pascal", "case"], .pascal),
+        (["upper", "camel", "case"], .pascal),
+        (["snake", "case"], .snake),
+        (["kebab", "case"], .kebab),
+        (["dash", "case"], .kebab)
     ]
 
     /// Maximum words a case command consumes.
@@ -170,7 +170,7 @@ enum SpokenSymbolTransformer {
         /// a token build a fresh one, so a `nil` origin means "a rule fired
         /// here" — which is how the escape check knows whether saying
         /// "literally" prevented anything.
-        var origin: Int? = nil
+        var origin: Int?
         /// Preceded by "literally" — never substitute using this token.
         var isProtected: Bool = false
         /// Produced by a substitution. Marks the line as identifier-ish, which

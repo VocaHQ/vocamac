@@ -460,7 +460,7 @@ final class HotKeyManager {
 
     /// Static C callback for CGEventTap — dispatches to the instance method.
     /// Runs on the dedicated event tap thread.
-    private static let eventTapCallback: CGEventTapCallBack = { proxy, type, event, userInfo in
+    private static let eventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo = userInfo else { return Unmanaged.passUnretained(event) }
 
         let manager = Unmanaged<HotKeyManager>.fromOpaque(userInfo).takeUnretainedValue()

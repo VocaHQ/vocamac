@@ -148,13 +148,13 @@ struct UpdateDetailView: View {
                     .tint(VocaDesign.accent)
                 HStack {
                     Text("\(ByteCountFormatter.string(fromByteCount: bytesDownloaded, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Spacer()
                     if eta > 0 && eta < 3600 {
                         Text(formatETA(eta))
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }
@@ -183,7 +183,7 @@ struct UpdateDetailView: View {
         case .error(let message):
             VStack(alignment: .leading, spacing: 10) {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(VocaDesign.warning)
 
                 HStack {
                     Button("View Release") {

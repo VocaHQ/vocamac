@@ -73,7 +73,7 @@ final class RecognitionHintsTests: XCTestCase {
     private let terms = ["Namrata", "Zorblax", "Kubernetes", "NVIDIA", "kubectl"]
 
     func testBoostKeepsOnlyCloseSpellingsOfUserTerms() {
-        let kept = ParakeetVocabularyBoost.accepted(observed, in: transcript, terms: terms)
+        let kept = ParakeetVocabularyBoost.accepted(observed, in: transcript, terms: terms, isKnownWord: { _ in false })
         XCTAssertEqual(kept.map(\.replacement), ["Namrata", "Zorblax"])
         XCTAssertEqual(
             ParakeetVocabularyBoost.apply(kept, to: transcript),
@@ -83,7 +83,8 @@ final class RecognitionHintsTests: XCTestCase {
 
     func testBoostRefusesReplacementsOutsideTheVocabulary() {
         XCTAssertTrue(ParakeetVocabularyBoost.accepted(
-            [Replacement(original: "Invidia", replacement: "Invidia2")], in: "ask Invidia", terms: ["NVIDIA"]
+            [Replacement(original: "Invidia", replacement: "Invidia2")], in: "ask Invidia", terms: ["NVIDIA"],
+            isKnownWord: { _ in false }
         ).isEmpty)
     }
 
@@ -94,14 +95,34 @@ final class RecognitionHintsTests: XCTestCase {
             Replacement(original: "Namratha", replacement: "Namrata"),
         ]
         XCTAssertEqual(ParakeetVocabularyBoost.maximumReplacements(wordCount: 9), 1)
-        XCTAssertTrue(ParakeetVocabularyBoost.accepted(replacements, in: text, terms: ["Namrata"]).isEmpty)
+        XCTAssertTrue(ParakeetVocabularyBoost.accepted(
+            replacements, in: text, terms: ["Namrata"], isKnownWord: { _ in false }
+        ).isEmpty)
     }
 
     func testBoostJoinsSpokenWordsIntoATerm() {
         let kept = ParakeetVocabularyBoost.accepted(
-            [Replacement(original: "voca mack", replacement: "VocaMac")], in: "open voca mack now", terms: ["VocaMac"]
+            [Replacement(original: "voca mack", replacement: "VocaMac")], in: "open voca mack now", terms: ["VocaMac"],
+            isKnownWord: { $0 == "mack" }
         )
         XCTAssertEqual(ParakeetVocabularyBoost.apply(kept, to: "open voca mack now"), "open VocaMac now")
+    }
+
+    /// FluidAudio's rescorer proposed "server" → sergey on every clip of
+    /// "Yes, please restart the server." with Sergey in the Dictionary.
+    func testBoostKeepsRealWordsParakeetHeard() {
+        let englishWords: Set<String> = ["server", "yes", "please", "restart", "the"]
+        let text = "Yes, please restart the server."
+        XCTAssertTrue(ParakeetVocabularyBoost.accepted(
+            [Replacement(original: "server.", replacement: "sergey")], in: text, terms: ["sergey"],
+            isKnownWord: englishWords.contains
+        ).isEmpty)
+
+        let misheard = [Replacement(original: "Sergei", replacement: "Sergey")]
+        XCTAssertEqual(ParakeetVocabularyBoost.accepted(
+            misheard, in: "I sent the report to Sergei yesterday", terms: ["Sergey"],
+            isKnownWord: englishWords.contains
+        ), misheard)
     }
 
     func testApplyKeepsPunctuationAndOrder() {

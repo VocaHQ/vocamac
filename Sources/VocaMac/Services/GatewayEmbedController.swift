@@ -58,11 +58,9 @@ enum GatewayBinaryResolver {
     /// Returns an absolute path to `vocagateway` when found on PATH or common locations.
     static func resolveExecutablePath(
         fileManager: FileManager = .default,
-        pathEnvironment: String? = ProcessInfo.processInfo.environment["PATH"]
+        pathEnvironment: String? = ProcessInfo.processInfo.environment["PATH"],
+        commonCandidates: [String] = GatewayPaths.commonBinaryCandidates
     ) -> String? {
-        if let fromWhich = whichViaBin(named: "vocagateway", fileManager: fileManager) {
-            return fromWhich
-        }
         if let fromPath = findOnPATH(
             named: "vocagateway",
             pathEnvironment: pathEnvironment,
@@ -70,33 +68,12 @@ enum GatewayBinaryResolver {
         ) {
             return fromPath
         }
-        for candidate in GatewayPaths.commonBinaryCandidates {
+        for candidate in commonCandidates {
             if fileManager.isExecutableFile(atPath: candidate) {
                 return candidate
             }
         }
         return nil
-    }
-
-    static func whichViaBin(named name: String, fileManager: FileManager) -> String? {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        process.arguments = [name]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = Pipe()
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return nil
-        }
-        guard process.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let path = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !path.isEmpty, fileManager.isExecutableFile(atPath: path) else { return nil }
-        return path
     }
 
     static func findOnPATH(
@@ -127,8 +104,6 @@ enum GatewayBinaryResolver {
         return findOnPATH(named: "docker", pathEnvironment: pathEnvironment, fileManager: fileManager) != nil
     }
 }
-
-
 
 @MainActor
 final class GatewayEmbedController: ObservableObject {
@@ -163,7 +138,6 @@ final class GatewayEmbedController: ObservableObject {
             }
         }
     }
-
 
     @Published private(set) var status: Status = .stopped
     @Published private(set) var binaryPath: String?
@@ -417,7 +391,6 @@ final class GatewayEmbedController: ObservableObject {
         }
         lastErrorMessage = "Gateway config folder ~/.config/vocagateway does not exist yet. It appears after the first native Gateway start."
     }
-
 
     func copyPairingURLToPasteboard() {
         guard let url = pairingPayload?.url else { return }

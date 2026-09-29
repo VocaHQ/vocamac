@@ -196,13 +196,16 @@ extension TranscriptionRouter: SpeechTranscribing {
                 language: language, vocabulary: vocabulary, onPartial: onPartial, commit: commit
             )
         }
-        guard isModelLoaded, activeEngine != .sherpaOnnx else { return nil }
-        // Whisper and Parakeet are batch decoders: a live session only earns
-        // its extra decodes when something shows the partial words. Without a
-        // consumer the final decode is the same batch decode, so skip the
-        // session and its second copy of the recording.
+        guard isModelLoaded else { return nil }
+        // Whisper, Parakeet and sherpa-onnx are batch decoders: a live session
+        // only earns its extra decodes when something shows the partial words.
+        // Without a consumer the final decode is the same batch decode, so
+        // skip the session and its second copy of the recording.
         guard activeEngine == .appleSpeech || onPartial != nil else { return nil }
         let expectedEngine = activeEngine
+        let sherpaPreviewWindow = Self.sherpaPreviewWindowSamples(
+            for: loadedModelName.flatMap(ModelSize.init(rawValue:))
+        )
         return RecordingTranscription(language: language) { [self] chunks in
             try await operationSerializer.run { [self] in
                 guard activeEngine == expectedEngine else { throw RecordingTranscription.StreamError.incomplete }
@@ -234,10 +237,73 @@ extension TranscriptionRouter: SpeechTranscribing {
                         onPartial: onPartial
                     )
                 case .sherpaOnnx:
-                    throw RecordingTranscription.StreamError.incomplete
+                    return try await Self.runSherpaLiveSession(
+                        chunks: chunks, windowSamples: sherpaPreviewWindow,
+                        language: language, model: loadedModelSize,
+                        speechOnly: { [self] samples in await audioWithoutSilence(samples) },
+                        decode: { [sherpa] samples, isPreview in
+                            try await sherpa.transcribe(audioData: samples, language: language, isPreview: isPreview)
+                        },
+                        onPartial: onPartial
+                    )
                 }
             }
         }
+    }
+
+    /// A live sherpa-onnx session: preview decodes of the recent audio while
+    /// recording, then the final decode of the complete recording.
+    ///
+    /// The final decode gets the same silence trim (`speechOnly`) and decode
+    /// the batch path gives the recording, so showing a preview never changes
+    /// the text that is pasted. Its result is labelled with the complete
+    /// recording's length, which `RecordingTranscription.finish` checks.
+    /// `decode`'s second argument says whether the decode is a preview.
+    static func runSherpaLiveSession(
+        chunks: AsyncThrowingStream<[Float], Error>,
+        windowSamples: Int,
+        language: String?,
+        model: ModelSize,
+        speechOnly: @escaping @Sendable ([Float]) async -> [Float]?,
+        decode: @escaping @Sendable (_ samples: [Float], _ isPreview: Bool) async throws -> VocaTranscription,
+        onPartial: (@Sendable (String) -> Void)?
+    ) async throws -> VocaTranscription {
+        try await IncrementalAudioTranscriber.run(
+            chunks: chunks,
+            updateEverySamples: sherpaPreviewIntervalSamples,
+            partialWindowSamples: windowSamples,
+            transcribe: { samples in try await decode(samples, true) },
+            transcribeFinal: { samples in
+                let recordingSeconds = Double(samples.count) / 16_000
+                guard let speech = await speechOnly(samples) else {
+                    VocaLogger.info(.general, "No speech detected; skipping the decode")
+                    return VocaTranscription(
+                        text: "", duration: 0, detectedLanguage: language ?? "auto",
+                        audioLengthSeconds: recordingSeconds, modelUsed: model
+                    )
+                }
+                let result = try await decode(speech, false)
+                return VocaTranscription(
+                    text: result.text, duration: result.duration, detectedLanguage: result.detectedLanguage,
+                    audioLengthSeconds: recordingSeconds, modelUsed: result.modelUsed
+                )
+            },
+            onPartial: onPartial
+        )
+    }
+
+    /// sherpa-onnx previews refresh every second. On an M1 Pro, Canary 180M
+    /// decodes an 8 s window in about half a second on CPU, so a preview
+    /// is usually done before the next one is due.
+    static let sherpaPreviewIntervalSamples = 16_000
+
+    /// Trailing audio one sherpa-onnx preview decodes: 8 s, or less when the
+    /// model's single-pass limit is shorter, so a preview is one native
+    /// decode. That decode can't be stopped halfway, and one still running
+    /// at stop delays the final text by whatever it has left.
+    static func sherpaPreviewWindowSamples(for model: ModelSize?) -> Int {
+        let seconds = min(8, maxPieceSeconds(for: model))
+        return Int(seconds * 16_000)
     }
 
     /// Engine limit for one piece. Whisper's window is 30 s and Parakeet
@@ -297,6 +363,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         case .sherpaOnnx:
             transcribe = { [sherpa] samples in
                 try await sherpa.transcribe(audioData: samples, language: language)
+            }
+            previewTranscribe = { [sherpa] samples in
+                try await sherpa.transcribe(audioData: samples, language: language, isPreview: true)
             }
         case .appleSpeech:
             transcribe = { _ in throw RecordingTranscription.StreamError.incomplete }

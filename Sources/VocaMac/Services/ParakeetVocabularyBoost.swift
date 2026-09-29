@@ -108,6 +108,8 @@ actor ParakeetVocabularyBoost {
 
     /// Rescore a Parakeet transcript against the Dictionary.
     ///
+    /// - Parameter language: The dictation language, if known. Decides
+    ///   whether heard words are checked against the English spell checker.
     /// - Returns: The boosted text, or nil when there is nothing to boost,
     ///   the model is not ready, or no replacement passed the safety checks.
     ///   A nil result always means "keep the plain transcript".
@@ -115,7 +117,8 @@ actor ParakeetVocabularyBoost {
         text: String,
         tokenTimings: [TokenTiming]?,
         audio: [Float],
-        terms: [String]
+        terms: [String],
+        language: String?
     ) async -> String? {
         guard !terms.isEmpty, let tokenTimings, !tokenTimings.isEmpty else { return nil }
         // Removed from Settings while Parakeet stays loaded: turn off now.
@@ -137,7 +140,9 @@ actor ParakeetVocabularyBoost {
             guard result.shouldReplace, let word = result.replacementWord else { return nil }
             return Replacement(original: result.originalWord, replacement: word)
         }
-        let accepted = Self.accepted(proposed, in: text, terms: terms)
+        let heardWords = Set(proposed.flatMap { DictionaryCorrector.tokens(in: $0.original).map(\.text) })
+        let knownWords = await Self.knownWords(heardWords, language: language)
+        let accepted = Self.accepted(proposed, in: text, terms: terms, isKnownWord: knownWords.contains)
         let elapsed = String(format: "%.2f", CFAbsoluteTimeGetCurrent() - start)
         VocaLogger.info(
             .parakeetService,
@@ -153,9 +158,21 @@ actor ParakeetVocabularyBoost {
     /// only faintly supports ("send the report" → NVIDIA). A replacement is
     /// kept only when it writes one of the user's terms over words spelled
     /// close to it, with the same first sound; at most one per eight words.
-    static func accepted(_ replacements: [Replacement], in text: String, terms: [String]) -> [Replacement] {
+    ///
+    /// Words Parakeet heard that are all real words stay, as they do in
+    /// `DictionaryCorrector`: the rescorer scores a short term well almost
+    /// anywhere, so "restart the server" became "restart the sergey" with
+    /// Sergey in the Dictionary.
+    static func accepted(
+        _ replacements: [Replacement],
+        in text: String,
+        terms: [String],
+        isKnownWord: (String) -> Bool
+    ) -> [Replacement] {
         let known = Set(terms.map(DictionaryCorrector.normalized))
         let close = replacements.filter { replacement in
+            let heardWords = DictionaryCorrector.tokens(in: replacement.original).map(\.text)
+            guard !heardWords.allSatisfy(isKnownWord) else { return false }
             let heard = DictionaryCorrector.normalized(replacement.original)
             let term = DictionaryCorrector.normalized(replacement.replacement)
             guard known.contains(term), !heard.isEmpty, heard != term,
@@ -165,6 +182,17 @@ actor ParakeetVocabularyBoost {
         }
         let wordCount = text.split(whereSeparator: \.isWhitespace).count
         return close.count <= maximumReplacements(wordCount: wordCount) ? close : []
+    }
+
+    /// The words in `words` that the system spell checker knows. It checks
+    /// English only, so in another language no word counts as known and the
+    /// boost keeps its other checks rather than switching off.
+    @MainActor
+    private static func knownWords(_ words: Set<String>, language: String?) -> Set<String> {
+        if let language = DictationOutputPipeline.knownLanguage(language), !language.hasPrefix("en") {
+            return []
+        }
+        return words.filter { SpellingOracle.shared.isKnownWord($0, language: "en") }
     }
 
     /// Write each term over the words it replaces, keeping the punctuation

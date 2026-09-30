@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { access, readFile, readdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { test } from "node:test";
+import { runInNewContext } from "node:vm";
 
 const siteRoot = resolve(new URL("..", import.meta.url).pathname);
 const outputRoot = join(siteRoot, "public");
@@ -158,6 +159,46 @@ test("keeps the screenshot tour readable before its controls initialize", () => 
   assert.deepEqual(panels, controls);
   assert.doesNotMatch(index, /<figure class="tour-panel"[^>]+hidden/);
   assert.match(css, /\.tour-panel\[hidden\]\s*\{\s*display:\s*none/);
+});
+
+test("screenshot choices show only their matching panel", () => {
+  const ids = ["tour-ready", "tour-models", "tour-feedback"];
+  const panels = ids.map((id) => ({ id, hidden: false }));
+  const choices = ids.map((id) => {
+    const attributes = { "aria-controls": id, "aria-pressed": "false" };
+    const listeners = {};
+    return {
+      attributes,
+      listeners,
+      getAttribute: (name) => attributes[name],
+      setAttribute: (name, value) => { attributes[name] = value; },
+      addEventListener: (name, callback) => { listeners[name] = callback; },
+    };
+  });
+  const classes = new Set();
+  const tour = {
+    classList: { add: (name) => classes.add(name) },
+    querySelectorAll: (selector) => selector === "[data-tour-button]" ? choices : panels,
+  };
+  const document = {
+    querySelector: (selector) => selector === "[data-product-tour]" ? tour : null,
+    querySelectorAll: () => [],
+  };
+
+  runInNewContext(script, {
+    document,
+    window: { matchMedia: () => ({ matches: false }) },
+    navigator: {},
+  });
+
+  assert.ok(classes.has("js-tour"));
+  for (const [selected, choice] of choices.entries()) {
+    choice.listeners.click();
+    for (const [index, panel] of panels.entries()) {
+      assert.equal(panel.hidden, index !== selected);
+      assert.equal(choices[index].attributes["aria-pressed"], index === selected ? "true" : "false");
+    }
+  }
 });
 
 test("every rendered page has one heading and image alternatives", async () => {

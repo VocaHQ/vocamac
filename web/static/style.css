@@ -1000,8 +1000,11 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 }
 
 .tour-panel .shot-frame {
-  height: 32rem;
-  padding: 1.6rem;
+  --tour-frame-height: 32rem;
+  --tour-frame-padding: 1.6rem;
+
+  height: var(--tour-frame-height);
+  padding: var(--tour-frame-padding);
   aspect-ratio: auto;
   border-bottom: 1px solid var(--line);
 }
@@ -1010,7 +1013,7 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
   width: auto;
   height: auto;
   max-width: 100%;
-  max-height: 29rem;
+  max-height: calc(var(--tour-frame-height) - var(--tour-frame-padding) - var(--tour-frame-padding) - 1px);
   object-fit: contain;
 }
 
@@ -2037,8 +2040,7 @@ details.source-install summary {
   .tour-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .js-tour .tour-choice { min-height: 7.5rem; padding: 0.9rem; }
   .tour-choice > span:last-child { display: none; }
-  .tour-panel .shot-frame { height: 30rem; }
-  .tour-panel .shot-frame img { max-height: 27rem; }
+  .tour-panel .shot-frame { --tour-frame-height: 30rem; }
 
   .route { flex-direction: column; }
   .route-step { flex: 0 0 auto; flex-direction: column; align-items: stretch; }
@@ -2056,8 +2058,7 @@ details.source-install summary {
   .js-tour .tour-choice { min-height: 6.5rem; padding: 0.75rem; }
   .tour-choice strong { font-size: 0.97rem; }
   .tour-number { font-size: 0.6rem; }
-  .tour-panel .shot-frame { height: 23rem; padding: 1rem; }
-  .tour-panel .shot-frame img { max-height: 21rem; }
+  .tour-panel .shot-frame { --tour-frame-height: 23rem; --tour-frame-padding: 1rem; }
   .tour-panel figcaption { min-height: 0; }
 
   body { font-size: 1rem; }

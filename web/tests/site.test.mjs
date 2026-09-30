@@ -151,6 +151,15 @@ test("keeps content available without javascript", () => {
   assert.match(script, /shot-lightbox/);
 });
 
+test("keeps the screenshot tour readable before its controls initialize", () => {
+  const controls = [...index.matchAll(/data-tour-button[^>]+aria-controls="([^"]+)"/g)].map((match) => match[1]);
+  const panels = [...index.matchAll(/<figure class="tour-panel" id="([^"]+)" data-tour-panel>/g)].map((match) => match[1]);
+  assert.deepEqual(controls, ["tour-ready", "tour-models", "tour-feedback"]);
+  assert.deepEqual(panels, controls);
+  assert.doesNotMatch(index, /<figure class="tour-panel"[^>]+hidden/);
+  assert.match(css, /\.tour-panel\[hidden\]\s*\{\s*display:\s*none/);
+});
+
 test("every rendered page has one heading and image alternatives", async () => {
   for (const page of pages) {
     const html = page === join(outputRoot, "index.html") ? index : await readFile(page, "utf8");

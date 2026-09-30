@@ -914,11 +914,126 @@ a:hover > .btn-arrow-back { transform: translateX(-3px); }
 
 /* ---------- Proof / screenshots ---------- */
 
-.proof-grid {
+.product-tour {
   display: grid;
-  gap: 1.8rem;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  grid-template-columns: minmax(15rem, 0.42fr) minmax(0, 1fr);
+  align-items: start;
 }
+
+.tour-nav { display: grid; gap: 0.8rem; }
+
+/* The choices become interactive only after script.js initializes the tour.
+   Without JavaScript, all three figures remain visible in the stage. */
+.tour-choice { display: none; }
+
+.js-tour .tour-choice {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  min-height: 9rem;
+  padding: 1.25rem 1.35rem;
+  color: var(--muted);
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-dark);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-paper);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 220ms var(--ease), border-color 220ms var(--ease), transform 220ms var(--ease);
+}
+
+.tour-choice:hover { transform: translateX(3px); }
+.tour-choice[aria-pressed="true"] { background: var(--brand-softer); border-color: var(--brand); }
+
+.tour-choice strong {
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.2rem;
+  line-height: 1.25;
+}
+
+.tour-choice > span:last-child { font-size: 0.9rem; line-height: 1.45; }
+
+.tour-number {
+  color: var(--brand-dark);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tour-stage {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--paper-bright);
+  border: 1px solid var(--line-dark);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-window);
+}
+
+.tour-stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  color: var(--brand-soft);
+  background: var(--dark-ink);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.tour-stage-bar span:last-child { color: var(--sun); letter-spacing: 0.28em; }
+.tour-panel { margin: 0; }
+.tour-panel[hidden] { display: none; }
+.js-tour .tour-panel { animation: tour-enter 360ms var(--ease) both; }
+
+@keyframes tour-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+.tour-panel .shot-frame {
+  height: 32rem;
+  padding: 1.6rem;
+  aspect-ratio: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.tour-panel .shot-frame img {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 29rem;
+  object-fit: contain;
+}
+
+.tour-panel figcaption {
+  min-height: 6.5rem;
+  padding: 1rem 1.35rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.tour-panel figcaption strong {
+  display: block;
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 1.1rem;
+}
+
+.product-tour:not(.js-tour) .tour-panel + .tour-panel {
+  border-top: 1px solid var(--line);
+}
+
+.product-tour:not(.js-tour) { grid-template-columns: minmax(0, 1fr); }
+.product-tour:not(.js-tour) .tour-nav { display: none; }
 
 .section-link { margin-top: 1.6rem; }
 
@@ -1918,6 +2033,13 @@ details.source-install summary {
    phone. The 56x24 box overhangs 16px top and bottom once rotated, which is
    exactly what the margin absorbs. */
 @media (max-width: 760px) {
+  .product-tour { grid-template-columns: minmax(0, 1fr); }
+  .tour-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .js-tour .tour-choice { min-height: 7.5rem; padding: 0.9rem; }
+  .tour-choice > span:last-child { display: none; }
+  .tour-panel .shot-frame { height: 30rem; }
+  .tour-panel .shot-frame img { max-height: 27rem; }
+
   .route { flex-direction: column; }
   .route-step { flex: 0 0 auto; flex-direction: column; align-items: stretch; }
   .route-node { height: auto; }
@@ -1930,6 +2052,14 @@ details.source-install summary {
 }
 
 @media (max-width: 640px) {
+  .tour-nav { gap: 0.5rem; }
+  .js-tour .tour-choice { min-height: 6.5rem; padding: 0.75rem; }
+  .tour-choice strong { font-size: 0.97rem; }
+  .tour-number { font-size: 0.6rem; }
+  .tour-panel .shot-frame { height: 23rem; padding: 1rem; }
+  .tour-panel .shot-frame img { max-height: 21rem; }
+  .tour-panel figcaption { min-height: 0; }
+
   body { font-size: 1rem; }
 
   .hero { padding: 3rem 0 3.5rem; }

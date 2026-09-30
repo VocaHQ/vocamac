@@ -189,25 +189,27 @@
             <h2 class="section-title" id="proof-title">A Mac app you can actually see working.</h2>
             <p class="section-lede">VocaMac is a menu-bar tool, not a dashboard pretending to be one. These are the states that matter while you dictate.</p>
         </div>
-        <div class="proof-grid">
-            <figure class="shot reveal">
-                <div class="shot-frame">
-                    <img src="/screenshots/popover-panel.png" alt="VocaMac menu-bar popover showing ready status, model, and last transcription" width="760" height="990" loading="lazy">
-                </div>
-                <figcaption><strong>The quiet center</strong>Open the popover to check status, model, and the last transcript.</figcaption>
-            </figure>
-            <figure class="shot reveal">
-                <div class="shot-frame">
-                    <img src="/screenshots/settings-models.png" alt="VocaMac Settings Speech Model page showing model management" width="1720" height="1612" loading="lazy">
-                </div>
-                <figcaption><strong>Choose your balance</strong>Download and switch between local models from Settings.</figcaption>
-            </figure>
-            <figure class="shot reveal">
-                <div class="shot-frame">
-                    <img src="/screenshots/cursor-indicator.png" alt="Floating mic indicator during recording" width="1400" height="600" loading="lazy">
-                </div>
-                <figcaption><strong>Know when it is listening</strong>Floating mic indicator during recording.</figcaption>
-            </figure>
+        <div class="product-tour reveal" data-product-tour>
+            <div class="tour-nav" role="group" aria-label="Explore VocaMac screenshots">
+                <button class="tour-choice" type="button" data-tour-button aria-controls="tour-ready" aria-pressed="true"><span class="tour-number">01 / menu bar</span><strong>Ready when you are</strong><span>Check your model, microphone, and last result at a glance.</span></button>
+                <button class="tour-choice" type="button" data-tour-button aria-controls="tour-models" aria-pressed="false"><span class="tour-number">02 / models</span><strong>Make the call</strong><span>Choose and manage the speech model that fits your Mac.</span></button>
+                <button class="tour-choice" type="button" data-tour-button aria-controls="tour-feedback" aria-pressed="false"><span class="tour-number">03 / feedback</span><strong>See it listening</strong><span>A small indicator makes recording state visible at the cursor.</span></button>
+            </div>
+            <div class="tour-stage">
+                <div class="tour-stage-bar"><span>VocaMac / real product screens</span><span aria-hidden="true">● ● ●</span></div>
+                <figure class="tour-panel" id="tour-ready" data-tour-panel>
+                    <div class="shot-frame"><img src="/screenshots/popover-panel.png" alt="VocaMac menu-bar popover showing ready status, model, and last transcription" width="760" height="990" loading="lazy"></div>
+                    <figcaption><strong>The quiet center</strong>Open the popover to check status, model, and the last transcript.</figcaption>
+                </figure>
+                <figure class="tour-panel" id="tour-models" data-tour-panel>
+                    <div class="shot-frame"><img src="/screenshots/settings-models.png" alt="VocaMac Settings Speech Model page showing model management" width="1720" height="1612" loading="lazy"></div>
+                    <figcaption><strong>Choose your balance</strong>Download and switch between local models from Settings.</figcaption>
+                </figure>
+                <figure class="tour-panel" id="tour-feedback" data-tour-panel>
+                    <div class="shot-frame"><img src="/screenshots/cursor-indicator.png" alt="Floating mic indicator during recording" width="1400" height="600" loading="lazy"></div>
+                    <figcaption><strong>Know when it is listening</strong>Floating mic indicator during recording.</figcaption>
+                </figure>
+            </div>
         </div>
         <p class="section-link"><a href="/screenshots/">See the full screenshot gallery <span class="btn-arrow" aria-hidden="true">→</span></a></p>
     </div>

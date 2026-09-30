@@ -238,6 +238,31 @@
 
   /* ---------- Screenshot lightbox ---------- */
 
+  var productTour = document.querySelector("[data-product-tour]");
+
+  if (productTour) {
+    var tourButtons = productTour.querySelectorAll("[data-tour-button]");
+    var tourPanels = productTour.querySelectorAll("[data-tour-panel]");
+
+    if (tourButtons.length === tourPanels.length && tourButtons.length > 0) {
+      var showTourPanel = function (id) {
+        tourButtons.forEach(function (button) {
+          button.setAttribute("aria-pressed", button.getAttribute("aria-controls") === id ? "true" : "false");
+        });
+        tourPanels.forEach(function (panel) { panel.hidden = panel.id !== id; });
+      };
+
+      showTourPanel(tourButtons[0].getAttribute("aria-controls"));
+      productTour.classList.add("js-tour");
+
+      tourButtons.forEach(function (button) {
+        button.addEventListener("click", function () {
+          showTourPanel(button.getAttribute("aria-controls"));
+        });
+      });
+    }
+  }
+
   var shotImages = document.querySelectorAll(".shot-frame img, .prose img[src*='/screenshots/']");
 
   if (shotImages.length && typeof HTMLDialogElement === "function") {

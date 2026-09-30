@@ -28,7 +28,7 @@ let package = Package(
         // the APIs used here (AsrManager.loadModels, throwing TdtDecoderState,
         // the transcribe language hint) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.15.7")),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.17.1")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
         // Pin the release and its matching binary xcframework for reproducible builds.

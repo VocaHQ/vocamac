@@ -241,6 +241,24 @@ final class FinalizedPieceTrackerTests: XCTestCase {
         XCTAssertEqual(segments[1].end, 1.0, accuracy: 0.0001)
     }
 
+    /// Ends at 0.9, 1.1, and 2 seconds on a one-second recording must keep all
+    /// three texts: the tail split must not erase a boundary that scaling would
+    /// map below an earlier in-bounds end (Greptile P1).
+    func testTimedSegmentsKeepEveryResultWhenOvershootExceedsTail() {
+        let tracker = FinalizedPieceTracker(language: "en") { _, _ in }
+        tracker.finalized("One.", endSeconds: 0.9)
+        tracker.finalized(" Two.", endSeconds: 1.1)
+        tracker.finalized(" Three.", endSeconds: 2)
+        let segments = tracker.timedSegments(
+            sampleCount: 16_000, fallbackText: "One. Two. Three."
+        )
+        XCTAssertEqual(segments.map(\.text), ["One.", "Two.", "Three."])
+        XCTAssertEqual(segments[0].end, 0.9, accuracy: 0.0001, "In-bounds end stays")
+        XCTAssertGreaterThan(segments[1].end, segments[1].start)
+        XCTAssertLessThan(segments[1].end, segments[2].end)
+        XCTAssertEqual(segments[2].end, 1.0, accuracy: 0.0001)
+    }
+
     /// Mixed in-bounds + overshooting ends: keep every finalized text, leave
     /// the already-valid earlier boundary put, and only remap overshooting
     /// ranges (Greptile P1 follow-up: 0.25 must not shift to ~0.21).

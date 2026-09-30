@@ -500,9 +500,10 @@ final class FinalizedPieceTracker: @unchecked Sendable {
     ///
     /// When Apple reports result ends past the recording, a plain clamp would
     /// hand the whole `[0, sampleCount]` range to the first overshooting
-    /// result and drop later text. Scale only those overshooting ends into
-    /// the recording so every finalized result still appears in Timestamps,
-    /// and leave already in-bounds earlier boundaries unchanged.
+    /// result and drop later text. Keep in-bounds ends as reported, then
+    /// split the space left after them evenly between the results that no
+    /// longer fit — scaling overshooting ends against the last end can map
+    /// one below an earlier in-bounds boundary and erase its range.
     func timedSegments(sampleCount: Int, fallbackText: String) -> [TimedSegment] {
         lock.withLock {
             var segments: [TimedSegment] = []
@@ -511,14 +512,7 @@ final class FinalizedPieceTracker: @unchecked Sendable {
             // remap: a plain clamp would consume `[0, sampleCount]` and drop
             // later text. If only the last result overshoots, stretching it to
             // `sampleCount` already keeps every earlier in-bounds range.
-            let needsScale = finalized.dropLast().contains { $0.end > sampleCount }
-            let lastEnd = finalized.last?.end ?? 0
-            let scale: Double
-            if needsScale, lastEnd > 0 {
-                scale = Double(sampleCount) / Double(lastEnd)
-            } else {
-                scale = 1
-            }
+            let firstOvershoot = finalized.dropLast().firstIndex { $0.end > sampleCount }
             var keptNonEmpty = 0
             var seenNonEmpty = 0
             for (index, result) in finalized.enumerated() {
@@ -527,11 +521,11 @@ final class FinalizedPieceTracker: @unchecked Sendable {
                 let rawEnd: Int
                 if index == finalized.count - 1 {
                     rawEnd = sampleCount
-                } else if result.end > sampleCount, scale < 1 {
-                    // Overshooting non-last end: remap into the recording so
-                    // later text is not zero-width-dropped. In-bounds ends
-                    // stay put even when a sibling result overshoots.
-                    rawEnd = Int((Double(result.end) * scale).rounded())
+                } else if let first = firstOvershoot, index >= first {
+                    // Results from the first overshoot onward share the
+                    // remaining `[start, sampleCount]` tail evenly.
+                    let left = finalized.count - index
+                    rawEnd = start + Int((Double(sampleCount - start) / Double(left)).rounded())
                 } else {
                     rawEnd = result.end
                 }

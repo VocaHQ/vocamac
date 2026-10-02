@@ -3,9 +3,13 @@ import XCTest
 
 final class OutputConfigurationSummaryTests: XCTestCase {
     private func summary(
-        _ profile: WritingProfile, cleanup: Bool = true, rewriting: Bool = true, level: CleanupLevel = .medium
+        _ profile: WritingProfile, cleanup: Bool = true, rewriting: Bool = true, level: CleanupLevel = .medium,
+        language: String = "en"
     ) -> OutputConfigurationSummary {
-        OutputConfigurationSummary(profile: profile, cleanupEnabled: cleanup, rewritingEnabled: rewriting, level: level)
+        OutputConfigurationSummary(
+            profile: profile, cleanupEnabled: cleanup, rewritingEnabled: rewriting, level: level,
+            recognitionLanguage: language
+        )
     }
 
     func testRawIsDescribedAloneEvenWhenGlobalFeaturesAreOn() {
@@ -37,6 +41,14 @@ final class OutputConfigurationSummaryTests: XCTestCase {
         XCTAssertNil(summary(email, cleanup: false).tone)
         let code = WritingProfile(format: .code, rules: .passthrough, intent: .professional)
         XCTAssertEqual(summary(code).description, "Code format · Medium cleanup")
+    }
+
+    func testToneIsPromisedOnlyForEnglish() {
+        // The pipeline rewrites English only.
+        let email = WritingProfile(format: .email, rules: .passthrough, intent: .professional)
+        XCTAssertEqual(summary(email, language: "en-US").tone, "Formal tone")
+        XCTAssertEqual(summary(email, language: "auto").tone, "Formal tone in English")
+        XCTAssertEqual(summary(email, language: "hi").description, "Email format · Medium cleanup")
     }
 }
 
@@ -184,6 +196,19 @@ final class DictationPresentationTests: XCTestCase {
         XCTAssertEqual(shown, .small)
         await state.prepareOnboardingRecommendedModel()
         XCTAssertEqual(mocks.modelManager.downloadRequests, [.small])
+    }
+
+    func testOnboardingLoadsTheShownModelUnderAnotherPreference() async {
+        // Highest accuracy shows Parakeet v2 where balance would show the
+        // 110M. The post-download check used the balanced pick and returned
+        // with the shown model downloaded but never loaded.
+        state.availableModels = [.tiny, .parakeetTdtCtc110m, .parakeetV2].map { model($0, downloaded: $0 == .tiny) }
+        state.setOnboardingSpokenLanguages(["en"])
+        state.modelRecommendationPriority = .accuracy
+        XCTAssertEqual(state.speechModelRecommendation?.model, .parakeetV2)
+        await state.prepareOnboardingRecommendedModel()
+        XCTAssertEqual(mocks.modelManager.downloadRequests, [.parakeetV2])
+        XCTAssertEqual(state.currentModel?.size, .parakeetV2)
     }
 
     func testOnboardingLanguagesSetTheRecognitionLanguage() {

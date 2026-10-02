@@ -3167,12 +3167,12 @@ final class AppState: ObservableObject {
             await performDownloadModel(model)
         }
 
+        // Still the model onboarding shows: the same recommendation the
+        // download started from, so a preference or memory limit that chose
+        // it cannot leave it downloaded but never loaded.
         guard generation == onboardingModelRequestGeneration,
               onboardingRequestedModel == model,
-              OnboardingModelGuidance.recommendation(
-                for: selectedLanguage,
-                availableModels: availableModels
-              )?.model == model,
+              speechModelRecommendation?.model == model,
               modelManager.isModelDownloaded(model) else {
             return
         }

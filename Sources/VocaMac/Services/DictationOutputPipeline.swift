@@ -965,7 +965,7 @@ struct DictationOutputPipeline {
         return language.lowercased().split(separator: "-").dropFirst().contains("latn")
     }
 
-    static func isEnglish(_ language: String?) -> Bool {
+    nonisolated static func isEnglish(_ language: String?) -> Bool {
         language?.lowercased().split(separator: "-").first == "en"
     }
 

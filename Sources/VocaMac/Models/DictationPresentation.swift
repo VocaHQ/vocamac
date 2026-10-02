@@ -14,7 +14,13 @@ struct OutputConfigurationSummary: Equatable {
     /// Nil when the wording is left as spoken.
     let tone: String?
 
-    init(profile: WritingProfile, cleanupEnabled: Bool, rewritingEnabled: Bool, level: CleanupLevel) {
+    /// - Parameter recognitionLanguage: The language dictation is pinned to,
+    ///   or "auto". Tone rewrites English only, so the summary must not
+    ///   promise one for a dictation that cannot be English.
+    init(
+        profile: WritingProfile, cleanupEnabled: Bool, rewritingEnabled: Bool, level: CleanupLevel,
+        recognitionLanguage: String = TranscriptionLanguage.auto.code
+    ) {
         guard profile.cleanup != .raw else {
             format = "Exactly as transcribed"
             cleanup = nil
@@ -34,7 +40,15 @@ struct OutputConfigurationSummary: Equatable {
         }
         let rewrites = cleans && cleanupEnabled && rewritingEnabled
             && profile.allowsRewrite && profile.intent != .preserve
-        tone = rewrites ? "\(profile.intent.displayName) tone" : nil
+        let name = "\(profile.intent.displayName) tone"
+        if !rewrites {
+            tone = nil
+        } else if recognitionLanguage == TranscriptionLanguage.auto.code {
+            // Detection decides per dictation; say which language gets it.
+            tone = "\(name) in English"
+        } else {
+            tone = DictationOutputPipeline.isEnglish(recognitionLanguage) ? name : nil
+        }
     }
 
     var description: String {
@@ -151,7 +165,8 @@ extension AppState {
     func outputSummary(for profile: WritingProfile) -> OutputConfigurationSummary {
         OutputConfigurationSummary(
             profile: profile, cleanupEnabled: transcriptCleanupEnabled,
-            rewritingEnabled: writingRewriteEnabled, level: transcriptCleanupLevel
+            rewritingEnabled: writingRewriteEnabled, level: transcriptCleanupLevel,
+            recognitionLanguage: selectedLanguage
         )
     }
 

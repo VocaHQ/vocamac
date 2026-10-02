@@ -35,7 +35,11 @@ Three more variables narrow a run:
   the custom-prompt path, which at High appends the level's rule rather than
   using the built-in correction prompt.
 - `VOCAMAC_CLEANUP_EVALUATION_LEVELS`: a comma-separated subset such as
-  `medium,high`.
+  `medium,high`. A name that is not a level fails the run.
+
+The report's `prompts` holds the exact prompt the model received at each level.
+They are not one text: each level appends its own rule, and High uses the
+built-in correction prompt.
 
 ### Changing a built-in prompt
 

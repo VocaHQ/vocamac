@@ -35,8 +35,28 @@ final class CleanupModelEvaluationTests: XCTestCase {
         let sha256: String
         let os: String
         let memoryBytes: UInt64
-        let prompt: String
+        /// The exact prompt the model received at each level, keyed by the
+        /// level's raw value. Levels differ: each appends its own rule, and
+        /// High swaps in the built-in correction prompt.
+        let prompts: [String: String]
         let measurements: [Measurement]
+    }
+
+    struct UnknownLevel: Error, CustomStringConvertible {
+        let entry: String
+        var description: String {
+            "VOCAMAC_CLEANUP_EVALUATION_LEVELS: “\(entry)” is not a cleanup level"
+        }
+    }
+
+    /// The levels a comma-separated list names. A typo fails the run: a
+    /// dropped entry would report the other levels as if nothing was missing.
+    nonisolated static func levels(from list: String) throws -> [CleanupLevel] {
+        try list.split(separator: ",").map { entry in
+            let name = entry.trimmingCharacters(in: .whitespaces).lowercased()
+            guard let level = CleanupLevel(rawValue: name) else { throw UnknownLevel(entry: String(entry)) }
+            return level
+        }
     }
 
     func testEvaluatePreserveCleanup() async throws {
@@ -45,6 +65,8 @@ final class CleanupModelEvaluationTests: XCTestCase {
             throw XCTSkip("Set VOCAMAC_CLEANUP_EVALUATION_REPORT to evaluate an installed model")
         }
         let kind = CleanupModelKind.resolved(stored: env["VOCAMAC_CLEANUP_EVALUATION_MODEL"])
+        let levels = try env["VOCAMAC_CLEANUP_EVALUATION_LEVELS"].map(Self.levels(from:))
+            ?? [CleanupLevel.light, .medium, .grammar, .high]
         // A models directory outside the app's lets a model be evaluated
         // without installing it for dictation.
         let modelsDirectory = try env["VOCAMAC_CLEANUP_EVALUATION_MODELS"].map { URL(fileURLWithPath: $0) }
@@ -64,18 +86,17 @@ final class CleanupModelEvaluationTests: XCTestCase {
                 try JSONDecoder().decode(Probe.self, from: Data($0.utf8))
             }
         }
-        // A candidate prompt and a subset of levels, so a prompt change can
-        // be measured without rebuilding or running every level.
+        // A candidate prompt, so a prompt change can be measured without
+        // rebuilding.
         let prompt = try env["VOCAMAC_CLEANUP_EVALUATION_PROMPT"].map { try String(contentsOfFile: $0, encoding: .utf8) } ?? ""
-        let levels = env["VOCAMAC_CLEANUP_EVALUATION_LEVELS"].map {
-            $0.split(separator: ",").compactMap { CleanupLevel(rawValue: String($0)) }
-        } ?? [CleanupLevel.light, .medium, .grammar, .high]
         let observer = Observer(service)
         let pipeline = DictationOutputPipeline(cleaner: observer, snippets: SnippetExpander())
         var measurements: [Measurement] = []
+        var prompts: [String: String] = [:]
         for level in levels {
             for probe in probes {
                 observer.last = nil
+                observer.lastPrompt = nil
                 let start = Date()
                 let result = await pipeline.process(
                     probe.raw, profile: WritingProfile(format: .plain, rules: .passthrough),
@@ -83,6 +104,7 @@ final class CleanupModelEvaluationTests: XCTestCase {
                     model: kind, customPrompt: prompt, cleanupLevel: level, language: probe.language,
                     autoCapitalize: true, trailingSpace: false, preview: true
                 )
+                if let sent = observer.lastPrompt { prompts[level.rawValue] = sent }
                 measurements.append(Measurement(
                     id: probe.id, level: level.rawValue, raw: probe.raw,
                     candidate: observer.last?.rejectedCandidate ?? observer.last?.output,
@@ -97,7 +119,7 @@ final class CleanupModelEvaluationTests: XCTestCase {
         let report = Report(model: kind.rawValue, sha256: digest,
                             os: ProcessInfo.processInfo.operatingSystemVersionString,
                             memoryBytes: ProcessInfo.processInfo.physicalMemory,
-                            prompt: prompt.isEmpty ? TranscriptCleanup.defaultPrompt : prompt, measurements: measurements)
+                            prompts: prompts, measurements: measurements)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(report).write(to: URL(fileURLWithPath: reportPath), options: .atomic)
@@ -143,6 +165,7 @@ final class CleanupModelEvaluationTests: XCTestCase {
     final class Observer: TranscriptCleaning {
         let service: TranscriptCleanupService
         var last: CleanupAttempt?
+        var lastPrompt: String?
         init(_ service: TranscriptCleanupService) { self.service = service }
         var modelState: CleanupModelState { service.modelState }
         var isLoaded: Bool { service.isLoaded }
@@ -153,6 +176,7 @@ final class CleanupModelEvaluationTests: XCTestCase {
         func preview(_ text: String, prompt: String) async -> CleanupAttempt {
             let result = await service.preview(text, prompt: prompt)
             last = result
+            lastPrompt = prompt
             return result
         }
         func isDownloaded(_ kind: CleanupModelKind) -> Bool { service.isDownloaded(kind) }
@@ -192,5 +216,33 @@ final class CleanupEvaluationMetricsTests: XCTestCase {
         XCTAssertEqual(CleanupEvaluationMetrics.wer("one three", reference: "one two three"), 1.0 / 3.0)
         XCTAssertEqual(CleanupEvaluationMetrics.wer("one too three", reference: "one two three"), 1.0 / 3.0)
         XCTAssertEqual(CleanupEvaluationMetrics.wer("one two three four", reference: "one two three"), 1.0 / 3.0)
+    }
+
+    func testLevelListToleratesSpacesAndRejectsTypos() throws {
+        XCTAssertEqual(try CleanupModelEvaluationTests.levels(from: "medium, High"), [.medium, .high])
+        XCTAssertEqual(try CleanupModelEvaluationTests.levels(from: "light"), [.light])
+        XCTAssertThrowsError(try CleanupModelEvaluationTests.levels(from: "medium,hgih")) { error in
+            XCTAssertTrue("\(error)".contains("hgih"), "\(error)")
+        }
+    }
+
+    /// What the evaluation report records per level is what the pipeline
+    /// sends: the built-in prompt is not the same text at every level.
+    @MainActor
+    func testEachLevelSendsItsOwnPrompt() async {
+        var sent: [CleanupLevel: String] = [:]
+        for level in [CleanupLevel.medium, .high] {
+            let cleaner = MockTranscriptCleanup()
+            _ = await DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander()).process(
+                "send the report today", profile: WritingProfile(format: .plain, rules: .passthrough),
+                snippetList: [], cleanupEnabled: true, rewritingEnabled: false,
+                model: .defaultKind, customPrompt: "", cleanupLevel: level, language: "en",
+                autoCapitalize: true, trailingSpace: false, preview: true
+            )
+            sent[level] = cleaner.lastPrompt
+        }
+        XCTAssertEqual(sent[.medium]?.hasPrefix(TranscriptCleanup.defaultPrompt), true)
+        XCTAssertEqual(sent[.high]?.hasPrefix(TranscriptCleanup.correctionPrompt), true)
+        XCTAssertNotEqual(sent[.medium], sent[.high])
     }
 }

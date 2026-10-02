@@ -95,7 +95,11 @@ enum SpokenCorrectionResolver {
         guard let core = words.last(where: { !articles.contains($0) && !dayModifiers.contains($0) }) else { return nil }
         if days.contains(core) || days.contains(core.replacingOccurrences(of: "-feira", with: "")) { return .day }
         if months.contains(core) { return .month }
-        if words.contains(where: { $0.first?.isNumber == true || numberWords.contains($0) }) { return .number }
+        // "twenty-five" is two number words.
+        let isNumber = { (word: String) in
+            word.first?.isNumber == true || word.split(separator: "-").contains { numberWords.contains(String($0)) }
+        }
+        if words.contains(where: isNumber) { return .number }
         return nil
     }
 
@@ -146,7 +150,9 @@ enum SpokenCorrectionResolver {
 
     private static let numberWords: Set<String> = [
         "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
-        "twelve", "fifteen", "twenty", "thirty", "forty", "fifty", "hundred", "noon", "midnight",
+        "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen",
+        "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
+        "hundred", "thousand", "million", "billion", "noon", "midnight",
         "uno", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez",
         "deux", "trois", "quatre", "cinq", "sept", "huit", "neuf", "dix",
         "eins", "zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun", "zehn",
@@ -169,7 +175,8 @@ enum SpokenCorrectionResolver {
 
     /// Cue phrases, longest first so "or no" wins over "no".
     static let cues: [String] = [
-        "no no", "oh no", "no wait", "or no", "oh sorry", "or rather", "i mean", "make that", "scratch that",
+        "no no", "oh no", "no wait", "wait no", "no actually", "actually no", "actually wait",
+        "or no", "oh sorry", "or rather", "i mean", "make that", "scratch that",
         "no sorry", "sorry", "wait", "actually", "rather", "correction", "no",
         "perdón", "perdon", "mejor dicho", "digo", "o sea",
         "non", "pardon", "je veux dire", "plutôt", "plutot", "enfin",
@@ -200,7 +207,12 @@ enum SpokenCorrectionResolver {
         }
         let day = "(?:(?:" + alternation(dayModifiers) + ")" + space + "+)?(?:" + alternation(days) + ")(?:-feira)?"
         let month = alternation(months)
-        let number = "(?:\\d+(?:[:.]\\d+)?|" + alternation(numberWords) + ")"
+        // "six thousand", "eleven thirty", "5 million": a spoken number is
+        // often several words. Taking only its last word as the value turned
+        // "twenty five, no, thirty" into "twenty thirty".
+        let numberWord = "(?:" + alternation(numberWords) + ")"
+        let number = "(?:\\d+(?:[:.]\\d+)?(?:" + space + "(?:hundred|thousand|million|billion))?"
+            + "|" + numberWord + "(?:(?:" + space + "|-)" + numberWord + ")*)"
             + "(?:" + space + "*(?:a\\.?m\\.?|p\\.?m\\.?|o'clock|minutes?|mins?|hours?|days?|weeks?|percent|%|uhr|heures?|horas?|ore|baje))?"
         return "(?<\(group)>(?:(?:" + alternation(articles) + ")" + space + "+)?(?:" + day + "|" + month + "|" + number + "))"
     }

@@ -273,6 +273,27 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertNil(protected.restoreValidated("Hi Sergei, how are you?"), "So does respelling it")
     }
 
+    /// "John" and "Mary" are both names the rewrite must keep, and the
+    /// correction's whole point is to drop one of them.
+    func testHighLevelCorrectionMayDropTheNameItCorrects() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { _ in "Send it to Mary." }
+        let high = await process("Send it to John, no wait, Mary.", cleaner: cleaner, level: .high)
+        XCTAssertEqual(high.text, "Send it to Mary.")
+        let medium = await process("Send it to John, no wait, Mary.", cleaner: cleaner, level: .medium)
+        XCTAssertEqual(medium.text, "Send it to John, no wait, Mary.")
+    }
+
+    func testANameTheModelDropsOrRespellsIsKept() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { _ in "Hi Sergei, thanks for the update." }
+        let respelled = await process("hi Sergey thanks for the update", cleaner: cleaner, level: .high)
+        XCTAssertEqual(respelled.text, "Hi Sergey, thanks for the update.")
+        cleaner.cleanHandler = { _ in "Thanks for the update." }
+        let dropped = await process("hi Sergey thanks for the update", cleaner: cleaner, level: .high)
+        XCTAssertTrue(dropped.text.contains("Sergey"), dropped.text)
+    }
+
     func testNumericCorrectionsResolveWithOrWithoutTheModel() async {
         let cleaner = MockTranscriptCleanup()
         cleaner.cleanHandler = { $0 }

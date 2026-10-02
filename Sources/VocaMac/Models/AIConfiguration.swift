@@ -38,9 +38,12 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
     }
 
     func prompt(custom: String) -> String {
-        let base = custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? TranscriptCleanup.defaultPrompt
-            : custom
+        // The built-in prompt has a High variant; a prompt the user wrote
+        // only gets the level's rule appended.
+        let trimmed = custom.trimmingCharacters(in: .whitespacesAndNewlines)
+        let isBuiltIn = trimmed.isEmpty || trimmed == TranscriptCleanup.defaultPrompt
+        let builtIn = self == .high ? TranscriptCleanup.correctionPrompt : TranscriptCleanup.defaultPrompt
+        let base = isBuiltIn ? builtIn : custom
         let rule: String
         switch self {
         case .none:

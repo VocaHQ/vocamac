@@ -40,6 +40,7 @@ enum EditMerge {
         candidate: String,
         level: CleanupLevel,
         allowsEnglishGrammar: Bool = false,
+        names: Set<String> = [],
         isKnownWord: (String) -> Bool
     ) -> Result {
         let source = tokens(in: original)
@@ -59,7 +60,7 @@ enum EditMerge {
             var applied = 0, skipped = 0
             for (sourcePart, targetPart) in zip(originals, candidates) {
                 let result = merge(original: sourcePart, candidate: targetPart, level: level,
-                                   allowsEnglishGrammar: allowsEnglishGrammar, isKnownWord: isKnownWord)
+                                   allowsEnglishGrammar: allowsEnglishGrammar, names: names, isKnownWord: isKnownWord)
                 parts.append(TranscriptCleanup.preservingOuterWhitespace(of: sourcePart, in: result.text))
                 applied += result.applied
                 skipped += result.skipped
@@ -131,22 +132,53 @@ enum EditMerge {
                 following: following, sentenceStart: endsSentence(output),
                 previous: output.last?.token, next: next
             )
-            if isSafe(hunk, level: level, isKnownWord: isKnownWord)
+            // A name is spelled the way the speaker's engine heard it. The
+            // spell checker doesn't know "Priya", so it must never be the
+            // judge of a "fix" to one.
+            let respellsName = hunk.addedWords.count == 1 && hunk.removedWords.count == 1
+                && names.contains(hunk.removedWords[0].key)
+            if !respellsName, isSafe(hunk, level: level, isKnownWord: isKnownWord)
                 || (level == .grammar && allowsEnglishGrammar && isGrammarRepair(hunk, isKnownWord: isKnownWord)) {
                 pendingLineBreak = deepestBreak(hunk.removed.map(\.leading) + [pendingLineBreak].compactMap { $0 })
                 for token in hunk.added { write(token, leading: token.leading) }
                 applied += 1
+            } else if let mark = dictatedMark(replacedIn: hunk) {
+                // "hi Dana comma thanks" → the model wrote "Hi Dana. Thanks".
+                // The speaker asked for a comma, so that is the mark written.
+                write(Token(text: mark, leading: "", key: mark, isWord: false), leading: "")
+                applied += 1
             } else {
-                for token in hunk.removed { write(token, leading: token.leading) }
                 // A refused word change can still end the sentence: keep the
                 // punctuation the model put after it ("expender" →
                 // "expander." keeps "expender" and the period).
+                var trailing: [Token] = []
+                // Never at the very start: a refused "I'm late, " before
+                // the first word would leave the text opening with a comma.
                 if !hunk.removedWords.isEmpty || !hunk.addedWords.isEmpty,
-                   hunk.removed.last?.isWord ?? true {
+                   hunk.removed.last?.isWord ?? !output.isEmpty {
                     // A period or comma only: a "?" or "!" from a refused
                     // rewrite would change what kind of sentence it is.
-                    let trailing = hunk.added.reversed().prefix { [".", ","].contains($0.text) }
-                    for token in trailing.reversed() { write(token, leading: token.leading) }
+                    trailing = hunk.added.reversed().prefix { [".", ","].contains($0.text) }.reversed()
+                }
+                if let opener = openingConjunction(in: hunk, before: trailing) {
+                    // "next sprint and the last thing" → the model wrote "next
+                    // sprint. The last thing". The "and" it dropped opens the
+                    // new sentence; "next sprint and." would end the old one
+                    // on a word that can't end it.
+                    for token in trailing { write(token, leading: token.leading) }
+                    for (offset, token) in hunk.removed[opener...].enumerated() {
+                        let starts = offset == 0 && endsSentence(output)
+                        write(starts ? capitalised(token) : token,
+                              leading: offset == 0 && token.leading.isEmpty ? " " : token.leading)
+                    }
+                } else {
+                    for token in hunk.removed { write(token, leading: token.leading) }
+                    // After words the model only dropped, a comma is a guess:
+                    // "Actually I think this is" answered with "Actually,
+                    // this is" would read "Actually I think, this is". A
+                    // period still marks a sentence end that is really there.
+                    if hunk.addedWords.isEmpty { trailing.removeAll { $0.text == "," } }
+                    for token in trailing { write(token, leading: token.leading) }
                 }
                 skipped += 1
             }
@@ -155,7 +187,7 @@ enum EditMerge {
         // retry without grammar rather than applying half a grammatical rewrite.
         if level == .grammar, allowsEnglishGrammar, skipped > 0 {
             return merge(original: original, candidate: candidate, level: level,
-                         allowsEnglishGrammar: false, isKnownWord: isKnownWord)
+                         allowsEnglishGrammar: false, names: names, isKnownWord: isKnownWord)
         }
         return Result(text: render(output), applied: applied, skipped: skipped)
     }
@@ -324,6 +356,11 @@ enum EditMerge {
             .first(where: { cue in cue.count < keys.count && Array(keys.suffix(cue.count)) == cue })?.count
         else { return false }
         let first = Array(words.dropLast(cueLength))
+        // A correction stays inside one sentence, as in the rule-based
+        // resolver: "meet on Thursday. Actually, wait, Friday morning works
+        // better." is a second sentence, and dropping the first value from it
+        // left "meet on Friday morning works better".
+        guard !hunk.removed.contains(where: { [".", "!", "?"].contains($0.text) }) else { return false }
         guard (1...3).contains(first.count), let replacement = hunk.following.first,
               !hunk.precedingInSentence.contains(where: {
                   SpokenCorrectionResolver.negations.contains($0.key) || $0.key.hasSuffix("n't")
@@ -358,6 +395,40 @@ enum EditMerge {
             preceding: hunk.precedingInSentence.map(\.key), following: hunk.following.map(\.key),
             isKnownWord: isKnownWord
         )
+    }
+
+    /// The mark the speaker dictated, when the model replaced the spoken word
+    /// with a different one ("comma" → "."). The same mark is `isSafe`'s to
+    /// accept.
+    private static func dictatedMark(replacedIn hunk: Hunk) -> String? {
+        guard hunk.addedWords.isEmpty, !hunk.added.isEmpty, hunk.removed.allSatisfy(\.isWord),
+              hunk.added.allSatisfy({ allowedPunctuation.contains($0.text) }),
+              let mark = spokenPunctuation[hunk.removedWords.map(\.key).joined(separator: " ")],
+              hunk.previous?.isWord == true else { return nil }
+        return mark
+    }
+
+    /// Where the kept words of a refused deletion start, when they open with
+    /// a conjunction and the model put `trailing` punctuation in their place.
+    /// Punctuation the speaker had before the conjunction gives way to the
+    /// model's, so "fine, and then" with "fine. Then" reads "fine. And then".
+    private static func openingConjunction(in hunk: Hunk, before trailing: [Token]) -> Int? {
+        guard !trailing.isEmpty, hunk.addedWords.isEmpty,
+              let index = hunk.removed.firstIndex(where: \.isWord),
+              openingConjunctions.contains(hunk.removed[index].key),
+              hunk.removed[..<index].allSatisfy({ [",", ";", ":", "—", "–", "-"].contains($0.text) })
+        else { return nil }
+        return index
+    }
+
+    /// Conjunctions that open a clause and never close one. "So", "then",
+    /// and "also" are left out: "I think so." and "see you then." end there.
+    private static let openingConjunctions: Set<String> = ["and", "but", "or", "because", "plus", "just"]
+
+    private static func capitalised(_ token: Token) -> Token {
+        guard token.isWord, token.text == token.text.lowercased() else { return token }
+        return Token(text: token.text.prefix(1).uppercased() + token.text.dropFirst(),
+                     leading: token.leading, key: token.key, isWord: true)
     }
 
     /// Quotes, brackets, and other structural symbols are literal data, not
@@ -417,6 +488,8 @@ enum EditMerge {
         "can", "could", "would", "will", "should", "shall", "may", "might", "must", "is", "are", "am",
         "was", "were", "do", "does", "did", "have", "has", "had", "what", "why", "how", "when", "where",
         "who", "whom", "whose", "which", "isn't", "aren't", "don't", "doesn't", "didn't", "can't", "won't",
+        "what's", "where's", "who's", "how's", "when's", "why's", "wouldn't", "couldn't", "shouldn't",
+        "haven't", "hasn't", "wasn't", "weren't",
     ]
 
     private static let pronouns: Set<String> = [
@@ -487,7 +560,9 @@ enum EditMerge {
         if original.text == "i", candidate.text == "I" { return candidate }
         if sentenceStart, original.text == original.text.lowercased(),
            candidate.text == candidate.text.prefix(1).uppercased() + candidate.text.dropFirst() {
-            return candidate
+            // The model's capital on the user's own spelling: "let's" becomes
+            // "Let's", not the "Let’s" a model writes with a curly apostrophe.
+            return capitalised(original)
         }
         return original
     }

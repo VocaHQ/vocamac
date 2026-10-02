@@ -163,6 +163,23 @@ final class AIConfigurationTests: XCTestCase {
         XCTAssertTrue(CleanupLevel.high.prompt(custom: "Custom").contains("self-corrections"))
     }
 
+    /// Only High resolves loose self-corrections, so only its built-in prompt
+    /// shows the model how. A prompt the user wrote is sent as written.
+    func testHighLevelSwapsInTheCorrectionPromptForTheBuiltInOnly() {
+        XCTAssertTrue(TranscriptCleanup.correctionPrompt.contains("Send it to Mary."))
+        XCTAssertFalse(TranscriptCleanup.defaultPrompt.contains("Send it to Mary."))
+        for prompt in [TranscriptCleanup.defaultPrompt, TranscriptCleanup.correctionPrompt] {
+            XCTAssertFalse(prompt.contains("\n\n\n"), "Examples are separated by one blank line")
+            XCTAssertTrue(prompt.contains("NOT a chatbot"))
+        }
+        for custom in ["", "  \n", TranscriptCleanup.defaultPrompt] {
+            XCTAssertTrue(CleanupLevel.high.prompt(custom: custom).hasPrefix(TranscriptCleanup.correctionPrompt))
+            XCTAssertTrue(CleanupLevel.medium.prompt(custom: custom).hasPrefix(TranscriptCleanup.defaultPrompt))
+            XCTAssertTrue(CleanupLevel.grammar.prompt(custom: custom).hasPrefix(TranscriptCleanup.defaultPrompt))
+        }
+        XCTAssertTrue(CleanupLevel.high.prompt(custom: "Custom").hasPrefix("Custom"))
+    }
+
     func testQualityModelMetadataIsPinned() {
         let descriptor = CleanupModelKind.qwen25_1_5b_q4_k_m.descriptor
         XCTAssertEqual(descriptor.recommendation, .quality)
@@ -294,6 +311,35 @@ final class SpokenCorrectionResolverTests: XCTestCase {
             ("the launch is in March, I mean April", "the launch is in April"),
             ("call me at 5, no, 6 pm", "call me at 6 pm"),
             ("give it 15 minutes, make that 20 minutes", "give it 20 minutes"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(SpokenCorrectionResolver.resolve(input), expected, input)
+        }
+    }
+
+    func testCompoundCuesNeedNoPunctuation() {
+        let cases: [(String, String)] = [
+            ("let's meet Thursday no actually Wednesday after lunch", "let's meet Wednesday after lunch"),
+            ("ship it Friday, actually no, Monday", "ship it Monday"),
+            ("the demo is on Tuesday, actually wait, Thursday", "the demo is on Thursday"),
+            ("call me at 5, wait no, 6 pm", "call me at 6 pm"),
+        ]
+        for (input, expected) in cases {
+            XCTAssertEqual(SpokenCorrectionResolver.resolve(input), expected, input)
+        }
+    }
+
+    /// A number said in several words is one value: taking only its last
+    /// word turned "twenty five, no, thirty" into "twenty thirty".
+    func testNumbersOfSeveralWordsAreCorrectedWhole() {
+        let cases: [(String, String)] = [
+            ("We sold twenty five, no, thirty units last week.", "We sold thirty units last week."),
+            ("The budget is five thousand, no, six thousand dollars.", "The budget is six thousand dollars."),
+            ("The invoice is for two thousand, sorry, three thousand five hundred.",
+             "The invoice is for three thousand five hundred."),
+            ("it costs 5 thousand, no, 6 thousand", "it costs 6 thousand"),
+            ("the call is at nine thirty, I mean ten fifteen", "the call is at ten fifteen"),
+            ("we need twenty-five, no, thirty-five chairs", "we need thirty-five chairs"),
         ]
         for (input, expected) in cases {
             XCTAssertEqual(SpokenCorrectionResolver.resolve(input), expected, input)

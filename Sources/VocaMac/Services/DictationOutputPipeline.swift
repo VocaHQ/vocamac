@@ -660,10 +660,15 @@ struct DictationOutputPipeline {
             original: protected.text, candidate: modelText,
             level: allowsEnglishWordEdits ? prepared.effectiveLevel : .light,
             allowsEnglishGrammar: allowsEnglishWordEdits,
+            names: protected.nameWords,
             isKnownWord: isKnownWord
         )
-        if protected.restoreValidated(merged.text) != nil,
-           let formatting = protected.formattingMask(merged.text) {
+        // The merger never respells a name, so one missing from its text
+        // went with an edit it accepted: "send it to John, no wait, Mary"
+        // keeps Mary. Requiring every name here undid exactly the
+        // corrections the High level is for.
+        if protected.restoreValidated(merged.text, requiringNames: false) != nil,
+           let formatting = protected.formattingMask(merged.text, requiringNames: false) {
             return .merged(formatting, applied: merged.applied, skipped: merged.skipped)
         }
         // Only if the merge itself lost a name or protected token, which it
@@ -876,6 +881,11 @@ struct RewriteProtectedText: Sendable {
     /// its fillers.
     private let names: [String]
 
+    /// The words of those names, lowercased, for `EditMerge` to leave alone.
+    var nameWords: Set<String> {
+        Set(names.flatMap { $0.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init) })
+    }
+
     init(_ source: String) {
         var prefix = "VOCAKEEP"
         while source.contains(prefix) { prefix += "X" }
@@ -928,7 +938,9 @@ struct RewriteProtectedText: Sendable {
             .map { ns.substring(with: $0) }
     }
 
-    func restoreValidated(_ candidate: String) -> String? {
+    /// - Parameter requiringNames: False for text whose edits were each
+    ///   checked by `EditMerge`, which may drop a name with a correction.
+    func restoreValidated(_ candidate: String, requiringNames: Bool = true) -> String? {
         let tokens = RewriteValidation.substrings("\(prefix)[0-9]+END", in: candidate)
         guard tokens == replacements.map(\.token) else { return nil }
         var restored = candidate
@@ -936,6 +948,7 @@ struct RewriteProtectedText: Sendable {
             restored = restored.replacingOccurrences(of: replacement.token, with: replacement.value)
         }
         guard !restored.contains(prefix) else { return nil }
+        guard requiringNames else { return restored }
         // Every name, as often as it was said, spelled the same way.
         let required = names.reduce(into: [String: Int]()) { $0[$1, default: 0] += 1 }
         for (name, count) in required where Self.occurrences(of: name, in: restored) < count {
@@ -950,8 +963,8 @@ struct RewriteProtectedText: Sendable {
     }
 
     /// Keep technical text protected through the last capitalization pass too.
-    func formattingMask(_ candidate: String) -> MaskedText? {
-        guard restoreValidated(candidate) != nil else { return nil }
+    func formattingMask(_ candidate: String, requiringNames: Bool = true) -> MaskedText? {
+        guard restoreValidated(candidate, requiringNames: requiringNames) != nil else { return nil }
         var text = candidate
         for (index, replacement) in replacements.enumerated() {
             guard let character = TextPlaceholder.character(at: index, base: TextPlaceholder.identifierBase) else {

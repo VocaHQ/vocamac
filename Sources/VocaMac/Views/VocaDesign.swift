@@ -54,11 +54,15 @@ enum VocaDesign {
 /// A 3.5% primary fill nearly vanishes on the dark window background, so the
 /// hairline carries the card edge in both appearances.
 struct VocaCard: ViewModifier {
+    @Environment(\.colorSchemeContrast) private var contrast
+
     func body(content: Content) -> some View {
         content
             .padding(16)
             .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(VocaDesign.line))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
+                contrast == .increased ? Color.primary.opacity(0.35) : VocaDesign.line
+            ))
     }
 }
 
@@ -317,7 +321,7 @@ struct VocaDisclosureCard<Content: View>: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(VocaDesign.accentSolid.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(VocaDesign.accentSolid, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.headline)
                         Text(subtitle)

@@ -90,7 +90,7 @@ enum SettingsArchiveService {
         PreferenceKey.handsFreeShortcut: .string, PreferenceKey.historyRetention: .string,
         PreferenceKey.learnCorrectionsMode: .string, PreferenceKey.pasteLastShortcut: .string,
         PreferenceKey.selectedLanguage: .string, PreferenceKey.selectedModelSize: .string,
-        PreferenceKey.spokenLanguages: .string,
+        PreferenceKey.spokenLanguages: .string, "vocamac.modelRecommendationPriority": .string,
         PreferenceKey.transcriptCleanupLevel: .string, PreferenceKey.transcriptCleanupModel: .string,
         PreferenceKey.transcriptCleanupPrompt: .string, PreferenceKey.websiteStyleBindings: .string,
         PreferenceKey.writingIntent: .string, PreferenceKey.writingStyleBindings: .string,

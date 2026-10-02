@@ -12,6 +12,7 @@ struct HistorySettingsPage: View {
     @ObservedObject private var player = HistoryAudioPlayer.shared
     @State private var query = ""
     @State private var confirmingDeleteAll = false
+    @State private var showsStorage = false
 
     private var entries: [DictationHistoryEntry] {
         appState.historyStore.search(query)
@@ -28,46 +29,6 @@ struct HistorySettingsPage: View {
                     .vocaCard()
             }
 
-            VocaSettingsGroup("Keep History") {
-                SettingsToggleRow(
-                    title: "Save dictation history",
-                    detail: "Copy, paste, or retry past dictations. Stays on this Mac.",
-                    isOn: $appState.historyEnabled
-                )
-                Divider()
-                SettingsToggleRow(
-                    title: "Keep audio recordings",
-                    detail: "Needed to play back or retry. Failed dictations always keep theirs.",
-                    isOn: $appState.historyKeepsAudio
-                )
-                .disabled(!appState.historyEnabled)
-                Divider()
-                HStack {
-                    Text("Keep dictations for")
-                    Spacer()
-                    Picker("Keep dictations for", selection: $appState.historyRetention) {
-                        ForEach(HistoryRetention.allCases) { retention in
-                            Text(retention.displayName).tag(retention)
-                        }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .onChange(of: appState.historyRetention) { appState.applyHistoryRetention() }
-                }
-                .disabled(!appState.historyEnabled)
-                Divider()
-                HStack {
-                    Text(summaryText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Delete Audio") { appState.deleteAllHistoryAudio() }
-                        .disabled(appState.historyStore.entries.allSatisfy { !$0.hasAudio })
-                    Button("Delete All…", role: .destructive) { confirmingDeleteAll = true }
-                        .disabled(appState.historyStore.entries.isEmpty)
-                }
-            }
-
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     VocaSectionHeader(title: "Dictations", systemImage: nil, subtitle: nil)
@@ -76,6 +37,51 @@ struct HistorySettingsPage: View {
                         .textFieldStyle(.roundedBorder)
                         .frame(maxWidth: 220)
                 }
+                VocaDisclosureCard(
+                    title: "History storage", subtitle: summaryText,
+                    systemImage: "internaldrive", isExpanded: $showsStorage
+                ) {
+                    SettingsToggleRow(
+                        title: "Save dictation history",
+                        detail: "Copy, paste, or retry past dictations. Stays on this Mac.",
+                        isOn: $appState.historyEnabled
+                    )
+                    Divider()
+                    SettingsToggleRow(
+                        title: "Keep audio recordings",
+                        detail: "Needed to play back or retry. Failed dictations always keep theirs.",
+                        isOn: $appState.historyKeepsAudio
+                    )
+                    .disabled(!appState.historyEnabled)
+                    Divider()
+                    HStack {
+                        Text("Keep dictations for")
+                        Spacer()
+                        Picker("Keep dictations for", selection: $appState.historyRetention) {
+                            ForEach(HistoryRetention.allCases) { retention in
+                                Text(retention.displayName).tag(retention)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                        .onChange(of: appState.historyRetention) { appState.applyHistoryRetention() }
+                    }
+                    .disabled(!appState.historyEnabled)
+                    Divider()
+                    HStack {
+                        Text(summaryText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Delete Audio") { appState.deleteAllHistoryAudio() }
+                            .disabled(appState.historyStore.entries.allSatisfy { !$0.hasAudio })
+                        Button("Delete All…", role: .destructive) { confirmingDeleteAll = true }
+                            .disabled(appState.historyStore.entries.isEmpty)
+                    }
+
+                }
+                .settingsTarget("history-retention")
+                .revealSettingsTargets(["history-retention"], expanded: $showsStorage)
                 if entries.isEmpty {
                     Text(query.isEmpty ? "Your dictations will appear here." : "No dictations match “\(query)”.")
                         .foregroundStyle(.secondary)
@@ -90,6 +96,7 @@ struct HistorySettingsPage: View {
                     }
                 }
             }
+            .settingsTarget("history")
         }
         .confirmationDialog(
             "Delete all dictation history?",
@@ -118,6 +125,8 @@ struct HistoryEntryRow: View {
     let entry: DictationHistoryEntry
     @ObservedObject var player: HistoryAudioPlayer
     @State private var showsOriginal = false
+    @State private var isTextExpanded = false
+    @State private var isTextTruncated = false
     @State private var isOriginalHovered = false
     @State private var showsTimestamps = false
     @State private var isTimestampsHovered = false
@@ -166,10 +175,20 @@ struct HistoryEntryRow: View {
                     .foregroundStyle(.secondary)
                     .font(.callout)
             } else {
-                Text(entry.displayText)
-                    .textSelection(.enabled)
-                    .lineLimit(showsOriginal ? nil : 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                TruncationAwareText(
+                    text: entry.displayText, lineLimit: isTextExpanded ? nil : 4,
+                    isTruncated: $isTextTruncated, textStyle: .body
+                )
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if isTextTruncated || isTextExpanded {
+                    Button(isTextExpanded ? "Show less" : "Show full transcript") {
+                        isTextExpanded.toggle()
+                    }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .accessibilityValue(isTextExpanded ? "Expanded" : "Collapsed")
+                }
             }
 
             if entry.isCommandEdit {

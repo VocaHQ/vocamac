@@ -107,6 +107,7 @@ final class ProcessMonitor: ObservableObject {
 struct MenuBarView: View {
     /// Confirmation text after binding or clearing a style, if any.
     @State private var bindNotice: String?
+    @State private var panelWindow = MenuPanelWindowReference()
 
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
@@ -166,7 +167,7 @@ struct MenuBarView: View {
             .measureHeight(MenuChromeHeightKey.self)
         }
         .frame(width: MenuPanelMetrics.width)
-        .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight))
+        .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight, onWindow: { panelWindow.window = $0 }))
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
         .onPreferenceChange(MenuChromeHeightKey.self) { chromeHeight = $0 }
         .tint(VocaDesign.accent)
@@ -267,6 +268,10 @@ struct MenuBarView: View {
                     nextDictationRow
                 }
             }
+
+            MenuPanelRowDivider()
+            OutputSummaryView(compact: true)
+                .padding(12)
 
             if let notice = recordingOptionsNotice {
                 MenuPanelRowDivider()
@@ -890,29 +895,20 @@ struct MenuBarView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 1) {
-            // One row for the three utility windows, so the tools don't push
-            // History, Settings, and Quit down the menu.
-            HStack(spacing: 8) {
-                toolButton("Scratchpad", systemImage: "note.text",
-                           help: "A floating note to dictate into") {
-                    scratchpadManager.open(appState: appState)
-                }
-                toolButton("Transcribe File", systemImage: "waveform",
-                           help: "Transcribe an audio or video file") {
-                    fileTranscriptionManager.open(appState: appState)
-                }
-                toolButton("System Audio", systemImage: "speaker.wave.2.fill",
-                           help: "Transcribe what this Mac is playing") {
-                    meetingCaptureManager.open(appState: appState)
+            menuRow("Paste Last Dictation", systemImage: "doc.on.clipboard",
+                    shortcut: appState.shortcut(for: .pasteLastDictation).map { KeyCodeReference.displayName(for: $0) }) {
+                panelWindow.window?.orderOut(nil)
+                Task { @MainActor in
+                    await Task.yield()
+                    appState.pasteLastDictation()
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.bottom, 8)
-
-            menuRow("History", systemImage: "clock.arrow.circlepath",
-                    shortcut: appState.shortcut(for: .pasteLastDictation)
-                        .map { "Paste Last  \(KeyCodeReference.displayName(for: $0))" }) {
-                openHistory()
+            .disabled(appState.lastDictationText == nil || appState.isRecording || appState.appStatus == .processing)
+            menuRow("History", systemImage: "clock.arrow.circlepath", shortcut: nil) { openHistory() }
+            MenuPanelToolsMenu {
+                Button("Scratchpad") { scratchpadManager.open(appState: appState) }
+                Button("Transcribe File…") { fileTranscriptionManager.open(appState: appState) }
+                Button("System Audio…") { meetingCaptureManager.open(appState: appState) }
             }
             menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", keyEquivalent: ",") {
                 settingsManager.open(appState: appState)
@@ -1095,34 +1091,6 @@ struct MenuBarView: View {
 
     // MARK: - Helpers
 
-    private func toolButton(
-        _ title: String,
-        systemImage: String,
-        help: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            VStack(spacing: 5) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(VocaDesign.accent)
-                    // Symbols differ in height; a fixed box keeps the three
-                    // titles on one baseline.
-                    .frame(height: 18)
-                Text(title)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .contentShape(RoundedRectangle(cornerRadius: MenuPanelMetrics.tileRadius, style: .continuous))
-        }
-        .buttonStyle(MenuPanelTileButtonStyle())
-        .help(help)
-        .accessibilityLabel(title)
-    }
-
     private var statusText: String {
         if let session = appState.commandModeSession {
             switch (appState.appStatus, session.phase) {
@@ -1135,7 +1103,7 @@ struct MenuBarView: View {
             return appState.autoPauseTriggerDisplayName.map { "Paused (\($0))" } ?? "Auto-paused"
         }
         switch appState.appStatus {
-        case .idle:       return "Ready"
+        case .idle:       return appState.dictationReadinessTitle
         case .recording:  return "Recording..."
         case .processing: return "Transcribing..."
         case .error:      return appState.errorMessage ?? "Error"
@@ -1146,7 +1114,7 @@ struct MenuBarView: View {
         if appState.commandModeSession != nil { return VocaDesign.command }
         if appState.isAutoPaused { return .secondary }
         switch appState.appStatus {
-        case .idle:       return VocaDesign.success
+        case .idle:       return appState.isDictationReady ? VocaDesign.success : VocaDesign.warning
         case .recording:  return Color(nsColor: BrandAssets.brandGreen)
         case .processing: return VocaDesign.busy
         case .error:      return VocaDesign.warning
@@ -1180,38 +1148,85 @@ struct MenuRowButtonStyle: ButtonStyle {
     }
 }
 
+/// The utility windows behind one row that looks like its neighbours. A
+/// `Menu` ignores custom button styles, so the row draws its own hover fill.
+private struct MenuPanelToolsMenu<Items: View>: View {
+    @ViewBuilder let items: Items
+    @State private var isHovered = false
+
+    var body: some View {
+        Menu {
+            items
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                Text("More Tools")
+                    .font(.body)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 26)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Color.primary.opacity(isHovered ? 0.08 : 0))
+        )
+        .onHover { isHovered = $0 }
+    }
+}
+
 // MARK: - Menu Panel Components
 
 enum MenuPanelMetrics {
     static let width: CGFloat = 380
     static let inset: CGFloat = 12
     static let cardRadius: CGFloat = 14
-    static let tileRadius: CGFloat = 11
+}
+
+/// Weak reference used to dismiss the panel before pasting into its destination.
+private final class MenuPanelWindowReference {
+    weak var window: NSWindow?
 }
 
 /// Keeps the MenuBarExtra window exactly as tall as the panel.
 ///
-/// `.menuBarExtraStyle(.window)` sizes its window when it opens but does not
-/// follow later changes — shrinking in particular. The panel then sat at the
-/// bottom of a taller window, leaving a strip of the window's glass and
-/// shadow showing above it. Resize the window ourselves, pinned to its top
-/// edge under the menu bar, and rebuild the shadow for the new shape.
+/// `.menuBarExtraStyle(.window)` does not follow later height changes. Resize
+/// the window pinned to its top edge and rebuild the shadow for the new shape.
 private struct MenuPanelWindowSizer: NSViewRepresentable {
     let height: CGFloat
+    var onWindow: ((NSWindow?) -> Void)?
 
-    func makeNSView(context: Context) -> SizerView { SizerView() }
+    func makeNSView(context: Context) -> SizerView {
+        let view = SizerView()
+        view.onWindow = onWindow
+        return view
+    }
 
     func updateNSView(_ view: SizerView, context: Context) {
         view.targetHeight = height
+        view.onWindow = onWindow
     }
 
     final class SizerView: NSView {
+        var onWindow: ((NSWindow?) -> Void)?
         var targetHeight: CGFloat = 0 {
             didSet { if abs(targetHeight - oldValue) > 0.5 { scheduleResize() } }
         }
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            onWindow?(window)
             scheduleResize()
         }
 
@@ -1321,7 +1336,7 @@ private struct MenuPanelSymbolTile: View {
             .symbolRenderingMode(.monochrome)
             .foregroundStyle(.white)
             .frame(width: 22, height: 22)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(tint, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             .accessibilityHidden(true)
     }
 }
@@ -1414,23 +1429,6 @@ private struct MenuPanelIconButton: View {
         .buttonStyle(MenuRowButtonStyle())
         .help(help)
         .accessibilityLabel(help)
-    }
-}
-
-/// Utility tile: a card that brightens on hover and dims when pressed.
-private struct MenuPanelTileButtonStyle: ButtonStyle {
-    @State private var isHovered = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        let shape = RoundedRectangle(cornerRadius: MenuPanelMetrics.tileRadius, style: .continuous)
-        configuration.label
-            .background(
-                Color.primary.opacity(configuration.isPressed ? 0.13 : isHovered ? 0.09 : 0.055),
-                in: shape
-            )
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
-            .onHover { isHovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
     }
 }
 

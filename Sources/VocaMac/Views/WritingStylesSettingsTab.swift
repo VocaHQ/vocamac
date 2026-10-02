@@ -29,6 +29,8 @@ struct WritingStylesSettingsTab: View {
 
     var body: some View {
         VocaSettingsPageContent {
+            OutputSummaryView().padding(.horizontal, 8)
+            previewSection
             VocaSettingsGroup(
                 "Writing Styles",
                 subtitle: "Make your dictation fit the app you're typing in."
@@ -46,8 +48,10 @@ struct WritingStylesSettingsTab: View {
                     detail: "The style for apps you haven't set up below.",
                     selection: $appState.writingStyleDefault
                 )
+                .settingsTarget("default-writing-style")
                 .disabled(!appState.writingStyleEnabled)
             }
+            .settingsTarget("writing-styles")
 
             VocaSettingsGroup(
                 "Your Apps",
@@ -143,6 +147,7 @@ struct WritingStylesSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .settingsTarget("app-style-rules", aliases: ["app-cleanup-prompt", "spoken-symbols", "writing-style-rule-transfer"])
             .disabled(!appState.writingStyleEnabled)
             .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
@@ -178,6 +183,7 @@ struct WritingStylesSettingsTab: View {
 
                 rewriteAvailabilityNotice
             }
+            .settingsTarget("writing-wording")
             .disabled(!appState.writingStyleEnabled)
             .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
@@ -185,47 +191,6 @@ struct WritingStylesSettingsTab: View {
                 .disabled(!appState.writingStyleEnabled)
                 .opacity(appState.writingStyleEnabled ? 1 : 0.45)
 
-            VocaSettingsGroup("Try It", subtitle: "Type what you'd say and see what gets typed.") {
-                Picker("Style", selection: previewTarget) {
-                    Section("Styles") {
-                        ForEach(WritingStyle.allCases) { style in
-                            Text(style.displayName).tag(PreviewTarget.preset(style))
-                        }
-                    }
-                    if !appState.writingStyleBindings.isEmpty {
-                        Section("Your Apps") {
-                            ForEach(appState.writingStyleBindings) { binding in
-                                Text("\(binding.displayName) — \(binding.style.displayName)")
-                                    .tag(PreviewTarget.binding(binding.id))
-                            }
-                        }
-                    }
-                }
-
-                TextField("You say", text: $previewSample, axis: .vertical)
-                    .lineLimit(1...3)
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(Self.sampleChips, id: \.label) { chip in
-                            Button(chip.label) { previewSample = chip.text }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                        }
-                    }
-                }
-
-                LabeledContent("VocaMac types") {
-                    Text(previewResult.isEmpty ? "—" : previewResult)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                // The full pipeline (cleanup, tone, numbers, emoji) can run the
-                // cleanup model, so it stays behind an explicit button.
-                WritingProfilePreview(sample: previewSample)
-            }
         }
         .toggleStyle(.switch)
         .sheet(isPresented: $showingAppPicker) {
@@ -268,6 +233,51 @@ struct WritingStylesSettingsTab: View {
                     .foregroundStyle(VocaDesign.warning)
             }
         }
+    }
+
+    private var previewSection: some View {
+        VocaSettingsGroup("Try It", subtitle: "Type what you'd say and see what gets typed.") {
+            Picker("Style", selection: previewTarget) {
+                Section("Styles") {
+                    ForEach(WritingStyle.allCases) { style in
+                        Text(style.displayName).tag(PreviewTarget.preset(style))
+                    }
+                }
+                if !appState.writingStyleBindings.isEmpty {
+                    Section("Your Apps") {
+                        ForEach(appState.writingStyleBindings) { binding in
+                            Text("\(binding.displayName) — \(binding.style.displayName)")
+                                .tag(PreviewTarget.binding(binding.id))
+                        }
+                    }
+                }
+            }
+
+            TextField("You say", text: $previewSample, axis: .vertical)
+                .lineLimit(1...3)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Self.sampleChips, id: \.label) { chip in
+                        Button(chip.label) { previewSample = chip.text }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                    }
+                }
+            }
+
+            LabeledContent("VocaMac types") {
+                Text(previewResult.isEmpty ? "—" : previewResult)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // The full pipeline (cleanup, tone, numbers, emoji) can run the
+            // cleanup model, so it stays behind an explicit button.
+            WritingProfilePreview(sample: previewSample)
+        }
+        .settingsTarget("writing-style-preview")
     }
 
     private var previewResult: String {
@@ -903,6 +913,11 @@ private struct WritingProfilePreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text(appState.outputSummary(for: appState.settingsPreviewProfile).description)
+                .font(.caption).foregroundStyle(.secondary)
+            if appState.transcriptCleanupEnabled, !appState.cleanupEndpoint.isLocal {
+                Text(appState.cleanupProcessingDescription).font(.caption).foregroundStyle(.secondary)
+            }
             Button(running ? "Trying…" : "Try With All My Settings") {
                 running = true
                 Task { @MainActor in
@@ -913,8 +928,7 @@ private struct WritingProfilePreview: View {
             .disabled(running || sample.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             if let result {
                 Text(result.summary).font(.caption).foregroundStyle(.secondary)
-                Text("Input: \(result.original)").font(.caption).textSelection(.enabled)
-                Text(result.text).textSelection(.enabled)
+                TranscriptComparisonView(original: result.original, final: result.text)
             }
         }
     }

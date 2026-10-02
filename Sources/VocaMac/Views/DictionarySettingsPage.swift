@@ -42,6 +42,7 @@ struct DictionarySettingsPage: View {
                     VocabularyBoostRow()
                 }
             }
+            .settingsTarget("vocabulary")
 
             VocaSettingsGroup("Replacements", subtitle: "Words a model gets wrong, and what to type instead.") {
                 if !appState.wordReplacements.isEmpty {
@@ -63,6 +64,7 @@ struct DictionarySettingsPage: View {
                 }
                 .help("Whole words only, ignoring case. Separate several spoken forms with commas. Raw transcription skips replacements.")
             }
+            .settingsTarget("word-replacements")
 
             VocaSettingsGroup("Learning") {
                 HStack {
@@ -78,6 +80,7 @@ struct DictionarySettingsPage: View {
                             Text(mode.displayName).tag(mode)
                         }
                     }
+                    .settingsTarget("learn-corrections")
                     .labelsHidden()
                     .fixedSize()
                 }
@@ -87,6 +90,7 @@ struct DictionarySettingsPage: View {
                     detail: "Matches names in the field you're typing into. Read once, never saved.",
                     isOn: $appState.useScreenContext
                 )
+                .settingsTarget("screen-context")
                 .help("When you start dictating, VocaMac reads the visible text in the focused field and spells matching names and code identifiers the same way (“user id” → userId). Needs Accessibility permission and never reads password fields.")
             }
         }

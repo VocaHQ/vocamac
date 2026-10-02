@@ -12,11 +12,11 @@ struct AboutTab: View {
 
     var body: some View {
         Form {
-            identitySection
-            thisMacSection
-            modelCreditsSection
-            familySection
-            talkToUsSection
+            identitySection.settingsTarget("about", aliases: ["updates"])
+            thisMacSection.settingsTarget("system-info")
+            modelCreditsSection.settingsTarget("model-credits")
+            familySection.settingsTarget("family")
+            talkToUsSection.settingsTarget("github-issues", aliases: ["discord", "x", "email"])
             contributorsSection
         }
         .formStyle(.grouped)
@@ -39,7 +39,7 @@ struct AboutTab: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Voice-to-text for macOS, kept on this Mac.")
+                Text("Voice-to-text for macOS. " + appState.speechProcessingDescription + ".")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

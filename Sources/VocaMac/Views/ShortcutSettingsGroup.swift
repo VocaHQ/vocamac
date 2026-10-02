@@ -15,16 +15,19 @@ struct ShortcutSettingsGroup: View {
                 action: .pasteLastDictation,
                 detail: "Types your last dictation again."
             )
+            .settingsTarget("paste-last-shortcut")
             Divider()
             ShortcutRecorderRow(
                 action: .handsFreeToggle,
                 detail: "Press to start, press again to stop."
             )
+            .settingsTarget("hands-free-shortcut")
             Divider()
             ShortcutRecorderRow(
                 action: .commandMode,
                 detail: "Select text, then say how to change it."
             )
+            .settingsTarget("command-mode-shortcut")
             Divider()
             SettingsToggleRow(
                 title: "Escape cancels dictation",
@@ -34,6 +37,7 @@ struct ShortcutSettingsGroup: View {
                     set: { appState.escapeCancelsDictation = $0; appState.syncShortcutConfiguration() }
                 )
             )
+            .settingsTarget("escape-cancel")
             Divider()
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
@@ -53,6 +57,7 @@ struct ShortcutSettingsGroup: View {
                 }
                 .labelsHidden()
                 .fixedSize()
+                .settingsTarget("mouse-trigger")
             }
         }
     }

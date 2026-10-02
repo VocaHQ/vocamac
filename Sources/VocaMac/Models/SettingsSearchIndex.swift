@@ -13,6 +13,20 @@ struct SettingsSearchEntry: Hashable, Identifiable {
     let subtitle: String?
     let keywords: [String]
 
+    /// Some controls require choosing the app they apply to. Search must not
+    /// silently edit or open an arbitrary app rule on the person's behalf.
+    var navigationHint: String? {
+        switch id {
+        case "app-cleanup-prompt", "spoken-symbols":
+            return "Choose an app under Your Apps, open its edit options, then expand Advanced."
+        case "writing-style-rule-transfer":
+            return "Use the … menu under Your Apps to import or export your app list."
+        case "gateway-docker":
+            return "Docker fallback is available when the native gateway isn't installed."
+        default: return nil
+        }
+    }
+
     init(
         id: String,
         page: SettingsPage,

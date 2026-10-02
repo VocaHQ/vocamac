@@ -50,6 +50,7 @@ struct WebsiteRulesSettings: View {
                 Button("Add Website…") { isAdding = true }
             }
         }
+        .settingsTarget("website-style-rules")
         .sheet(isPresented: $isAdding) {
             WebsiteRuleEditor(rule: WebsiteStyleBinding(
                 hostPattern: "", displayName: "Website", style: appState.writingStyleDefault

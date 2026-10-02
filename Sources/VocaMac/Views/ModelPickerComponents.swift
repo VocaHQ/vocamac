@@ -359,3 +359,20 @@ struct ModelRating: View {
             .frame(width: 9, height: 9)
     }
 }
+
+/// The same explicit preference in onboarding and the catalog. It changes
+/// guidance only; Download & Use remains the user's separate decision.
+struct SpeechModelPriorityPicker: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        Picker("Prioritize", selection: Binding(
+            get: { appState.modelRecommendationPriority },
+            set: { appState.modelRecommendationPriority = $0 }
+        )) {
+            ForEach(SpeechModelPriority.allCases) { Text($0.title).tag($0) }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .help("Changes suggestions without switching your speech model")
+    }
+}

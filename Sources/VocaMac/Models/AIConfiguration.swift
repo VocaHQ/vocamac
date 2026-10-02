@@ -21,6 +21,16 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var summary: String {
+        switch self {
+        case .none: return "Keep spoken words; formatting settings still apply."
+        case .light: return "Tidy punctuation and capitalization. Keep fillers."
+        case .medium: return "Remove fillers, repeated starts, and explicit corrections."
+        case .grammar: return "Medium cleanup plus minimal English grammar repairs."
+        case .high: return "Medium cleanup plus broader corrections and “scratch that”."
+        }
+    }
+
     var detail: String {
         switch self {
         case .none: return "Keep the engine transcript unchanged, “um” and “uh” included."

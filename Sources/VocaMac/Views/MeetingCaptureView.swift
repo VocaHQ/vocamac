@@ -109,7 +109,7 @@ struct MeetingCaptureView: View {
         VStack(alignment: .leading, spacing: 14) {
             TranscriptionWorkflowHeader(
                 title: "System Audio",
-                subtitle: "Capture what this Mac is playing, then transcribe it locally.",
+                subtitle: "Capture what this Mac is playing. " + appState.speechProcessingDescription + ".",
                 systemImage: "speaker.wave.2"
             )
             HStack(spacing: 12) {
@@ -141,7 +141,7 @@ struct MeetingCaptureView: View {
                 if session.isTranscribing { ProgressView().controlSize(.small) }
             }
             .vocaCard()
-            Label("Private capture · no virtual driver · 20-minute limit", systemImage: "lock.shield")
+            Label("No virtual driver · 20-minute limit", systemImage: "speaker.wave.2")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             if let result {
@@ -239,7 +239,7 @@ struct MeetingCaptureView: View {
 
     private var statusDetail: String {
         if capture.isCapturing { return "Playback continues normally" }
-        if session.isTranscribing { return "Processing locally with the selected speech model" }
+        if session.isTranscribing { return appState.speechProcessingDescription }
         return "Uses the currently selected speech model"
     }
 

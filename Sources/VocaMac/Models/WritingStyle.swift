@@ -241,7 +241,7 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
     var shortDescription: String {
         switch self {
         case .plain:
-            return "Your words as transcribed, with nothing extra changed."
+            return "Standard text formatting. Cleanup and tone follow your settings."
         case .code:
             return "For code editors. Spoken filenames and names become code, with no capital letter or period added."
         case .terminal:

@@ -28,13 +28,14 @@ struct CleanupSettingsPage: View {
 
     var body: some View {
         VocaSettingsPageContent {
+            OutputSummaryView().padding(.horizontal, 8)
             // The two features, what each one runs, and whether it's ready.
             // People used to piece this together from two separate model
             // lists, and assumed a model picked for one also ran the other.
             VocaSettingsGroup("Cleanup and Command Mode") {
                 AIFeatureRow(
                     title: "Smart Cleanup",
-                    detail: "Tidies every dictation after it's transcribed.",
+                    detail: "Tidies dictation unless an app or one-off choice bypasses cleanup.",
                     systemImage: "sparkles",
                     tint: VocaDesign.accentSolid
                 ) {
@@ -75,6 +76,7 @@ struct CleanupSettingsPage: View {
 
                 downloadProgressLine
             }
+            .settingsTarget("cleanup", aliases: ["command-mode-model"])
 
             VocaSettingsGroup("Cleanup Level") {
                 Picker("Cleanup level", selection: $appState.transcriptCleanupLevel) {
@@ -82,19 +84,61 @@ struct CleanupSettingsPage: View {
                         Text(level.displayName).tag(level)
                     }
                 }
-                Text(appState.transcriptCleanupLevel.detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(appState.transcriptCleanupLevel.summary)
+                    .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                DisclosureGroup("Details and app exceptions") {
+                    Text(appState.transcriptCleanupLevel.detail)
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 Divider()
                 SettingsToggleRow(
                     title: "Skip the model when there's nothing to clean",
                     detail: "A dictation that is already punctuated, with no filler or repeated words, is typed straight away instead of waiting for the model to hand it back unchanged.",
                     isOn: $appState.skipCleanDictations
                 )
+                .settingsTarget("cleanup-skip-clean")
             }
+            .settingsTarget("cleanup-level")
 
-            modelLibrary
+            VocaSettingsGroup("Try It") {
+                Text("See what cleanup would type for a sample.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                TextEditor(text: $tryItInput)
+                    .font(.system(.caption, design: .monospaced))
+                    .frame(height: 76)
+                    .padding(8)
+                    .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 8))
+
+                HStack {
+                    Button(tryItRunning ? "Cleaning…" : "Clean Up Sample") {
+                        runTryIt()
+                    }
+                    .disabled(tryItRunning || tryItInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                    if tryItRunning {
+                        ProgressView().controlSize(.small)
+                    }
+
+                    Spacer()
+
+                    Button("Reset") {
+                        tryItInput = Self.sampleUtterance
+                        tryItResult = nil
+                    }
+                    .buttonStyle(.link)
+                }
+
+                if let result = tryItResult {
+                    tryItOutput(result)
+                }
+            }
+            .settingsTarget("cleanup-try")
+
+            modelLibrary.settingsTarget("cleanup-model")
 
             VocaDisclosureCard(
                 title: "Inference",
@@ -158,6 +202,8 @@ struct CleanupSettingsPage: View {
                     Text(endpointNotice).font(.caption).foregroundStyle(.secondary)
                 }
             }
+            .revealSettingsTargets(["cleanup-provider"], expanded: $isInferenceExpanded)
+            .settingsTarget("cleanup-provider")
 
             VocaDisclosureCard(
                 title: "Command Mode Options",
@@ -167,41 +213,11 @@ struct CleanupSettingsPage: View {
             ) {
                 CommandModeSettingsGroup(embedded: true)
             }
-
-            VocaSettingsGroup("Try It") {
-                Text("See what cleanup would type for a sample.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                TextEditor(text: $tryItInput)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(height: 76)
-                    .padding(8)
-                    .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 8))
-
-                HStack {
-                    Button(tryItRunning ? "Cleaning…" : "Clean Up Sample") {
-                        runTryIt()
-                    }
-                    .disabled(tryItRunning || tryItInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                    if tryItRunning {
-                        ProgressView().controlSize(.small)
-                    }
-
-                    Spacer()
-
-                    Button("Reset") {
-                        tryItInput = Self.sampleUtterance
-                        tryItResult = nil
-                    }
-                    .buttonStyle(.link)
-                }
-
-                if let result = tryItResult {
-                    tryItOutput(result)
-                }
-            }
+            .revealSettingsTargets(
+                ["command-mode-clipboard", "command-mode-review", "command-mode-saved", "command-mode-actions"],
+                expanded: $isCommandModeExpanded
+            )
+            .settingsTarget("command-mode-clipboard")
 
             // The disclosure card is its own surface; wrapping it in a group
             // card would draw a card inside a card.
@@ -272,6 +288,8 @@ struct CleanupSettingsPage: View {
                         .disabled(!isPromptCustomised)
                     }
                 }
+                .revealSettingsTargets(["cleanup-prompt"], expanded: $isPromptExpanded)
+                .settingsTarget("cleanup-prompt")
             }
         }
         .toggleStyle(.switch)
@@ -346,12 +364,7 @@ struct CleanupSettingsPage: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(result.text.isEmpty ? "Nothing would be typed." : result.text)
-                .font(.system(.callout, design: .default))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(Color.secondary.opacity(0.1))
+            TranscriptComparisonView(original: result.input, final: result.text.isEmpty ? "Nothing would be typed." : result.text)
                 .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .padding(.vertical, 2)
@@ -627,10 +640,12 @@ struct CommandModeSettingsGroup: View {
             .labelsHidden()
             .fixedSize()
         }
+        .settingsTarget("command-mode-review")
 
         Divider()
 
         SavedCommandsEditor()
+            .settingsTarget("command-mode-saved")
 
         Divider()
 
@@ -639,6 +654,7 @@ struct CommandModeSettingsGroup: View {
             detail: "Say “open Safari”, “search the web for…”, “remind me to…”, or “run the shortcut…”. Only what you say starts an action, never the selected text.",
             isOn: $appState.voiceActionsEnabled
         )
+        .settingsTarget("command-mode-actions")
         if appState.voiceActionsEnabled {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Shortcuts VocaMac may run")

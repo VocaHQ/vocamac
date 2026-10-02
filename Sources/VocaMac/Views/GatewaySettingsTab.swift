@@ -91,6 +91,7 @@ struct GatewaySettingsTab: View {
                     .disabled(!gateway.isLive)
                 }
             }
+            .settingsTarget("gateway", aliases: gateway.isBinaryAvailable ? ["gateway-docker"] : [])
 
             Section("Phone pairing") {
                 Text("Show the Pair phone QR once Gateway is live and the pairing URL is a non-loopback address. You can pair while a model is still downloading.")
@@ -154,6 +155,7 @@ struct GatewaySettingsTab: View {
                     .foregroundStyle(VocaDesign.warning)
                 }
             }
+            .settingsTarget("gateway-pair")
 
             if !gateway.isBinaryAvailable {
                 Section("Docker fallback") {
@@ -184,6 +186,7 @@ struct GatewaySettingsTab: View {
                         }
                     }
                 }
+                .settingsTarget("gateway-docker")
             }
 
             Section("Logs") {

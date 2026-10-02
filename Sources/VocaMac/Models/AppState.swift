@@ -319,6 +319,8 @@ final class AppState: ObservableObject {
     /// A file or system-audio capture is being transcribed.
     @Published private(set) var isTranscribingMedia = false
 
+    /// Optional, session-only checks for onboarding.
+    @Published var onboardingVerification = OnboardingVerification()
     /// Last Settings → Test Dictation result (shown in the sidebar footer; not injected).
     @Published var settingsTestResultText: String?
     @AppStorage("vocamac.scratchpad.text") var scratchpadText: String = ""
@@ -344,7 +346,9 @@ final class AppState: ObservableObject {
     /// Detected system capabilities
     @Published var systemCapabilities: SystemCapabilities?
 
-    /// WhisperKit's recommended model for this device
+    /// Persisted priority shared by onboarding and the model catalog.
+    @AppStorage("vocamac.modelRecommendationPriority") var modelRecommendationPriorityStorage = SpeechModelPriority.balanced.rawValue
+    /// WhisperKit's recommended model for this device.
     @Published var deviceRecommendedModel: String?
 
     /// Apple Speech's languages on this Mac, once the system has been asked.
@@ -565,6 +569,7 @@ final class AppState: ObservableObject {
         let injectResult: Bool
         let outputDestination: ScratchpadOutputDestination
         let isHandsFree: Bool
+        let verifiesShortcut: Bool
     }
     private var queuedRecordingStart: QueuedRecordingStart?
 
@@ -812,6 +817,7 @@ final class AppState: ObservableObject {
     /// A quick press toggles Command Mode; holding past this point stops on
     /// release. Internal so flow tests can exercise both gestures instantly.
     var commandModeHoldThreshold: TimeInterval = 0.35
+    private var recordingVerifiesShortcut = false
     private var nonInjectedOutputDestination: ScratchpadOutputDestination = .settingsTest
 
     /// Suggestions the user dismissed, so the same fix isn't offered again.
@@ -1276,7 +1282,7 @@ final class AppState: ObservableObject {
         hotKeyManager.onRecordingStart = { [weak self] in
             PerformanceTrace.event("HotKeyStart")
             Task { @MainActor in
-                await self?.startRecording()
+                await self?.startRecordingFromActivationShortcut()
             }
         }
 
@@ -1951,7 +1957,8 @@ final class AppState: ObservableObject {
 
     func startRecording(
         injectResult: Bool = true,
-        outputDestination: ScratchpadOutputDestination = .settingsTest
+        outputDestination: ScratchpadOutputDestination = .settingsTest,
+        verifiesShortcut: Bool = false
     ) async {
         let interval = PerformanceTrace.begin("RecordingStart")
         defer { PerformanceTrace.end(interval) }
@@ -2004,7 +2011,8 @@ final class AppState: ObservableObject {
                 queuedRecordingStart = QueuedRecordingStart(
                     injectResult: injectResult,
                     outputDestination: outputDestination,
-                    isHandsFree: isHandsFreeSession
+                    isHandsFree: isHandsFreeSession,
+                    verifiesShortcut: verifiesShortcut
                 )
                 VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
             }
@@ -2090,6 +2098,7 @@ final class AppState: ObservableObject {
         recordingGeneration = UUID()
         let generation = recordingGeneration
         recordingInjectsResult = injectResult
+        recordingVerifiesShortcut = verifiesShortcut
         nonInjectedOutputDestination = outputDestination
         // Typing into the field would move the selection an edit under
         // review is waiting on.
@@ -2610,6 +2619,13 @@ final class AppState: ObservableObject {
                     if let historyID { historyStore.markCancelled(historyID) }
                     return
                 }
+                if !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   injectResult || nonInjectedOutputDestination == .settingsTest {
+                    onboardingVerification.microphoneWorks = true
+                    if recordingVerifiesShortcut, onboardingVerification.mode != nil {
+                        onboardingVerification.shortcutDictationWorks = true
+                    }
+                }
                 lastOutput = output
                 if let historyID {
                     historyStore.complete(
@@ -2631,6 +2647,10 @@ final class AppState: ObservableObject {
                         return
                     }
                     textInjector.inject(text: output.text, preserveClipboard: preserveClipboard)
+                    if onboardingVerification.mode == .insertion,
+                       !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        onboardingVerification.insertionAttempted = true
+                    }
                     statsManager.recordStopWait(StopWait(
                         seconds: ProcessInfo.processInfo.systemUptime - stopRequested,
                         audioSeconds: result.audioLengthSeconds,
@@ -2643,6 +2663,7 @@ final class AppState: ObservableObject {
                         scratchpadText += output.text.trimmingCharacters(in: .whitespacesAndNewlines)
                     } else {
                         settingsTestResultText = output.text
+
                     }
                 }
             } else {
@@ -3275,7 +3296,10 @@ final class AppState: ObservableObject {
         queuedRecordingStart = nil
         VocaLogger.info(.appState, "Previous dictation delivered — starting the queued one")
         if queued.isHandsFree { isHandsFreeSession = true }
-        await startRecording(injectResult: queued.injectResult, outputDestination: queued.outputDestination)
+        await startRecording(
+            injectResult: queued.injectResult, outputDestination: queued.outputDestination,
+            verifiesShortcut: queued.verifiesShortcut
+        )
         if queued.isHandsFree && !isRecording { isHandsFreeSession = false }
     }
 
@@ -5093,9 +5117,7 @@ extension AppState {
     /// Type the most recent dictation again at the cursor.
     func pasteLastDictation() {
         guard !isRecording, appStatus != .recording else { return }
-        let fromHistory = historyEnabled ? historyStore.latestDeliveredText : nil
-        guard let text = fromHistory ?? lastOutput?.text ?? heldOutput,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let text = lastDictationText else {
             showTemporaryError("There's no dictation to paste yet.")
             return
         }

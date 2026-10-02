@@ -45,7 +45,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Private voice typing that feels at home on macOS."
         case .permissions: return "Three permissions, each with a clear purpose."
-        case .modelSetup: return "Tell us what you speak most; VocaMac will recommend a local model."
+        case .modelSetup: return "Tell us what you speak; VocaMac will recommend a local model."
         case .hotkeyConfig: return "Choose the gesture that feels natural to you."
         case .quickTest: return "Record a sentence, then optionally check your shortcut and text insertion."
         case .complete: return "VocaMac lives in your menu bar, ready when you need it."
@@ -454,27 +454,18 @@ struct ModelSetupStep: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // One question. The recognition language follows from the
+            // answer, and the finer choices wait in Settings → Speech Model.
             VStack(alignment: .leading, spacing: 10) {
                 Text("Which languages do you speak?")
                     .font(.headline)
                 SpokenLanguagesField(languages: Binding(
                     get: { appState.spokenLanguages },
-                    set: { appState.spokenLanguages = $0 }
+                    set: { appState.setOnboardingSpokenLanguages($0) }
                 ))
-                Picker("Recognition language", selection: $appState.selectedLanguage) {
-                    Text("I switch between languages").tag(TranscriptionLanguage.auto.code)
-                    Divider()
-                    ForEach(TranscriptionLanguage.selectable) { language in
-                        Text(language.displayName).tag(language.code)
-                    }
-                }
-                .fixedSize()
-
-                SpeechModelPriorityPicker()
-
                 Text(appState.selectedLanguage == TranscriptionLanguage.auto.code
-                     ? "VocaMac will detect the language for each dictation."
-                     : "Pinning \(selectedLanguageName) helps recognition avoid guessing the wrong language.")
+                     ? "VocaMac works out which language you're speaking each time you dictate."
+                     : "VocaMac listens for \(selectedLanguageName). Add another language if you switch between them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -517,7 +508,7 @@ struct ModelSetupStep: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .vocaCard()
             } else {
-                Label("No supported local model covers every selected language. Adjust your languages or choose a model in Settings.", systemImage: "info.circle")
+                Label("No single model on this Mac understands all of these languages. Remove one, or pick a model later in Settings → Speech Model.", systemImage: "info.circle")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -532,9 +523,6 @@ struct ModelSetupStep: View {
         }
         .padding(16)
         .onChange(of: appState.selectedLanguage) {
-            if appState.selectedLanguage != "auto", !appState.spokenLanguages.contains(appState.selectedLanguage) {
-                appState.spokenLanguages.append(appState.selectedLanguage)
-            }
             Task { @MainActor in
                 await appState.languageDidChange()
             }
@@ -947,7 +935,10 @@ struct CompleteStep: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .vocaCard()
 
-            OnboardingVerificationView(interactive: false)
+            // Three empty circles on the last screen would read as failure.
+            if appState.onboardingVerification.microphoneWorks {
+                OnboardingVerificationView(interactive: false)
+            }
 
             // Launch at Login option
             Toggle(isOn: Binding(

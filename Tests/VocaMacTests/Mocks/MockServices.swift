@@ -935,6 +935,10 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: "vocamac.translationEnabled")
         // Output polish defaults leak between test *processes* via
         // UserDefaults, so reset them here rather than in each test.
+        // The model recommendation reads both; a leaked value changes which
+        // model onboarding prepares.
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.spokenLanguages)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelRecommendationPriority)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.autoCapitalize)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.autoPauseEnabled)
@@ -1079,6 +1083,13 @@ final class MockScreenContextReader: ScreenContextReading {
         documentURLCallCount += 1
         if !documentURLs.isEmpty { return documentURLs.removeFirst() }
         return documentURL
+    }
+
+    /// The page the menu's target app shows, read without it being in front.
+    var targetAppDocumentURL: URL?
+
+    func captureDocumentURL(of app: RunningAppSnapshot) async -> URL? {
+        targetAppDocumentURL
     }
 }
 

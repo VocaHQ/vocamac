@@ -347,7 +347,7 @@ final class AppState: ObservableObject {
     @Published var systemCapabilities: SystemCapabilities?
 
     /// Persisted priority shared by onboarding and the model catalog.
-    @AppStorage("vocamac.modelRecommendationPriority") var modelRecommendationPriorityStorage = SpeechModelPriority.balanced.rawValue
+    @AppStorage(PreferenceKey.modelRecommendationPriority) var modelRecommendationPriorityStorage = SpeechModelPriority.balanced.rawValue
     /// WhisperKit's recommended model for this device.
     @Published var deviceRecommendedModel: String?
 
@@ -786,6 +786,8 @@ final class AppState: ObservableObject {
     /// Names and identifiers read from the screen when recording started.
     private var screenContextTask: Task<[String], Never>?
     private var screenDocumentURLTask: Task<URL?, Never>?
+    /// The menu's read of the target app's page address, for website rules.
+    private var websiteRuleRefresh: Task<Void, Never>?
 
     /// What Command Mode captured before it started recording its instruction.
     private var activeCommandTarget: CommandTarget?
@@ -1744,10 +1746,24 @@ final class AppState: ObservableObject {
     /// deliberately not on a timer. Uses `styleTargetApp()` rather than the
     /// bare frontmost app: opening the popover activates VocaMac, so by the
     /// time this runs the frontmost app usually *is* VocaMac.
-    func refreshActiveWritingStyle() {
+    ///
+    /// - Parameter readingWebsite: Also read the target app's page address,
+    ///   so a website rule shows as the style it will apply. Only the menu
+    ///   asks for this: it costs an Accessibility read of another app.
+    func refreshActiveWritingStyle(readingWebsite: Bool = false) {
         let target = frontmostAppResolver.styleTargetApp()
         activeWritingStyle = resolveWritingStyle(for: target)
         activeWritingTargetName = target?.displayName
+        websiteRuleRefresh?.cancel()
+        websiteRuleRefresh = nil
+        guard readingWebsite, !websiteStyleBindings.isEmpty,
+              let target, let reader = screenContextReader else { return }
+        websiteRuleRefresh = Task { @MainActor [weak self] in
+            let read = Task { @MainActor in await reader.captureDocumentURL(of: target) }
+            let url = await Self.value(of: read, within: Self.screenContextTimeout, otherwise: nil)
+            guard let self, !Task.isCancelled, let url else { return }
+            activeWritingStyle = resolveWritingStyle(for: target, documentURL: url)
+        }
     }
 
     /// The app a menu bar action should apply to: whatever is in front, or the
@@ -3110,12 +3126,9 @@ final class AppState: ObservableObject {
     /// The recommendation is resolved and revalidated here so a language
     /// change during a download cannot activate the previous language's model.
     func prepareOnboardingRecommendedModel() async {
-        guard let recommendation = OnboardingModelGuidance.recommendation(
-            for: selectedLanguage,
-            availableModels: availableModels
-        ) else {
-            return
-        }
+        // The same recommendation onboarding shows, so the button prepares
+        // the model named on screen.
+        guard let recommendation = speechModelRecommendation else { return }
 
         onboardingModelRequestGeneration &+= 1
         let generation = onboardingModelRequestGeneration

@@ -101,7 +101,7 @@ struct FileTranscriptionView: View {
                 .foregroundStyle(fileURL == nil ? .secondary : VocaDesign.accent)
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
-                Text(fileURL?.lastPathComponent ?? "Drop audio or video here")
+                Text(fileURL?.lastPathComponent ?? "Drop audio or video to transcribe it")
                     .font(.subheadline.weight(.medium))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -110,13 +110,13 @@ struct FileTranscriptionView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            Button("Choose…", action: chooseFile)
+            Button("Choose File…", action: chooseFile)
                 .controlSize(.small)
                 .disabled(isRunning)
             Button(isRunning ? "Transcribing…" : (result == nil ? "Transcribe" : "Transcribe Again")) { run() }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(fileURL == nil || isRunning || appState.isRecording || appState.appStatus == .processing)
+                .disabled(fileURL == nil || isRunning || isDictating)
             if isRunning { ProgressView().controlSize(.small) }
         }
         .frame(maxWidth: .infinity)
@@ -145,12 +145,19 @@ struct FileTranscriptionView: View {
         select(url)
     }
 
-    /// Selection prepares a file; only Transcribe starts processing.
+    /// Choosing or dropping a file is the request to transcribe it, and the
+    /// drop zone says so. The button is for a file that could not start
+    /// (a dictation was running) and for running the same file again.
     private func select(_ url: URL) {
         guard !isRunning else { return }
         fileURL = url
         result = nil
         error = nil
+        if !isDictating { run() }
+    }
+
+    private var isDictating: Bool {
+        appState.isRecording || appState.appStatus == .processing
     }
 
     private func save(_ text: String) {

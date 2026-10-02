@@ -31,6 +31,26 @@ final class SpeechModelRecommendationTests: XCTestCase {
         XCTAssertEqual(result?.model, .small)
     }
 
+    func testHigherAccuracyStaysWithinThisMacsMemory() {
+        // Large v3 needs 6.5 GB to load: fine with 16 GB, not with 8.
+        let available = models([.tiny, .small, .largeV3])
+        let roomy = OnboardingModelGuidance.recommendation(
+            for: ["en"], availableModels: available, priority: .accuracy, memoryGB: 16
+        )
+        XCTAssertEqual(roomy?.model, .largeV3)
+        let tight = OnboardingModelGuidance.recommendation(
+            for: ["en"], availableModels: available, priority: .accuracy, memoryGB: 8
+        )
+        XCTAssertEqual(tight?.model, .small)
+    }
+
+    func testTheLightestModelIsSuggestedWhenNothingFits() {
+        let result = OnboardingModelGuidance.recommendation(
+            for: ["en"], availableModels: models([.small, .largeV3]), priority: .accuracy, memoryGB: 2
+        )
+        XCTAssertEqual(result?.model, .small)
+    }
+
     func testRemoteOrUnsupportedModelsAreNeverSuggested() {
         var available = models([.customEndpoint, .small, .tiny])
         available[1].isSupported = false

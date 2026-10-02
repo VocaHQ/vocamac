@@ -771,7 +771,9 @@ final class AppStateModelLoadingTests: XCTestCase {
         let modelManager = MockModelManager()
         modelManager.downloadDelayNanoseconds = 100_000_000
         let (appState, mocks) = AppState.makeTestState(modelManager: modelManager)
-        appState.selectedLanguage = "en"
+        // Onboarding recommends for the languages chosen there, which also
+        // set the recognition language.
+        appState.setOnboardingSpokenLanguages(["en"])
 
         let englishPreparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
@@ -781,7 +783,8 @@ final class AppStateModelLoadingTests: XCTestCase {
         }
         XCTAssertEqual(modelManager.downloadRequests.first, .parakeetTdtCtc110m)
 
-        appState.selectedLanguage = "ru"
+        appState.setOnboardingSpokenLanguages(["ru"])
+        XCTAssertEqual(appState.selectedLanguage, "ru")
         await appState.languageDidChange()
         await englishPreparation.value
 
@@ -801,7 +804,7 @@ final class AppStateModelLoadingTests: XCTestCase {
             modelManager: modelManager,
             whisperService: whisperService
         )
-        appState.selectedLanguage = "en"
+        appState.setOnboardingSpokenLanguages(["en"])
 
         let unrelatedLoad = Task { @MainActor in await appState.loadModel(.medium) }
         for _ in 0..<100 where whisperService.loadRequests.isEmpty {
@@ -833,7 +836,7 @@ final class AppStateModelLoadingTests: XCTestCase {
             modelManager: modelManager,
             whisperService: whisperService
         )
-        appState.selectedLanguage = "en"
+        appState.setOnboardingSpokenLanguages(["en"])
 
         let unrelatedLoad = Task { @MainActor in await appState.loadModel(.medium) }
         for _ in 0..<100 where whisperService.loadRequests.isEmpty {
@@ -888,7 +891,7 @@ final class AppStateModelLoadingTests: XCTestCase {
             modelManager: modelManager,
             whisperService: whisperService
         )
-        appState.selectedLanguage = "en"
+        appState.setOnboardingSpokenLanguages(["en"])
 
         await appState.loadModel(.medium)
         XCTAssertEqual(appState.currentModel?.size, .medium)
@@ -922,7 +925,7 @@ final class AppStateModelLoadingTests: XCTestCase {
             modelManager: modelManager,
             whisperService: whisperService
         )
-        appState.selectedLanguage = "en"
+        appState.setOnboardingSpokenLanguages(["en"])
 
         let preparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()

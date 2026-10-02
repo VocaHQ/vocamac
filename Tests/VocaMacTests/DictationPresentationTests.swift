@@ -8,39 +8,35 @@ final class OutputConfigurationSummaryTests: XCTestCase {
         OutputConfigurationSummary(profile: profile, cleanupEnabled: cleanup, rewritingEnabled: rewriting, level: level)
     }
 
-    func testRawBypassesEveryTransformationEvenWhenGlobalFeaturesAreOn() {
+    func testRawIsDescribedAloneEvenWhenGlobalFeaturesAreOn() {
         let value = summary(WritingProfile(format: .email, rules: .passthrough, intent: .professional, cleanup: .raw))
-        XCTAssertEqual(value.format, "Exactly as transcribed")
-        XCTAssertEqual(value.cleanup, "All text transformations bypassed")
-        XCTAssertEqual(value.tone, "As spoken")
+        XCTAssertEqual(value.description, "Exactly as transcribed")
     }
 
-    func testFormattingOnlyDoesNotPromiseToneOrCleanup() {
+    func testFormattingOnlyPromisesNeitherCleanupNorTone() {
         let value = summary(WritingProfile(format: .email, rules: .passthrough, intent: .professional, cleanup: .off))
-        XCTAssertEqual(value.cleanup, "Formatting only · AI cleanup off")
-        XCTAssertEqual(value.tone, "As spoken")
+        XCTAssertEqual(value.description, "Email format · No cleanup")
     }
 
-    func testBasicCleanupStillExplainsDeterministicRulesWhenAIIsOff() {
+    func testFillersStillGoWhenSmartCleanupIsOff() {
         let profile = WritingProfile(format: .plain, rules: .passthrough, intent: .professional)
-        let value = summary(profile, cleanup: false)
-        XCTAssertEqual(value.cleanup, "Basic filler/correction rules · AI cleanup off")
-        XCTAssertEqual(value.tone, "As spoken")
+        XCTAssertEqual(summary(profile, cleanup: false).description, "Plain format · Fillers removed")
+        // Light keeps every spoken sound, so without the model nothing is cleaned.
+        XCTAssertEqual(summary(profile, cleanup: false, level: .light).description, "Plain format · No cleanup")
     }
 
     func testPerAppLevelOverridesGlobalLevelAndNonePreventsTone() {
         let profile = WritingProfile(format: .email, rules: .passthrough, intent: .professional, cleanupLevel: CleanupLevel.none)
-        let value = summary(profile, level: .grammar)
-        XCTAssertEqual(value.cleanup, "Cleanup off · level None")
-        XCTAssertEqual(value.tone, "As spoken")
+        XCTAssertEqual(summary(profile, level: .grammar).description, "Email format · No cleanup")
     }
 
     func testToneRequiresBothSwitchesAndASupportedFormat() {
         let email = WritingProfile(format: .email, rules: .passthrough, intent: .professional)
-        XCTAssertEqual(summary(email).tone, "Formal tone · English only")
-        XCTAssertEqual(summary(email, rewriting: false).tone, "As spoken")
+        XCTAssertEqual(summary(email).description, "Email format · Medium cleanup · Formal tone")
+        XCTAssertNil(summary(email, rewriting: false).tone)
+        XCTAssertNil(summary(email, cleanup: false).tone)
         let code = WritingProfile(format: .code, rules: .passthrough, intent: .professional)
-        XCTAssertEqual(summary(code).tone, "As spoken")
+        XCTAssertEqual(summary(code).description, "Code format · Medium cleanup")
     }
 }
 
@@ -61,7 +57,7 @@ final class DictationPresentationTests: XCTestCase {
     override func tearDown() async throws {
         state = nil
         mocks = nil
-        UserDefaults.standard.removeObject(forKey: "vocamac.modelRecommendationPriority")
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelRecommendationPriority)
     }
 
     private func model(_ size: ModelSize, downloaded: Bool) -> WhisperModelInfo {
@@ -174,5 +170,58 @@ final class DictationPresentationTests: XCTestCase {
         XCTAssertTrue(state.onboardingVerification.shortcutDetected)
         XCTAssertFalse(state.onboardingVerification.shortcutDictationWorks)
         XCTAssertFalse(state.onboardingVerification.microphoneWorks)
+    }
+
+    // MARK: - Recommendation, website rules, and what leaves this Mac
+
+    func testOnboardingPreparesTheModelItShows() async {
+        // English and Hindi show a multilingual model. The button used to
+        // work from the recognition language alone and fetch an English one.
+        state.availableModels = [.tiny, .small, .parakeetTdtCtc110m].map { model($0, downloaded: $0 == .tiny) }
+        state.selectedLanguage = "en"
+        state.spokenLanguages = ["en", "hi"]
+        let shown = state.speechModelRecommendation?.model
+        XCTAssertEqual(shown, .small)
+        await state.prepareOnboardingRecommendedModel()
+        XCTAssertEqual(mocks.modelManager.downloadRequests, [.small])
+    }
+
+    func testOnboardingLanguagesSetTheRecognitionLanguage() {
+        state.setOnboardingSpokenLanguages(["hi"])
+        XCTAssertEqual(state.selectedLanguage, "hi")
+        state.setOnboardingSpokenLanguages(["hi", "en"])
+        XCTAssertEqual(state.selectedLanguage, TranscriptionLanguage.auto.code)
+        XCTAssertEqual(state.spokenLanguages, ["hi", "en"])
+        state.setOnboardingSpokenLanguages([])
+        XCTAssertEqual(state.selectedLanguage, TranscriptionLanguage.auto.code)
+    }
+
+    func testMenuSummaryFollowsAMatchingWebsiteRule() async throws {
+        let reader = MockScreenContextReader()
+        reader.targetAppDocumentURL = URL(string: "https://mail.example.com/compose")
+        let (state, mocks) = AppState.makeTestState(screenContextReader: reader)
+        defer { state.websiteStyleBindings = [] }
+        mocks.frontmostAppResolver.frontmostApp = RunningAppSnapshot(displayName: "Safari", bundleIdentifier: "com.apple.Safari")
+        state.writingStyleEnabled = true
+        state.transcriptCleanupEnabled = true
+        state.websiteStyleBindings = [
+            WebsiteStyleBinding(hostPattern: "mail.example.com", displayName: "Mail", style: .email, cleanup: .off),
+        ]
+
+        // Without the page address the summary can only know the app.
+        state.refreshActiveWritingStyle()
+        XCTAssertEqual(state.nextOutputSummary.format, "Plain format")
+
+        state.refreshActiveWritingStyle(readingWebsite: true)
+        for _ in 0..<200 where state.activeWritingStyle.style != .email {
+            try await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertEqual(state.nextOutputSummary.description, "Email format · No cleanup")
+    }
+
+    func testRemoteNoticeNamesOnlyWhatLeavesThisMac() {
+        XCTAssertNil(state.nextDictationRemoteNotice)
+        state.currentModel = model(.customEndpoint, downloaded: true)
+        XCTAssertEqual(state.nextDictationRemoteNotice, "Audio is sent to your endpoint")
     }
 }

@@ -39,7 +39,9 @@ struct AboutTab: View {
                     .font(.title)
                     .fontWeight(.bold)
 
-                Text("Voice-to-text for macOS. " + appState.speechProcessingDescription + ".")
+                Text(appState.speechProcessingIsRemote
+                     ? "Voice-to-text for macOS. Audio goes to your Custom Endpoint."
+                     : "Voice-to-text for macOS, kept on this Mac.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

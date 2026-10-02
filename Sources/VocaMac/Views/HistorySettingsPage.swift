@@ -29,18 +29,14 @@ struct HistorySettingsPage: View {
                     .vocaCard()
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    VocaSectionHeader(title: "Dictations", systemImage: nil, subtitle: nil)
-                    Spacer()
-                    TextField("Search", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 220)
-                }
-                VocaDisclosureCard(
-                    title: "History storage", subtitle: summaryText,
-                    systemImage: "internaldrive", isExpanded: $showsStorage
-                ) {
+            // One collapsed row, so the page opens on the dictations.
+            VocaDisclosureCard(
+                title: "Storage",
+                subtitle: storageSubtitle,
+                systemImage: "internaldrive",
+                badge: appState.historyEnabled ? nil : "Off",
+                isExpanded: $showsStorage
+            ) {
                     SettingsToggleRow(
                         title: "Save dictation history",
                         detail: "Copy, paste, or retry past dictations. Stays on this Mac.",
@@ -69,19 +65,24 @@ struct HistorySettingsPage: View {
                     .disabled(!appState.historyEnabled)
                     Divider()
                     HStack {
-                        Text(summaryText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         Spacer()
                         Button("Delete Audio") { appState.deleteAllHistoryAudio() }
                             .disabled(appState.historyStore.entries.allSatisfy { !$0.hasAudio })
                         Button("Delete All…", role: .destructive) { confirmingDeleteAll = true }
                             .disabled(appState.historyStore.entries.isEmpty)
                     }
+            }
+            .settingsTarget("history-retention")
+            .revealSettingsTargets(["history-retention"], expanded: $showsStorage)
 
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    VocaSectionHeader(title: "Dictations", systemImage: nil, subtitle: nil)
+                    Spacer()
+                    TextField("Search", text: $query)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(maxWidth: 220)
                 }
-                .settingsTarget("history-retention")
-                .revealSettingsTargets(["history-retention"], expanded: $showsStorage)
                 if entries.isEmpty {
                     Text(query.isEmpty ? "Your dictations will appear here." : "No dictations match “\(query)”.")
                         .foregroundStyle(.secondary)
@@ -112,11 +113,18 @@ struct HistorySettingsPage: View {
         .onDisappear { player.stop() }
     }
 
-    private var summaryText: String {
+    /// How much is kept, and for how long.
+    private var storageSubtitle: String {
         let entries = appState.historyStore.entries
         let bytes = entries.reduce(Int64(0)) { $0 + ($1.audioBytes ?? 0) }
-        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
-        return "\(entries.count) dictation\(entries.count == 1 ? "" : "s") · \(size) of audio"
+        var parts = ["\(entries.count) dictation\(entries.count == 1 ? "" : "s")"]
+        if bytes > 0 {
+            parts.append("\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) of audio")
+        }
+        if appState.historyEnabled {
+            parts.append("kept \(appState.historyRetention.displayName.lowercased())")
+        }
+        return parts.joined(separator: " · ")
     }
 }
 

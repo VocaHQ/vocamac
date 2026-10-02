@@ -485,10 +485,13 @@ protocol ScreenContextReading: AnyObject {
     /// Visible text of the frontmost app's focused field and window title.
     func captureFrontmostContext() async -> String?
     func captureFrontmostDocumentURL() async -> URL?
+    /// The page address in `app`'s focused field, whether or not it is in front.
+    func captureDocumentURL(of app: RunningAppSnapshot) async -> URL?
 }
 
 extension ScreenContextReading {
     func captureFrontmostDocumentURL() async -> URL? { nil }
+    func captureDocumentURL(of app: RunningAppSnapshot) async -> URL? { nil }
 }
 
 @MainActor
@@ -504,6 +507,18 @@ final class ScreenContextReader: ScreenContextReading {
 
     func captureFrontmostDocumentURL() async -> URL? {
         guard let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        return await withCheckedContinuation { continuation in
+            AccessibilityTextReader.queue.async {
+                continuation.resume(returning: AccessibilityTextReader.documentURL(processID: processID))
+            }
+        }
+    }
+
+    func captureDocumentURL(of app: RunningAppSnapshot) async -> URL? {
+        guard let bundleIdentifier = app.bundleIdentifier,
+              let processID = NSRunningApplication
+                .runningApplications(withBundleIdentifier: bundleIdentifier).first?.processIdentifier
+        else { return nil }
         return await withCheckedContinuation { continuation in
             AccessibilityTextReader.queue.async {
                 continuation.resume(returning: AccessibilityTextReader.documentURL(processID: processID))

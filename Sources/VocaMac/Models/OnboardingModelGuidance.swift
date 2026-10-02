@@ -11,9 +11,9 @@ enum SpeechModelPriority: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .balanced: return "Balanced"
-        case .smallestDownload: return "Smallest download"
-        case .accuracy: return "Higher accuracy"
+        case .balanced: return "A balance of speed and accuracy"
+        case .smallestDownload: return "The smallest download"
+        case .accuracy: return "The highest accuracy"
         }
     }
 }
@@ -35,18 +35,36 @@ enum OnboardingModelGuidance {
         recommendation(for: languageCode == "auto" ? [] : [languageCode], availableModels: availableModels)
     }
 
-    /// Only supported local models covering every chosen language are eligible.
+    /// A recommended model's first load may take at most this share of the
+    /// Mac's memory. The load itself is gated on free memory, which changes
+    /// by the minute; a suggestion has to hold still, so it goes by installed
+    /// memory and leaves the rest for macOS and the apps being dictated into.
+    static let memoryShare = 0.5
+
+    /// Only supported local models covering every chosen language are
+    /// eligible, and among those only the ones that fit this Mac's memory.
+    ///
+    /// - Parameter memoryGB: Installed memory. Nil skips the memory check.
     static func recommendation(
         for languages: [String],
         availableModels: [WhisperModelInfo],
         priority: SpeechModelPriority = .balanced,
-        systemLanguages: Set<String>? = nil
+        systemLanguages: Set<String>? = nil,
+        memoryGB: Int? = nil
     ) -> OnboardingModelRecommendation? {
         let codes = languages.filter { $0 != "auto" }
-        let eligible = availableModels.filter {
+        let covering = availableModels.filter {
             $0.isSupported && !$0.size.isRemotelyHosted
                 && ModelPickerCatalog.fit(of: $0.size, for: codes, systemLanguages: systemLanguages).coversAll
         }
+        let fitting = covering.filter { model in
+            guard let memoryGB else { return true }
+            return model.size.firstLoadRAMRequiredGB <= Double(memoryGB) * memoryShare
+        }
+        // When nothing fits comfortably, the lightest model is still the
+        // most likely to load.
+        let lightest = covering.min { $0.size.firstLoadRAMRequiredGB < $1.size.firstLoadRAMRequiredGB }
+        let eligible = fitting.isEmpty ? [lightest].compactMap { $0 } : fitting
         guard !eligible.isEmpty else { return nil }
         if priority == .balanced {
             let candidates = candidateRecommendations(for: codes.count == 1 ? codes[0] : "auto")
@@ -70,16 +88,16 @@ enum OnboardingModelGuidance {
         let explanation: String
         switch priority {
         case .balanced:
-            title = "Supported model for your languages"
-            explanation = "A supported local choice when the usual balanced recommendations do not cover your languages."
+            title = "Understands all your languages"
+            explanation = "Understands every language you chose and fits this Mac's memory."
         case .smallestDownload:
-            title = selected.size.isSystemManaged ? "System-managed speech model" : "Smallest download for your languages"
+            title = selected.size.isSystemManaged ? "Managed by macOS" : "Smallest download for your languages"
             explanation = selected.size.isSystemManaged
-                ? "macOS manages this model's assets. Their download size is not available in the catalog."
-                : "A supported model with a small download. Accuracy and memory use vary by model."
+                ? "macOS downloads and updates this model itself."
+                : "The smallest download that understands every language you chose."
         case .accuracy:
-            title = "Higher accuracy for your languages"
-            explanation = "Prioritizes the catalog's estimated accuracy among supported models for your languages. Larger models can take longer."
+            title = "Most accurate for your languages"
+            explanation = "The most accurate model, by the catalog's estimate, that fits this Mac's memory. Larger models are slower."
         }
         return OnboardingModelRecommendation(model: selected.size, title: title, explanation: explanation)
     }

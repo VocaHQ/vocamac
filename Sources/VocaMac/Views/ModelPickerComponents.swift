@@ -22,6 +22,10 @@ struct ModelPickerHeader: View {
             ModelPickerHeaderRow(title: "I speak") {
                 SpokenLanguagesField(languages: $languages)
             }
+            Divider()
+            ModelPickerHeaderRow(title: "Prefer") {
+                SpeechModelPriorityPicker()
+            }
             if let current {
                 Divider()
                 ModelPickerHeaderRow(title: current.isLoading ? "Loading" : "Using") {
@@ -360,19 +364,20 @@ struct ModelRating: View {
     }
 }
 
-/// The same explicit preference in onboarding and the catalog. It changes
-/// guidance only; Download & Use remains the user's separate decision.
+/// What the Best Fit suggestion optimises for. It changes the suggestion
+/// only; Download & Use remains the user's separate decision.
 struct SpeechModelPriorityPicker: View {
     @EnvironmentObject var appState: AppState
 
     var body: some View {
-        Picker("Prioritize", selection: Binding(
+        Picker("Prefer", selection: Binding(
             get: { appState.modelRecommendationPriority },
             set: { appState.modelRecommendationPriority = $0 }
         )) {
             ForEach(SpeechModelPriority.allCases) { Text($0.title).tag($0) }
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .help("Changes suggestions without switching your speech model")
+        .labelsHidden()
+        .fixedSize()
+        .help("Changes which model is marked Best Fit. It never switches your speech model.")
     }
 }

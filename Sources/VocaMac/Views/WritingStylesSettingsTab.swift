@@ -29,8 +29,6 @@ struct WritingStylesSettingsTab: View {
 
     var body: some View {
         VocaSettingsPageContent {
-            OutputSummaryView().padding(.horizontal, 8)
-            previewSection
             VocaSettingsGroup(
                 "Writing Styles",
                 subtitle: "Make your dictation fit the app you're typing in."
@@ -52,6 +50,10 @@ struct WritingStylesSettingsTab: View {
                 .disabled(!appState.writingStyleEnabled)
             }
             .settingsTarget("writing-styles")
+
+            // Next to the switch and the default it previews, not five
+            // groups below them.
+            previewSection
 
             VocaSettingsGroup(
                 "Your Apps",
@@ -913,10 +915,12 @@ private struct WritingProfilePreview: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            // What "all my settings" adds up to for the style picked above.
             Text(appState.outputSummary(for: appState.settingsPreviewProfile).description)
                 .font(.caption).foregroundStyle(.secondary)
-            if appState.transcriptCleanupEnabled, !appState.cleanupEndpoint.isLocal {
-                Text(appState.cleanupProcessingDescription).font(.caption).foregroundStyle(.secondary)
+            if appState.cleanupIsRemote(for: appState.settingsPreviewProfile) {
+                Label("Transcript is sent to your cleanup endpoint", systemImage: "network")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Button(running ? "Trying…" : "Try With All My Settings") {
                 running = true

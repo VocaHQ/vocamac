@@ -66,6 +66,7 @@ enum PreferenceKey {
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
     static let skipSilence = "vocamac.audio.skipSilence"
     static let spokenLanguages = "vocamac.spokenLanguages"
+    static let modelRecommendationPriority = "vocamac.modelRecommendationPriority"
     /// Prefix of one key per model: the macOS build it last loaded on.
     static let compiledModelBuildPrefix = "vocamac.models.compiledBuild."
 }

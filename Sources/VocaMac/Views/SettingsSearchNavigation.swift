@@ -18,12 +18,15 @@ private struct SettingsSearchTarget: ViewModifier {
     @Environment(\.settingsSearchTarget) private var selected
     @State private var highlighted = false
 
-    private var scrollID: String { ids.first(where: { $0 == selected }) ?? ids[0] }
-
     func body(content: Content) -> some View {
         content
-            .id(scrollID)
-            .accessibilityIdentifier(scrollID)
+            .id(ids[0])
+            .accessibilityIdentifier(ids[0])
+            // Aliases get anchors of their own over the same frame. Swapping
+            // the control's id to the alias would rebuild it and drop its state.
+            .background {
+                ForEach(ids.dropFirst(), id: \.self) { Color.clear.id($0) }
+            }
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(highlighted ? VocaDesign.accent : .clear, lineWidth: 2)

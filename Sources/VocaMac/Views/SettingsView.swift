@@ -24,10 +24,6 @@ struct SettingsView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var didRestore = false
 
-    private var searchResults: [SettingsSearchEntry] {
-        SettingsSearchIndex.matches(query: searchText)
-    }
-
     private var hasSearchQuery: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -44,10 +40,11 @@ struct SettingsView: View {
                 VocaPageHeader(title: (selectedPage ?? .dictation).title, subtitle: nil)
                 if let entry = SettingsSearchIndex.entries.first(where: { $0.id == selectedSearchEntryID }),
                    let hint = entry.navigationHint {
-                    Text(hint).font(.callout).foregroundStyle(.secondary)
+                    Label(hint, systemImage: "arrow.turn.down.right")
+                        .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24).padding(.vertical, 8)
+                        .padding(.horizontal, 24).padding(.bottom, 8)
                 }
                 ScrollViewReader { proxy in
                     settingsDetail
@@ -80,6 +77,10 @@ struct SettingsView: View {
         .onChange(of: selectedSearchEntryID) { _, id in
             guard let id, let entry = SettingsSearchIndex.entries.first(where: { $0.id == id }) else { return }
             selectedPage = entry.page
+            // Following a result is a move, not a peek: clearing the search
+            // afterwards must not send the reader back where they started.
+            pageBeforeSearch = entry.page
+            lastPage = entry.page.rawValue
         }
         .onChange(of: selectedPage) { _, newValue in
             if !hasSearchQuery, let newValue {
@@ -137,25 +138,12 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
             SettingsSidebarSearchField(text: $searchText)
-                .onSubmit { selectedSearchEntryID = searchResults.first?.id }
+                .onSubmit {
+                    selectedSearchEntryID = SettingsSearchResults.groups(for: searchText).first?.entries.first?.id
+                }
 
             if hasSearchQuery {
-                List(selection: $selectedSearchEntryID) {
-                    ForEach(searchResults) { entry in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(entry.title).font(.body)
-                            Text(entry.page.title).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 3)
-                        .tag(entry.id)
-                        .accessibilityLabel("\(entry.title), \(entry.page.title)")
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-                .overlay {
-                    if searchResults.isEmpty { ContentUnavailableView.search(text: searchText) }
-                }
+                SettingsSearchResults(query: searchText, selection: $selectedSearchEntryID)
             } else {
                 // Keep native arrow-key navigation and system selection colors.
                 List(selection: $selectedPage) {
@@ -216,6 +204,54 @@ struct SettingsView: View {
 }
 
 // MARK: - Sidebar Search (System Settings style)
+
+/// The settings that match a search, under the page each lives on. Picking
+/// one opens its page and scrolls to the control.
+struct SettingsSearchResults: View {
+    let query: String
+    @Binding var selection: String?
+
+    /// Matches grouped by page, pages in sidebar order.
+    static func groups(for query: String) -> [(page: SettingsPage, entries: [SettingsSearchEntry])] {
+        let matches = SettingsSearchIndex.matches(query: query)
+        return SettingsSection.allCases.flatMap(\.pages).compactMap { page in
+            let entries = matches.filter { $0.page == page }
+            return entries.isEmpty ? nil : (page, entries)
+        }
+    }
+
+    var body: some View {
+        let groups = Self.groups(for: query)
+        List(selection: $selection) {
+            ForEach(groups, id: \.page) { group in
+                Section {
+                    ForEach(group.entries) { entry in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.title)
+                            if let subtitle = entry.subtitle {
+                                Text(subtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                        .tag(entry.id)
+                        .accessibilityLabel("\(entry.title), \(group.page.title)")
+                    }
+                } header: {
+                    Label(group.page.title, systemImage: group.page.systemImage)
+                        .symbolRenderingMode(.monochrome)
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .overlay {
+            if groups.isEmpty { ContentUnavailableView.search(text: query) }
+        }
+    }
+}
 
 /// Pill search field pinned to the top of the settings sidebar.
 struct SettingsSidebarSearchField: View {
@@ -379,7 +415,7 @@ struct SettingsSidebarFooter: View {
         switch appState.appStatus {
         case .idle:
             guard appState.isDictationReady else { return appState.dictationReadinessTitle }
-            return appState.cleanupReadinessLabel.map { "Ready · \($0)" } ?? "Dictation ready"
+            return appState.cleanupReadinessLabel.map { "Dictation ready · \($0)" } ?? "Dictation ready"
         case .recording: return "Recording…"
         case .processing: return "Transcribing…"
         case .error: return appState.errorMessage ?? "Error"
@@ -1214,6 +1250,8 @@ struct ModelSettingsTab: View {
     var body: some View {
         let spoken = appState.spokenLanguages
         let listed = models(in: scope, search: modelSearch)
+        // Worked out once per render and handed to the rows, not once per row.
+        let recommendation = appState.speechModelRecommendation
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 // Download and delete failures set only the message, not the
@@ -1259,16 +1297,6 @@ struct ModelSettingsTab: View {
                 )
                 .settingsTarget("spoken-languages")
 
-                SpeechModelPriorityPicker()
-                if let recommendation = appState.speechModelRecommendation {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Suggested: \(recommendation.model.displayName)").font(.subheadline.weight(.semibold))
-                        Text(recommendation.explanation).font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(.horizontal, 4)
-                }
-
                 VStack(alignment: .leading, spacing: 10) {
                     // Search moves under the tabs when the window is narrow.
                     ViewThatFits(in: .horizontal) {
@@ -1284,7 +1312,7 @@ struct ModelSettingsTab: View {
                         }
                     }
 
-                    Text(scopeCaption(spoken: spoken))
+                    Text(scopeCaption(spoken: spoken, recommendation: recommendation))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1303,7 +1331,7 @@ struct ModelSettingsTab: View {
                             let collapses = scope == .forYou && !isSearching && !showsAllSuggestions
                                 && listed.count > Self.forYouShown + 1
                             let shown = collapses ? Array(listed.prefix(Self.forYouShown)) : listed
-                            modelRows(shown, spoken: spoken)
+                            modelRows(shown, spoken: spoken, bestFit: recommendation?.model)
                             if collapses {
                                 Divider()
                                 Button {
@@ -1324,13 +1352,11 @@ struct ModelSettingsTab: View {
                     .vocaCard()
                 }
 
-                Text("Ratings are catalog estimates; results vary by language and Mac.")
-                    .font(.caption).foregroundStyle(.secondary)
                 Label("Models download from Hugging Face and stay on this Mac · \(appState.modelManager.diskUsageDescription()) used",
                       systemImage: "internaldrive")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .help("Larger models are more accurate but slower and use more memory. Apple Speech assets are managed by macOS.")
+                    .help("Larger models are more accurate but slower and use more memory. Accuracy and speed ratings are catalog estimates and vary by language and Mac. Apple Speech assets are managed by macOS.")
 
                 customEndpointSection
 
@@ -1465,14 +1491,15 @@ struct ModelSettingsTab: View {
     }
 
     @ViewBuilder
-    private func modelRows(_ sizes: [ModelSize], spoken: [String]) -> some View {
+    private func modelRows(_ sizes: [ModelSize], spoken: [String], bestFit: ModelSize?) -> some View {
         let models = sizes.compactMap { size in appState.availableModels.first { $0.size == size } }
         ForEach(models) { model in
             ModelRow(
                 model: model,
                 appState: appState,
                 spokenLanguages: spoken,
-                systemLanguages: appState.appleSpeechLanguages
+                systemLanguages: appState.appleSpeechLanguages,
+                isBestFit: model.isSupported && model.size == bestFit
             )
             if model.id != models.last?.id {
                 Divider()
@@ -1480,9 +1507,15 @@ struct ModelSettingsTab: View {
         }
     }
 
-    private func scopeCaption(spoken: [String]) -> String {
+    private func scopeCaption(spoken: [String], recommendation: OnboardingModelRecommendation?) -> String {
         switch scope {
         case .forYou:
+            // Say why the first row is the best fit, where the reader is
+            // already looking.
+            if let recommendation, !spoken.isEmpty {
+                return "Best fit for \(SpokenLanguages.list(spoken)): \(recommendation.model.displayName). "
+                    + recommendation.explanation
+            }
             return spoken.isEmpty
                 ? "Every model, best first. Add your languages above to narrow the list."
                 : "Models that understand \(SpokenLanguages.list(spoken)), best first."
@@ -1629,6 +1662,8 @@ struct ModelRow: View {
     var spokenLanguages: [String] = []
     /// Apple Speech's languages on this Mac, when known.
     var systemLanguages: Set<String>?
+    /// The model suggested for the user's languages and preference.
+    var isBestFit = false
     @State private var showForceDownloadAlert = false
     @State private var showRemoteEndpointAlert = false
     @State private var showDeleteAlert = false
@@ -1639,10 +1674,6 @@ struct ModelRow: View {
     private var canDelete: Bool {
         model.isDownloaded && !model.isActive && !model.size.isSystemManaged
             && !model.isLoading && model.downloadProgress == nil
-    }
-
-    private var isRecommended: Bool {
-        model.isSupported && appState.speechModelRecommendation?.model == model.size
     }
 
     /// "Doesn't understand Hindi" when the model misses a language the user speaks.
@@ -1727,7 +1758,7 @@ struct ModelRow: View {
                             systemImage: "checkmark"
                         )
                     }
-                    if isRecommended {
+                    if isBestFit {
                         ModelTag(text: "Best fit", tint: VocaDesign.accent)
                     }
                     if !model.isSupported {

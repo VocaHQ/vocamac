@@ -1,39 +1,30 @@
+// OutputSummaryView.swift
+// VocaMac
+//
+// What a dictation will get, and how a preview changed it.
+
 import SwiftUI
 
-/// Effective choices, including a pending one-off, instead of a preset name
-/// that could conceal cleanup or rewriting enabled elsewhere.
-struct OutputSummaryView: View {
+/// One line under the menu's Style row saying what the next dictation gets:
+/// format, cleanup and tone as they resolve for the app in front, a one-off
+/// choice included. A second line appears only when something leaves this Mac.
+struct NextDictationSummary: View {
     @EnvironmentObject var appState: AppState
-    var compact = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 4 : 8) {
-            Text(appState.nextWritingProfile == nil
-                 ? (appState.writingStyleTargetApp?.displayName).map { "Next dictation in \($0)" } ?? "Next dictation"
-                 : "Next dictation only")
-                .font(compact ? .caption.weight(.semibold) : .subheadline.weight(.semibold))
-            Text(appState.nextOutputSummary.description)
-                .font(compact ? .caption : .callout)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            (Text(appState.nextWritingProfile == nil ? "Next dictation" : "Next dictation only")
+                .fontWeight(.medium)
+                .foregroundStyle(.primary)
+             + Text("  \(appState.nextOutputSummary.description)"))
                 .fixedSize(horizontal: false, vertical: true)
-            Label(appState.speechProcessingDescription, systemImage: appState.speechProcessingIsRemote ? "network" : "lock.shield")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            if appState.transcriptCleanupEnabled,
-               appState.nextOutputProfile.cleanup == .inherit,
-               (appState.nextOutputProfile.cleanupLevel ?? appState.transcriptCleanupLevel) != .none {
-                Text(!appState.nextOutputProfile.format.supportsWording && !appState.cleanupEndpoint.isLocal
-                     ? "Code and Terminal text stays on this Mac for cleanup"
-                     : appState.cleanupProcessingDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            if !appState.websiteStyleBindings.isEmpty {
-                Text("A matching website rule can override these settings.")
-                    .font(.caption).foregroundStyle(.secondary)
+            if let notice = appState.nextDictationRemoteNotice {
+                Label(notice, systemImage: "network")
+                    .labelStyle(.titleAndIcon)
             }
         }
+        .font(.caption)
+        .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
     }

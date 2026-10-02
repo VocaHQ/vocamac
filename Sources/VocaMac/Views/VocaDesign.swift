@@ -321,7 +321,7 @@ struct VocaDisclosureCard<Content: View>: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 28, height: 28)
-                        .background(VocaDesign.accentSolid, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .background(VocaDesign.accentSolid.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.headline)
                         Text(subtitle)

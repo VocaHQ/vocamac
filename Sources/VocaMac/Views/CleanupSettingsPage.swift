@@ -28,7 +28,6 @@ struct CleanupSettingsPage: View {
 
     var body: some View {
         VocaSettingsPageContent {
-            OutputSummaryView().padding(.horizontal, 8)
             // The two features, what each one runs, and whether it's ready.
             // People used to piece this together from two separate model
             // lists, and assumed a model picked for one also ran the other.
@@ -87,11 +86,13 @@ struct CleanupSettingsPage: View {
                 Text(appState.transcriptCleanupLevel.summary)
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                DisclosureGroup("Details and app exceptions") {
+                DisclosureGroup("More about \(appState.transcriptCleanupLevel.displayName)") {
                     Text(appState.transcriptCleanupLevel.detail)
                         .font(.callout).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 6)
                 }
+                .disclosureGroupStyle(VocaDisclosureGroupStyle())
                 Divider()
                 SettingsToggleRow(
                     title: "Skip the model when there's nothing to clean",

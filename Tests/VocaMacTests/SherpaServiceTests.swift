@@ -393,7 +393,10 @@ final class SherpaLiveSessionTests: XCTestCase {
         let audio = tone(3)
         // Stands in for Skip Silence: the batch path decodes what it keeps.
         let trimmedCount = audio.count - 8_000
-        let session = session(decoder: decoder, partials: partials, windowSamples: 16_000) {
+        // Shorter than the audio a first preview needs (one second), so the
+        // preview always starts mid-recording, however the chunks arrive.
+        let windowSamples = 8_000
+        let session = session(decoder: decoder, partials: partials, windowSamples: windowSamples) {
             Array($0.dropFirst(8_000))
         }
 
@@ -409,7 +412,7 @@ final class SherpaLiveSessionTests: XCTestCase {
         XCTAssertEqual(result.text, "final words", "the preview never becomes the result")
         XCTAssertEqual(result.audioLengthSeconds, Double(audio.count) / 16_000)
         let calls = await decoder.calls
-        XCTAssertTrue(calls.dropLast().allSatisfy { $0.isPreview && $0.count <= 16_000 })
+        XCTAssertTrue(calls.dropLast().allSatisfy { $0.isPreview && $0.count <= windowSamples })
         XCTAssertEqual(calls.last?.isPreview, false)
         XCTAssertEqual(calls.last?.count, trimmedCount, "the final decode gets the same audio as a batch decode")
     }

@@ -72,9 +72,8 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         String(format: "%02d — ", rawValue + 1) + shortTitle
     }
 
-    /// Where unfinished onboarding reopens: the step it was left on, so a
-    /// Quit & Reopen for a permission (VocaMac's or macOS's own) lands back
-    /// there instead of on Welcome.
+    /// The saved step unfinished onboarding reopens on; see
+    /// `AppState.onboardingStartStep`.
     static func resumeStep(defaults: UserDefaults = .standard) -> OnboardingStep {
         guard defaults.object(forKey: PreferenceKey.onboardingResumeStep) != nil else { return .welcome }
         return OnboardingStep(rawValue: defaults.integer(forKey: PreferenceKey.onboardingResumeStep)) ?? .welcome
@@ -156,7 +155,7 @@ struct OnboardingView: View {
             appState.checkPermissions()
         }
         .onChange(of: currentStep) {
-            UserDefaults.standard.set(currentStep.rawValue, forKey: PreferenceKey.onboardingResumeStep)
+            appState.recordOnboardingStep(currentStep)
         }
     }
 
@@ -367,7 +366,6 @@ struct OnboardingView: View {
     }
 
     private func completeOnboarding() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep)
         appState.completeOnboarding()
         onFinished()
     }

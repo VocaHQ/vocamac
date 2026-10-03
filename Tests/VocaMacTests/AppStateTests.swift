@@ -191,6 +191,28 @@ final class AppStateOnboardingTests: XCTestCase {
     }
 
     @MainActor
+    func testUnfinishedOnboardingReopensOnTheRecordedStep() {
+        let (appState, _) = AppState.makeTestState()
+        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
+
+        appState.recordOnboardingStep(.permissions)
+
+        XCTAssertEqual(appState.onboardingStartStep, .permissions)
+    }
+
+    @MainActor
+    func testFinishingOnboardingForgetsTheStepAndRerunsStartOver() {
+        let (appState, _) = AppState.makeTestState()
+        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
+        appState.recordOnboardingStep(.quickTest)
+
+        appState.completeOnboarding()
+
+        XCTAssertNil(UserDefaults.standard.object(forKey: PreferenceKey.onboardingResumeStep))
+        XCTAssertEqual(appState.onboardingStartStep, .welcome)
+    }
+
+    @MainActor
     func testCompleteOnboardingSyncsHotKeyConfiguration() {
         let (appState, mocks) = AppState.makeTestState()
         appState.activationMode = .doubleTapToggle

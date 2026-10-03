@@ -3626,7 +3626,20 @@ final class AppState: ObservableObject {
             hotKeyManager.resetKeyState()
         }
         hasCompletedOnboarding = true
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep)
         VocaLogger.info(.appState, "Onboarding completed")
+    }
+
+    /// Where onboarding opens. Unfinished onboarding reopens on the step it
+    /// was left on, so a Quit & Reopen for a permission (VocaMac's or
+    /// macOS's own) lands back there; "Run setup again" starts over.
+    var onboardingStartStep: OnboardingStep {
+        hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep()
+    }
+
+    /// Save the step onboarding is on, for `onboardingStartStep`.
+    func recordOnboardingStep(_ step: OnboardingStep) {
+        UserDefaults.standard.set(step.rawValue, forKey: PreferenceKey.onboardingResumeStep)
     }
 
     /// Repair completion state corrupted by the old manual "Set Up VocaMac"

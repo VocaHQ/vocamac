@@ -108,6 +108,8 @@ struct MenuBarView: View {
     /// Confirmation text after binding or clearing a style, if any.
     @State private var bindNotice: String?
     @State private var panelWindow = MenuPanelWindowReference()
+    /// Time of day for the header scene, read when the menu opens.
+    @State private var headerMood = SceneMood.current()
 
     @EnvironmentObject var appState: AppState
     @ObservedObject var settingsManager: SettingsWindowManager
@@ -183,6 +185,7 @@ struct MenuBarView: View {
         .onAppear {
             let screen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
             availableHeight = min(720, (screen?.visibleFrame.height ?? 760) - 40)
+            headerMood = SceneMood.current()
             bindNotice = nil
             appState.refreshActiveWritingStyle(readingWebsite: true)
             Task { await gateway.refreshStatus() }
@@ -427,27 +430,26 @@ struct MenuBarView: View {
     // MARK: - Header
 
     /// The name and model over a strip of scenery painted at the hour it is
-    /// now. It holds still: the menu opens often and should cost nothing.
+    /// now. It holds still and keeps no timer: the time of day is read each
+    /// time the menu opens, which is the only time anyone sees it.
     private var headerSection: some View {
-        TimelineView(.everyMinute) { timeline in
-            headerRow
-                .padding(.horizontal, 14)
-                .padding(.top, 26)
-                .padding(.bottom, 14)
-                .frame(maxWidth: .infinity, minHeight: 84, alignment: .bottomLeading)
-                .background {
-                    VocaScene(mood: SceneMood.current(at: timeline.date), animated: false, scrim: false, framing: .horizon)
-                        // Darker toward the text only, so the sky stays bright.
-                        .overlay(LinearGradient(
-                            colors: [.black.opacity(0.05), .black.opacity(0.45)],
-                            startPoint: .top, endPoint: .bottom
-                        ))
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                // Secondary text and the warning tint switch to their light
-                // forms over the painted, darker strip.
-                .environment(\.colorScheme, .dark)
-        }
+        headerRow
+            .padding(.horizontal, 14)
+            .padding(.top, 26)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity, minHeight: 84, alignment: .bottomLeading)
+            .background {
+                VocaScene(mood: headerMood, animated: false, scrim: false, framing: .horizon)
+                    // Darker toward the text only, so the sky stays bright.
+                    .overlay(LinearGradient(
+                        colors: [.black.opacity(0.05), .black.opacity(0.45)],
+                        startPoint: .top, endPoint: .bottom
+                    ))
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            // Secondary text and the warning tint switch to their light
+            // forms over the painted, darker strip.
+            .environment(\.colorScheme, .dark)
     }
 
     private var headerRow: some View {

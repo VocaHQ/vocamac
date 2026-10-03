@@ -79,9 +79,9 @@ struct HistorySettingsPage: View {
                 HStack {
                     VocaSectionHeader(title: "Dictations", systemImage: nil, subtitle: nil)
                     Spacer()
-                    TextField("Search", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: 220)
+                    TextField("Search dictations", text: $query)
+                        .textFieldStyle(.voca)
+                        .frame(maxWidth: 240)
                 }
                 if entries.isEmpty {
                     Text(query.isEmpty ? "Your dictations will appear here." : "No dictations match “\(query)”.")
@@ -185,15 +185,16 @@ struct HistoryEntryRow: View {
             } else {
                 TruncationAwareText(
                     text: entry.displayText, lineLimit: isTextExpanded ? nil : 4,
-                    isTruncated: $isTextTruncated, textStyle: .body
+                    isTruncated: $isTextTruncated, textStyle: .title3, serif: true
                 )
+                .lineSpacing(2)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if isTextTruncated || isTextExpanded {
                     Button(isTextExpanded ? "Show less" : "Show full transcript") {
                         isTextExpanded.toggle()
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.vocaLink)
                     .font(.caption)
                     .accessibilityValue(isTextExpanded ? "Expanded" : "Collapsed")
                 }
@@ -248,8 +249,7 @@ struct HistoryEntryRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 9)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -271,11 +271,12 @@ struct HistoryEntryRow: View {
                             .padding(10)
                     }
                 }
+                // A fold in the same sheet rather than a box inside a box.
                 .background(
-                    Color.primary.opacity(isOriginalHovered ? 0.065 : 0.035),
+                    Color.primary.opacity(isOriginalHovered ? 0.035 : 0),
                     in: RoundedRectangle(cornerRadius: 8)
                 )
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
+                .overlay(alignment: .top) { Rectangle().fill(VocaDesign.line).frame(height: 1) }
                 .onHover { isOriginalHovered = $0 }
             }
 
@@ -308,8 +309,7 @@ struct HistoryEntryRow: View {
                                 .foregroundStyle(.secondary)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 9)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -352,10 +352,10 @@ struct HistoryEntryRow: View {
                     }
                 }
                 .background(
-                    Color.primary.opacity(isTimestampsHovered ? 0.065 : 0.035),
+                    Color.primary.opacity(isTimestampsHovered ? 0.035 : 0),
                     in: RoundedRectangle(cornerRadius: 8)
                 )
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
+                .overlay(alignment: .top) { Rectangle().fill(VocaDesign.line).frame(height: 1) }
                 .onHover { isTimestampsHovered = $0 }
             }
         }

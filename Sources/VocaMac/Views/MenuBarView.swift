@@ -156,8 +156,6 @@ struct MenuBarView: View {
             .frame(height: scrollHeight)
 
             VStack(spacing: 0) {
-                Divider()
-                    .padding(.horizontal, MenuPanelMetrics.inset)
                 actionsSection
                     .padding(.horizontal, MenuPanelMetrics.inset - 6)
                     .padding(.top, 10)
@@ -423,12 +421,17 @@ struct MenuBarView: View {
     private var headerSection: some View {
         TimelineView(.everyMinute) { timeline in
             headerRow
-                .padding(.horizontal, 12)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.top, 26)
+                .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, minHeight: 84, alignment: .bottomLeading)
                 .background {
                     VocaScene(mood: SceneMood.current(at: timeline.date), animated: false, scrim: false, framing: .horizon)
-                        .overlay(Color.black.opacity(0.28))
+                        // Darker toward the text only, so the sky stays bright.
+                        .overlay(LinearGradient(
+                            colors: [.black.opacity(0.05), .black.opacity(0.45)],
+                            startPoint: .top, endPoint: .bottom
+                        ))
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 // Secondary text and the warning tint switch to their light
@@ -872,7 +875,7 @@ struct MenuBarView: View {
                     .controlSize(.small)
                 Spacer()
                 Button("History…") { openHistory() }
-                    .buttonStyle(.link)
+                    .buttonStyle(.vocaLink)
                     .font(.caption)
             }
         }
@@ -1305,14 +1308,18 @@ private extension View {
 /// material shows through, so cards read as layers rather than grey boxes.
 private struct MenuPanelCard: ViewModifier {
     var padding: CGFloat
+    @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: MenuPanelMetrics.cardRadius, style: .continuous)
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // A sheet laid on the paper: no outline, just a lighter face and
+            // the faintest shadow, so stacked sections don't read as boxes.
             .background(VocaDesign.surface, in: shape)
-            .overlay(shape.strokeBorder(VocaDesign.line))
+            .shadow(color: .black.opacity(0.05), radius: 1.5, y: 1)
+            .overlay(shape.strokeBorder(contrast == .increased ? Color.primary.opacity(0.35) : .clear))
     }
 }
 
@@ -1474,8 +1481,8 @@ private struct MenuPanelTileButtonStyle: ButtonStyle {
         let lifted = isHovered && !configuration.isPressed && !reduceMotion
         configuration.label
             .background(VocaDesign.surface, in: shape)
-            .overlay(shape.strokeBorder(isHovered ? VocaDesign.accent.opacity(0.35) : VocaDesign.line))
-            .shadow(color: .black.opacity(lifted ? 0.10 : 0), radius: 6, y: 3)
+            .overlay(shape.strokeBorder(isHovered ? VocaDesign.accent.opacity(0.35) : .clear))
+            .shadow(color: .black.opacity(lifted ? 0.10 : 0.05), radius: lifted ? 6 : 1.5, y: lifted ? 3 : 1)
             .offset(y: lifted ? -1 : 0)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .onHover { isHovered = $0 }

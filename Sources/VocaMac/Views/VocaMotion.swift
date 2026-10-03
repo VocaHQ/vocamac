@@ -236,3 +236,47 @@ struct VocaStepProgress: View {
         .accessibilityLabel("Step \(current + 1) of \(count)")
     }
 }
+
+// MARK: - Fields and links
+
+/// A text field on paper: a light sheet with a hairline edge that turns
+/// petrol while the field has focus.
+struct VocaTextFieldStyle: TextFieldStyle {
+    @FocusState private var isFocused: Bool
+
+    func _body(configuration: TextField<Self._Label>) -> some View {
+        configuration
+            .textFieldStyle(.plain)
+            .focused($isFocused)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(isFocused ? VocaDesign.accent.opacity(0.7) : VocaDesign.line)
+            )
+            .animation(.easeOut(duration: 0.15), value: isFocused)
+    }
+}
+
+extension TextFieldStyle where Self == VocaTextFieldStyle {
+    static var voca: VocaTextFieldStyle { VocaTextFieldStyle() }
+}
+
+/// An inline text action in the accent color, underlined on hover.
+struct VocaLinkButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .foregroundStyle(VocaDesign.accent)
+            .underline(isHovered)
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .contentShape(Rectangle())
+            .onHover { isHovered = $0 }
+    }
+}
+
+extension ButtonStyle where Self == VocaLinkButtonStyle {
+    static var vocaLink: VocaLinkButtonStyle { VocaLinkButtonStyle() }
+}

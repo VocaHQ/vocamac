@@ -667,7 +667,7 @@ struct WritingStyleAppPickerSheet: View {
                 .font(.subheadline.weight(.semibold))
 
             TextField("Search", text: $search)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
 
             List(filtered, id: \.self) { snapshot in
                 Button {

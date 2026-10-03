@@ -126,7 +126,7 @@ struct CurrentModelSummary: View {
                     .font(.caption)
                     .foregroundStyle(VocaDesign.warning)
                 Button("Find a Better Fit", action: onShowSuggestions)
-                    .buttonStyle(.link)
+                    .buttonStyle(.vocaLink)
                     .font(.caption)
             }
         }
@@ -179,7 +179,7 @@ struct SpokenLanguagePicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             TextField("Search languages", text: $search)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
                 .focused($isSearchFocused)
                 .onSubmit(addFirstMatch)
 

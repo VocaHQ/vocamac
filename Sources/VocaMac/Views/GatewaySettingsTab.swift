@@ -104,7 +104,7 @@ struct GatewaySettingsTab: View {
                         text: $gateway.publicURLOverride,
                         prompt: Text("http://192.168.x.x:8765")
                     )
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
                     .onSubmit {
                         Task { await gateway.fetchPairing() }
                     }

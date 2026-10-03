@@ -73,8 +73,12 @@ enum VocaDesign {
     /// Text on `ink`.
     static let onInk = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.ivory, dark: VocaPalette.ink))
     static let clay = Color(nsColor: VocaPalette.clay)
-    /// Hairlines and card edges: present, never heavy.
-    static let line = Color.primary.opacity(0.07)
+    /// Hairlines and card edges: present, never heavy. Fainter at night,
+    /// where the lighter card face already carries the edge.
+    static let line = Color(nsColor: VocaPalette.adaptive(
+        light: NSColor.black.withAlphaComponent(0.075),
+        dark: NSColor.white.withAlphaComponent(0.05)
+    ))
 
     /// Editorial serif for headlines. New York ships with macOS, so there is
     /// no font file to bundle or license.
@@ -354,9 +358,9 @@ struct VocaDisclosureCard<Content: View>: View {
                 HStack(spacing: 12) {
                     Image(systemName: systemImage)
                         .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 28, height: 28)
-                        .background(VocaDesign.accentSolid.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        .foregroundStyle(VocaDesign.accent)
+                        .frame(width: 30, height: 30)
+                        .background(VocaDesign.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title).font(.headline)
                         Text(subtitle)

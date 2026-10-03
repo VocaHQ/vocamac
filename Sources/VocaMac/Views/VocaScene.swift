@@ -258,11 +258,11 @@ struct SceneRenderer {
         world.fill(ridge([
             (0, 400), (40, 362), (80, 380), (130, 328), (170, 366), (210, 340), (260, 372),
             (300, 334), (350, 362), (400, 318), (440, 350), (480, 330),
-        ], base: 452), with: .color(palette.far))
+        ], base: 447), with: .color(palette.far))
         world.fill(ridge([
             (0, 432), (50, 396), (95, 420), (150, 386), (200, 426), (240, 404), (290, 432),
             (340, 398), (390, 428), (440, 404), (480, 420),
-        ], base: 452), with: .color(palette.mid))
+        ], base: 447), with: .color(palette.mid))
         world.fill(Path(CGRect(x: -40, y: 446, width: 560, height: 154)), with: .color(palette.water))
         // Sky light caught on the water near the far shore.
         world.fill(Path(CGRect(x: -40, y: 446, width: 560, height: 70)), with: .linearGradient(

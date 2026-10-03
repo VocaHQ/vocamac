@@ -31,7 +31,7 @@ struct DictionarySettingsPage: View {
                 }
                 HStack {
                     TextField("Add a word, e.g. Kubernetes", text: $newTerm)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.voca)
                         .onSubmit(addTerm)
                     Button("Add", action: addTerm)
                         .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -53,10 +53,10 @@ struct DictionarySettingsPage: View {
                 }
                 HStack {
                     TextField("When I say, e.g. get hub", text: $newHeard)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.voca)
                     Image(systemName: "arrow.right").foregroundStyle(.secondary)
                     TextField("Type, e.g. GitHub", text: $newReplacement)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.voca)
                         .onSubmit(addReplacement)
                     Button("Add", action: addReplacement)
                         .disabled(newHeard.trimmingCharacters(in: .whitespaces).isEmpty
@@ -180,10 +180,10 @@ struct WordReplacementRow: View {
     var body: some View {
         HStack {
             TextField("When I say", text: $replacement.heard)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
             Image(systemName: "arrow.right").foregroundStyle(.secondary)
             TextField("Type", text: $replacement.replacement)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
             Button(role: .destructive) {
                 appState.removeWordReplacement(replacement)
             } label: {

@@ -130,7 +130,7 @@ struct CleanupSettingsPage: View {
                         tryItInput = Self.sampleUtterance
                         tryItResult = nil
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.vocaLink)
                 }
 
                 if let result = tryItResult {
@@ -156,9 +156,9 @@ struct CleanupSettingsPage: View {
 
                 if !appState.cleanupEndpoint.isLocal {
                     TextField("Base URL", text: endpointBaseURL)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.voca)
                     TextField("Model", text: endpointModel)
-                        .textFieldStyle(.roundedBorder)
+                        .textFieldStyle(.voca)
                     SecureField(
                         appState.cleanupEndpointHasAPIKey ? "API key saved in Keychain" : "API key (optional for local servers)",
                         text: $apiKeyDraft
@@ -717,11 +717,11 @@ private struct SavedCommandRow: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 TextField("Name", text: binding(\.name))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
                     .frame(width: 130)
                     .accessibilityLabel("Command name")
                 TextField("Instruction, e.g. “fix grammar and spelling”", text: binding(\.instruction))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
                     .accessibilityLabel("Instruction")
                 Button {
                     appState.savedCommands = appState.savedCommands.filter { $0.id != command.id }

@@ -360,7 +360,7 @@ struct SettingsSidebarFooter: View {
                 Button("Choose a Speech Model…") {
                     appState.requestSettingsPage(.speechModel)
                 }
-                .buttonStyle(.link)
+                .buttonStyle(.vocaLink)
                 .font(.caption)
             }
             if let resultText, !isActiveSession {
@@ -379,7 +379,7 @@ struct SettingsSidebarFooter: View {
                     Button(isResultExpanded ? "Show Less" : "Show More") {
                         isResultExpanded.toggle()
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(.vocaLink)
                     .font(.caption)
                 }
             }
@@ -464,7 +464,13 @@ struct TruncationAwareText: View {
     @Binding var isTruncated: Bool
 
     var textStyle: NSFont.TextStyle = .caption1
-    private var font: NSFont { NSFont.preferredFont(forTextStyle: textStyle) }
+    /// Set the text in the serif, as transcripts are elsewhere.
+    var serif = false
+    private var font: NSFont {
+        let base = NSFont.preferredFont(forTextStyle: textStyle)
+        guard serif, let descriptor = base.fontDescriptor.withDesign(.serif) else { return base }
+        return NSFont(descriptor: descriptor, size: base.pointSize) ?? base
+    }
 
     var body: some View {
         Text(text)
@@ -788,7 +794,7 @@ struct SnippetsSettingsTab: View {
                 } else {
                     if appState.snippets.count > 5 {
                         TextField("Search snippets", text: $query)
-                            .textFieldStyle(.roundedBorder)
+                            .textFieldStyle(.voca)
                     }
                     ForEach(filteredSnippets) { snippet in
                         SnippetRow(snippet: snippet)
@@ -832,9 +838,9 @@ struct SnippetRow: View {
         if isEditing {
             VStack(alignment: .leading, spacing: 8) {
                 TextField("Trigger", text: $editedTrigger, prompt: Text("e.g. My Mail"))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
                 TextField("Expansion", text: $editedExpansion, prompt: Text("e.g. me@example.com"))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
 
                 HStack {
                     Spacer()
@@ -1405,11 +1411,11 @@ struct ModelSettingsTab: View {
             }
 
             TextField("Base URL", text: endpointBaseURL)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
 
             if appState.speechEndpoint.kind == .openAICompatible {
                 TextField("Model", text: endpointModel)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
             }
 
             SecureField(
@@ -1562,7 +1568,7 @@ struct ModelSettingsTab: View {
             isExpanded: $isLanguageSectionExpanded
         ) {
             TextField("Search languages", text: $languageSearch)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.voca)
 
             Picker("Language", selection: $appState.selectedLanguage) {
                 ForEach(filteredLanguages) { language in
@@ -2004,7 +2010,7 @@ struct AudioSettingsTab: View {
                         format: .number.precision(.fractionLength(0...1))
                     )
                     .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.voca)
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .frame(width: 72)

@@ -63,15 +63,18 @@ final class PermissionManager: ObservableObject {
 
     /// Whether VocaMac is the active app, and how to make it so. Injected
     /// for tests.
-    private let isAppActive: () -> Bool
-    private let activateApp: () -> Void
+    private let isAppActive: @MainActor () -> Bool
+    private let activateApp: @MainActor () -> Void
 
+    // `NSApp` is nil until SwiftUI creates the application, after AppState
+    // and its first permission check already exist; reading it unwrapped
+    // there crashed VocaMac at launch.
     init(
         audioEngine: AudioRecording,
         hotKeyManager: HotKeyMonitoring,
         defaults: UserDefaults = .standard,
-        isAppActive: @escaping () -> Bool = { NSApp.isActive },
-        activateApp: @escaping () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+        isAppActive: @escaping @MainActor () -> Bool = { NSApp?.isActive ?? false },
+        activateApp: @escaping @MainActor () -> Void = { NSApp?.activate(ignoringOtherApps: true) }
     ) {
         self.audioEngine = audioEngine
         self.hotKeyManager = hotKeyManager
@@ -297,7 +300,7 @@ final class PermissionManager: ObservableObject {
         return true
     }
 
-    private static func runTCCUtilReset() -> Bool {
+    nonisolated private static func runTCCUtilReset() -> Bool {
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
         task.arguments = ["reset", "All", "com.vocamac.app"]

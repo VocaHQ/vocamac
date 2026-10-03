@@ -24,6 +24,9 @@ enum ReleaseNotes {
         var blocks: [Block] = []
         var paragraph: [String] = []
         var code: [String]?
+        /// The fence that opened the code block; only a fence of the same
+        /// character, at least as long, closes it.
+        var openingFence = ""
         var continuesBullet = false
 
         func flushParagraph() {
@@ -37,19 +40,20 @@ enum ReleaseNotes {
         )
         for rawLine in withoutComments.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("```") {
-                if let lines = code {
+            if let lines = code {
+                if isClosingFence(line, opening: openingFence) {
                     blocks.append(.code(lines.joined(separator: "\n")))
                     code = nil
                 } else {
-                    flushParagraph()
-                    code = []
+                    code?.append(rawLine)
                 }
-                continuesBullet = false
                 continue
             }
-            if code != nil {
-                code?.append(rawLine)
+            if let fence = openingFenceRun(line) {
+                flushParagraph()
+                openingFence = fence
+                code = []
+                continuesBullet = false
                 continue
             }
             if line.isEmpty {
@@ -90,6 +94,20 @@ enum ReleaseNotes {
         // An unclosed fence still shows what it held.
         if let lines = code, !lines.isEmpty { blocks.append(.code(lines.joined(separator: "\n"))) }
         return blocks
+    }
+
+    /// The run of three or more backticks or tildes that opens a fence.
+    private static func openingFenceRun(_ line: String) -> String? {
+        guard let marker = line.first, marker == "`" || marker == "~" else { return nil }
+        let run = String(line.prefix { $0 == marker })
+        return run.count >= 3 ? run : nil
+    }
+
+    /// A closing fence: the opening's character, at least as many of it, and
+    /// nothing else on the line.
+    private static func isClosingFence(_ line: String, opening: String) -> Bool {
+        guard let marker = opening.first else { return false }
+        return line.count >= opening.count && line.allSatisfy { $0 == marker }
     }
 
     /// Inline Markdown (bold, code, links) for one block, or the plain text

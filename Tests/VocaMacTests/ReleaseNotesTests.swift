@@ -76,4 +76,28 @@ final class ReleaseNotesTests: XCTestCase {
             .paragraph("A paragraph after a blank line."),
         ])
     }
+
+    func testLongerFenceKeepsAnInnerFenceAsCode() {
+        let notes = """
+        ````markdown
+        ```bash
+        brew upgrade --cask vocamac
+        ```
+        ````
+        After.
+        """
+        XCTAssertEqual(ReleaseNotes.blocks(from: notes), [
+            .code("```bash\nbrew upgrade --cask vocamac\n```"),
+            .paragraph("After."),
+        ])
+    }
+
+    func testTildeFenceClosesOnlyOnTildes() {
+        let notes = """
+        ~~~
+        ```
+        ~~~
+        """
+        XCTAssertEqual(ReleaseNotes.blocks(from: notes), [.code("```")])
+    }
 }

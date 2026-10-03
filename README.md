@@ -318,7 +318,7 @@ One-shot CLI mode loads the selected model in a separate process for each reques
 
 ### First Launch
 
-1. **VocaMac appears in your menu bar** (microphone icon, no Dock icon)
+1. **VocaMac appears in your menu bar** (waveform icon, no Dock icon)
 2. **Grant permissions**: Microphone, Accessibility, and Input Monitoring (see [Permissions](#permissions) above)
 3. **First model download**: WhisperKit automatically downloads the recommended model for your device (~40–500 MB depending on hardware)
 4. **Start dictating**: Hold the **Right Option** key, speak, and release. Your words appear at the cursor!

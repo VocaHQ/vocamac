@@ -90,7 +90,7 @@ struct FileTranscriptionView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .tint(VocaDesign.accent)
     }
 
@@ -121,7 +121,7 @@ struct FileTranscriptionView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(14)
-        .background((isTargeted ? VocaDesign.accent.opacity(0.14) : Color.primary.opacity(0.04)), in: RoundedRectangle(cornerRadius: 12))
+        .background((isTargeted ? VocaDesign.accent.opacity(0.14) : VocaDesign.surface), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isTargeted ? VocaDesign.accent : VocaDesign.line))
         .onDrop(of: [UTType.fileURL.identifier, UTType.audio.identifier, UTType.movie.identifier], isTargeted: $isTargeted) { providers in
             guard !isRunning else { return false }

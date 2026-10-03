@@ -167,7 +167,7 @@ struct MenuBarView: View {
             .measureHeight(MenuChromeHeightKey.self)
         }
         .frame(width: MenuPanelMetrics.width)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight, onWindow: { panelWindow.window = $0 }))
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
         .onPreferenceChange(MenuChromeHeightKey.self) { chromeHeight = $0 }
@@ -439,7 +439,7 @@ struct MenuBarView: View {
 
     private var headerRow: some View {
         HStack(spacing: 10) {
-            BrandLogoView(size: 32)
+            VocaMarkView(size: 32)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("VocaMac")
@@ -574,7 +574,7 @@ struct MenuBarView: View {
                     } else {
                         Label("Stop Recording", systemImage: "stop.circle.fill")
                             .font(.callout)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(VocaDesign.clay)
                     }
                 }
                 .buttonStyle(.plain)
@@ -703,8 +703,9 @@ struct MenuBarView: View {
         let displayedText = matchingOutput?.text ?? result.text
         return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
-                Text("Last Dictation")
-                    .font(.subheadline.weight(.semibold))
+                Text("LAST DICTATION")
+                    .font(VocaDesign.eyebrow)
+                    .tracking(1.2)
                     .foregroundStyle(.secondary)
 
                 Spacer()
@@ -715,9 +716,9 @@ struct MenuBarView: View {
             }
 
             Text(displayedText)
-                .font(.callout)
+                .font(VocaDesign.display(15))
                 .lineLimit(4)
-                .lineSpacing(1.5)
+                .lineSpacing(2)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -1354,7 +1355,7 @@ private struct MenuPanelRow<Accessory: View>: View {
     }
 }
 
-/// A small filled rounded square holding a white symbol.
+/// A small tinted well holding its symbol, like ink on paper.
 private struct MenuPanelSymbolTile: View {
     let systemImage: String
     let tint: Color
@@ -1363,9 +1364,9 @@ private struct MenuPanelSymbolTile: View {
         Image(systemName: systemImage)
             .font(.system(size: 11, weight: .semibold))
             .symbolRenderingMode(.monochrome)
-            .foregroundStyle(.white)
-            .frame(width: 22, height: 22)
-            .background(tint.gradient, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .foregroundStyle(tint)
+            .frame(width: 24, height: 24)
+            .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             .accessibilityHidden(true)
     }
 }
@@ -1426,15 +1427,17 @@ private struct MenuPanelShortcutHint: View {
             Text(keys)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(tint == .secondary ? Color.primary : tint)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 7)
                 .padding(.vertical, 2)
+                // A paper keycap: a light face over a darker lip.
                 .background(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.primary.opacity(0.08))
+                        .fill(VocaDesign.surface)
+                        .shadow(color: .black.opacity(0.14), radius: 0, y: 1.5)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(Color.primary.opacity(0.10))
+                        .strokeBorder(Color.primary.opacity(0.14))
                 )
         }
         .accessibilityElement(children: .combine)
@@ -1461,20 +1464,23 @@ private struct MenuPanelIconButton: View {
     }
 }
 
-/// Utility tile: a card that brightens on hover and dims when pressed.
+/// Utility tile: a sheet of paper that lifts on hover and settles when pressed.
 private struct MenuPanelTileButtonStyle: ButtonStyle {
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: MenuPanelMetrics.tileRadius, style: .continuous)
+        let lifted = isHovered && !configuration.isPressed && !reduceMotion
         configuration.label
-            .background(
-                Color.primary.opacity(configuration.isPressed ? 0.13 : isHovered ? 0.09 : 0.055),
-                in: shape
-            )
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
+            .background(VocaDesign.surface, in: shape)
+            .overlay(shape.strokeBorder(isHovered ? VocaDesign.accent.opacity(0.35) : VocaDesign.line))
+            .shadow(color: .black.opacity(lifted ? 0.10 : 0), radius: 6, y: 3)
+            .offset(y: lifted ? -1 : 0)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .onHover { isHovered = $0 }
-            .animation(.easeOut(duration: 0.12), value: isHovered)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovered)
+            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }
 
@@ -1500,9 +1506,11 @@ struct AudioLevelView: View {
         }
     }
 
+    /// Petrol while the level is comfortable, amber when loud, clay when
+    /// it is close to clipping.
     private var levelColor: Color {
-        if level > 0.8 { return .red }
+        if level > 0.8 { return VocaDesign.clay }
         if level > 0.5 { return VocaDesign.warning }
-        return .green
+        return VocaDesign.accent
     }
 }

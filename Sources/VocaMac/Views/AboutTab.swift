@@ -36,8 +36,7 @@ struct AboutTab: View {
                 BrandLogoView(size: 64)
 
                 Text("VocaMac")
-                    .font(.title)
-                    .fontWeight(.bold)
+                    .font(VocaDesign.display(34))
 
                 Text(appState.speechProcessingIsRemote
                      ? "Voice-to-text for macOS. Audio goes to your Custom Endpoint."

@@ -148,7 +148,8 @@ struct CommandReviewView: View {
                     .padding(10)
             }
             .frame(maxHeight: 280)
-            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(VocaDesign.line))
 
             if let note = review.note {
                 Label("Check this: \(note).", systemImage: "exclamationmark.triangle")
@@ -203,10 +204,10 @@ struct CommandReviewView: View {
             case .same:
                 break
             case .removed:
-                part.foregroundColor = Color.red.opacity(colorScheme == .dark ? 0.9 : 0.8)
+                part.foregroundColor = VocaDesign.clay.opacity(colorScheme == .dark ? 0.95 : 0.9)
                 part.strikethroughStyle = .single
             case .added:
-                part.foregroundColor = Color.green.opacity(colorScheme == .dark ? 0.95 : 0.75)
+                part.foregroundColor = VocaDesign.accent
                 part.underlineStyle = .single
             }
             text += part

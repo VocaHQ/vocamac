@@ -123,7 +123,7 @@ struct OnboardingView: View {
         }
         .ignoresSafeArea()
         .frame(minWidth: 880, idealWidth: 960, minHeight: 600, idealHeight: 640)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .tint(VocaDesign.accent)
         .onAppear {
             if !didBeginVerification {
@@ -179,10 +179,13 @@ struct OnboardingView: View {
 
     private var sceneText: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("VocaMac")
-                .font(.system(size: 13, weight: .semibold))
-                .tracking(1)
-                .riseIn(delay: 0.05, distance: 8)
+            HStack(spacing: 8) {
+                VocaMarkView(size: 20)
+                Text("VocaMac")
+                    .font(.system(size: 13, weight: .semibold))
+                    .tracking(1)
+            }
+            .riseIn(delay: 0.05, distance: 8)
             RevealHeadline(text: currentStep.title, size: 44, delay: 0.15)
             if currentStep == .welcome {
                 Text("Private voice typing that lives in your menu bar.")
@@ -458,10 +461,11 @@ struct PermissionsStep: View {
                 inputMonitoring: appState.inputMonitoringPermission
             )
             if !gaps.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption)
-                        .foregroundStyle(VocaDesign.busy)
+                HStack(alignment: .top, spacing: 10) {
+                    Circle()
+                        .fill(VocaDesign.clay)
+                        .frame(width: 7, height: 7)
+                        .padding(.top, 4)
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(gaps, id: \.self) { gap in
@@ -478,16 +482,13 @@ struct PermissionsStep: View {
                 .accessibilityElement(children: .combine)
             }
 
-            HStack(spacing: 8) {
-                Image(systemName: "info.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(VocaDesign.accent)
-                Text("After enabling VocaMac in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vocaCard()
+            Text("After enabling VocaMac in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 4)
+                .riseIn(delay: 0.7)
         }
         .padding(16)
     }
@@ -577,7 +578,7 @@ struct ModelSetupStep: View {
             // answer, and the finer choices wait in Settings → Speech Model.
             VStack(alignment: .leading, spacing: 10) {
                 Text("Which languages do you speak?")
-                    .font(.headline)
+                    .font(.system(size: 13.5, weight: .semibold))
                 SpokenLanguagesField(languages: Binding(
                     get: { appState.spokenLanguages },
                     set: { appState.setOnboardingSpokenLanguages($0) }
@@ -595,16 +596,13 @@ struct ModelSetupStep: View {
             if let recommendation, let model = recommendedModel {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "sparkles")
-                            .font(.title3)
-                            .foregroundStyle(VocaDesign.accent)
-                            .frame(width: 28)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Recommended for you")
-                                .font(.caption.weight(.semibold))
+                            Text("RECOMMENDED FOR YOU")
+                                .font(VocaDesign.eyebrow)
+                                .tracking(1.2)
                                 .foregroundStyle(VocaDesign.accent)
                             Text(recommendation.title)
-                                .font(.headline)
+                                .font(VocaDesign.display(22))
                             Text(recommendation.explanation)
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
@@ -689,8 +687,7 @@ struct ModelSetupStep: View {
                         await appState.prepareOnboardingRecommendedModel()
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(VocaDesign.accentSolid)
+                .buttonStyle(VocaOutlineButtonStyle())
                 .disabled(appState.isPreparingOnboardingModel)
 
                 if didRequestRecommendation, let error = appState.errorMessage {
@@ -801,28 +798,18 @@ struct QuickTestStep: View {
     var body: some View {
         VStack(spacing: 16) {
             VStack(spacing: 16) {
-                // Recording button
+                // Recording button: an ink disc that turns clay and breathes
+                // while it listens.
                 Button(action: toggleRecording) {
-                    VStack(spacing: 8) {
-                        Image(systemName: isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                            .font(.system(size: 48))
-                            .foregroundStyle(isRecording ? Color.red : VocaDesign.accent)
-
+                    VStack(spacing: 12) {
+                        RecordDisc(isRecording: isRecording)
                         Text(isRecording ? "Finish recording" : testFeedback != nil ? "Try again" : "Record a sentence")
-                            .font(.body)
-                            .fontWeight(.semibold)
-
+                            .font(.system(size: 13.5, weight: .semibold))
                         if isRecording {
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 8)
-                                    .scaleEffect(1.2)
-
-                                Text("Recording audio...")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
+                            Text("Listening…")
+                                .font(VocaDesign.display(15))
+                                .foregroundStyle(.secondary)
+                                .transition(.opacity)
                         }
                     }
                 }
@@ -851,13 +838,12 @@ struct QuickTestStep: View {
                                 .fontWeight(.semibold)
                         }
 
-                        Text(result)
-                            .font(.subheadline)
+                        Text("“\(result)”")
+                            .font(VocaDesign.display(18))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(12)
-                            .background(VocaDesign.accent.opacity(0.12),
-                                        in: RoundedRectangle(cornerRadius: 8))
+                            .padding(.vertical, 4)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
 
                         // Only offered when the transcript actually shows the
                         // problem. A clean first dictation is no argument for
@@ -882,9 +868,6 @@ struct QuickTestStep: View {
             OnboardingVerificationView()
 
             HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "info.circle.fill")
-                    .font(.caption)
-                    .foregroundStyle(VocaDesign.accent)
                 Text("Try: “Today is a good day to try something new.” Use the button above; this practice stays here and is not pasted into another app.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -1001,6 +984,44 @@ struct QuickTestStep: View {
     }
 }
 
+/// The practice record button.
+private struct RecordDisc: View {
+    let isRecording: Bool
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var breathe = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(VocaDesign.clay.opacity(0.18))
+                .frame(width: 92, height: 92)
+                .scaleEffect(isRecording && breathe ? 1.12 : 0.8)
+                .opacity(isRecording ? 1 : 0)
+            Circle()
+                .fill(isRecording ? VocaDesign.clay : VocaDesign.ink)
+                .frame(width: 68, height: 68)
+                .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+            Image(systemName: isRecording ? "stop.fill" : "mic.fill")
+                .font(.system(size: 24, weight: .medium))
+                .foregroundStyle(isRecording ? Color.white : VocaDesign.onInk)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .frame(width: 96, height: 96)
+        .animation(.spring(response: 0.4, dampingFraction: 0.75), value: isRecording)
+        .onChange(of: isRecording) { _, recording in
+            guard recording, !reduceMotion else {
+                breathe = false
+                return
+            }
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                breathe = true
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: - Step 6: Complete
 
 struct CompleteStep: View {
@@ -1021,8 +1042,8 @@ struct CompleteStep: View {
                     .foregroundStyle(permissionsReady ? VocaDesign.accent : VocaDesign.warning)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(permissionsReady ? "Your voice has a new home." : "Finish permissions to start.")
-                        .font(.title3.weight(.semibold))
-                    Text("Find the microphone in your menu bar.")
+                        .font(VocaDesign.display(22))
+                    Text("Find the waveform in your menu bar.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                 }

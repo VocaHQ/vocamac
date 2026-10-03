@@ -130,6 +130,14 @@ struct VocaScene: View {
                 .draw(in: &context, size: size)
             }
         }
+        // Printed-on-paper grain, like the photographs on the board.
+        .overlay {
+            Image(nsImage: PaperGrain.tile)
+                .resizable(resizingMode: .tile)
+                .blendMode(.softLight)
+                .opacity(0.22)
+                .allowsHitTesting(false)
+        }
         .accessibilityHidden(true)
     }
 }

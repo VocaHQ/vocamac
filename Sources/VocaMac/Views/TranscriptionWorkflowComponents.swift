@@ -20,7 +20,7 @@ struct TranscriptionWorkflowHeader: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.title3.weight(.semibold))
+                    .font(VocaDesign.display(22))
                     .accessibilityAddTraits(.isHeader)
                 Text(subtitle)
                     .font(.caption)

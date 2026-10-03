@@ -18,7 +18,7 @@ struct OnboardingVerificationView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(interactive ? "Try it the way you'll use it" : "What you tested")
-                .font(.headline).accessibilityAddTraits(.isHeader)
+                .font(VocaDesign.display(19)).accessibilityAddTraits(.isHeader)
             check("Microphone", passed: verification.microphoneWorks,
                   done: "A recording produced text", pending: "Not tested yet")
             check("Shortcut", passed: verification.shortcutDictationWorks,
@@ -43,23 +43,27 @@ struct OnboardingVerificationView: View {
             Text(shortcutInstructions + " The result stays here; nothing is typed into another app.")
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             Button("Done Testing") { appState.armOnboardingVerification(nil) }
+                .buttonStyle(VocaOutlineButtonStyle())
                 .disabled(busy)
         case .insertion:
             Text("Click into a blank document in TextEdit or another app, then dictate with your shortcut. Come back here once your words appear.")
                 .font(.callout).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Button("My Words Appeared") { appState.confirmOnboardingInsertion() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(VocaDesign.accentSolid)
+                    .buttonStyle(VocaOutlineButtonStyle())
                     .disabled(!verification.insertionAttempted || busy)
                 Button("Cancel") { appState.armOnboardingVerification(nil) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
                     .disabled(busy)
             }
         case nil:
             HStack {
                 Button("Test My Shortcut") { appState.armOnboardingVerification(.shortcut) }
+                    .buttonStyle(VocaOutlineButtonStyle())
                     .disabled(busy || appState.inputMonitoringPermission != .granted || appState.micPermission != .granted)
                 Button("Test Typing Into an App") { appState.armOnboardingVerification(.insertion) }
+                    .buttonStyle(VocaOutlineButtonStyle())
                     .disabled(busy || !appState.isDictationReady)
                 Spacer()
                 Text("Optional").font(.caption).foregroundStyle(.secondary)

@@ -171,7 +171,7 @@ struct MeetingCaptureView: View {
         }
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .tint(VocaDesign.accent)
         .onChange(of: capture.didReachLimit) {
             if capture.didReachLimit, !session.isTranscribing { stop() }
@@ -244,7 +244,7 @@ struct MeetingCaptureView: View {
     }
 
     private var statusColor: Color {
-        if capture.isCapturing { return .red }
+        if capture.isCapturing { return VocaDesign.clay }
         if session.isTranscribing { return VocaDesign.accent }
         return VocaDesign.success
     }

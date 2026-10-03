@@ -69,7 +69,7 @@ struct SettingsView: View {
                 }
             }
             .frame(minHeight: 0, maxHeight: .infinity)
-            .background(VocaDesign.canvas)
+            .vocaPaperBackground()
             .overlay(alignment: .bottom) { UndoToastView(undoCenter: appState.undoCenter) }
         }
         .navigationSplitViewStyle(.balanced)
@@ -139,7 +139,7 @@ struct SettingsView: View {
     private var settingsSidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                BrandLogoView(size: 26)
+                VocaMarkView(size: 26)
                 Text("VocaMac").font(VocaDesign.display(19))
                 Spacer()
             }

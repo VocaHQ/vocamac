@@ -474,17 +474,14 @@ struct VocaMacApp: App {
 
 // MARK: - Menu Bar Icon
 
-/// Renders the Voca mark in the menu bar with color changes based on app status.
-///
-/// Idle uses a template SF Symbol mic so it matches neighboring status items.
-/// Recording tints the Voca mark brand teal. Processing and error keep SF Symbols.
+/// Draws VocaMac's menu bar item: the paper waveform, coloured by state.
 ///
 /// MenuBarExtra strips SwiftUI `.foregroundStyle()` colors, so status colors
 /// are applied via `NSImage` + `sourceAtop` with `isTemplate = false`.
 ///
 /// States:
-///   • idle       → SF Symbol mic.fill (template, adapts to menu bar)
-///   • recording  → Voca mark in brand teal (mic hot)
+///   • idle       → waveform (template, adapts to the menu bar)
+///   • recording  → waveform in clay (mic live)
 ///   • processing → yellow ellipsis (non-template, colored)
 ///   • error      → orange warning (non-template, colored)
 struct MenuBarIcon: View {
@@ -497,53 +494,35 @@ struct MenuBarIcon: View {
 
     private func makeMenuBarIcon() -> NSImage {
         switch MenuBarIconStyle.style(for: appStatus, isCommandMode: isCommandMode) {
-        case .brandMarkTemplate:
-            if let mark = sizedMark() {
-                mark.isTemplate = true
-                return mark
-            }
-            return fallbackSymbol(named: "mic.fill", tint: nil)
-
-        case .systemSymbolTemplate(let name):
-            return fallbackSymbol(named: name, tint: nil)
-
-        case .brandMarkTinted:
-            if let mark = sizedMark() {
-                return tintedImage(base: mark, color: BrandAssets.brandGreen)
-            }
-            return fallbackSymbol(named: "mic.fill", tint: BrandAssets.brandGreen)
-
+        case .waveform:
+            let image = Self.waveformImage()
+            image.isTemplate = true
+            return image
+        case .waveformLive:
+            return tintedImage(base: Self.waveformImage(), color: Self.liveColor)
         case .systemSymbol(let name):
             return fallbackSymbol(named: name, tint: statusColor)
         }
     }
 
-    /// Menu-bar point size for the brand mark.
-    /// Slightly above the 16pt SF Symbol default so the line-art mic reads at a
-    /// similar visual weight to neighboring status items.
-    private static let markPointSize: CGFloat = 20
+    /// Point size of the menu bar slot.
+    private static let markPointSize: CGFloat = 16
 
-    /// Sized copy of the bundled mic mark, or `nil` if the asset is missing.
-    ///
-    /// The mark is taller than it is wide, so it is scaled to fit the square
-    /// slot (not stretched) and centered — that uses the full slot height.
-    private func sizedMark() -> NSImage? {
-        guard let mark = BrandAssets.mark else { return nil }
-        let slot = Self.markPointSize
-        let size = NSSize(width: slot, height: slot)
+    /// Clay, lifted a little on a dark menu bar so it still reads as warm.
+    private static let liveColor = VocaPalette.adaptive(
+        light: VocaPalette.clay,
+        dark: NSColor(srgbRed: 0.91, green: 0.58, blue: 0.45, alpha: 1)
+    )
+
+    /// The five-bar waveform, black on clear, for tinting or templating.
+    static func waveformImage() -> NSImage {
+        let size = NSSize(width: 18, height: markPointSize)
         return NSImage(size: size, flipped: false) { rect in
-            NSGraphicsContext.current?.imageInterpolation = .high
-            let markSize = mark.size
-            guard markSize.width > 0, markSize.height > 0 else { return false }
-            let scale = min(rect.width / markSize.width, rect.height / markSize.height)
-            let drawSize = NSSize(width: markSize.width * scale, height: markSize.height * scale)
-            let drawRect = NSRect(
-                x: rect.midX - drawSize.width / 2,
-                y: rect.midY - drawSize.height / 2,
-                width: drawSize.width,
-                height: drawSize.height
-            )
-            mark.draw(in: drawRect)
+            NSColor.black.setFill()
+            let area = rect.insetBy(dx: 2, dy: 1.5)
+            for bar in VocaWaveform.barRects(in: area) {
+                NSBezierPath(roundedRect: bar, xRadius: bar.width / 2, yRadius: bar.width / 2).fill()
+            }
             return true
         }
     }
@@ -579,8 +558,8 @@ struct MenuBarIcon: View {
     private var statusColor: NSColor {
         if isCommandMode { return VocaDesign.commandNSColor }
         switch appStatus {
-        case .idle:       return BrandAssets.brandGreen
-        case .recording:  return BrandAssets.brandGreen
+        case .idle:       return Self.liveColor
+        case .recording:  return Self.liveColor
         case .processing: return .systemYellow
         case .error:      return .systemOrange
         }

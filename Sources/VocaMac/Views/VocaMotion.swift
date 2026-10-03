@@ -195,12 +195,22 @@ struct VocaOutlineButtonStyle: ButtonStyle {
             .font(.system(size: 12.5, weight: .semibold))
             .foregroundStyle(filled ? VocaDesign.onInk : Color.primary)
             .padding(.horizontal, 14)
-            .frame(minHeight: 28)
-            .background(filled ? VocaDesign.ink : Color.clear, in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.primary.opacity(filled ? 0 : 0.22)))
+            .frame(height: 30)
+            .background {
+                // A radius a point under half the height: a stroked shape
+                // rounded to exactly half drew straight seams at its ends.
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(filled ? VocaDesign.ink : VocaDesign.surface)
+                    .shadow(color: .black.opacity(filled ? 0 : 0.08), radius: 0, y: 1)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .stroke(Color.primary.opacity(filled ? 0 : 0.2), lineWidth: 1)
+                    .padding(0.5)
+            }
             .opacity(isEnabled ? 1 : 0.45)
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .onHover { isHovered = $0 }
             .animation(.easeOut(duration: 0.15), value: isHovered)
     }

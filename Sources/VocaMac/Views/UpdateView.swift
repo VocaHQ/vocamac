@@ -49,8 +49,7 @@ struct UpdateDetailView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("VocaMac \(info.tagName) Available")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                        .font(VocaDesign.display(26))
                     Text(ByteCountFormatter.string(fromByteCount: Int64(info.dmgSize), countStyle: .file))
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -91,7 +90,7 @@ struct UpdateDetailView: View {
                 .padding(20)
         }
         .frame(width: 520)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .tint(VocaDesign.accent)
     }
 
@@ -114,7 +113,7 @@ struct UpdateDetailView: View {
                         await appState.updateChecker.downloadUpdate(info)
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
             }
         case .updateAvailableViaHomebrew(_, let install):
             VStack(alignment: .leading, spacing: 10) {

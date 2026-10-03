@@ -59,7 +59,7 @@ struct ScratchpadView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Scratchpad").font(.title2.bold())
+                    Text("Scratchpad").font(VocaDesign.display(26))
                     Text("Dictate here when no text field is ready.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -76,8 +76,8 @@ struct ScratchpadView: View {
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .padding(8)
-                .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 10))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(VocaDesign.line))
+                .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(VocaDesign.line))
             HStack {
                 Button {
                     Task { await appState.toggleScratchpadRecording() }
@@ -87,7 +87,7 @@ struct ScratchpadView: View {
                         systemImage: appState.isRecording ? "stop.fill" : "mic.fill"
                     )
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .disabled(appState.appStatus == .processing)
                 if appState.isRecording {
                     ObservedAudioLevelView(meter: appState.audioMeter, tint: VocaDesign.accent)
@@ -99,7 +99,7 @@ struct ScratchpadView: View {
             }
         }
         .padding(18)
-        .background(VocaDesign.canvas)
+        .vocaPaperBackground()
         .tint(VocaDesign.accent)
     }
 }

@@ -25,6 +25,22 @@ enum SettingsSection: CaseIterable, Identifiable {
         }
     }
 
+    /// The scene behind every page header in the group, so each group keeps
+    /// its own time of day.
+    var mood: SceneMood {
+        switch self {
+        case .dictation: return .day
+        case .writing: return .dawn
+        case .activity: return .dusk
+        case .app: return .night
+        }
+    }
+
+    /// The group a page sits in.
+    static func containing(_ page: SettingsPage) -> SettingsSection {
+        allCases.first { $0.pages.contains(page) } ?? .dictation
+    }
+
     /// Pages in this group, in sidebar order.
     var pages: [SettingsPage] {
         switch self {

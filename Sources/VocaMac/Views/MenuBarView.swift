@@ -167,6 +167,7 @@ struct MenuBarView: View {
             .measureHeight(MenuChromeHeightKey.self)
         }
         .frame(width: MenuPanelMetrics.width)
+        .background(VocaDesign.canvas)
         .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight, onWindow: { panelWindow.window = $0 }))
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
         .onPreferenceChange(MenuChromeHeightKey.self) { chromeHeight = $0 }
@@ -417,13 +418,32 @@ struct MenuBarView: View {
 
     // MARK: - Header
 
+    /// The name and model over a strip of scenery painted at the hour it is
+    /// now. It holds still: the menu opens often and should cost nothing.
     private var headerSection: some View {
+        TimelineView(.everyMinute) { timeline in
+            headerRow
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                .background {
+                    VocaScene(mood: SceneMood.current(at: timeline.date), animated: false, scrim: false, framing: .horizon)
+                        .overlay(Color.black.opacity(0.28))
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                // Secondary text and the warning tint switch to their light
+                // forms over the painted, darker strip.
+                .environment(\.colorScheme, .dark)
+        }
+    }
+
+    private var headerRow: some View {
         HStack(spacing: 10) {
             BrandLogoView(size: 32)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("VocaMac")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(VocaDesign.display(20))
 
                 if let model = appState.currentModel {
                     Text(model.size.isRemotelyHosted
@@ -1290,8 +1310,8 @@ private struct MenuPanelCard: ViewModifier {
         content
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.primary.opacity(0.055), in: shape)
-            .overlay(shape.strokeBorder(Color.primary.opacity(0.07)))
+            .background(VocaDesign.surface, in: shape)
+            .overlay(shape.strokeBorder(VocaDesign.line))
     }
 }
 

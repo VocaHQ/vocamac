@@ -37,7 +37,12 @@ struct SettingsView: View {
             VStack(spacing: 0) {
                 // Title only: the sidebar already says where you are, and a
                 // tagline under every page was one more line to read past.
-                VocaPageHeader(title: (selectedPage ?? .dictation).title, subtitle: nil)
+                // The scene is the group's time of day.
+                let page = selectedPage ?? .dictation
+                VocaSceneBanner(title: page.title, mood: SettingsSection.containing(page).mood)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 14)
+                    .padding(.bottom, 6)
                 if let entry = SettingsSearchIndex.entries.first(where: { $0.id == selectedSearchEntryID }),
                    let hint = entry.navigationHint {
                     Label(hint, systemImage: "arrow.turn.down.right")
@@ -49,6 +54,9 @@ struct SettingsView: View {
                 ScrollViewReader { proxy in
                     settingsDetail
                         .environment(\.settingsSearchTarget, selectedSearchEntryID)
+                        // Grouped forms draw their own gray backdrop; let the
+                        // paper canvas show through on every page.
+                        .scrollContentBackground(.hidden)
                         .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
                         .task(id: selectedSearchEntryID) {
                             guard let id = selectedSearchEntryID else { return }
@@ -132,7 +140,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 BrandLogoView(size: 26)
-                Text("VocaMac").font(.headline)
+                Text("VocaMac").font(VocaDesign.display(19))
                 Spacer()
             }
             .padding(.horizontal, 16)
@@ -164,6 +172,7 @@ struct SettingsView: View {
             SettingsSidebarFooter()
                 .padding(12)
         }
+        .background(VocaDesign.sidebar)
     }
 
     @ViewBuilder

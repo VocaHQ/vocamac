@@ -22,11 +22,11 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .welcome: return "Speak freely. Write anywhere."
-        case .permissions: return "Connect your voice to your Mac"
-        case .modelSetup: return "Tune VocaMac to your voice"
+        case .permissions: return "Connect your voice to your Mac."
+        case .modelSetup: return "Tune VocaMac to your voice."
         case .hotkeyConfig: return "One shortcut. Your flow."
-        case .quickTest: return "Try your first dictation"
-        case .complete: return "Make it part of your day"
+        case .quickTest: return "Try your first dictation."
+        case .complete: return "Make it part of your day."
         }
     }
 
@@ -56,6 +56,22 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         "Step \(rawValue + 1) of \(OnboardingStep.allCases.count)"
     }
 
+    /// The scene behind the step. Setup runs from dawn to night, so moving
+    /// through it reads as a day passing.
+    var mood: SceneMood {
+        switch self {
+        case .welcome: return .dawn
+        case .permissions, .modelSetup: return .day
+        case .hotkeyConfig, .quickTest: return .dusk
+        case .complete: return .night
+        }
+    }
+
+    /// The caption at the foot of the scene, e.g. "01 — Welcome".
+    var sceneCaption: String {
+        String(format: "%02d — ", rawValue + 1) + shortTitle
+    }
+
     /// Keep the final escape hatch available while optional background work finishes.
     func disablesNavigation(
         practiceBusy: Bool,
@@ -69,7 +85,9 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
 
 // MARK: - OnboardingView
 
-/// Main onboarding wizard container
+/// Main onboarding wizard container: a painted scene on the left that changes
+/// with the time of day as setup moves on, and the step itself on paper to
+/// the right.
 struct OnboardingView: View {
     @EnvironmentObject var appState: AppState
     @State private var currentStep: OnboardingStep = .welcome
@@ -78,63 +96,33 @@ struct OnboardingView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var practiceBusy = false
     @State private var didBeginVerification = false
+    /// The opening: the scene fills the window behind the name, then draws
+    /// back to the side to make room for the first step.
+    @State private var introExpanded = true
+    @State private var introDone = false
+
+    static let sceneWidth: CGFloat = 380
+
+    /// `initialStep` lets previews open on a later step.
+    init(initialStep: OnboardingStep = .welcome, onFinished: @escaping () -> Void) {
+        _currentStep = State(initialValue: initialStep)
+        self.onFinished = onFinished
+    }
 
     var body: some View {
-        HStack(spacing: 0) {
-            journeySidebar
-            Divider()
-            VStack(spacing: 0) {
-                VocaPageHeader(title: currentStep.title, subtitle: currentStep.subtitle)
-                ScrollView {
-                    Group {
-                        switch currentStep {
-                        case .welcome: WelcomeStep()
-                        case .permissions: PermissionsStep()
-                        case .modelSetup: ModelSetupStep()
-                        case .hotkeyConfig: HotkeyConfigStep()
-                        case .quickTest: QuickTestStep(isBusy: $practiceBusy)
-                        case .complete: CompleteStep()
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 12)
-                    .id(currentStep)
-                    .transition(.opacity)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Divider()
-                HStack(spacing: 12) {
-                    if currentStep != .welcome {
-                        Button("Back", action: goToPreviousStep)
-                            .buttonStyle(.bordered)
-                    }
-                    if currentStep != .complete {
-                        Button("Set up later", action: skipOnboarding)
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                            .help("You can adjust permissions, language, models, and shortcuts later in Settings.")
-                    }
-                    Spacer()
-                    Button(action: currentStep == .complete ? completeOnboarding : goToNextStep) {
-                        HStack(spacing: 8) {
-                            Text(primaryActionTitle)
-                            Image(systemName: currentStep == .complete ? "checkmark" : "arrow.right")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .tint(VocaDesign.accentSolid)
-                    .keyboardShortcut(.defaultAction)
-                }
-                .disabled(currentStep.disablesNavigation(
-                    practiceBusy: practiceBusy,
-                    isRecording: appState.isRecording,
-                    appStatus: appState.appStatus
-                ))
-                .padding(22)
+        GeometryReader { geometry in
+            ZStack(alignment: .topLeading) {
+                stepColumn
+                    .padding(.leading, Self.sceneWidth)
+                    .opacity(introDone ? 1 : 0)
+                scenePanel
+                    .frame(width: introExpanded ? geometry.size.width : Self.sceneWidth)
+                    .frame(maxHeight: .infinity)
+                    .clipped()
             }
         }
-        .frame(minWidth: 780, idealWidth: 840, minHeight: 600, idealHeight: 650)
+        .ignoresSafeArea()
+        .frame(minWidth: 880, idealWidth: 960, minHeight: 600, idealHeight: 640)
         .background(VocaDesign.canvas)
         .tint(VocaDesign.accent)
         .onAppear {
@@ -143,11 +131,163 @@ struct OnboardingView: View {
                 didBeginVerification = true
             }
             appState.triggerStartupIfNeeded()
+            playIntro()
         }
         .onDisappear { appState.armOnboardingVerification(nil) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appState.checkPermissions()
         }
+    }
+
+    // MARK: - Scene
+
+    private var scenePanel: some View {
+        ZStack(alignment: .topLeading) {
+            ZStack {
+                VocaScene(mood: currentStep.mood)
+                    .id(currentStep.mood)
+                    .transition(.opacity)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 1.2), value: currentStep.mood)
+
+            if introExpanded {
+                VStack(spacing: 10) {
+                    Text("VocaMac")
+                        .font(VocaDesign.display(88))
+                        .riseIn(delay: 0.15, distance: 10)
+                    Text("SPEAK · WRITE · ANYWHERE")
+                        .font(.system(size: 13, weight: .medium))
+                        .tracking(3)
+                        .opacity(0.85)
+                        .riseIn(delay: 0.45, distance: 6)
+                }
+                .foregroundStyle(Color(nsColor: VocaPalette.ivory))
+                .shadow(color: .black.opacity(0.3), radius: 18)
+                // Up in the sky, clear of the waveform over the lake.
+                .padding(.bottom, 200)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .transition(.opacity.combined(with: .scale(scale: 1.04)))
+            }
+
+            if introDone {
+                sceneText
+                    .id(currentStep)
+                    .frame(width: Self.sceneWidth, alignment: .leading)
+            }
+        }
+    }
+
+    private var sceneText: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("VocaMac")
+                .font(.system(size: 13, weight: .semibold))
+                .tracking(1)
+                .riseIn(delay: 0.05, distance: 8)
+            RevealHeadline(text: currentStep.title, size: 44, delay: 0.15)
+            if currentStep == .welcome {
+                Text("Private voice typing that lives in your menu bar.")
+                    .font(.system(size: 14))
+                    .opacity(0.9)
+                    .riseIn(delay: 0.6)
+            }
+            Spacer(minLength: 0)
+            Text(currentStep.sceneCaption)
+                .font(.system(size: 12))
+                .tracking(0.7)
+                .opacity(0.85)
+                .riseIn(delay: 0.5, distance: 6)
+            Label(appState.speechProcessingDescription, systemImage: appState.speechProcessingIsRemote ? "network" : "lock.shield")
+                .font(.caption)
+                .opacity(0.8)
+                .riseIn(delay: 0.6, distance: 6)
+        }
+        .foregroundStyle(Color(nsColor: VocaPalette.ivory))
+        .shadow(color: .black.opacity(0.22), radius: 14, y: 1)
+        .padding(.horizontal, 32)
+        .padding(.top, 56)
+        .padding(.bottom, 26)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    // MARK: - Step
+
+    private var stepColumn: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                if introDone {
+                    VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(currentStep.shortTitle.uppercased())
+                                .font(VocaDesign.eyebrow)
+                                .tracking(1.6)
+                                .foregroundStyle(VocaDesign.accent)
+                                .riseIn(delay: 0.1)
+                            Text(currentStep.subtitle)
+                                .font(VocaDesign.display(30))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityAddTraits(.isHeader)
+                                .riseIn(delay: 0.18)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+
+                        Group {
+                            switch currentStep {
+                            case .welcome: WelcomeStep()
+                            case .permissions: PermissionsStep()
+                            case .modelSetup: ModelSetupStep()
+                            case .hotkeyConfig: HotkeyConfigStep()
+                            case .quickTest: QuickTestStep(isBusy: $practiceBusy)
+                            case .complete: CompleteStep()
+                            }
+                        }
+                        .riseIn(delay: 0.3, distance: 20)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 48)
+                    .id(currentStep)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scrollContentBackground(.hidden)
+
+            footer
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 16) {
+            if currentStep != .welcome {
+                Button("Back", action: goToPreviousStep)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+            }
+            if currentStep != .complete {
+                Button("Set up later", action: skipOnboarding)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("You can adjust permissions, language, models, and shortcuts later in Settings.")
+            }
+            Spacer()
+            VocaStepProgress(count: OnboardingStep.allCases.count, current: currentStep.rawValue)
+            Button(action: currentStep == .complete ? completeOnboarding : goToNextStep) {
+                VocaArrowLabel(
+                    title: primaryActionTitle,
+                    systemImage: currentStep == .complete ? "checkmark" : "arrow.right"
+                )
+            }
+            .buttonStyle(VocaPrimaryButtonStyle())
+            .keyboardShortcut(.defaultAction)
+        }
+        .font(.system(size: 13.5))
+        .disabled(currentStep.disablesNavigation(
+            practiceBusy: practiceBusy,
+            isRecording: appState.isRecording,
+            appStatus: appState.appStatus
+        ))
+        .padding(.horizontal, 44)
+        .padding(.vertical, 22)
     }
 
     private var primaryActionTitle: String {
@@ -159,55 +299,30 @@ struct OnboardingView: View {
         }
     }
 
-    private var journeySidebar: some View {
-        VStack(alignment: .leading, spacing: 28) {
-            HStack(spacing: 10) {
-                BrandLogoView(size: 36)
-                Text("VocaMac").font(.title3.weight(.semibold))
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("A little setup.\nA lot less typing.")
-                    .font(.system(size: 24, weight: .semibold, design: .rounded))
-                Text("Make room for your voice.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            VStack(alignment: .leading, spacing: 18) {
-                ForEach(OnboardingStep.allCases) { step in
-                    HStack(spacing: 12) {
-                        ZStack {
-                            Circle().fill(step == currentStep ? VocaDesign.accent : Color.primary.opacity(0.06))
-                            if step.rawValue < currentStep.rawValue {
-                                Image(systemName: "checkmark").foregroundStyle(VocaDesign.accent)
-                            } else {
-                                Text("\(step.rawValue + 1)")
-                                    .foregroundStyle(step == currentStep ? Color(nsColor: .windowBackgroundColor) : .secondary)
-                            }
-                        }
-                        .font(.caption.weight(.semibold))
-                        .frame(width: 28, height: 28)
-                        Text(step.shortTitle)
-                            .font(.callout.weight(step == currentStep ? .semibold : .regular))
-                            .foregroundStyle(step == currentStep ? .primary : .secondary)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("\(step.shortTitle), \(step == currentStep ? "current step" : step.rawValue < currentStep.rawValue ? "completed" : "upcoming")")
-                }
-            }
-            Spacer()
-            Label(appState.speechProcessingDescription, systemImage: appState.speechProcessingIsRemote ? "network" : "lock.shield")
-                .font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(24)
-        .frame(width: 220)
-        .frame(maxHeight: .infinity)
-        .background(VocaSidebarMaterial())
-    }
-
     // MARK: - Navigation
+
+    /// Holds the name over the full scene for a moment, then opens the
+    /// window onto the first step. Under Reduce Motion it starts there.
+    private func playIntro() {
+        guard !introDone else { return }
+        guard !reduceMotion else {
+            introExpanded = false
+            introDone = true
+            return
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.6))
+            withAnimation(.timingCurve(0.75, 0, 0.2, 1, duration: 1.3)) {
+                introExpanded = false
+            }
+            try? await Task.sleep(for: .seconds(0.7))
+            introDone = true
+        }
+    }
 
     private func goToNextStep() {
         if let nextStep = OnboardingStep(rawValue: currentStep.rawValue + 1) {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 currentStep = nextStep
             }
         }
@@ -215,7 +330,7 @@ struct OnboardingView: View {
 
     private func goToPreviousStep() {
         if let prevStep = OnboardingStep(rawValue: currentStep.rawValue - 1) {
-            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.18)) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
                 currentStep = prevStep
             }
         }
@@ -236,15 +351,11 @@ struct OnboardingView: View {
 
 struct WelcomeStep: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 18) {
-                Label("FROM THOUGHT TO TEXT", systemImage: "waveform")
-                    .font(.caption.weight(.semibold)).tracking(1.3)
-                    .foregroundStyle(VocaDesign.accent)
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("“Let's turn that idea into something.”")
-                    .font(.system(size: 27, weight: .medium, design: .rounded))
+                    .font(VocaDesign.display(24))
                     .fixedSize(horizontal: false, vertical: true)
-                Divider()
                 HStack(spacing: 12) {
                     Label("Activate", systemImage: "keyboard")
                     Image(systemName: "arrow.right")
@@ -256,23 +367,31 @@ struct WelcomeStep: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .vocaCard()
+            .padding(.bottom, 10)
+
             welcomeFeature("Write where you work", detail: "Dictate into messages, documents, and text fields.", icon: "text.cursor")
+                .riseIn(delay: 0.45)
             welcomeFeature("Your speech stays yours", detail: "Speech-to-text runs on this Mac unless you choose a Custom Endpoint.", icon: "lock.shield")
+                .riseIn(delay: 0.55)
             welcomeFeature("Start small. Make it yours.", detail: "Tiny is included. Download other speech models later for more languages or accuracy.", icon: "slider.horizontal.3")
+                .riseIn(delay: 0.65)
         }
         .padding(16)
     }
 
     private func welcomeFeature(_ title: String, detail: String, icon: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: icon).font(.title3).foregroundStyle(VocaDesign.accent)
-                .frame(width: 28, height: 28)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.headline)
+            Image(systemName: icon).font(.system(size: 17, weight: .light)).foregroundStyle(VocaDesign.accent)
+                .frame(width: 24, height: 24)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 13.5, weight: .semibold))
                 Text(detail).font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            Spacer(minLength: 0)
         }
+        .padding(.vertical, 13)
+        .overlay(alignment: .top) { Rectangle().fill(VocaDesign.line).frame(height: 1) }
     }
 }
 
@@ -312,6 +431,7 @@ struct PermissionsStep: View {
                     status: appState.micPermission,
                     action: { appState.requestMicrophonePermission() }
                 )
+                .riseIn(delay: 0.4)
 
                 OnboardingPermissionRow(
                     icon: "hand.raised.fill",
@@ -320,6 +440,7 @@ struct PermissionsStep: View {
                     status: appState.accessibilityPermission,
                     action: { appState.requestAccessibilityPermission() }
                 )
+                .riseIn(delay: 0.5)
 
                 OnboardingPermissionRow(
                     icon: "keyboard.fill",
@@ -328,6 +449,7 @@ struct PermissionsStep: View {
                     status: appState.inputMonitoringPermission,
                     action: { appState.requestInputMonitoringPermission() }
                 )
+                .riseIn(delay: 0.6)
             }
 
             let gaps = OnboardingPermissionGaps.consequences(
@@ -380,17 +502,19 @@ struct OnboardingPermissionRow: View {
     let status: PermissionStatus
     let action: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 20))
-                .frame(width: 32)
+                .font(.system(size: 15))
                 .foregroundStyle(statusColor)
+                .frame(width: 36, height: 36)
+                .background(statusColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.body)
-                    .fontWeight(.medium)
+                    .font(.system(size: 13.5, weight: .semibold))
 
                 Text(description)
                     .font(.caption)
@@ -399,35 +523,30 @@ struct OnboardingPermissionRow: View {
 
             Spacer()
 
-            HStack(spacing: 8) {
+            ZStack(alignment: .trailing) {
                 if status == .granted {
-                    Label("Enabled", systemImage: "checkmark.circle.fill")
-                        .font(.caption.weight(.medium))
+                    Label("Allowed", systemImage: "checkmark")
+                        .font(.system(size: 12.5, weight: .semibold))
                         .foregroundStyle(VocaDesign.accent)
+                        .transition(.scale(scale: 0.4).combined(with: .opacity))
                 } else {
-                    Button(action: action) {
-                        Text(status == .notDetermined ? "Enable" : "Open Settings")
-                            .font(.caption)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(VocaDesign.accent)
-                            .foregroundStyle(Color(nsColor: .windowBackgroundColor))
-                            .cornerRadius(6)
-                    }
-                    .buttonStyle(.plain)
+                    Button(status == .notDetermined ? "Allow…" : "Open Settings", action: action)
+                        .buttonStyle(VocaOutlineButtonStyle())
+                        .transition(.opacity)
                 }
             }
+            .animation(reduceMotion ? nil : .spring(response: 0.45, dampingFraction: 0.6), value: status)
         }
-        .padding(12)
-        .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(VocaDesign.line))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
+        .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(VocaDesign.line))
     }
 
     private var statusColor: Color {
         switch status {
-        case .granted: return VocaDesign.accent
-        case .denied: return .red
-        case .notDetermined: return .secondary
+        case .granted, .notDetermined: return VocaDesign.accent
+        case .denied: return VocaDesign.warning
         }
     }
 }

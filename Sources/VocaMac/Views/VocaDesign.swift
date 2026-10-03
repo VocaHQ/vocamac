@@ -1,29 +1,45 @@
 import SwiftUI
 
+/// The Quiet Wonder palette: warm ivory paper, ink, petrol and clay by day;
+/// the same hues on a deep night ink in dark mode.
+enum VocaPalette {
+    static let ivory = NSColor(srgbRed: 0.969, green: 0.961, blue: 0.937, alpha: 1)    // #F7F5EF
+    static let paper = NSColor(srgbRed: 0.988, green: 0.984, blue: 0.969, alpha: 1)    // #FCFBF7
+    static let sand = NSColor(srgbRed: 0.937, green: 0.922, blue: 0.882, alpha: 1)     // #EFEBE1
+    static let ink = NSColor(srgbRed: 0.094, green: 0.125, blue: 0.137, alpha: 1)      // #182023
+    static let petrol = NSColor(srgbRed: 0.208, green: 0.392, blue: 0.459, alpha: 1)   // #356475
+    static let mist = NSColor(srgbRed: 0.498, green: 0.702, blue: 0.761, alpha: 1)     // #7FB3C2
+    static let clay = NSColor(srgbRed: 0.722, green: 0.400, blue: 0.290, alpha: 1)     // #B8664A
+    static let nightCanvas = NSColor(srgbRed: 0.071, green: 0.098, blue: 0.110, alpha: 1)  // #12191C
+    static let nightSurface = NSColor(srgbRed: 0.102, green: 0.141, blue: 0.157, alpha: 1) // #1A2428
+    static let nightSand = NSColor(srgbRed: 0.055, green: 0.082, blue: 0.090, alpha: 1)    // #0E1517
+
+    /// One color per appearance.
+    static func adaptive(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
+        }
+    }
+}
+
 /// Shared, adaptive surfaces for the app. System text colors retain contrast in both appearances.
 enum VocaDesign {
-    static let accent = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(red: 0.47, green: 0.85, blue: 0.74, alpha: 1)
-            : BrandAssets.brandGreen
-    })
-    /// Fill for prominent buttons. The mint accent is tuned for icons and
-    /// selection on a dark surface; white button text needs a deeper green to
-    /// stay legible, so prominent fills use this instead.
-    static let accentSolid = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(red: 0.090, green: 0.470, blue: 0.380, alpha: 1)
-            : BrandAssets.brandGreen
-    })
+    /// Petrol by day, a lighter mist at night so icons and selection still
+    /// read against the dark ink canvas.
+    static let accent = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.petrol, dark: VocaPalette.mist))
+    /// Fill for prominent buttons. White text needs the deeper petrol in both
+    /// appearances; the mist accent is too light to carry it.
+    static let accentSolid = Color(nsColor: VocaPalette.petrol)
 
-    /// Success and "ready" states. The brand is already green, so a second
-    /// system green next to it reads as two different greens rather than one
-    /// meaning.
+    /// Success and "ready" states. A system green next to the petrol accent
+    /// would read as two meanings, so ready uses the accent itself.
     static var success: Color { accent }
 
     /// Command Mode's own color. Editing selected text is a different act
     /// from dictating, so every surface that shows it — overlay, menu bar
-    /// icon, menu, settings — uses violet instead of the dictation green.
+    /// icon, menu, settings — uses violet instead of the dictation petrol.
+    /// Clay would sit beside the palette more quietly, but it is too close to
+    /// the amber `warning` to tell apart at a glance.
     static let command = Color(nsColor: commandNSColor)
     static let commandNSColor = NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -45,22 +61,40 @@ enum VocaDesign {
             ? NSColor(red: 1.0, green: 0.80, blue: 0.25, alpha: 1)
             : NSColor(red: 0.62, green: 0.45, blue: 0.0, alpha: 1)
     })
-    static let canvas = Color(nsColor: .windowBackgroundColor)
-    static let surface = Color(nsColor: .controlBackgroundColor)
+    /// Warm ivory paper by day, deep night ink in dark mode.
+    static let canvas = Color(nsColor: canvasNSColor)
+    static let canvasNSColor = VocaPalette.adaptive(light: VocaPalette.ivory, dark: VocaPalette.nightCanvas)
+    /// Cards: a lighter sheet of paper laid on the canvas.
+    static let surface = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.paper, dark: VocaPalette.nightSurface))
+    /// Sidebars sit one shade under the canvas.
+    static let sidebar = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.sand, dark: VocaPalette.nightSand))
+    /// Ink by day, ivory by night: the fill of the one primary action.
+    static let ink = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.ink, dark: VocaPalette.ivory))
+    /// Text on `ink`.
+    static let onInk = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.ivory, dark: VocaPalette.ink))
+    static let clay = Color(nsColor: VocaPalette.clay)
     static let line = Color.primary.opacity(0.10)
+
+    /// Editorial serif for headlines. New York ships with macOS, so there is
+    /// no font file to bundle or license.
+    static func display(_ size: CGFloat) -> Font {
+        .system(size: size, weight: .regular, design: .serif)
+    }
+
+    /// The small tracked capitals above a heading ("THREE PERMISSIONS").
+    static let eyebrow = Font.system(size: 11, weight: .semibold)
 }
 
-/// Consistent card treatment without overriding native control behavior.
-/// A 3.5% primary fill nearly vanishes on the dark window background, so the
-/// hairline carries the card edge in both appearances.
+/// Consistent card treatment without overriding native control behavior:
+/// a sheet of paper on the canvas, with a hairline to carry the edge.
 struct VocaCard: ViewModifier {
     @Environment(\.colorSchemeContrast) private var contrast
 
     func body(content: Content) -> some View {
         content
             .padding(16)
-            .background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
+            .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
                 contrast == .increased ? Color.primary.opacity(0.35) : VocaDesign.line
             ))
     }
@@ -77,7 +111,7 @@ struct VocaPageHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.system(size: subtitle == nil ? 22 : 25, weight: .semibold, design: .rounded))
+            Text(title).font(VocaDesign.display(subtitle == nil ? 30 : 32))
                 .accessibilityAddTraits(.isHeader)
             if let subtitle {
                 Text(subtitle).font(.callout).foregroundStyle(.secondary)
@@ -361,7 +395,7 @@ struct VocaDisclosureCard<Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.primary.opacity(0.045), in: shape)
+        .background(VocaDesign.surface, in: shape)
         .clipShape(shape)
         .overlay(shape.strokeBorder(VocaDesign.line))
     }

@@ -552,14 +552,13 @@ struct HandyOverlayView: View {
             : Color(red: 0.55, green: 0.27, blue: 0.0)
     }
 
+    /// Ink at night, paper by day: the app's own surfaces.
     private var panelFill: Color {
-        isDark
-            ? Color(white: 0.16)
-            : Color(red: 0.99, green: 0.99, blue: 1.0)
+        Color(nsColor: isDark ? VocaPalette.ink : VocaPalette.paper)
     }
 
     private var primaryText: Color {
-        isDark ? Color.white.opacity(0.96) : Color(red: 0.08, green: 0.1, blue: 0.12)
+        isDark ? Color(nsColor: VocaPalette.ivory) : Color(nsColor: VocaPalette.ink)
     }
 
     private var secondaryText: Color {

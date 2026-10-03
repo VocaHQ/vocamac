@@ -138,7 +138,7 @@ struct CommandModeSettingsPage: View {
             if appState.usesSeparateCommandSlot(for: kind) {
                 return "Smart Cleanup uses \(cleanup). This Mac has the memory to keep both loaded, so neither waits for the other."
             }
-            return "Smart Cleanup uses \(cleanup). The two take turns in memory, so an edit starts slower."
+            return "Smart Cleanup uses \(cleanup). The two take turns in memory, so an edit starts slower. Turn this on to run both with one model."
         case .appleIntelligence, .endpoint:
             return "Off while Command Mode runs with \(appState.commandModeEngine.displayName)."
         }

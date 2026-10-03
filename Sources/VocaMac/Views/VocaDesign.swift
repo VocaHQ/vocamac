@@ -483,6 +483,74 @@ struct VocaMenuChoice: View {
     var body: some View {
         // Choosing the checked item selects it again, as the plain buttons did.
         Toggle(title, isOn: Binding(get: { isSelected }, set: { _ in select() }))
+            // Pages set `.toggleStyle(.switch)` for their rows, and a menu
+            // can't draw a switch: it greys the item out and ignores clicks.
+            .toggleStyle(.automatic)
+    }
+}
+
+// MARK: - Key caps
+
+/// A key or key combination drawn as a keyboard key, so a shortcut reads as
+/// something to press rather than another button.
+struct VocaKeyCap: View {
+    let text: String
+    var isLarge = false
+    var isActive = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: isLarge ? 15 : 12.5, weight: .semibold, design: .rounded))
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .padding(.horizontal, isLarge ? 14 : 9)
+            .frame(minWidth: isLarge ? 48 : 30, minHeight: isLarge ? 36 : 26)
+            .background {
+                // A darker edge peeking out under the key gives it depth.
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.16))
+                    .offset(y: 2)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(VocaDesign.surface)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isActive ? VocaDesign.accent : Color.primary.opacity(0.16), lineWidth: isActive ? 1.5 : 1)
+            }
+            .padding(.bottom, 2)
+    }
+}
+
+/// A menu or button whose face is a key cap with a small chevron.
+struct VocaKeyCapButtonStyle: ButtonStyle {
+    var isActive = false
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 14)
+            .frame(minWidth: 48, minHeight: 36)
+            .background {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.16))
+                    .offset(y: configuration.isPressed ? 0.5 : 2)
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isHovered && isEnabled ? VocaDesign.accent.opacity(0.08) : Color.clear)
+                    .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .offset(y: configuration.isPressed ? 1.5 : 0)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(isActive ? VocaDesign.accent : Color.primary.opacity(isHovered ? 0.28 : 0.16),
+                                  lineWidth: isActive ? 1.5 : 1)
+                    .offset(y: configuration.isPressed ? 1.5 : 0)
+            }
+            .padding(.bottom, 2)
+            .opacity(isEnabled ? 1 : 0.5)
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .onHover { isHovered = $0 }
     }
 }
 

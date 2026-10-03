@@ -1059,10 +1059,10 @@ struct PerformanceSettingsTab: View {
 
                 if appState.whisperService.isModelLoaded {
                     if let estimate = estimatedModelRAMLabel {
-                        LabeledContent("Estimated model RAM", value: estimate)
+                        LabeledContent("Speech model needs about", value: estimate)
                     }
                     LabeledContent(
-                        "App memory (RSS)",
+                        "VocaMac is using",
                         value: String(format: "%.0f MB", ProcessMonitor.currentResidentMemoryMB())
                     )
                 } else if let message = appState.modelUnloadStatusMessage {
@@ -1085,8 +1085,10 @@ struct PerformanceSettingsTab: View {
             .settingsTarget("model-status")
 
             Section {
-                Toggle("Pause dictation while these apps run", isOn: $appState.autoPauseEnabled)
-                    .help("Unloads the speech model and blocks dictation while a listed app is running, then reloads it.")
+                Toggle(isOn: $appState.autoPauseEnabled) {
+                    Text("Pause dictation while these apps run")
+                    Text("Frees the speech model's memory for games and other heavy apps, and loads it again when they quit.")
+                }
 
                 Group {
                     if !appState.autoPauseApps.isEmpty {
@@ -1139,7 +1141,10 @@ struct PerformanceSettingsTab: View {
             .settingsTarget("auto-pause")
 
             Section {
-                Toggle("Unload model when idle", isOn: $appState.modelKeepAliveEnabled)
+                Toggle(isOn: $appState.modelKeepAliveEnabled) {
+                    Text("Unload models when idle")
+                    Text("Frees memory, including Smart Cleanup and Command Mode models. The next dictation takes a moment longer to start.")
+                }
                     .help("Frees memory after you stop dictating, including the cleanup and Command Mode models. The next use reloads the model, which can take a moment.")
 
                 Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
@@ -1892,8 +1897,18 @@ struct AudioSettingsTab: View {
                     appState.syncHotKeyConfiguration()
                 }
 
+                Toggle(isOn: $appState.skipSilence) {
+                    Text("Skip silence before transcribing")
+                    Text("Cuts pauses out first, so transcription is faster and quiet stretches don't turn into made-up words.")
+                }
+                .settingsTarget("skip-silence")
+
                 HStack {
-                    Text("Silence sensitivity")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Silence sensitivity")
+                        Text("How quiet counts as silence.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                     Slider(
                         value: $appState.silenceThreshold,
                         in: 0.001...0.05,
@@ -1906,7 +1921,12 @@ struct AudioSettingsTab: View {
                 }
 
                 HStack {
-                    Text("Auto-stop after silence")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Stop after silence")
+                        Text("Hands-free and double-tap only. Push to talk stops when you let go.")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     Spacer()
                     TextField(
                         "Seconds",
@@ -1923,7 +1943,7 @@ struct AudioSettingsTab: View {
                 }
                 .help("Hands-free and double-tap recordings stop after this much silence (0.5–300 seconds). Push-to-talk stops when you release the key.")
             } header: {
-                VocaFormSectionHeader("Recording")
+                VocaFormSectionHeader("Recording and Silence")
             }
             .settingsTarget("silence")
 
@@ -1950,11 +1970,16 @@ struct AudioSettingsTab: View {
                     .accessibilityLabel("Preview tone")
                 }
 
-                Toggle("Mute other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
+                Toggle(isOn: $appState.duckOtherAudioEnabled) {
+                    Text("Mute other audio while dictating")
+                    Text("Only when something is playing.")
+                }
                 .settingsTarget("other-audio")
-                    .help("Mutes speakers or headphones while the microphone is open, only when something is playing.")
 
-                Toggle("Pause Spotify while dictating", isOn: $appState.pauseSpotifyEnabled)
+                Toggle(isOn: $appState.pauseSpotifyEnabled) {
+                    Text("Pause Spotify while dictating")
+                    Text("Also reaches Spotify Connect on other speakers, which muting can't.")
+                }
                 .settingsTarget("spotify-pause")
                     .help("Pauses Spotify while the microphone is open and resumes when dictation ends — covers Spotify Connect playback on other devices, which muting cannot reach. The first use asks for permission to control Spotify.")
             } header: {
@@ -2022,13 +2047,12 @@ struct AudioSettingsTab: View {
                     .foregroundStyle(VocaDesign.warning)
             }
 
-            Toggle("Use an external microphone when the lid is closed", isOn: $appState.externalMicWhenLidClosed)
+            Toggle(isOn: $appState.externalMicWhenLidClosed) {
+                Text("Use an external microphone when the lid is closed")
+                Text("Your saved choice comes back when you open the lid.")
+            }
             .settingsTarget("closed-lid-microphone")
-                .help("While your MacBook is closed, records from an available external input. Your saved choice is not changed.")
 
-            Toggle("Skip silence before transcribing", isOn: $appState.skipSilence)
-            .settingsTarget("skip-silence")
-                .help("A small voice detector removes silence and long pauses before the speech model runs, so it decodes faster and doesn't invent words in quiet stretches. Recordings with no speech are not transcribed.")
         } header: {
             VocaFormSectionHeader("Microphone")
         }

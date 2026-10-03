@@ -82,6 +82,86 @@ struct AIModelDownloadProgress: View {
     }
 }
 
+// MARK: - Sharing Tip
+
+/// Points out, where the choice is made, that one model can run both
+/// features. Shown until the person shares a model or chooses not to.
+struct AIModelSharingTip: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        if appState.suggestsSharingAIModel {
+            let kind = appState.sharedAIModelCandidate
+            HStack(alignment: .top, spacing: 12) {
+                HStack(spacing: -6) {
+                    tipIcon("sparkles", tint: VocaDesign.accentSolid)
+                    tipIcon("wand.and.stars", tint: VocaDesign.command)
+                }
+                .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("One model can do both")
+                        .font(.headline)
+                    Text(detail(for: kind))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 8) {
+                        Button("Use \(kind.descriptor.displayName) for Both") {
+                            Task { @MainActor in await appState.setSharesAIModel(true) }
+                        }
+                        .controlSize(.small)
+                        Button("Keep Separate") {
+                            Task { @MainActor in await appState.setSharesAIModel(false) }
+                        }
+                        .buttonStyle(.vocaLink)
+                        .controlSize(.small)
+                    }
+                    .padding(.top, 4)
+                    .disabled(isDownloading)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(VocaDesign.command.opacity(0.07))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(VocaDesign.command.opacity(0.22), lineWidth: 1)
+            }
+        }
+    }
+
+    private var isDownloading: Bool {
+        if case .downloading = appState.transcriptCleanup.modelState { return true }
+        return false
+    }
+
+    /// What sharing saves, and what it costs when the shared model is
+    /// slower at cleanup than the one in use.
+    private func detail(for kind: CleanupModelKind) -> String {
+        var text = "Smart Cleanup and Command Mode can run on the same model: one download, one model in memory, and edits start without waiting for a second model to load."
+        let current = appState.selectedCleanupModelKind
+        if kind != current, kind.isSlowForCleanup || kind.descriptor.ramRequiredGB > current.descriptor.ramRequiredGB {
+            text += " Cleanup would use \(kind.descriptor.displayName) instead of \(current.descriptor.displayName), which takes a little longer per dictation."
+        }
+        if !appState.transcriptCleanup.isDownloaded(kind) {
+            text += " Downloads \(kind.descriptor.sizeDescription)."
+        }
+        return text
+    }
+
+    private func tipIcon(_ systemImage: String, tint: Color) -> some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: 26, height: 26)
+            .background(VocaDesign.surface, in: Circle())
+            .overlay(Circle().strokeBorder(tint.opacity(0.35), lineWidth: 1))
+    }
+}
+
 // MARK: - Model Menu
 
 /// Pick the model for one feature. Undownloaded models say so and download
@@ -106,8 +186,16 @@ struct AIModelMenu: View {
                 }
             }
         } label: {
-            Text(currentName)
+            // A chevron, so the model name reads as a choice rather than
+            // a button that does something.
+            HStack(spacing: 6) {
+                Text(currentName)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
         }
+        .menuIndicator(.hidden)
         .fixedSize()
         .disabled(isUnavailable)
         .help(role == .cleanup ? "The model that cleans up dictations" : "What runs Command Mode edits")
@@ -177,7 +265,7 @@ struct AIModelLibrary: View {
         let choices = role == .cleanup ? CleanupModelKind.cleanupChoices : CleanupModelKind.commandModeChoices
         let prominent = choices.filter(isProminent)
         let more = choices.filter { !isProminent($0) }
-        VocaSettingsGroup("On-Device Models", subtitle: "Downloaded once, then runs on this Mac without a network.") {
+        VocaSettingsGroup("On-Device Models", subtitle: subtitle) {
             ForEach(prominent) { kind in
                 AIModelLibraryRow(kind: kind, role: role)
                 if kind != prominent.last || !more.isEmpty {
@@ -198,6 +286,12 @@ struct AIModelLibrary: View {
                 .disclosureGroupStyle(VocaDisclosureGroupStyle())
             }
         }
+    }
+
+    private var subtitle: String {
+        role == .cleanup
+            ? "Downloaded once, then runs on this Mac without a network."
+            : "Downloaded once, then runs on this Mac. Each of these can run Smart Cleanup too, so one download can serve both."
     }
 
     private func isProminent(_ kind: CleanupModelKind) -> Bool {
@@ -270,13 +364,16 @@ private struct AIModelLibraryRow: View {
                     Text(descriptor.sizeDescription)
                     Text("•")
                     Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
-                    if usedByOther {
-                        Text("•")
-                        Text(role == .cleanup ? "Also runs Command Mode" : "Also runs Smart Cleanup")
-                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                // Where one download could serve both features, say so in
+                // the other feature's colour.
+                if usedByOther {
+                    otherFeatureTag(role == .cleanup ? "Also runs Command Mode" : "Also runs Smart Cleanup", isInUse: true)
+                } else if role == .cleanup && kind.supportsCommandMode {
+                    otherFeatureTag("Can run Command Mode too", isInUse: false)
+                }
             }
             .help(descriptor.summary)
 
@@ -291,6 +388,16 @@ private struct AIModelLibraryRow: View {
         } message: {
             Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
         }
+    }
+
+    private func otherFeatureTag(_ title: String, isInUse: Bool) -> some View {
+        let color = role == .cleanup ? VocaDesign.command : VocaDesign.accentSolid
+        return Label(title, systemImage: isInUse ? "link" : "wand.and.stars")
+            .font(.caption2.weight(.medium))
+            .foregroundStyle(color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(color.opacity(isInUse ? 0.16 : 0.08), in: Capsule())
     }
 
     @ViewBuilder

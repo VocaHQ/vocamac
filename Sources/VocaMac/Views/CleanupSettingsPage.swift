@@ -53,6 +53,8 @@ struct CleanupSettingsPage: View {
             }
             .settingsTarget("cleanup")
 
+            AIModelSharingTip()
+
             VocaSettingsGroup("Cleanup Level") {
                 Picker("Cleanup level", selection: $appState.transcriptCleanupLevel) {
                     ForEach(CleanupLevel.allCases) { level in

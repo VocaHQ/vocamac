@@ -44,10 +44,28 @@ struct HotKeySelectionControl: View {
         )
     }
 
+    /// How the key is used, in the words of the chosen activation mode.
+    private var usageHint: String {
+        let key = KeyCodeReference.displayName(for: currentCombo)
+        switch appState.activationMode {
+        case .pushToTalk: return "Hold \(key) while you talk. Let go to type."
+        case .doubleTapToggle: return "Double-tap \(key) to start, and again to stop."
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(pickerLabel)
+            // The one key every dictation starts with, drawn as a key so it
+            // reads as something to press. The key cap opens the presets.
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(pickerLabel)
+                    Text(usageHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
 
                 // A Picker builds all 18 menu items up front, which measured
                 // ~34ms of this page's load. A Menu builds them when it opens,
@@ -61,10 +79,19 @@ struct HotKeySelectionControl: View {
                         }
                     }
                 } label: {
-                    Text(currentDisplayName)
+                    HStack(spacing: 8) {
+                        Text(isRecording ? "Press a key…" : KeyCodeReference.displayName(for: currentCombo))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .menuStyle(.button)
+                .menuIndicator(.hidden)
+                .buttonStyle(VocaKeyCapButtonStyle(isActive: isRecording))
                 .fixedSize()
                 .disabled(isRecording)
+                .help("Choose a common key, or press Record to use any key")
                 .accessibilityLabel(pickerLabel)
                 .accessibilityValue(currentDisplayName)
 

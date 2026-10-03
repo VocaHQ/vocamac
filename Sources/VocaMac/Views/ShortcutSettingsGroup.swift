@@ -74,7 +74,7 @@ struct ShortcutRecorderRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title ?? action.displayName)
                     Text(detail)
@@ -92,13 +92,15 @@ struct ShortcutRecorderRow: View {
                     .controlSize(.small)
                     .help("Suggested: three modifiers, rarely used by other apps")
                 } else {
-                    Text(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
-                        .font(.system(.body, design: .rounded))
-                        .foregroundStyle(combo == nil ? .secondary : .primary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                        .accessibilityLabel("\(action.displayName) shortcut")
+                    Group {
+                        if let combo {
+                            VocaKeyCap(text: KeyCodeReference.displayName(for: combo), isActive: isRecording)
+                        } else {
+                            Text("None").foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("\(action.displayName) shortcut")
                         .accessibilityValue(combo.map { KeyCodeReference.displayName(for: $0) } ?? "None")
                 }
                 HotKeyRecorderButton(

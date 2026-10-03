@@ -37,6 +37,23 @@ final class AIModelRoleTests: XCTestCase {
         XCTAssertTrue(state.sharesAIModel)
     }
 
+    func testSharingIsSuggestedUntilChosenOrDeclined() async {
+        let (state, _) = makeState()
+        XCTAssertFalse(state.suggestsSharingAIModel, "nothing to share while cleanup is off")
+
+        state.transcriptCleanupEnabled = true
+        XCTAssertTrue(state.suggestsSharingAIModel)
+        // The cleanup-only default can't edit, so the Command Mode model is offered.
+        XCTAssertEqual(state.sharedAIModelCandidate, .qwen25_1_5b_q4_k_m)
+
+        await state.setSharesAIModel(false)
+        XCTAssertFalse(state.suggestsSharingAIModel, "declining hides the suggestion")
+
+        await state.setSharesAIModel(true)
+        XCTAssertTrue(state.sharesAIModel)
+        XCTAssertFalse(state.suggestsSharingAIModel)
+    }
+
     func testWhileSharingEitherChoiceMovesBoth() async {
         let (state, _) = makeState()
         await state.setSharesAIModel(true)

@@ -3879,15 +3879,26 @@ final class AppState: ObservableObject {
             return
         }
         // useAIModel clears the separate flag only once the model is in place.
-        let kind: CleanupModelKind
-        if selectedCleanupModelKind.supportsCommandMode {
-            kind = selectedCleanupModelKind
-        } else if case .local(let commandKind) = commandModeEngine {
-            kind = commandKind
-        } else {
-            kind = cleanupModelSuggestion.commandMode
-        }
-        await useAIModel(kind, for: .both)
+        await useAIModel(sharedAIModelCandidate, for: .both)
+    }
+
+    /// The model sharing would put to work: the cleanup model when it can
+    /// edit text, then the local Command Mode model, then the one suggested
+    /// for this Mac.
+    var sharedAIModelCandidate: CleanupModelKind {
+        if selectedCleanupModelKind.supportsCommandMode { return selectedCleanupModelKind }
+        if case .local(let commandKind) = commandModeEngine { return commandKind }
+        return cleanupModelSuggestion.commandMode
+    }
+
+    /// Whether to point out that one model can do both: cleanup is on, both
+    /// features run separate models on this Mac, and the person hasn't
+    /// already chosen to keep them apart.
+    var suggestsSharingAIModel: Bool {
+        guard transcriptCleanupEnabled, cleanupEndpoint.isLocal,
+              !sharesAIModel, !aiModelsKeptSeparate,
+              case .local = commandModeEngine else { return false }
+        return true
     }
 
     /// Run Command Mode with Apple Intelligence or the cleanup endpoint.

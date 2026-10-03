@@ -135,3 +135,80 @@ final class PermissionPollingDecisionTests: XCTestCase {
         )
     }
 }
+
+// MARK: - Relaunch Advice
+
+@MainActor
+final class PermissionRelaunchAdviceTests: XCTestCase {
+
+    func testAPermissionNobodyAskedForIsNotDetermined() {
+        XCTAssertEqual(PermissionManager.status(granted: false, asked: false), .notDetermined)
+        XCTAssertEqual(PermissionManager.status(granted: false, asked: true), .denied)
+        XCTAssertEqual(PermissionManager.status(granted: true, asked: false), .granted)
+    }
+
+    func testNoAdviceBeforeTheUserWentToSystemSettings() {
+        XCTAssertFalse(PermissionManager.mayNeedRelaunch(
+            accessibility: .notDetermined, inputMonitoring: .notDetermined,
+            requestedThisLaunch: [], hotKeyStuckAfterGrant: false
+        ))
+    }
+
+    func testAdvisesARelaunchWhileARequestedPermissionIsStillOff() {
+        XCTAssertTrue(PermissionManager.mayNeedRelaunch(
+            accessibility: .granted, inputMonitoring: .denied,
+            requestedThisLaunch: [.inputMonitoring], hotKeyStuckAfterGrant: false
+        ))
+    }
+
+    func testIgnoresAMissingPermissionTheUserHasNotRequestedYet() {
+        XCTAssertFalse(PermissionManager.mayNeedRelaunch(
+            accessibility: .granted, inputMonitoring: .notDetermined,
+            requestedThisLaunch: [.accessibility], hotKeyStuckAfterGrant: false
+        ))
+    }
+
+    func testAdvisesARelaunchWhenTheHotKeyNeverCameUp() {
+        XCTAssertTrue(PermissionManager.mayNeedRelaunch(
+            accessibility: .granted, inputMonitoring: .granted,
+            requestedThisLaunch: [], hotKeyStuckAfterGrant: true
+        ))
+    }
+
+    func testForgettingRequestsClearsTheAskedFlags() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests") }
+        defaults.set(true, forKey: PreferenceKey.askedForAccessibility)
+        defaults.set(true, forKey: PreferenceKey.askedForInputMonitoring)
+
+        PermissionManager.forgetPermissionRequests(defaults: defaults)
+
+        XCTAssertNil(defaults.object(forKey: PreferenceKey.askedForAccessibility))
+        XCTAssertNil(defaults.object(forKey: PreferenceKey.askedForInputMonitoring))
+    }
+}
+
+// MARK: - Onboarding Resume
+
+final class OnboardingResumeStepTests: XCTestCase {
+
+    func testStartsOnWelcomeWithNothingSaved() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OnboardingResumeStepTests.empty"))
+        defer { defaults.removePersistentDomain(forName: "OnboardingResumeStepTests.empty") }
+        XCTAssertEqual(OnboardingStep.resumeStep(defaults: defaults), .welcome)
+    }
+
+    func testResumesOnTheSavedStep() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OnboardingResumeStepTests.saved"))
+        defer { defaults.removePersistentDomain(forName: "OnboardingResumeStepTests.saved") }
+        defaults.set(OnboardingStep.permissions.rawValue, forKey: PreferenceKey.onboardingResumeStep)
+        XCTAssertEqual(OnboardingStep.resumeStep(defaults: defaults), .permissions)
+    }
+
+    func testFallsBackToWelcomeForAStepThatNoLongerExists() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "OnboardingResumeStepTests.stale"))
+        defer { defaults.removePersistentDomain(forName: "OnboardingResumeStepTests.stale") }
+        defaults.set(99, forKey: PreferenceKey.onboardingResumeStep)
+        XCTAssertEqual(OnboardingStep.resumeStep(defaults: defaults), .welcome)
+    }
+}

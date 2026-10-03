@@ -342,6 +342,8 @@ final class AppState: ObservableObject {
     var micPermission: PermissionStatus { permissionManager.micPermission }
     var accessibilityPermission: PermissionStatus { permissionManager.accessibilityPermission }
     var inputMonitoringPermission: PermissionStatus { permissionManager.inputMonitoringPermission }
+    /// Quitting and reopening may get a permission through; see `PermissionManager.mayNeedRelaunch`.
+    var permissionsMayNeedRelaunch: Bool { permissionManager.mayNeedRelaunch }
 
     /// Detected system capabilities
     @Published var systemCapabilities: SystemCapabilities?

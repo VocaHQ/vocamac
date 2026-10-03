@@ -72,6 +72,14 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         String(format: "%02d — ", rawValue + 1) + shortTitle
     }
 
+    /// Where unfinished onboarding reopens: the step it was left on, so a
+    /// Quit & Reopen for a permission (VocaMac's or macOS's own) lands back
+    /// there instead of on Welcome.
+    static func resumeStep(defaults: UserDefaults = .standard) -> OnboardingStep {
+        guard defaults.object(forKey: PreferenceKey.onboardingResumeStep) != nil else { return .welcome }
+        return OnboardingStep(rawValue: defaults.integer(forKey: PreferenceKey.onboardingResumeStep)) ?? .welcome
+    }
+
     /// Keep the final escape hatch available while optional background work finishes.
     func disablesNavigation(
         practiceBusy: Bool,
@@ -103,9 +111,12 @@ struct OnboardingView: View {
 
     static let sceneWidth: CGFloat = 380
 
-    /// `initialStep` lets previews open on a later step.
+    /// `initialStep` reopens unfinished onboarding where it was left, and
+    /// lets previews open on a later step. The opening plays only on Welcome.
     init(initialStep: OnboardingStep = .welcome, onFinished: @escaping () -> Void) {
         _currentStep = State(initialValue: initialStep)
+        _introExpanded = State(initialValue: initialStep == .welcome)
+        _introDone = State(initialValue: initialStep != .welcome)
         self.onFinished = onFinished
     }
 
@@ -139,6 +150,9 @@ struct OnboardingView: View {
         .onDisappear { appState.armOnboardingVerification(nil) }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appState.checkPermissions()
+        }
+        .onChange(of: currentStep) {
+            UserDefaults.standard.set(currentStep.rawValue, forKey: PreferenceKey.onboardingResumeStep)
         }
     }
 
@@ -345,11 +359,11 @@ struct OnboardingView: View {
     }
 
     private func skipOnboarding() {
-        appState.completeOnboarding()
-        onFinished()
+        completeOnboarding()
     }
 
     private func completeOnboarding() {
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep)
         appState.completeOnboarding()
         onFinished()
     }
@@ -487,6 +501,11 @@ struct PermissionsStep: View {
                 .accessibilityElement(children: .combine)
             }
 
+            if appState.permissionsMayNeedRelaunch {
+                RelaunchForPermissionsCard()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
             Text("After enabling VocaMac in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -496,6 +515,63 @@ struct PermissionsStep: View {
                 .riseIn(delay: 0.7)
         }
         .padding(16)
+    }
+}
+
+// MARK: - Relaunch For Permissions
+
+/// Offers to quit and reopen VocaMac after the user went to System Settings
+/// for a permission that still reads as off. macOS applies Input Monitoring,
+/// and sometimes Accessibility, only to a process started after the grant.
+struct RelaunchForPermissionsCard: View {
+    @EnvironmentObject var appState: AppState
+    @State private var relaunchFailed = false
+
+    /// Every permission is on, so only the hotkey is waiting on a reopen.
+    private var onlyHotKeyIsStuck: Bool {
+        appState.accessibilityPermission == .granted && appState.inputMonitoringPermission == .granted
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(VocaDesign.accent)
+                .frame(width: 28, height: 28)
+                .background(VocaDesign.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(onlyHotKeyIsStuck ? "One more step for your shortcut" : "Turned VocaMac on, but it still shows as off?")
+                    .font(.system(size: 13.5, weight: .semibold))
+                Text(onlyHotKeyIsStuck
+                     ? "Every permission is on, but macOS hasn't connected your shortcut yet. Reopening VocaMac fixes this."
+                     : "macOS can wait to apply Accessibility and Input Monitoring until VocaMac reopens.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    Button {
+                        relaunchFailed = !AppRelauncher.relaunch()
+                    } label: {
+                        Label("Quit & Reopen", systemImage: "arrow.clockwise")
+                    }
+                    .buttonStyle(VocaOutlineButtonStyle())
+
+                    Text(relaunchFailed
+                         ? "VocaMac couldn't reopen itself. Quit it from the menu bar and open it again."
+                         : "Setup picks up right here.")
+                        .font(.caption)
+                        .foregroundStyle(relaunchFailed ? VocaDesign.warning : .secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vocaCard()
+        .accessibilityElement(children: .contain)
     }
 }
 

@@ -10,6 +10,10 @@ import Foundation
 /// services that must read the same setting outside the view layer.
 enum PreferenceKey {
     static let onboardingCompleted = "vocamac.hasCompletedOnboarding"
+    /// The onboarding step to reopen on, until onboarding is finished.
+    static let onboardingResumeStep = "vocamac.onboarding.resumeStep"
+    static let askedForAccessibility = "vocamac.permissions.askedForAccessibility"
+    static let askedForInputMonitoring = "vocamac.permissions.askedForInputMonitoring"
     static let selectedModelSize = "vocamac.selectedModelSize"
     static let selectedLanguage = "vocamac.selectedLanguage"
     static let appendTrailingSpace = "vocamac.appendTrailingSpace"

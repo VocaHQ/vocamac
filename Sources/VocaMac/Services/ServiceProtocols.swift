@@ -141,6 +141,7 @@ protocol PermissionManaging: AnyObject {
     var accessibilityPermission: PermissionStatus { get set }
     var inputMonitoringPermission: PermissionStatus { get set }
     var allPermissionsGranted: Bool { get }
+    var mayNeedRelaunch: Bool { get }
     var onAllPermissionsGranted: (() -> Void)? { get set }
 
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }

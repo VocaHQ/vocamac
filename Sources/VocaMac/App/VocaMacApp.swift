@@ -269,7 +269,11 @@ final class OnboardingWindowManager: ObservableObject {
         // Create the onboarding view. It closes this window directly rather
         // than going back through the manager, so "Finish" and "Set up later"
         // work regardless of who still holds a reference to the manager.
-        let onboardingView = OnboardingView { [weak window] in
+        // Unfinished onboarding reopens where it was left, e.g. after a
+        // Quit & Reopen for a permission; "Run setup again" starts over.
+        let onboardingView = OnboardingView(
+            initialStep: appState.hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep()
+        ) { [weak window] in
             window?.close()
         }
             .environmentObject(appState)

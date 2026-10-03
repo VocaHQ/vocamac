@@ -67,10 +67,12 @@ final class SettingsWindowManager: ObservableObject {
             defer: false
         )
         window.title = "VocaMac Settings"
-        // A hosting controller lets the native split view own its toolbar and
-        // safe area, including the system sidebar toggle.
+        // Content runs up under a transparent title bar, so the page's scene
+        // and the sidebar's paper reach the top edge as in onboarding.
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.backgroundColor = .windowBackgroundColor
+        window.backgroundColor = VocaDesign.canvasNSColor
         let hostingController = NSHostingController(rootView: settingsView)
         hostingController.sizingOptions = []
         window.contentViewController = hostingController

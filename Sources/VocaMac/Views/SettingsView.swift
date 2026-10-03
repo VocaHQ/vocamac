@@ -21,7 +21,6 @@ struct SettingsView: View {
     @State private var pageBeforeSearch: SettingsPage = .dictation
     @AppStorage("settings.lastPage") private var lastPage = SettingsPage.dictation.rawValue
     @AppStorage("settings.sidebarVisible") private var sidebarVisible = true
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var didRestore = false
 
     private var hasSearchQuery: Bool {
@@ -29,53 +28,17 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            settingsSidebar
-                .frame(minHeight: 0, maxHeight: .infinity)
-                .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
-        } detail: {
-            VStack(spacing: 0) {
-                // Title only: the sidebar already says where you are, and a
-                // tagline under every page was one more line to read past.
-                // The scene is the group's time of day.
-                let page = selectedPage ?? .dictation
-                VocaSceneBanner(title: page.title, mood: SettingsSection.containing(page).mood)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 14)
-                    .padding(.bottom, 6)
-                if let entry = SettingsSearchIndex.entries.first(where: { $0.id == selectedSearchEntryID }),
-                   let hint = entry.navigationHint {
-                    Label(hint, systemImage: "arrow.turn.down.right")
-                        .font(.callout).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 24).padding(.bottom, 8)
-                }
-                ScrollViewReader { proxy in
-                    settingsDetail
-                        .environment(\.settingsSearchTarget, selectedSearchEntryID)
-                        // Grouped forms draw their own gray backdrop; let the
-                        // paper canvas show through on every page.
-                        .scrollContentBackground(.hidden)
-                        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-                        .task(id: selectedSearchEntryID) {
-                            guard let id = selectedSearchEntryID else { return }
-                            // Give a newly selected page and any revealed disclosure
-                            // one layout pass before scrolling to its control.
-                            do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
-                            guard !Task.isCancelled else { return }
-                            proxy.scrollTo(id, anchor: .center)
-                        }
-                }
+        // A paper sidebar beside a page that opens on a full-bleed scene,
+        // both running up under the transparent title bar like onboarding.
+        HStack(spacing: 0) {
+            if sidebarVisible {
+                settingsSidebar
+                    .frame(width: 236)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            .frame(minHeight: 0, maxHeight: .infinity)
-            .vocaPaperBackground()
-            .overlay(alignment: .bottom) { UndoToastView(undoCenter: appState.undoCenter) }
+            settingsPage
         }
-        .navigationSplitViewStyle(.balanced)
-        .onChange(of: columnVisibility) { _, value in
-            sidebarVisible = value != .detailOnly
-        }
+        .ignoresSafeArea()
         .onChange(of: searchText) { _, newValue in
             selectedSearchEntryID = nil
             if newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -100,7 +63,6 @@ struct SettingsView: View {
             if !didRestore {
                 selectedPage = SettingsPage(rawValue: lastPage) ?? .dictation
                 pageBeforeSearch = selectedPage ?? .dictation
-                columnVisibility = sidebarVisible ? .all : .detailOnly
                 didRestore = true
             }
             showRequestedPage()
@@ -112,7 +74,7 @@ struct SettingsView: View {
             applyWindowRequestedPage()
         }
         .frame(minWidth: 760, minHeight: 580)
-        .tint(VocaDesign.accent)
+        .tint(VocaDesign.accentSolid)
         .groupBoxStyle(VocaGroupBoxStyle())
     }
 
@@ -136,43 +98,85 @@ struct SettingsView: View {
         selectedPage = page
     }
 
+    private var settingsPage: some View {
+        VStack(spacing: 0) {
+            // Title only: the sidebar already says where you are, and a
+            // tagline under every page was one more line to read past.
+            // The scene is the group's time of day.
+            let page = selectedPage ?? .dictation
+            SettingsSceneHeader(
+                title: page.title,
+                mood: SettingsSection.containing(page).mood,
+                leadingInset: sidebarVisible ? 18 : 84,
+                isSidebarVisible: sidebarVisible
+            ) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) { sidebarVisible.toggle() }
+            }
+            if let entry = SettingsSearchIndex.entries.first(where: { $0.id == selectedSearchEntryID }),
+               let hint = entry.navigationHint {
+                Label(hint, systemImage: "arrow.turn.down.right")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 24).padding(.top, 12)
+            }
+            ScrollViewReader { proxy in
+                settingsDetail
+                    .environment(\.settingsSearchTarget, selectedSearchEntryID)
+                    // Grouped forms draw their own gray backdrop; let the
+                    // paper canvas show through on every page.
+                    .scrollContentBackground(.hidden)
+                    .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                    .task(id: selectedSearchEntryID) {
+                        guard let id = selectedSearchEntryID else { return }
+                        // Give a newly selected page and any revealed disclosure
+                        // one layout pass before scrolling to its control.
+                        do { try await Task.sleep(for: .milliseconds(120)) } catch { return }
+                        guard !Task.isCancelled else { return }
+                        proxy.scrollTo(id, anchor: .center)
+                    }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .vocaPaperBackground()
+        .overlay(alignment: .bottom) { UndoToastView(undoCenter: appState.undoCenter) }
+    }
+
     private var settingsSidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 VocaMarkView(size: 26)
-                Text("VocaMac").font(VocaDesign.display(19))
+                Text("VocaMac").font(VocaDesign.display(20))
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 18)
+            // Clear of the window controls above.
+            .padding(.top, 46)
+            .padding(.bottom, 14)
             SettingsSidebarSearchField(text: $searchText)
                 .onSubmit {
                     selectedSearchEntryID = SettingsSearchResults.groups(for: searchText).first?.entries.first?.id
                 }
+                .padding(.horizontal, 12)
 
             if hasSearchQuery {
                 SettingsSearchResults(query: searchText, selection: $selectedSearchEntryID)
             } else {
-                // Keep native arrow-key navigation and system selection colors.
-                List(selection: $selectedPage) {
-                    ForEach(SettingsSection.allCases) { section in
-                        Section(section.title) {
-                            ForEach(section.pages) { page in
-                                Label(page.title, systemImage: page.systemImage)
-                                    .symbolRenderingMode(.monochrome)
-                                    .tag(page)
-                            }
-                        }
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
+                SettingsSidebarList(selection: $selectedPage)
             }
-            Divider()
+            Rectangle().fill(VocaDesign.line).frame(height: 1)
             SettingsSidebarFooter()
                 .padding(12)
         }
-        .background(VocaDesign.sidebar)
+        .background {
+            ZStack {
+                VocaDesign.sidebar
+                PaperGrainOverlay()
+            }
+        }
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(VocaDesign.line).frame(width: 1)
+        }
     }
 
     @ViewBuilder
@@ -288,11 +292,15 @@ struct SettingsSidebarSearchField: View {
                 .accessibilityLabel("Clear search")
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(VocaDesign.surface)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(VocaDesign.line)
         )
         .padding(.horizontal, 12)
         .padding(.top, 8)
@@ -397,8 +405,7 @@ struct SettingsSidebarFooter: View {
                 )
                 .frame(maxWidth: .infinity)
             }
-            .vocaGlassButton()
-            .controlSize(.regular)
+            .buttonStyle(VocaPrimaryButtonStyle())
             .help("Try dictation here. The result stays in this window.")
             .disabled(externalRecording || appState.appStatus == .processing || (appState.isAutoPaused && !appState.isRecording))
 
@@ -437,7 +444,7 @@ struct SettingsSidebarFooter: View {
         case .idle:
             return appState.isDictationReady && appState.cleanupReadinessLabel == nil
                 ? VocaDesign.success : VocaDesign.warning
-        case .recording: return Color(nsColor: BrandAssets.brandGreen)
+        case .recording: return VocaDesign.clay
         // Matches MenuBarView.statusColor; the same state must not change hue
         // between the menu bar and the settings footer.
         case .processing: return VocaDesign.busy
@@ -2368,6 +2375,141 @@ struct PermissionsLogsTab: View {
                     VocaLogger.error(.general, "Failed to export logs: \(error)")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Sidebar list
+
+/// The page list: tracked group labels and rows that fill with ink when
+/// chosen. Up and down arrows move through it as they did through the
+/// system list it replaces.
+struct SettingsSidebarList: View {
+    @Binding var selection: SettingsPage?
+
+    private static let order = SettingsSection.allCases.flatMap(\.pages)
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(SettingsSection.allCases) { section in
+                    Text(section.title.uppercased())
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .tracking(1.3)
+                        .foregroundStyle(.secondary)
+                        .padding(.leading, 10)
+                        .padding(.top, 16)
+                        .padding(.bottom, 4)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(section.pages) { page in
+                        SettingsSidebarRow(page: page, isSelected: selection == page) {
+                            selection = page
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 12)
+        }
+        .scrollIndicators(.never)
+        .focusable()
+        .focusEffectDisabled()
+        .onKeyPress(.downArrow) { move(by: 1) }
+        .onKeyPress(.upArrow) { move(by: -1) }
+    }
+
+    private func move(by offset: Int) -> KeyPress.Result {
+        let current = selection.flatMap { Self.order.firstIndex(of: $0) } ?? 0
+        let next = min(max(current + offset, 0), Self.order.count - 1)
+        selection = Self.order[next]
+        return .handled
+    }
+}
+
+private struct SettingsSidebarRow: View {
+    let page: SettingsPage
+    let isSelected: Bool
+    let select: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: select) {
+            HStack(spacing: 10) {
+                Image(systemName: page.systemImage)
+                    .symbolRenderingMode(.monochrome)
+                    .font(.system(size: 13))
+                    .frame(width: 18)
+                    .foregroundStyle(isSelected ? VocaDesign.onInk : Color.secondary)
+                Text(page.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? VocaDesign.onInk : Color.primary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(isSelected ? VocaDesign.ink : Color.primary.opacity(isHovered ? 0.05 : 0))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .animation(.easeOut(duration: 0.15), value: isSelected)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+// MARK: - Page header
+
+/// The top of every settings page: the group's scene running edge to edge
+/// and up under the title bar, with the page title set on it.
+struct SettingsSceneHeader: View {
+    let title: String
+    let mood: SceneMood
+    var leadingInset: CGFloat = 18
+    let isSidebarVisible: Bool
+    let toggleSidebar: () -> Void
+
+    @State private var isMoving = true
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            VocaScene(mood: mood, animated: isMoving, framing: .horizon)
+            Text(title)
+                .font(VocaDesign.display(38))
+                .foregroundStyle(Color(nsColor: VocaPalette.ivory))
+                .shadow(color: .black.opacity(0.28), radius: 12, y: 1)
+                .padding(.leading, 28)
+                .padding(.bottom, 20)
+                .id(title)
+                .riseIn(distance: 8)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .frame(height: 164)
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .overlay(alignment: .topLeading) {
+            Button(action: toggleSidebar) {
+                Image(systemName: "sidebar.left")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Color(nsColor: VocaPalette.ivory).opacity(0.9))
+                    .frame(width: 28, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+            .accessibilityLabel(isSidebarVisible ? "Hide Sidebar" : "Show Sidebar")
+            .padding(.leading, leadingInset)
+            .padding(.top, 9)
+        }
+        .task(id: title) {
+            // Move for a few seconds when a page opens, then hold still, so
+            // an open Settings window costs nothing while it sits there.
+            isMoving = true
+            try? await Task.sleep(for: .seconds(6))
+            isMoving = false
         }
     }
 }

@@ -73,7 +73,8 @@ enum VocaDesign {
     /// Text on `ink`.
     static let onInk = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.ivory, dark: VocaPalette.ink))
     static let clay = Color(nsColor: VocaPalette.clay)
-    static let line = Color.primary.opacity(0.10)
+    /// Hairlines and card edges: present, never heavy.
+    static let line = Color.primary.opacity(0.07)
 
     /// Editorial serif for headlines. New York ships with macOS, so there is
     /// no font file to bundle or license.
@@ -183,7 +184,7 @@ struct VocaSectionHeader: View {
                 }
                 Text(title)
             }
-            .font(.headline)
+            .font(VocaDesign.display(20))
             .accessibilityAddTraits(.isHeader)
 
             if let subtitle {
@@ -308,13 +309,13 @@ struct ActivationModeSelector: View {
             .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 10)
-                    .fill(isSelected ? VocaDesign.accent.opacity(0.12) : Color.primary.opacity(0.04))
+                    .fill(isSelected ? VocaDesign.accent.opacity(0.10) : Color.primary.opacity(0.03))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(
-                        isSelected ? VocaDesign.accent.opacity(0.55) : VocaDesign.line,
-                        lineWidth: isSelected ? 1.5 : 1
+                        isSelected ? VocaDesign.accent.opacity(0.6) : VocaDesign.line,
+                        lineWidth: 1
                     )
             )
             .contentShape(RoundedRectangle(cornerRadius: 10))

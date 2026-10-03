@@ -357,39 +357,3 @@ extension Color {
         )
     }
 }
-
-// MARK: - Banner
-
-/// A page title set on a strip of scenery: the Settings page header.
-///
-/// The scene moves for a few seconds when the page opens and then holds
-/// still, so an open Settings window costs nothing while it sits there.
-struct VocaSceneBanner: View {
-    let title: String
-    let mood: SceneMood
-    var height: CGFloat = 96
-
-    @State private var isMoving = true
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            VocaScene(mood: mood, animated: isMoving, framing: .horizon)
-            Text(title)
-                .font(VocaDesign.display(32))
-                .foregroundStyle(Color(nsColor: VocaPalette.ivory))
-                .shadow(color: .black.opacity(0.25), radius: 10, y: 1)
-                .padding(.horizontal, 22)
-                .padding(.bottom, 14)
-                .accessibilityAddTraits(.isHeader)
-        }
-        .frame(height: height)
-        .frame(maxWidth: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(VocaDesign.line))
-        .task(id: title) {
-            isMoving = true
-            try? await Task.sleep(for: .seconds(6))
-            isMoving = false
-        }
-    }
-}

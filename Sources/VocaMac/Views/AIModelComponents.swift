@@ -185,7 +185,7 @@ struct AIModelMenu: View {
             if !otherEngines.isEmpty {
                 Divider()
                 ForEach(otherEngines) { engine in
-                    VocaMenuChoice(title: engine.displayName, isSelected: appState.commandModeEngine == engine) {
+                    VocaMenuChoice(title: Self.title(for: engine, appState: appState), isSelected: appState.commandModeEngine == engine) {
                         appState.selectCommandModeEngine(engine)
                     }
                 }
@@ -246,8 +246,15 @@ struct AIModelMenu: View {
                 ? appState.selectedCleanupModelKind.descriptor.displayName
                 : appState.cleanupEndpoint.provider.displayName
         case .commandMode, .both:
-            return appState.commandModeEngine.displayName
+            return Self.title(for: appState.commandModeEngine, appState: appState)
         }
+    }
+
+    /// What the menu calls an engine. The cleanup endpoint goes by its
+    /// provider, the name people chose it by on the Smart Cleanup page.
+    static func title(for engine: CommandModeEngine, appState: AppState) -> String {
+        guard engine == .endpoint, !appState.cleanupEndpoint.isLocal else { return engine.displayName }
+        return "\(appState.cleanupEndpoint.provider.displayName) server"
     }
 
     private var isUnavailable: Bool {

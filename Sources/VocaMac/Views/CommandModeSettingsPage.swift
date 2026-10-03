@@ -55,7 +55,7 @@ struct CommandModeSettingsPage: View {
                     Divider()
                     SettingsRow(
                         title: "Use the Smart Cleanup model",
-                        detail: "Smart Cleanup runs with \(appState.cleanupEndpoint.provider.displayName), so there's no model on this Mac to share. Choose \(appState.cleanupEndpoint.provider.displayName) in the menu above to use it for edits too."
+                        detail: remoteSharingDetail
                     ) { EmptyView() }
                     .settingsTarget("command-mode-share")
                 }
@@ -133,6 +133,19 @@ struct CommandModeSettingsPage: View {
         return false
     }
 
+    /// With cleanup on a server there's nothing on this Mac to share. Name
+    /// the menu choice exactly, and say when it can't be chosen yet.
+    private var remoteSharingDetail: String {
+        let provider = appState.cleanupEndpoint.provider.displayName
+        if appState.cleanupEndpoint.validationProblem() != nil {
+            return "Smart Cleanup is set to \(provider), which isn't fully set up. Finish it under Smart Cleanup › Where Cleanup Runs, then choose “\(provider) server” in the menu above."
+        }
+        if appState.commandModeEngine == .endpoint {
+            return "Edits already run on the same \(provider) server as Smart Cleanup."
+        }
+        return "Smart Cleanup runs on \(provider), so there's no model on this Mac to share. Choose “\(provider) server” in the menu above to use it for edits too."
+    }
+
     /// Says in one sentence what sharing, or not sharing, means right now.
     private var sharingDetail: String {
         let cleanup = appState.selectedCleanupModelKind.descriptor.displayName
@@ -148,7 +161,7 @@ struct CommandModeSettingsPage: View {
             }
             return "Smart Cleanup uses \(cleanup). The two take turns in memory, so an edit starts slower. Turn this on to run both with one model."
         case .appleIntelligence, .endpoint:
-            return "Off while Command Mode runs with \(appState.commandModeEngine.displayName)."
+            return "Off while Command Mode runs with \(AIModelMenu.title(for: appState.commandModeEngine, appState: appState))."
         }
     }
 

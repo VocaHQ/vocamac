@@ -101,7 +101,7 @@ struct AboutTab: View {
                 )
             }
             LabeledContent("Engine", value: activeEngineLabel)
-            LabeledContent("Model", value: appState.whisperService.loadedModelName ?? "Not loaded")
+            LabeledContent("Model", value: appState.loadedModelDisplayName ?? "Not loaded")
             // Cleanup is opt-in and runs a second model, so it only earns a row
             // once it is actually part of what this Mac is doing.
             if let cleanupModelLabel {

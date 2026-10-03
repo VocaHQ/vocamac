@@ -652,6 +652,29 @@ struct SettingsToggleRow: View {
     }
 }
 
+/// A label-plus-explanation row with any control on the trailing edge, the
+/// same shape as `SettingsToggleRow`.
+struct SettingsRow<Control: View>: View {
+    let title: String
+    var detail: String?
+    @ViewBuilder let control: Control
+
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                if let detail {
+                    Text(detail)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 16)
+            control
+        }
+    }
+}
+
 // MARK: - Application Settings
 
 struct ApplicationSettingsPage: View {
@@ -1041,90 +1064,74 @@ struct PerformanceSettingsTab: View {
     ]
 
     var body: some View {
-        Form {
-            Section {
-                HStack {
-                    Label(
-                        appState.whisperService.isModelLoaded ? "Model loaded" : "Model unloaded",
-                        systemImage: appState.whisperService.isModelLoaded ? "checkmark.circle.fill" : "memorychip"
-                    )
-                    .foregroundStyle(appState.whisperService.isModelLoaded ? VocaDesign.success : VocaDesign.warning)
-                    Spacer()
-                    if appState.whisperService.isModelLoaded {
-                        Text(loadedModelLabel)
+        VocaSettingsPageContent {
+            VocaSettingsGroup("Speech Model") {
+                HStack(spacing: 10) {
+                    Image(systemName: isLoaded ? "checkmark.circle.fill" : "moon.zzz")
+                        .font(.system(size: 18))
+                        .foregroundStyle(isLoaded ? VocaDesign.success : .secondary)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(isLoaded ? (appState.loadedModelDisplayName ?? "Model loaded") : "Not loaded")
+                            .font(.headline)
+                        Text(statusDetail)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(statusIsWarning ? VocaDesign.warning : .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
+                    Spacer()
                 }
 
-                if appState.whisperService.isModelLoaded {
-                    if let estimate = estimatedModelRAMLabel {
-                        LabeledContent("Speech model needs about", value: estimate)
+                if isLoaded {
+                    Divider()
+                    HStack(spacing: 12) {
+                        if let estimate = estimatedModelRAMLabel {
+                            MemoryFigure(title: "Model needs about", value: estimate)
+                        }
+                        MemoryFigure(
+                            title: "VocaMac is using",
+                            value: String(format: "%.0f MB", ProcessMonitor.currentResidentMemoryMB())
+                        )
                     }
-                    LabeledContent(
-                        "VocaMac is using",
-                        value: String(format: "%.0f MB", ProcessMonitor.currentResidentMemoryMB())
-                    )
-                } else if let message = appState.modelUnloadStatusMessage {
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(VocaDesign.warning)
-                    if let freed = appState.approximateMemoryFreedMB {
-                        Text(String(format: "About %.0f MB of process memory was released on unload.", freed))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("No speech model is loaded right now.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
-            } header: {
-                VocaFormSectionHeader("Model Status")
             }
             .settingsTarget("model-status")
 
-            Section {
-                Toggle(isOn: $appState.autoPauseEnabled) {
-                    Text("Pause dictation while these apps run")
-                    Text("Frees the speech model's memory for games and other heavy apps, and loads it again when they quit.")
-                }
+            VocaSettingsGroup("Auto-Pause for Apps") {
+                SettingsToggleRow(
+                    title: "Pause dictation while these apps run",
+                    detail: "Frees the speech model's memory for games and other heavy apps, and loads it again when they quit.",
+                    isOn: $appState.autoPauseEnabled
+                )
 
-                Group {
-                    if !appState.autoPauseApps.isEmpty {
-                        ForEach(appState.autoPauseApps) { app in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(app.displayName)
-                                    if let bundle = app.bundleIdentifier {
-                                        Text(bundle)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    } else if let process = app.processName {
-                                        Text(process)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
+                if appState.autoPauseEnabled {
+                    ForEach(appState.autoPauseApps) { app in
+                        Divider()
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(app.displayName)
+                                if let detail = app.bundleIdentifier ?? app.processName {
+                                    Text(detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
                                 }
-                                Spacer()
-                                Button(role: .destructive) {
-                                    appState.removeAutoPauseApp(app)
-                                } label: {
-                                    Image(systemName: "minus.circle.fill")
-                                }
-                                .buttonStyle(.borderless)
-                                .help("Remove \(app.displayName)")
-                                .accessibilityLabel("Remove \(app.displayName)")
                             }
+                            Spacer()
+                            Button(role: .destructive) {
+                                appState.removeAutoPauseApp(app)
+                            } label: {
+                                Image(systemName: "minus.circle.fill")
+                            }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Remove \(app.displayName)")
+                            .accessibilityLabel("Remove \(app.displayName)")
                         }
                     }
-
                     Button("Add App…") {
                         showingAppPicker = true
                     }
                 }
-                .disabled(!appState.autoPauseEnabled)
-                .opacity(appState.autoPauseEnabled ? 1 : 0.45)
 
                 if appState.isAutoPaused {
                     Label(
@@ -1135,32 +1142,30 @@ struct PerformanceSettingsTab: View {
                     .foregroundStyle(VocaDesign.warning)
                     .font(.caption)
                 }
-            } header: {
-                VocaFormSectionHeader("Auto-Pause for Apps")
             }
             .settingsTarget("auto-pause")
 
-            Section {
-                Toggle(isOn: $appState.modelKeepAliveEnabled) {
-                    Text("Unload models when idle")
-                    Text("Frees memory, including Smart Cleanup and Command Mode models. The next dictation takes a moment longer to start.")
-                }
-                    .help("Frees memory after you stop dictating, including the cleanup and Command Mode models. The next use reloads the model, which can take a moment.")
-
-                Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
-                    ForEach(idleTimeoutChoices, id: \.seconds) { choice in
-                        Text(choice.label).tag(choice.seconds)
+            VocaSettingsGroup("Unload When Idle") {
+                SettingsToggleRow(
+                    title: "Unload models when idle",
+                    detail: "Frees memory, including Smart Cleanup and Command Mode models. The next dictation takes a moment longer to start.",
+                    isOn: $appState.modelKeepAliveEnabled
+                )
+                if appState.modelKeepAliveEnabled {
+                    Divider()
+                    SettingsRow(title: "After") {
+                        Picker("Idle timeout", selection: $appState.modelKeepAliveIdleTimeoutSeconds) {
+                            ForEach(idleTimeoutChoices, id: \.seconds) { choice in
+                                Text(choice.label).tag(choice.seconds)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
                     }
                 }
-                .disabled(!appState.modelKeepAliveEnabled)
-                .opacity(appState.modelKeepAliveEnabled ? 1 : 0.45)
-            } header: {
-                VocaFormSectionHeader("Unload When Idle")
             }
             .settingsTarget("idle-unload")
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .sheet(isPresented: $showingAppPicker) {
             AutoPauseAppPickerSheet { entry in
                 var apps = appState.autoPauseApps
@@ -1175,11 +1180,22 @@ struct PerformanceSettingsTab: View {
         }
     }
 
-    private var loadedModelLabel: String {
-        if let model = appState.currentModel {
-            return model.size.displayName
+    private var isLoaded: Bool { appState.whisperService.isModelLoaded }
+
+    private var statusIsWarning: Bool {
+        !isLoaded && appState.modelUnloadStatusMessage != nil
+    }
+
+    /// One line on why the model is or isn't in memory.
+    private var statusDetail: String {
+        if isLoaded { return "Loaded and ready, so dictation starts right away." }
+        if let message = appState.modelUnloadStatusMessage {
+            if let freed = appState.approximateMemoryFreedMB {
+                return message + String(format: " About %.0f MB was freed.", freed)
+            }
+            return message
         }
-        return appState.whisperService.loadedModelName ?? "Ready"
+        return "It loads when you next dictate."
     }
 
     private var estimatedModelRAMLabel: String? {
@@ -1187,6 +1203,26 @@ struct PerformanceSettingsTab: View {
             ?? ModelSize(rawValue: appState.selectedModelSize)
         guard let size else { return nil }
         return String(format: "~%.1f GB", size.ramRequiredGB)
+    }
+}
+
+/// One memory number with its label above it.
+private struct MemoryFigure: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.title3.weight(.semibold))
+                .monospacedDigit()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -1880,114 +1916,124 @@ struct AudioSettingsTab: View {
     @State private var audioDevices: [AudioDevice] = []
 
     var body: some View {
-        Form {
+        VocaSettingsPageContent {
             inputDeviceSection
 
-            Section {
-                Picker("Max recording duration", selection: $appState.maxRecordingDuration) {
-                    Text("15 seconds").tag(15)
-                    Text("30 seconds").tag(30)
-                    Text("60 seconds").tag(60)
-                    Text("120 seconds").tag(120)
-                    Text("300 seconds (5 min)").tag(300)
-                    Text("10 minutes").tag(600)
-                    Text("20 minutes").tag(1200)
+            VocaSettingsGroup("Recording and Silence") {
+                SettingsRow(title: "Longest recording", detail: "A recording stops on its own after this long.") {
+                    Picker("Max recording duration", selection: $appState.maxRecordingDuration) {
+                        Text("15 seconds").tag(15)
+                        Text("30 seconds").tag(30)
+                        Text("1 minute").tag(60)
+                        Text("2 minutes").tag(120)
+                        Text("5 minutes").tag(300)
+                        Text("10 minutes").tag(600)
+                        Text("20 minutes").tag(1200)
+                    }
+                    .labelsHidden()
+                    .fixedSize()
                 }
                 .onChange(of: appState.maxRecordingDuration) {
                     appState.syncHotKeyConfiguration()
                 }
 
-                Toggle(isOn: $appState.skipSilence) {
-                    Text("Skip silence before transcribing")
-                    Text("Cuts pauses out first, so transcription is faster and quiet stretches don't turn into made-up words.")
-                }
+                Divider()
+
+                SettingsToggleRow(
+                    title: "Skip silence before transcribing",
+                    detail: "Cuts pauses out first, so transcription is faster and quiet stretches don't turn into made-up words.",
+                    isOn: $appState.skipSilence
+                )
                 .settingsTarget("skip-silence")
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Silence sensitivity")
-                        Text("How quiet counts as silence.")
-                            .font(.caption).foregroundStyle(.secondary)
+                Divider()
+
+                SettingsRow(title: "Silence sensitivity", detail: "How quiet counts as silence.") {
+                    HStack(spacing: 8) {
+                        Slider(value: $appState.silenceThreshold, in: 0.001...0.05, step: 0.001)
+                            .frame(width: 160)
+                            .accessibilityLabel("Silence sensitivity")
+                        Text(sensitivityLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 48, alignment: .trailing)
                     }
-                    Slider(
-                        value: $appState.silenceThreshold,
-                        in: 0.001...0.05,
-                        step: 0.001
-                    )
-                    Text(sensitivityLabel)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 50, alignment: .trailing)
                 }
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Stop after silence")
-                        Text("Hands-free and double-tap only. Push to talk stops when you let go.")
-                            .font(.caption).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                Divider()
+
+                SettingsRow(title: "Stop after silence", detail: "Hands-free and double-tap only. Push to talk stops when you let go.") {
+                    HStack(spacing: 6) {
+                        TextField(
+                            "Seconds",
+                            value: silenceDurationBinding,
+                            format: .number.precision(.fractionLength(0...1))
+                        )
+                        .labelsHidden()
+                        .textFieldStyle(.voca)
+                        .multilineTextAlignment(.trailing)
+                        .monospacedDigit()
+                        .frame(width: 64)
+                        Text("seconds")
+                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    TextField(
-                        "Seconds",
-                        value: silenceDurationBinding,
-                        format: .number.precision(.fractionLength(0...1))
-                    )
-                    .labelsHidden()
-                    .textFieldStyle(.voca)
-                    .multilineTextAlignment(.trailing)
-                    .monospacedDigit()
-                    .frame(width: 72)
-                    Text("seconds")
-                        .foregroundStyle(.secondary)
                 }
-                .help("Hands-free and double-tap recordings stop after this much silence (0.5–300 seconds). Push-to-talk stops when you release the key.")
-            } header: {
-                VocaFormSectionHeader("Recording and Silence")
+                .help("Between 0.5 and 300 seconds.")
             }
             .settingsTarget("silence")
 
-            Section {
-                Toggle("Play start and stop sounds", isOn: $appState.soundEffectsEnabled)
+            VocaSettingsGroup("Sounds") {
+                SettingsToggleRow(
+                    title: "Play start and stop sounds",
+                    detail: "A short tone when the microphone opens and closes.",
+                    isOn: $appState.soundEffectsEnabled
+                )
                 .settingsTarget("sound-effects")
 
-                HStack {
-                    Picker("Dictation tone", selection: $appState.dictationTone) {
-                        ForEach(DictationTone.allCases) { tone in
-                            Text(tone.displayName).tag(tone)
+                Divider()
+
+                SettingsRow(title: "Dictation tone") {
+                    HStack(spacing: 6) {
+                        Picker("Dictation tone", selection: $appState.dictationTone) {
+                            ForEach(DictationTone.allCases) { tone in
+                                Text(tone.displayName).tag(tone)
+                            }
                         }
-                    }
-                    Button {
-                        Task {
-                            await appState.previewDictationTone()
+                        .labelsHidden()
+                        .fixedSize()
+                        Button {
+                            Task {
+                                await appState.previewDictationTone()
+                            }
+                        } label: {
+                            Image(systemName: "play.fill")
                         }
-                    } label: {
-                        Image(systemName: "play.fill")
+                        .buttonStyle(.borderless)
+                        .disabled(appState.dictationTone == .off)
+                        .help("Preview")
+                        .accessibilityLabel("Preview tone")
                     }
-                    .buttonStyle(.borderless)
-                    .disabled(appState.dictationTone == .off)
-                    .help("Preview")
-                    .accessibilityLabel("Preview tone")
                 }
 
-                Toggle(isOn: $appState.duckOtherAudioEnabled) {
-                    Text("Mute other audio while dictating")
-                    Text("Only when something is playing.")
-                }
+                Divider()
+
+                SettingsToggleRow(
+                    title: "Mute other audio while dictating",
+                    detail: "Only when something is playing.",
+                    isOn: $appState.duckOtherAudioEnabled
+                )
                 .settingsTarget("other-audio")
 
-                Toggle(isOn: $appState.pauseSpotifyEnabled) {
-                    Text("Pause Spotify while dictating")
-                    Text("Also reaches Spotify Connect on other speakers, which muting can't.")
-                }
+                Divider()
+
+                SettingsToggleRow(
+                    title: "Pause Spotify while dictating",
+                    detail: "Also reaches Spotify Connect on other speakers, which muting can't. Asks for permission the first time.",
+                    isOn: $appState.pauseSpotifyEnabled
+                )
                 .settingsTarget("spotify-pause")
-                    .help("Pauses Spotify while the microphone is open and resumes when dictation ends — covers Spotify Connect playback on other devices, which muting cannot reach. The first use asks for permission to control Spotify.")
-            } header: {
-                VocaFormSectionHeader("Sounds")
             }
         }
-        .formStyle(.grouped)
-        .scrollContentBackground(.hidden)
         .onAppear {
             refreshAudioDevices()
         }
@@ -1997,64 +2043,74 @@ struct AudioSettingsTab: View {
     }
 
     private var inputDeviceSection: some View {
-        Section {
-            HStack {
-                Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
-                    Text("System Default").tag("")
-                    if selectedAudioDeviceIsUnavailable {
-                        Text("\(selectedAudioDeviceDisplayName) (Unavailable)").tag(appState.selectedAudioDeviceID)
+        VocaSettingsGroup("Microphone") {
+            SettingsRow(title: "Microphone", detail: "System Default follows macOS. Choosing one here never changes macOS's own setting.") {
+                HStack(spacing: 6) {
+                    Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
+                        Text("System Default").tag("")
+                        if selectedAudioDeviceIsUnavailable {
+                            Text("\(selectedAudioDeviceDisplayName) (Unavailable)").tag(appState.selectedAudioDeviceID)
+                        }
+                        ForEach(audioDevices) { device in
+                            Text(device.name).tag(device.id)
+                        }
                     }
-                    ForEach(audioDevices) { device in
-                        Text(device.name).tag(device.id)
+                    .labelsHidden()
+                    .fixedSize()
+                    .onChange(of: appState.selectedAudioDeviceID) {
+                        syncSelectedAudioDeviceName()
+                        syncSelectedAudioChannel()
                     }
+                    Button {
+                        refreshAudioDevices()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Refresh devices")
+                    .accessibilityLabel("Refresh devices")
                 }
-                .onChange(of: appState.selectedAudioDeviceID) {
-                    syncSelectedAudioDeviceName()
-                    syncSelectedAudioChannel()
-                }
-                Button {
-                    refreshAudioDevices()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .help("Refresh devices")
-                .accessibilityLabel("Refresh devices")
             }
-            .help("System Default follows macOS. Picking a microphone never changes macOS's own setting.")
 
             if activeInputChannelCount > 1 {
-                Picker("Input channel", selection: selectedAudioChannelBinding) {
-                    ForEach(0..<activeInputChannelCount, id: \.self) { channel in
-                        Text("Channel \(channel + 1)").tag(channel)
+                Divider()
+                SettingsRow(title: "Input channel", detail: "The interface input your microphone is plugged into.") {
+                    Picker("Input channel", selection: selectedAudioChannelBinding) {
+                        ForEach(0..<activeInputChannelCount, id: \.self) { channel in
+                            Text("Channel \(channel + 1)").tag(channel)
+                        }
                     }
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                .help("The interface input your microphone is plugged into. VocaMac keeps it fixed while recording.")
             }
 
             // Only say something when there is a problem to act on.
             if audioDevices.isEmpty {
                 Label("No audio input devices found", systemImage: "exclamationmark.triangle")
+                    .font(.caption)
                     .foregroundStyle(VocaDesign.warning)
             } else if selectedAudioDeviceIsUnavailable {
                 Label("\(selectedAudioDeviceDisplayName) is unavailable. Using System Default until it reconnects.",
                       systemImage: "exclamationmark.triangle")
+                    .font(.caption)
                     .foregroundStyle(VocaDesign.warning)
             }
 
             if let fallbackNotice = appState.inputDeviceFallbackNotice {
                 Label(fallbackNotice, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
                     .foregroundStyle(VocaDesign.warning)
             }
 
-            Toggle(isOn: $appState.externalMicWhenLidClosed) {
-                Text("Use an external microphone when the lid is closed")
-                Text("Your saved choice comes back when you open the lid.")
-            }
-            .settingsTarget("closed-lid-microphone")
+            Divider()
 
-        } header: {
-            VocaFormSectionHeader("Microphone")
+            SettingsToggleRow(
+                title: "Use an external microphone when the lid is closed",
+                detail: "Your saved choice comes back when you open the lid.",
+                isOn: $appState.externalMicWhenLidClosed
+            )
+            .settingsTarget("closed-lid-microphone")
         }
         .settingsTarget("microphone")
     }

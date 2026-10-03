@@ -467,7 +467,7 @@ struct MenuBarView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if appState.whisperService.isModelLoaded {
-                    Text("Model: \(appState.whisperService.loadedModelName ?? "Loaded")")
+                    Text("Model: \(appState.loadedModelDisplayName ?? "Loaded")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 } else if let downloadingModel = appState.availableModels.first(where: { $0.downloadProgress != nil }),

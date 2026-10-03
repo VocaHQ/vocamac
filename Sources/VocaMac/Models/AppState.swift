@@ -4181,6 +4181,16 @@ extension AppState {
         historyStore.applyRetention(historyRetention)
     }
 
+    /// The loaded speech model's name as the model list shows it. Engines
+    /// report an identifier ("openai_whisper-tiny"), which is for logs, not
+    /// for people.
+    var loadedModelDisplayName: String? {
+        if let model = currentModel { return model.size.displayName }
+        guard let name = whisperService.loadedModelName else { return nil }
+        let size = ModelSize(rawValue: name) ?? modelManager.modelSize(from: name)
+        return size?.displayName ?? name
+    }
+
     /// Open Settings on a specific page (e.g. History from the menu bar).
     func requestSettingsPage(_ page: SettingsPage) {
         requestedSettingsPage = page

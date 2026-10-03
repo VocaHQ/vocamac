@@ -346,6 +346,10 @@ final class AppState: ObservableObject {
     var permissionsMayNeedRelaunch: Bool { permissionManager.mayNeedRelaunch }
     /// A permission the user went to System Settings for is still off.
     var permissionsAwaitingGrant: Bool { permissionManager.isAwaitingGrant }
+    /// Onboarding is open, so an Accessibility grant may bring it forward.
+    func setOnboardingOpen(_ isOpen: Bool) {
+        permissionManager.returnsToOnboardingAfterGrant = isOpen
+    }
 
     /// Detected system capabilities
     @Published var systemCapabilities: SystemCapabilities?

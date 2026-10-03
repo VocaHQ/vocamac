@@ -205,13 +205,20 @@ final class PermissionRelaunchAdviceTests: XCTestCase {
         XCTAssertFalse(PermissionManager.hasAsked(for: .inputMonitoring, defaults: defaults))
     }
 
-    func testAnInstallFromBeforeTheFlagsCountsFinishedOnboardingAsAsked() throws {
+    func testAnUnflaggedPermissionReadsAsNotAskedEvenAfterOnboarding() throws {
+        // "Set up later" finishes onboarding without asking for anything.
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.legacy"))
         defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.legacy") }
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
 
         XCTAssertFalse(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
-        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
-        XCTAssertTrue(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+    }
+
+    func testAnInputMonitoringRefusalMacOSReportsCountsAsAsked() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.refused"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.refused") }
+
+        XCTAssertTrue(PermissionManager.hasAsked(for: .inputMonitoring, defaults: defaults, macOSRefused: true))
     }
 
     func testAResetStillReadsAsNotAskedAfterOnboarding() throws {
@@ -271,25 +278,32 @@ final class OnboardingReturnAfterGrantTests: XCTestCase {
 
     func testReturnsWhenAccessibilityTurnsOnWhileAway() {
         XCTAssertTrue(PermissionManager.shouldReturnAfterGrant(
-            old: .denied, new: .granted, requestedThisLaunch: true, isActive: false
+            old: .denied, new: .granted, requestedThisLaunch: true, onboardingIsOpen: true, isActive: false
         ))
     }
 
     func testStaysPutWhenAlreadyInFront() {
         XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
-            old: .denied, new: .granted, requestedThisLaunch: true, isActive: true
+            old: .denied, new: .granted, requestedThisLaunch: true, onboardingIsOpen: true, isActive: true
         ))
     }
 
     func testStaysPutForAGrantVocaMacDidNotAskFor() {
         XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
-            old: .notDetermined, new: .granted, requestedThisLaunch: false, isActive: false
+            old: .notDetermined, new: .granted, requestedThisLaunch: false, onboardingIsOpen: true, isActive: false
+        ))
+    }
+
+    func testStaysPutOutsideOnboarding() {
+        // From Settings or the menu bar the user is working in another app.
+        XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
+            old: .denied, new: .granted, requestedThisLaunch: true, onboardingIsOpen: false, isActive: false
         ))
     }
 
     func testStaysPutWhenNothingChanged() {
         XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
-            old: .granted, new: .granted, requestedThisLaunch: true, isActive: false
+            old: .granted, new: .granted, requestedThisLaunch: true, onboardingIsOpen: true, isActive: false
         ))
     }
 }

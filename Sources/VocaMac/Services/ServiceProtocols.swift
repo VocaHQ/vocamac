@@ -143,6 +143,7 @@ protocol PermissionManaging: AnyObject {
     var allPermissionsGranted: Bool { get }
     var mayNeedRelaunch: Bool { get }
     var isAwaitingGrant: Bool { get }
+    var returnsToOnboardingAfterGrant: Bool { get set }
     var onAllPermissionsGranted: (() -> Void)? { get set }
 
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }

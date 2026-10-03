@@ -140,6 +140,7 @@ struct OnboardingView: View {
         .vocaPaperBackground()
         .tint(VocaDesign.accent)
         .onAppear {
+            appState.setOnboardingOpen(true)
             if !didBeginVerification {
                 appState.onboardingVerification = OnboardingVerification()
                 didBeginVerification = true
@@ -147,7 +148,10 @@ struct OnboardingView: View {
             appState.triggerStartupIfNeeded()
             playIntro()
         }
-        .onDisappear { appState.armOnboardingVerification(nil) }
+        .onDisappear {
+            appState.armOnboardingVerification(nil)
+            appState.setOnboardingOpen(false)
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             appState.checkPermissions()
         }

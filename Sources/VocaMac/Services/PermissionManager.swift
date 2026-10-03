@@ -35,6 +35,11 @@ final class PermissionManager: ObservableObject {
     /// a relaunch would be premature advice.
     @Published private(set) var returnedAfterRequest: Set<RelaunchablePermission> = []
 
+    /// Set while onboarding is open. Only then does an Accessibility grant
+    /// bring VocaMac forward: elsewhere the user is working in another app,
+    /// which dictation should type into.
+    var returnsToOnboardingAfterGrant = false
+
     /// Every permission is granted, but the hotkey tap still couldn't be
     /// created after polling for it.
     @Published private(set) var hotKeyStuckAfterGrant = false
@@ -205,6 +210,7 @@ final class PermissionManager: ObservableObject {
             old: previousAccessibility,
             new: accessibilityPermission,
             requestedThisLaunch: requestedThisLaunch.contains(.accessibility),
+            onboardingIsOpen: returnsToOnboardingAfterGrant,
             isActive: isAppActive()
         ) {
             activateApp()
@@ -225,29 +231,40 @@ final class PermissionManager: ObservableObject {
     private func status(granted: Bool, for permission: RelaunchablePermission) -> PermissionStatus {
         // Seen granted counts as asked, so a later revoke reads as denied.
         if granted { defaults.set(true, forKey: permission.askedKey) }
-        return Self.status(granted: granted, asked: Self.hasAsked(for: permission, defaults: defaults))
+        let macOSRefused = permission == .inputMonitoring
+            && IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeDenied
+        return Self.status(
+            granted: granted,
+            asked: Self.hasAsked(for: permission, defaults: defaults, macOSRefused: macOSRefused)
+        )
     }
 
-    /// Whether VocaMac asked for a permission. Installs from before VocaMac
-    /// kept track have no flag; finishing onboarding means it asked then.
-    static func hasAsked(for permission: RelaunchablePermission, defaults: UserDefaults) -> Bool {
-        guard defaults.object(forKey: permission.askedKey) != nil else {
-            return defaults.bool(forKey: PreferenceKey.onboardingCompleted)
-        }
-        return defaults.bool(forKey: permission.askedKey)
+    /// Whether VocaMac asked for a permission: its own flag, or macOS
+    /// reporting a refusal. Only Input Monitoring has that report
+    /// (`IOHIDCheckAccess`), which also covers installs from before the
+    /// flags. Accessibility has none, so an unflagged one reads as not asked;
+    /// its Allow… still leads to System Settings.
+    static func hasAsked(
+        for permission: RelaunchablePermission,
+        defaults: UserDefaults,
+        macOSRefused: Bool = false
+    ) -> Bool {
+        defaults.bool(forKey: permission.askedKey) || macOSRefused
     }
 
-    /// Bring VocaMac forward once Accessibility comes on in System Settings,
-    /// so the user needn't find its window again. Not for Input Monitoring:
+    /// Bring onboarding forward once Accessibility comes on in System
+    /// Settings, so the user needn't find its window again. Not for Input
+    /// Monitoring:
     /// macOS answers that grant with its own Quit & Reopen dialog, which
     /// coming forward would cover.
     static func shouldReturnAfterGrant(
         old: PermissionStatus,
         new: PermissionStatus,
         requestedThisLaunch: Bool,
+        onboardingIsOpen: Bool,
         isActive: Bool
     ) -> Bool {
-        old != .granted && new == .granted && requestedThisLaunch && !isActive
+        old != .granted && new == .granted && requestedThisLaunch && onboardingIsOpen && !isActive
     }
 
     private func noteRequested(_ permission: RelaunchablePermission) {
@@ -262,7 +279,7 @@ final class PermissionManager: ObservableObject {
     }
 
     /// Mark every permission as not yet asked for, after `tccutil` reset
-    /// their grants. Explicitly false, so it isn't read as an old install.
+    /// their grants.
     static func forgetPermissionRequests(defaults: UserDefaults = .standard) {
         for permission in [RelaunchablePermission.accessibility, .inputMonitoring] {
             defaults.set(false, forKey: permission.askedKey)

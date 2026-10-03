@@ -278,6 +278,39 @@ final class PermissionManager: ObservableObject {
         returnedAfterRequest.formUnion(requestedThisLaunch)
     }
 
+    /// Clear every permission grant for VocaMac with `tccutil`. The
+    /// asked-for flags are forgotten only when macOS forgot the grants too,
+    /// or a refused permission would read as never asked.
+    ///
+    /// - Returns: whether the reset succeeded.
+    @discardableResult
+    static func resetAllPermissions(
+        defaults: UserDefaults = .standard,
+        runReset: () -> Bool = runTCCUtilReset
+    ) -> Bool {
+        guard runReset() else {
+            VocaLogger.error(.general, "tccutil reset failed; permissions are unchanged")
+            return false
+        }
+        VocaLogger.info(.general, "TCC permissions reset via tccutil")
+        forgetPermissionRequests(defaults: defaults)
+        return true
+    }
+
+    private static func runTCCUtilReset() -> Bool {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+        task.arguments = ["reset", "All", "com.vocamac.app"]
+        do {
+            try task.run()
+        } catch {
+            VocaLogger.error(.general, "Couldn't run tccutil: \(error.localizedDescription)")
+            return false
+        }
+        task.waitUntilExit()
+        return task.terminationReason == .exit && task.terminationStatus == 0
+    }
+
     /// Mark every permission as not yet asked for, after `tccutil` reset
     /// their grants.
     static func forgetPermissionRequests(defaults: UserDefaults = .standard) {

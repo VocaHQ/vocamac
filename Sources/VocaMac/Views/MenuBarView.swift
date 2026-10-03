@@ -841,7 +841,7 @@ struct MenuBarView: View {
                     isDenied: false,
                     buttonTitle: "Reopen",
                     help: "Quit and reopen VocaMac",
-                    action: { AppRelauncher.relaunch() }
+                    action: { appState.relaunch() }
                 )
             }
         }

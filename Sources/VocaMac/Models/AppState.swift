@@ -346,6 +346,21 @@ final class AppState: ObservableObject {
     var permissionsMayNeedRelaunch: Bool { permissionManager.mayNeedRelaunch }
     /// A permission the user went to System Settings for is still off.
     var permissionsAwaitingGrant: Bool { permissionManager.isAwaitingGrant }
+    /// Quit and reopen VocaMac; see `AppRelauncher`. `false` when the new
+    /// instance couldn't be started and this one keeps running.
+    @discardableResult
+    func relaunch() -> Bool { AppRelauncher.relaunch() }
+
+    /// Clear every permission grant for VocaMac, then quit so the next
+    /// launch asks again.
+    func resetAllPermissionsAndQuit() {
+        PermissionManager.resetAllPermissions()
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
     /// Onboarding is open, so an Accessibility grant may bring it forward.
     func setOnboardingOpen(_ isOpen: Bool) {
         permissionManager.returnsToOnboardingAfterGrant = isOpen

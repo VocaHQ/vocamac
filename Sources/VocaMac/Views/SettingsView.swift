@@ -2332,39 +2332,13 @@ struct PermissionsLogsTab: View {
         alert.addButton(withTitle: "Reset & Quit")
         alert.addButton(withTitle: "Cancel")
 
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            // Run tccutil to reset all TCC permissions for this app
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
-            task.arguments = ["reset", "All", "com.vocamac.app"]
-            var didReset = false
-            do {
-                try task.run()
-                task.waitUntilExit()
-                didReset = task.terminationReason == .exit && task.terminationStatus == 0
-            } catch {
-                VocaLogger.error(.general, "Couldn't run tccutil: \(error.localizedDescription)")
-            }
-
-            // Forget the asked-for flags only when macOS forgot the grants
-            // too, or a refused permission would read as never asked.
-            if didReset {
-                VocaLogger.info(.general, "TCC permissions reset via tccutil")
-                PermissionManager.forgetPermissionRequests()
-            } else {
-                VocaLogger.error(.general, "tccutil reset failed; permissions are unchanged")
-            }
-
-            // Quit the app so permissions take effect on next launch
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                NSApplication.shared.terminate(nil)
-            }
+        if alert.runModal() == .alertFirstButtonReturn {
+            appState.resetAllPermissionsAndQuit()
         }
     }
 
     private func restartApp() {
-        AppRelauncher.relaunch()
+        appState.relaunch()
     }
 
     // MARK: - Debug Log Actions

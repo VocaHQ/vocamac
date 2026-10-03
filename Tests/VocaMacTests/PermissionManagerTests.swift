@@ -205,6 +205,24 @@ final class PermissionRelaunchAdviceTests: XCTestCase {
         XCTAssertFalse(PermissionManager.hasAsked(for: .inputMonitoring, defaults: defaults))
     }
 
+    func testAFailedResetKeepsTheAskedFlags() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.failedReset"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.failedReset") }
+        defaults.set(true, forKey: PreferenceKey.askedForAccessibility)
+
+        XCTAssertFalse(PermissionManager.resetAllPermissions(defaults: defaults, runReset: { false }))
+        XCTAssertTrue(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+    }
+
+    func testASuccessfulResetForgetsTheAskedFlags() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.reset2"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.reset2") }
+        defaults.set(true, forKey: PreferenceKey.askedForAccessibility)
+
+        XCTAssertTrue(PermissionManager.resetAllPermissions(defaults: defaults, runReset: { true }))
+        XCTAssertFalse(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+    }
+
     func testAnUnflaggedPermissionReadsAsNotAskedEvenAfterOnboarding() throws {
         // "Set up later" finishes onboarding without asking for anything.
         let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.legacy"))

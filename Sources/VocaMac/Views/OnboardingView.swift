@@ -587,7 +587,7 @@ struct PermissionHelpCard: View {
 
                 HStack(spacing: 12) {
                     Button {
-                        relaunchFailed = !AppRelauncher.relaunch()
+                        relaunchFailed = !appState.relaunch()
                     } label: {
                         Label("Quit & Reopen", systemImage: "arrow.clockwise")
                     }

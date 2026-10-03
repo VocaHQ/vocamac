@@ -556,7 +556,7 @@ enum SettingsSearchIndex {
             id: "permissions",
             page: .advanced,
             title: "Permissions",
-            keywords: ["mic", "accessibility", "input monitoring", "advanced", "diagnostics"]
+            keywords: ["mic", "accessibility", "input monitoring", "advanced", "diagnostics", "restart", "reopen", "relaunch"]
         ),
         SettingsSearchEntry(
             id: "about",

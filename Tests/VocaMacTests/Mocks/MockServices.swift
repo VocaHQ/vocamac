@@ -295,7 +295,6 @@ final class MockPermissionManager: ObservableObject, PermissionManaging {
     @Published var inputMonitoringPermission: PermissionStatus = .granted
     @Published var mayNeedRelaunch = false
     @Published var isAwaitingGrant = false
-    @Published var requestedThisLaunch: Set<RelaunchablePermission> = []
     var onAllPermissionsGranted: (() -> Void)?
 
     var checkPermissionsCallCount = 0

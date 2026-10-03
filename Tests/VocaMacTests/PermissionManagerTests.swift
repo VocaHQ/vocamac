@@ -148,40 +148,48 @@ final class PermissionRelaunchAdviceTests: XCTestCase {
         XCTAssertEqual(PermissionManager.status(granted: true, asked: false), .granted)
     }
 
+    func testNoAdviceWhileTheUserMayStillBeGranting() {
+        // Asked, but VocaMac hasn't been reactivated since: nothing returned.
+        XCTAssertFalse(PermissionManager.mayNeedRelaunch(
+            accessibility: .denied, inputMonitoring: .denied,
+            returnedAfterRequest: [], hotKeyStuckAfterGrant: false
+        ))
+    }
+
     func testNoAdviceBeforeTheUserWentToSystemSettings() {
         XCTAssertFalse(PermissionManager.mayNeedRelaunch(
             accessibility: .notDetermined, inputMonitoring: .notDetermined,
-            requestedThisLaunch: [], hotKeyStuckAfterGrant: false
+            returnedAfterRequest: [], hotKeyStuckAfterGrant: false
         ))
     }
 
     func testAdvisesARelaunchWhileARequestedPermissionIsStillOff() {
         XCTAssertTrue(PermissionManager.mayNeedRelaunch(
             accessibility: .granted, inputMonitoring: .denied,
-            requestedThisLaunch: [.inputMonitoring], hotKeyStuckAfterGrant: false
+            returnedAfterRequest: [.inputMonitoring], hotKeyStuckAfterGrant: false
         ))
     }
 
     func testIgnoresAMissingPermissionTheUserHasNotRequestedYet() {
         XCTAssertFalse(PermissionManager.mayNeedRelaunch(
             accessibility: .granted, inputMonitoring: .notDetermined,
-            requestedThisLaunch: [.accessibility], hotKeyStuckAfterGrant: false
+            returnedAfterRequest: [.accessibility], hotKeyStuckAfterGrant: false
         ))
     }
 
     func testAwaitingGrantIgnoresTheHotKey() {
         XCTAssertFalse(PermissionManager.isAwaitingGrant(
-            accessibility: .granted, inputMonitoring: .granted, requestedThisLaunch: [.accessibility]
+            accessibility: .granted, inputMonitoring: .granted, returnedAfterRequest: [.accessibility]
         ))
         XCTAssertTrue(PermissionManager.isAwaitingGrant(
-            accessibility: .denied, inputMonitoring: .granted, requestedThisLaunch: [.accessibility]
+            accessibility: .denied, inputMonitoring: .granted, returnedAfterRequest: [.accessibility]
         ))
     }
 
     func testAdvisesARelaunchWhenTheHotKeyNeverCameUp() {
         XCTAssertTrue(PermissionManager.mayNeedRelaunch(
             accessibility: .granted, inputMonitoring: .granted,
-            requestedThisLaunch: [], hotKeyStuckAfterGrant: true
+            returnedAfterRequest: [], hotKeyStuckAfterGrant: true
         ))
     }
 
@@ -193,8 +201,27 @@ final class PermissionRelaunchAdviceTests: XCTestCase {
 
         PermissionManager.forgetPermissionRequests(defaults: defaults)
 
-        XCTAssertNil(defaults.object(forKey: PreferenceKey.askedForAccessibility))
-        XCTAssertNil(defaults.object(forKey: PreferenceKey.askedForInputMonitoring))
+        XCTAssertFalse(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+        XCTAssertFalse(PermissionManager.hasAsked(for: .inputMonitoring, defaults: defaults))
+    }
+
+    func testAnInstallFromBeforeTheFlagsCountsFinishedOnboardingAsAsked() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.legacy"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.legacy") }
+
+        XCTAssertFalse(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
+        XCTAssertTrue(PermissionManager.hasAsked(for: .accessibility, defaults: defaults))
+    }
+
+    func testAResetStillReadsAsNotAskedAfterOnboarding() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "PermissionRelaunchAdviceTests.reset"))
+        defer { defaults.removePersistentDomain(forName: "PermissionRelaunchAdviceTests.reset") }
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
+
+        PermissionManager.forgetPermissionRequests(defaults: defaults)
+
+        XCTAssertFalse(PermissionManager.hasAsked(for: .inputMonitoring, defaults: defaults))
     }
 }
 
@@ -243,25 +270,25 @@ final class InputMonitoringRequestTests: XCTestCase {
 final class OnboardingReturnAfterGrantTests: XCTestCase {
 
     func testReturnsWhenAccessibilityTurnsOnWhileAway() {
-        XCTAssertTrue(PermissionsStep.shouldReturnAfterGrant(
+        XCTAssertTrue(PermissionManager.shouldReturnAfterGrant(
             old: .denied, new: .granted, requestedThisLaunch: true, isActive: false
         ))
     }
 
     func testStaysPutWhenAlreadyInFront() {
-        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+        XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
             old: .denied, new: .granted, requestedThisLaunch: true, isActive: true
         ))
     }
 
     func testStaysPutForAGrantVocaMacDidNotAskFor() {
-        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+        XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
             old: .notDetermined, new: .granted, requestedThisLaunch: false, isActive: false
         ))
     }
 
     func testStaysPutWhenNothingChanged() {
-        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+        XCTAssertFalse(PermissionManager.shouldReturnAfterGrant(
             old: .granted, new: .granted, requestedThisLaunch: true, isActive: false
         ))
     }

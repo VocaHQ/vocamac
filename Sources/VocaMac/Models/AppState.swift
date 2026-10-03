@@ -346,9 +346,6 @@ final class AppState: ObservableObject {
     var permissionsMayNeedRelaunch: Bool { permissionManager.mayNeedRelaunch }
     /// A permission the user went to System Settings for is still off.
     var permissionsAwaitingGrant: Bool { permissionManager.isAwaitingGrant }
-    func permissionRequestedThisLaunch(_ permission: RelaunchablePermission) -> Bool {
-        permissionManager.requestedThisLaunch.contains(permission)
-    }
 
     /// Detected system capabilities
     @Published var systemCapabilities: SystemCapabilities?

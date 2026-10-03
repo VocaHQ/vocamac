@@ -32,8 +32,9 @@ enum AppRelauncher {
         }
 
         VocaLogger.info(.general, "Relaunching VocaMac")
-        // Give the new instance a moment to start.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task { @MainActor in
+            // Give the new instance a moment to start.
+            try? await Task.sleep(for: .milliseconds(500))
             NSApplication.shared.terminate(nil)
         }
         return true

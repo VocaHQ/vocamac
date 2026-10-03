@@ -27,8 +27,13 @@ final class PermissionManager: ObservableObject {
     /// Input Monitoring permission status
     @Published var inputMonitoringPermission: PermissionStatus = .notDetermined
 
-    /// Permissions the user went to System Settings for since launch.
+    /// Permissions VocaMac asked for since launch.
     @Published private(set) var requestedThisLaunch: Set<RelaunchablePermission> = []
+
+    /// Permissions asked for since launch that the user has since come back
+    /// to VocaMac from. Until they return, they may still be granting it, so
+    /// a relaunch would be premature advice.
+    @Published private(set) var returnedAfterRequest: Set<RelaunchablePermission> = []
 
     /// Every permission is granted, but the hotkey tap still couldn't be
     /// created after polling for it.
@@ -51,10 +56,23 @@ final class PermissionManager: ObservableObject {
 
     // MARK: - Initialization
 
-    init(audioEngine: AudioRecording, hotKeyManager: HotKeyMonitoring, defaults: UserDefaults = .standard) {
+    /// Whether VocaMac is the active app, and how to make it so. Injected
+    /// for tests.
+    private let isAppActive: () -> Bool
+    private let activateApp: () -> Void
+
+    init(
+        audioEngine: AudioRecording,
+        hotKeyManager: HotKeyMonitoring,
+        defaults: UserDefaults = .standard,
+        isAppActive: @escaping () -> Bool = { NSApp.isActive },
+        activateApp: @escaping () -> Void = { NSApp.activate(ignoringOtherApps: true) }
+    ) {
         self.audioEngine = audioEngine
         self.hotKeyManager = hotKeyManager
         self.defaults = defaults
+        self.isAppActive = isAppActive
+        self.activateApp = activateApp
         observePermissionChanges()
     }
 
@@ -77,8 +95,13 @@ final class PermissionManager: ObservableObject {
             forName: .hotKeyEventTapDisabled, object: nil, queue: .main, using: recheck
         ))
         observers.append(NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main, using: recheck
-        ))
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.userReturned()
+                self?.recheckHotKeyHealth()
+            }
+        })
     }
 
     deinit {
@@ -130,7 +153,7 @@ final class PermissionManager: ObservableObject {
         Self.mayNeedRelaunch(
             accessibility: accessibilityPermission,
             inputMonitoring: inputMonitoringPermission,
-            requestedThisLaunch: requestedThisLaunch,
+            returnedAfterRequest: returnedAfterRequest,
             hotKeyStuckAfterGrant: hotKeyStuckAfterGrant
         )
     }
@@ -138,31 +161,32 @@ final class PermissionManager: ObservableObject {
     static func mayNeedRelaunch(
         accessibility: PermissionStatus,
         inputMonitoring: PermissionStatus,
-        requestedThisLaunch: Set<RelaunchablePermission>,
+        returnedAfterRequest: Set<RelaunchablePermission>,
         hotKeyStuckAfterGrant: Bool
     ) -> Bool {
         hotKeyStuckAfterGrant || isAwaitingGrant(
             accessibility: accessibility,
             inputMonitoring: inputMonitoring,
-            requestedThisLaunch: requestedThisLaunch
+            returnedAfterRequest: returnedAfterRequest
         )
     }
 
-    /// Whether a permission the user went to System Settings for is still off.
+    /// Whether a permission the user went off to grant and came back from
+    /// still reads as off.
     var isAwaitingGrant: Bool {
         Self.isAwaitingGrant(
             accessibility: accessibilityPermission,
             inputMonitoring: inputMonitoringPermission,
-            requestedThisLaunch: requestedThisLaunch
+            returnedAfterRequest: returnedAfterRequest
         )
     }
 
     static func isAwaitingGrant(
         accessibility: PermissionStatus,
         inputMonitoring: PermissionStatus,
-        requestedThisLaunch: Set<RelaunchablePermission>
+        returnedAfterRequest: Set<RelaunchablePermission>
     ) -> Bool {
-        requestedThisLaunch.contains { permission in
+        returnedAfterRequest.contains { permission in
             switch permission {
             case .accessibility: return accessibility != .granted
             case .inputMonitoring: return inputMonitoring != .granted
@@ -175,7 +199,16 @@ final class PermissionManager: ObservableObject {
         micPermission = audioEngine.checkPermissionStatus()
 
         let accessibilityGranted = hotKeyManager.checkAccessibilityPermission(prompt: false)
+        let previousAccessibility = accessibilityPermission
         accessibilityPermission = status(granted: accessibilityGranted, for: .accessibility)
+        if Self.shouldReturnAfterGrant(
+            old: previousAccessibility,
+            new: accessibilityPermission,
+            requestedThisLaunch: requestedThisLaunch.contains(.accessibility),
+            isActive: isAppActive()
+        ) {
+            activateApp()
+        }
 
         let inputMonitoringGranted = checkInputMonitoringPermission()
         inputMonitoringPermission = status(granted: inputMonitoringGranted, for: .inputMonitoring)
@@ -192,7 +225,29 @@ final class PermissionManager: ObservableObject {
     private func status(granted: Bool, for permission: RelaunchablePermission) -> PermissionStatus {
         // Seen granted counts as asked, so a later revoke reads as denied.
         if granted { defaults.set(true, forKey: permission.askedKey) }
-        return Self.status(granted: granted, asked: defaults.bool(forKey: permission.askedKey))
+        return Self.status(granted: granted, asked: Self.hasAsked(for: permission, defaults: defaults))
+    }
+
+    /// Whether VocaMac asked for a permission. Installs from before VocaMac
+    /// kept track have no flag; finishing onboarding means it asked then.
+    static func hasAsked(for permission: RelaunchablePermission, defaults: UserDefaults) -> Bool {
+        guard defaults.object(forKey: permission.askedKey) != nil else {
+            return defaults.bool(forKey: PreferenceKey.onboardingCompleted)
+        }
+        return defaults.bool(forKey: permission.askedKey)
+    }
+
+    /// Bring VocaMac forward once Accessibility comes on in System Settings,
+    /// so the user needn't find its window again. Not for Input Monitoring:
+    /// macOS answers that grant with its own Quit & Reopen dialog, which
+    /// coming forward would cover.
+    static func shouldReturnAfterGrant(
+        old: PermissionStatus,
+        new: PermissionStatus,
+        requestedThisLaunch: Bool,
+        isActive: Bool
+    ) -> Bool {
+        old != .granted && new == .granted && requestedThisLaunch && !isActive
     }
 
     private func noteRequested(_ permission: RelaunchablePermission) {
@@ -200,11 +255,17 @@ final class PermissionManager: ObservableObject {
         requestedThisLaunch.insert(permission)
     }
 
-    /// Forget which permissions VocaMac asked for, after their grants were
-    /// reset with `tccutil`.
+    /// VocaMac became active again: anything asked for before this has had
+    /// its chance to be granted.
+    func userReturned() {
+        returnedAfterRequest.formUnion(requestedThisLaunch)
+    }
+
+    /// Mark every permission as not yet asked for, after `tccutil` reset
+    /// their grants. Explicitly false, so it isn't read as an old install.
     static func forgetPermissionRequests(defaults: UserDefaults = .standard) {
         for permission in [RelaunchablePermission.accessibility, .inputMonitoring] {
-            defaults.removeObject(forKey: permission.askedKey)
+            defaults.set(false, forKey: permission.askedKey)
         }
     }
 

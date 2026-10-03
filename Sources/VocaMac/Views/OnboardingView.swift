@@ -515,28 +515,6 @@ struct PermissionsStep: View {
                 .riseIn(delay: 0.7)
         }
         .padding(16)
-        .onChange(of: appState.accessibilityPermission) { old, new in
-            guard Self.shouldReturnAfterGrant(
-                old: old,
-                new: new,
-                requestedThisLaunch: appState.permissionRequestedThisLaunch(.accessibility),
-                isActive: NSApp.isActive
-            ) else { return }
-            NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-
-    /// Bring onboarding back once Accessibility comes on in System Settings,
-    /// so the user needn't find the window again. Not for Input Monitoring:
-    /// macOS answers that grant with its own Quit & Reopen dialog, which
-    /// coming forward would cover.
-    static func shouldReturnAfterGrant(
-        old: PermissionStatus,
-        new: PermissionStatus,
-        requestedThisLaunch: Bool,
-        isActive: Bool
-    ) -> Bool {
-        old != .granted && new == .granted && requestedThisLaunch && !isActive
     }
 }
 

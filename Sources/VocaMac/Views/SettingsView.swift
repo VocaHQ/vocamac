@@ -123,6 +123,9 @@ struct SettingsView: View {
             ScrollViewReader { proxy in
                 settingsDetail
                     .environment(\.settingsSearchTarget, selectedSearchEntryID)
+                    // Paper outline buttons wherever a page didn't choose a
+                    // style, in place of the grey system bezel.
+                    .buttonStyle(VocaOutlineButtonStyle())
                     // Grouped forms draw their own gray backdrop; let the
                     // paper canvas show through on every page.
                     .scrollContentBackground(.hidden)
@@ -853,7 +856,7 @@ struct SnippetRow: View {
                         updateSnippet()
                         isEditing = false
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(VocaPrimaryButtonStyle())
                     .disabled(!isEditValid)
                 }
             }
@@ -945,7 +948,7 @@ struct AddSnippetView: View {
                     appState.snippets.append(newSnippet)
                     isPresented = false
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .disabled(trigger.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expansion.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 .keyboardShortcut(.defaultAction)
             }
@@ -1022,7 +1025,7 @@ struct PerformanceSettingsTab: View {
 
     var body: some View {
         Form {
-            Section("Model Status") {
+            Section {
                 HStack {
                     Label(
                         appState.whisperService.isModelLoaded ? "Model loaded" : "Model unloaded",
@@ -1059,10 +1062,12 @@ struct PerformanceSettingsTab: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            } header: {
+                VocaFormSectionHeader("Model Status")
             }
             .settingsTarget("model-status")
 
-            Section("Auto-Pause for Apps") {
+            Section {
                 Toggle("Pause dictation while these apps run", isOn: $appState.autoPauseEnabled)
                     .help("Unloads the speech model and blocks dictation while a listed app is running, then reloads it.")
 
@@ -1111,10 +1116,12 @@ struct PerformanceSettingsTab: View {
                     .foregroundStyle(VocaDesign.warning)
                     .font(.caption)
                 }
+            } header: {
+                VocaFormSectionHeader("Auto-Pause for Apps")
             }
             .settingsTarget("auto-pause")
 
-            Section("Unload When Idle") {
+            Section {
                 Toggle("Unload model when idle", isOn: $appState.modelKeepAliveEnabled)
                     .help("Frees memory after you stop dictating, including the cleanup and Command Mode models. The next use reloads the model, which can take a moment.")
 
@@ -1125,6 +1132,8 @@ struct PerformanceSettingsTab: View {
                 }
                 .disabled(!appState.modelKeepAliveEnabled)
                 .opacity(appState.modelKeepAliveEnabled ? 1 : 0.45)
+            } header: {
+                VocaFormSectionHeader("Unload When Idle")
             }
             .settingsTarget("idle-unload")
         }
@@ -1939,7 +1948,7 @@ struct ModelRow: View {
                         showForceDownloadAlert = true
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .help(model.size.isRemotelyHosted
                       ? "Transcribed by your endpoint"
                       : model.size.isSystemManaged ? "Built into macOS" : "Downloaded to this Mac")
@@ -1974,7 +1983,7 @@ struct AudioSettingsTab: View {
         Form {
             inputDeviceSection
 
-            Section("Recording") {
+            Section {
                 Picker("Max recording duration", selection: $appState.maxRecordingDuration) {
                     Text("15 seconds").tag(15)
                     Text("30 seconds").tag(30)
@@ -2018,10 +2027,12 @@ struct AudioSettingsTab: View {
                         .foregroundStyle(.secondary)
                 }
                 .help("Hands-free and double-tap recordings stop after this much silence (0.5–300 seconds). Push-to-talk stops when you release the key.")
+            } header: {
+                VocaFormSectionHeader("Recording")
             }
             .settingsTarget("silence")
 
-            Section("Sounds") {
+            Section {
                 Toggle("Play start and stop sounds", isOn: $appState.soundEffectsEnabled)
                 .settingsTarget("sound-effects")
 
@@ -2051,6 +2062,8 @@ struct AudioSettingsTab: View {
                 Toggle("Pause Spotify while dictating", isOn: $appState.pauseSpotifyEnabled)
                 .settingsTarget("spotify-pause")
                     .help("Pauses Spotify while the microphone is open and resumes when dictation ends — covers Spotify Connect playback on other devices, which muting cannot reach. The first use asks for permission to control Spotify.")
+            } header: {
+                VocaFormSectionHeader("Sounds")
             }
         }
         .formStyle(.grouped)
@@ -2064,7 +2077,7 @@ struct AudioSettingsTab: View {
     }
 
     private var inputDeviceSection: some View {
-        Section("Microphone") {
+        Section {
             HStack {
                 Picker("Microphone", selection: $appState.selectedAudioDeviceID) {
                     Text("System Default").tag("")
@@ -2121,6 +2134,8 @@ struct AudioSettingsTab: View {
             Toggle("Skip silence before transcribing", isOn: $appState.skipSilence)
             .settingsTarget("skip-silence")
                 .help("A small voice detector removes silence and long pauses before the speech model runs, so it decodes faster and doesn't invent words in quiet stretches. Recordings with no speech are not transcribed.")
+        } header: {
+            VocaFormSectionHeader("Microphone")
         }
         .settingsTarget("microphone")
     }
@@ -2208,7 +2223,7 @@ struct PermissionsLogsTab: View {
         // Permissions first: they are why most people open this page. The
         // device details that used to lead it are already under About.
         Form {
-            Section("Permissions") {
+            Section {
                 PermissionRow(
                     name: "Microphone",
                     icon: "mic.fill",
@@ -2249,10 +2264,12 @@ struct PermissionsLogsTab: View {
                         .help("Clear every permission grant for VocaMac. The app quits and asks again on next launch.")
                 }
                 .controlSize(.small)
+            } header: {
+                VocaFormSectionHeader("Permissions")
             }
             .settingsTarget("permissions")
 
-            Section("Debug Logs") {
+            Section {
                 LabeledContent("Log entries") {
                     Text("\(logEntryCount)")
                         .monospacedDigit()
@@ -2272,10 +2289,12 @@ struct PermissionsLogsTab: View {
                     }
                 }
                 .controlSize(.small)
+            } header: {
+                VocaFormSectionHeader("Debug Logs")
             }
             .settingsTarget("logs")
 
-            Section("Resource Usage") {
+            Section {
                 HStack(spacing: 12) {
                     SystemInfoPill(
                         icon: "cpu",
@@ -2305,6 +2324,8 @@ struct PermissionsLogsTab: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
                 .help("VocaMac's whole process, refreshed every few seconds. Not a model-only VRAM or ANE reading.")
+            } header: {
+                VocaFormSectionHeader("Resource Usage")
             }
             .settingsTarget("resources")
         }

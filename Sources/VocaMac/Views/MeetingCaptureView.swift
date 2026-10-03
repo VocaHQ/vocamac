@@ -136,7 +136,7 @@ struct MeetingCaptureView: View {
                 Button(capture.isCapturing ? "Stop and Transcribe" : "Start Capture") {
                     capture.isCapturing ? stop() : start()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .disabled(session.isTranscribing || appState.isRecording)
                 if session.isTranscribing { ProgressView().controlSize(.small) }
             }

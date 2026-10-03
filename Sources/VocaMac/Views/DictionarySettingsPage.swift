@@ -165,7 +165,7 @@ struct DictionarySuggestionRow: View {
             }
             Spacer()
             Button("Add") { appState.acceptDictionarySuggestion(suggestion) }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .controlSize(.small)
             Button("Dismiss") { appState.dismissDictionarySuggestion(suggestion) }
                 .controlSize(.small)

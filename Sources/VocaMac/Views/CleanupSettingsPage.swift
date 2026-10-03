@@ -111,8 +111,7 @@ struct CleanupSettingsPage: View {
                 TextEditor(text: $tryItInput)
                     .font(.system(.caption, design: .monospaced))
                     .frame(height: 76)
-                    .padding(8)
-                    .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 8))
+                    .vocaTextEditor()
 
                 HStack {
                     Button(tryItRunning ? "Cleaning…" : "Clean Up Sample") {
@@ -252,11 +251,8 @@ struct CleanupSettingsPage: View {
 
                     TextEditor(text: $promptDraft)
                         .font(.system(.caption, design: .monospaced))
-                        .scrollContentBackground(.hidden)
                         .frame(height: 190)
-                        .padding(8)
-                        .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(VocaDesign.line))
+                        .vocaTextEditor()
                         .onChange(of: promptDraft) {
                             // Writing @AppStorage on every keystroke republishes
                             // AppState and re-renders the whole settings tree for
@@ -663,8 +659,7 @@ struct CommandModeSettingsGroup: View {
                 TextEditor(text: $appState.voiceActionShortcuts)
                     .font(.system(.caption, design: .monospaced))
                     .frame(height: 54)
-                    .padding(6)
-                    .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 8))
+                    .vocaTextEditor()
                     .accessibilityLabel("Shortcuts VocaMac may run, one per line")
                 Text("One name per line, as it appears in the Shortcuts app. A shortcut that isn't listed never runs. Selected text is passed to the shortcut as its input.")
                     .font(.caption2)
@@ -814,9 +809,9 @@ private struct AIFeatureRow<Trailing: View, Status: View>: View {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(tint.gradient, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .foregroundStyle(tint)
+                    .frame(width: 30, height: 30)
+                    .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.headline)

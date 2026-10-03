@@ -867,7 +867,7 @@ struct MenuBarView: View {
                     Button("Retry") {
                         Task { await appState.retryHistoryEntry(entry.id) }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(VocaPrimaryButtonStyle())
                     .controlSize(.small)
                     .disabled(appState.retryingHistoryEntryID != nil)
                 }

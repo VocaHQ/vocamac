@@ -142,13 +142,9 @@ struct VocaGroupBoxStyle: GroupBoxStyle {
 }
 
 extension View {
-    @ViewBuilder
+    /// A secondary action in the paper outline style.
     func vocaGlassButton() -> some View {
-        if #available(macOS 26.0, *) {
-            self.buttonStyle(.glass)
-        } else {
-            self.buttonStyle(.bordered)
-        }
+        buttonStyle(VocaOutlineButtonStyle())
     }
 }
 
@@ -514,7 +510,7 @@ struct VocaEmptyState: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(VocaPrimaryButtonStyle())
                     .tint(VocaDesign.accentSolid)
                     .padding(.top, 8)
             }

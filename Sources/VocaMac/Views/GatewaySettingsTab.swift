@@ -24,7 +24,7 @@ struct GatewaySettingsTab: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Section("Status") {
+            Section {
                 HStack {
                     Circle()
                         .fill(statusColor)
@@ -90,10 +90,12 @@ struct GatewaySettingsTab: View {
                     }
                     .disabled(!gateway.isLive)
                 }
+            } header: {
+                VocaFormSectionHeader("Status")
             }
             .settingsTarget("gateway", aliases: gateway.isBinaryAvailable ? ["gateway-docker"] : [])
 
-            Section("Phone pairing") {
+            Section {
                 Text("Show the Pair phone QR once Gateway is live and the pairing URL is a non-loopback address. You can pair while a model is still downloading.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -126,7 +128,7 @@ struct GatewaySettingsTab: View {
                         } label: {
                             Label("Pair phone…", systemImage: "qrcode")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(VocaPrimaryButtonStyle())
 
                         Button {
                             gateway.copyPairingURLToPasteboard()
@@ -154,11 +156,13 @@ struct GatewaySettingsTab: View {
                     .font(.caption)
                     .foregroundStyle(VocaDesign.warning)
                 }
+            } header: {
+                VocaFormSectionHeader("Phone pairing")
             }
             .settingsTarget("gateway-pair")
 
             if !gateway.isBinaryAvailable {
-                Section("Docker fallback") {
+                Section {
                     Text("Native `vocagateway` is the happy path. Docker Compose is a fallback only. Docker images do not include MLX or Apple Silicon native engines.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -185,11 +189,13 @@ struct GatewaySettingsTab: View {
                             Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
                         }
                     }
+                } header: {
+                    VocaFormSectionHeader("Docker fallback")
                 }
                 .settingsTarget("gateway-docker")
             }
 
-            Section("Logs") {
+            Section {
                 Text("Gateway owns its logs. VocaMac opens ~/.config/vocagateway (Gateway config and documented log path). It does not write Gateway logs under VocaMac Application Support.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -199,6 +205,8 @@ struct GatewaySettingsTab: View {
                 } label: {
                     Label("Open Gateway Logs", systemImage: "doc.text.magnifyingglass")
                 }
+            } header: {
+                VocaFormSectionHeader("Logs")
             }
         }
         .formStyle(.grouped)

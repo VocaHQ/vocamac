@@ -114,7 +114,7 @@ struct FileTranscriptionView: View {
                 .controlSize(.small)
                 .disabled(isRunning)
             Button(isRunning ? "Transcribing…" : (result == nil ? "Transcribe" : "Transcribe Again")) { run() }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
                 .controlSize(.small)
                 .disabled(fileURL == nil || isRunning || isDictating)
             if isRunning { ProgressView().controlSize(.small) }

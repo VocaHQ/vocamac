@@ -33,7 +33,7 @@ struct AboutTab: View {
     private var identitySection: some View {
         Section {
             VStack(spacing: 8) {
-                BrandLogoView(size: 64)
+                VocaMarkView(size: 64)
 
                 Text("VocaMac")
                     .font(VocaDesign.display(34))
@@ -88,7 +88,7 @@ struct AboutTab: View {
     }
 
     private var thisMacSection: some View {
-        Section("This Mac") {
+        Section {
             if let capabilities = appState.systemCapabilities {
                 LabeledContent("Device", value: capabilities.processorName)
                 LabeledContent(
@@ -115,6 +115,8 @@ struct AboutTab: View {
                 Label("Set Up VocaMac…", systemImage: "wand.and.stars")
             }
             .help("Re-run the first-launch setup wizard")
+        } header: {
+            VocaFormSectionHeader("This Mac")
         }
     }
 
@@ -140,7 +142,7 @@ struct AboutTab: View {
                 }
             }
         } header: {
-            Text("Model Credits")
+            VocaFormSectionHeader("Model Credits")
         } footer: {
             Text("VocaMac runs models made by these teams. Names and logos belong to their owners and are shown for credit only. Logos from Lobe Icons (MIT).")
                 .font(.caption)
@@ -149,13 +151,13 @@ struct AboutTab: View {
     }
 
     private var familySection: some View {
-        Section("Part of VocaHQ") {
+        Section {
             HStack(spacing: 8) {
                 Link(destination: AboutLinks.headquarters) {
                     BrandMarkView(size: 23)
                         .frame(minWidth: 36, minHeight: 30)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(VocaOutlineButtonStyle())
                 .help("vocahq.com")
                 .accessibilityLabel("VocaHQ")
 
@@ -164,6 +166,8 @@ struct AboutTab: View {
                 }
                 Spacer(minLength: 0)
             }
+        } header: {
+            VocaFormSectionHeader("Part of VocaHQ")
         }
     }
 
@@ -187,13 +191,13 @@ struct AboutTab: View {
                 minHeight: 30
             )
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(VocaOutlineButtonStyle())
         .help(product.url.absoluteString)
         .accessibilityLabel("\(product.title), \(product.platform)")
     }
 
     private var talkToUsSection: some View {
-        Section("Talk to us") {
+        Section {
             HStack(spacing: 8) {
                 Link(destination: AboutSocialMark.github.url) {
                     HStack(spacing: 6) {
@@ -201,7 +205,7 @@ struct AboutTab: View {
                         Text(AboutSocialMark.github.visibleLabel)
                     }
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(VocaOutlineButtonStyle())
                 .help("Open GitHub issues")
 
                 ForEach(AboutSocialMark.talkRowMarks) { mark in
@@ -209,6 +213,8 @@ struct AboutTab: View {
                 }
                 Spacer(minLength: 0)
             }
+        } header: {
+            VocaFormSectionHeader("Talk to us")
         }
     }
 
@@ -217,7 +223,7 @@ struct AboutTab: View {
             AboutSocialMarkImage(mark: mark, size: mark == .discord ? 19 : 16)
                 .frame(width: 22, height: 20)
         }
-        .buttonStyle(.bordered)
+        .buttonStyle(VocaOutlineButtonStyle())
         .help(mark.visibleLabel)
         .accessibilityLabel(mark.visibleLabel)
     }

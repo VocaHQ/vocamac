@@ -71,7 +71,7 @@ struct WritingStylesSettingsTab: View {
                         } label: {
                             Label("Set Up My Apps", systemImage: "wand.and.stars")
                         }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(VocaPrimaryButtonStyle())
                         .disabled(isDiscoveringApps)
                         Text("Finds the code editors, terminals, and chat and email apps on this Mac and picks a style for each. You can change any of them.")
                             .font(.caption)
@@ -240,17 +240,21 @@ struct WritingStylesSettingsTab: View {
     private var previewSection: some View {
         VocaSettingsGroup("Try It", subtitle: "Type what you'd say and see what gets typed.") {
             Picker("Style", selection: previewTarget) {
-                Section("Styles") {
+                Section {
                     ForEach(WritingStyle.allCases) { style in
                         Text(style.displayName).tag(PreviewTarget.preset(style))
                     }
+                } header: {
+                    VocaFormSectionHeader("Styles")
                 }
                 if !appState.writingStyleBindings.isEmpty {
-                    Section("Your Apps") {
+                    Section {
                         ForEach(appState.writingStyleBindings) { binding in
                             Text("\(binding.displayName) — \(binding.style.displayName)")
                                 .tag(PreviewTarget.binding(binding.id))
                         }
+                    } header: {
+                        VocaFormSectionHeader("Your Apps")
                     }
                 }
             }
@@ -262,7 +266,7 @@ struct WritingStylesSettingsTab: View {
                 HStack(spacing: 6) {
                     ForEach(Self.sampleChips, id: \.label) { chip in
                         Button(chip.label) { previewSample = chip.text }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(VocaOutlineButtonStyle())
                             .controlSize(.small)
                     }
                 }
@@ -849,6 +853,7 @@ struct WritingStyleRuleEditor: View {
             TextEditor(text: $cleanupPrompt)
                 .font(.system(.caption, design: .monospaced))
                 .frame(minHeight: 70)
+                .vocaTextEditor()
             Text("Leave blank to use the instructions from the Cleanup page.")
                 .font(.caption)
                 .foregroundStyle(.secondary)

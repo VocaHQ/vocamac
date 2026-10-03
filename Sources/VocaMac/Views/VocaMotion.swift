@@ -143,14 +143,18 @@ struct WordFlowLayout: Layout {
 /// The one primary action on a screen: an ink capsule that lifts on hover.
 struct VocaPrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
     @State private var isHovered = false
+
+    /// Inside a settings row or card, a smaller pill; on its own, full size.
+    private var isCompact: Bool { controlSize == .small || controlSize == .mini }
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: isCompact ? 12.5 : 14, weight: .semibold))
             .foregroundStyle(VocaDesign.onInk)
-            .padding(.horizontal, 22)
-            .frame(minHeight: 40)
+            .padding(.horizontal, isCompact ? 14 : 22)
+            .frame(minHeight: isCompact ? 28 : 40)
             .background(VocaDesign.ink, in: Capsule())
             .opacity(isEnabled ? 1 : 0.4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
@@ -279,4 +283,35 @@ struct VocaLinkButtonStyle: ButtonStyle {
 
 extension ButtonStyle where Self == VocaLinkButtonStyle {
     static var vocaLink: VocaLinkButtonStyle { VocaLinkButtonStyle() }
+}
+
+// MARK: - Form pieces
+
+/// A section heading in a grouped form, set in the serif like the headings
+/// on the hand-built pages.
+struct VocaFormSectionHeader: View {
+    let title: String
+
+    init(_ title: String) { self.title = title }
+
+    var body: some View {
+        Text(title)
+            .font(VocaDesign.display(20))
+            .foregroundStyle(.primary)
+            .textCase(nil)
+            .padding(.bottom, 2)
+            .accessibilityAddTraits(.isHeader)
+    }
+}
+
+extension View {
+    /// A multi-line text box: an inset well of the canvas inside a card,
+    /// with a hairline edge.
+    func vocaTextEditor() -> some View {
+        self
+            .scrollContentBackground(.hidden)
+            .padding(8)
+            .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(VocaDesign.line))
+    }
 }

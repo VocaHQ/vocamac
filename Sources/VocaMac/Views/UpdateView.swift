@@ -59,13 +59,13 @@ struct UpdateDetailView: View {
                     appState.updateChecker.dismiss()
                     isPresented = false
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(VocaOutlineButtonStyle())
                 .help("Hide this update for 24 hours")
 
                 Button("Close") {
                     isPresented = false
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(VocaOutlineButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .help("Close without snoozing")
             }
@@ -129,7 +129,7 @@ struct UpdateDetailView: View {
                         pasteboard.clearContents()
                         pasteboard.setString(install.upgradeCommand, forType: .string)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(VocaOutlineButtonStyle())
                 }
             }
         case .downloading(let progress, let bytesDownloaded, let totalBytes, let eta):
@@ -177,7 +177,7 @@ struct UpdateDetailView: View {
                     appState.updateChecker.openDMG(at: dmgPath)
                     isPresented = false
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(VocaPrimaryButtonStyle())
             }
         case .error(let message):
             VStack(alignment: .leading, spacing: 10) {
@@ -188,14 +188,14 @@ struct UpdateDetailView: View {
                     Button("View Release") {
                         NSWorkspace.shared.open(info.releasePageURL)
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(VocaOutlineButtonStyle())
 
                     Button("Retry") {
                         Task { @MainActor in
                             await appState.updateChecker.downloadUpdate(info)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(VocaPrimaryButtonStyle())
                 }
             }
         default:

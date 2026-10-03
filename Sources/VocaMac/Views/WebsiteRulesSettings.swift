@@ -141,6 +141,7 @@ private struct WebsiteRuleEditor: View {
                             ))
                             .font(.system(.caption, design: .monospaced))
                             .frame(minHeight: 70)
+                            .vocaTextEditor()
                             Text("Leave blank to use the instructions from the Cleanup page. Applies only on this website.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)

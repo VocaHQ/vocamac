@@ -224,7 +224,7 @@ struct DictationOutputPipeline {
             case .skipped(let reason):
                 return result(plan.fallback, noting("Rewrite skipped — \(reason)"))
             case .noFiller:
-                return result(plan.fallback, noting("\(styleName) style — no filler found, commands kept exact"))
+                return result(plan.fallback, noting(Self.noSafeFillerSummary(styleName)))
             case .alreadyClean:
                 return result(plan.fallback, noting(Self.alreadyCleanSummary))
             case .keptWording:
@@ -251,7 +251,7 @@ struct DictationOutputPipeline {
             let summary: String
             switch outcomes[0] {
             case .skipped(let reason): summary = "Rewrite skipped — \(reason)"
-            case .noFiller: summary = "\(styleName) style — no filler found, commands kept exact"
+            case .noFiller: summary = Self.noSafeFillerSummary(styleName)
             case .alreadyClean where outcomes.allSatisfy(\.isAlreadyClean): summary = Self.alreadyCleanSummary
             default: summary = "Kept your wording — the model only suggested rewording"
             }
@@ -564,6 +564,12 @@ struct DictationOutputPipeline {
     }
 
     static let alreadyCleanSummary = "Already clean — cleanup model not needed"
+
+    /// Code/Terminal text the model saw but had no safe deletion for. Not
+    /// "no filler found", which is the summary when the model isn't asked.
+    static func noSafeFillerSummary(_ styleName: String) -> String {
+        "\(styleName) style — model's edits weren't safe to apply, commands kept exact"
+    }
 
     /// Whether the model would get VocaMac's own cleanup instructions, as
     /// opposed to a prompt the user wrote for every app or for this one.

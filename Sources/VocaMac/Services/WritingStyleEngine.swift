@@ -274,6 +274,19 @@ enum WritingStyleEngine {
     /// package", "js javascript") are usually meant; and a word the speaker
     /// also uses on its own elsewhere ("the addr field … addr address") is
     /// theirs, not a slip.
+    ///
+    /// Three slips go even though a piece of them is a real word or a letter,
+    /// because the shape gives them away:
+    ///
+    /// - a lowercase letter between two words, starting the second one
+    ///   ("please s see", "the n next"), unless the word before it names a
+    ///   label or key ("option b", "command s save")
+    /// - a chain of ever longer starts of the same word ("ex extract extracted")
+    /// - two words said again with the second one finished ("less clutter less
+    ///   cluttery")
+    ///
+    /// In Code and Terminal text the letter and the restart only go when the
+    /// text reads as sentences, not a command (`readsAsProse`).
     static func removeCutOffWords(
         _ text: String, prose: Bool = true, isKnownWord: (String) -> Bool
     ) -> (text: String, removed: Int) {
@@ -291,11 +304,50 @@ enum WritingStyleEngine {
         where !keys[(index + 1)..<min(index + 3, keys.count)].contains(where: { $0.hasPrefix(key) }) {
             standalone.insert(key)
         }
+        let sentenceLike = prose || readsAsProse(text)
+        /// A lowercase word of letters only, with nothing stuck to its end.
+        func isPlainWord(_ index: Int) -> Bool {
+            index < tokens.count && tokens[index].trailing.isEmpty && !tokens[index].word.isEmpty
+                && tokens[index].word == keys[index] && keys[index].allSatisfy(\.isLetter)
+        }
         // Back to front, so a fragment can see whether the one after it went.
         var removed = Set<Int>()
         for index in tokens.indices.reversed() {
             let token = tokens[index]
             let fragment = keys[index]
+            // The words after this one that are staying, so a slip removed
+            // later in the text doesn't hide the pattern it sat in.
+            let ahead = Array(((index + 1)..<tokens.count).lazy.filter { !removed.contains($0) }.prefix(3))
+            // "ex extract extracted": each word a longer start of the next.
+            if ahead.count >= 2, isPlainWord(index), isPlainWord(ahead[0]),
+               keys[ahead[1]].allSatisfy(\.isLetter), isKnownWord(keys[ahead[1]]),
+               fragment.count < keys[ahead[0]].count, keys[ahead[0]].count < keys[ahead[1]].count,
+               keys[ahead[0]].hasPrefix(fragment), keys[ahead[1]].hasPrefix(keys[ahead[0]]) {
+                removed.formUnion([index, ahead[0]])
+                continue
+            }
+            // "less clutter less cluttery": the same two words again, the
+            // second one finished this time. The repeated word is the signal;
+            // the finished one needn't be in the dictionary ("cluttery").
+            if sentenceLike, ahead.count == 3, isPlainWord(index), isPlainWord(ahead[0]),
+               keys[ahead[1]] == fragment, tokens[ahead[1]].trailing.isEmpty,
+               !CleanupSalvage.intentionalRepeats.contains(fragment), keys[ahead[0]].count >= 3,
+               keys[ahead[2]].count > keys[ahead[0]].count, keys[ahead[2]].hasPrefix(keys[ahead[0]]),
+               keys[ahead[2]].allSatisfy(\.isLetter) {
+                removed.formUnion([index, ahead[0]])
+                continue
+            }
+            // "please s see": a letter between two words, starting the second.
+            if sentenceLike, fragment.count == 1, fragment != "x", isPlainWord(index), index > 0,
+               let next = ahead.first, tokens[next].word == keys[next], keys[next].count >= 3,
+               keys[next].allSatisfy(\.isLetter), !standalone.contains(fragment),
+               tokens[index - 1].trailing.isEmpty, !removed.contains(index - 1),
+               keys[index - 1].allSatisfy({ $0.isLetter || $0 == "'" || $0 == "’" }),
+               !letterLabels.contains(keys[index - 1]),
+               EditMerge.isCutOffStart(fragment, of: keys[next], allowsLetter: true, isKnownWord: isKnownWord) {
+                removed.insert(index)
+                continue
+            }
             guard fragment.count >= 2, token.word == fragment, fragment.allSatisfy(\.isLetter),
                   fragment.contains(where: { "aeiouy".contains($0) }), !standalone.contains(fragment),
                   !".!?…".contains(where: token.trailing.contains), !isKnownWord(fragment) else { continue }
@@ -316,6 +368,31 @@ enum WritingStyleEngine {
         }
         guard !removed.isEmpty else { return (text, 0) }
         return (removeWordRuns(removed.map { tokens[$0].range }, from: text, prose: prose), removed.count)
+    }
+
+    /// Words a letter after them is a name for, not the start of the next
+    /// word: "option b build", "plan b backup", "command s save".
+    static let letterLabels: Set<String> = [
+        "option", "plan", "type", "grade", "class", "tier", "level", "version", "phase", "step", "part",
+        "section", "item", "model", "series", "drive", "column", "row", "key", "keys", "letter", "letters",
+        "press", "hit", "button", "point", "figure", "appendix", "exhibit", "size", "unit", "block",
+        "gate", "platform", "floor", "room", "wing", "zone", "lot", "route", "track", "variable", "var",
+        "flag", "dash", "minus", "hyphen", "command", "cmd", "control", "ctrl", "shift", "alt", "fn",
+        "meta", "super", "plus", "vitamin", "called", "named",
+    ]
+
+    /// Whether Code or Terminal text reads as sentences rather than a command:
+    /// several words and nothing a command is made of, such as a path, flag,
+    /// pipe, or `key=value`. Dictation to a coding assistant usually does.
+    static func readsAsProse(_ text: String) -> Bool {
+        let words = text.split(whereSeparator: \.isWhitespace)
+        guard words.count >= 6 else { return false }
+        return !words.contains { word in
+            let body = word.drop { "\"'(“‘".contains($0) }
+            let core = body.reversed().drop { ",.!?;:…\"')”’".contains($0) }.reversed()
+            return body.first == "-" || core.contains(where: { "/\\=_{}[]<>|$`~@#*".contains($0) })
+                || core.contains(".")
+        }
     }
 
     /// Whitespace-separated tokens. One joined to symbols ("--sup",

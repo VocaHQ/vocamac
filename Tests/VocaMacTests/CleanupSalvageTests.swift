@@ -52,6 +52,18 @@ final class CleanupSalvageTests: XCTestCase {
         XCTAssertEqual(salvage("sn- scan it", "scan it"), "sn- scan it")
     }
 
+    func testRealWordsTheNextWordGoesWellPastGo() {
+        XCTAssertEqual(salvage("shown on my web website in this way", "shown on my website in this way"),
+                       "shown on my website in this way")
+        XCTAssertEqual(salvage("doesn't have a very sub substantial benefit", "doesn't have a very substantial benefit"),
+                       "doesn't have a very substantial benefit")
+        // Inflections and words that come before a longer one on purpose stay.
+        XCTAssertEqual(salvage("better view views here", "better views here"), "better view views here")
+        XCTAssertEqual(salvage("we run running jobs", "we running jobs"), "we run running jobs")
+        XCTAssertEqual(salvage("then add address field", "then address field"), "then add address field")
+        XCTAssertEqual(salvage("it will be better", "it will better"), "it will be better")
+    }
+
     func testRestartsNeedAMarkerAndAMatchingStart() {
         XCTAssertEqual(salvage("I want to, I need to finish it", "I need to finish it"), "I need to finish it")
         XCTAssertEqual(salvage("I want to finish it", "finish it"), "I want to finish it")

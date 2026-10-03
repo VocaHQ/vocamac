@@ -138,6 +138,8 @@ enum CleanupNeed {
                previous.allSatisfy(\.isLetter), !shortWords.contains(previous) {
                 return true
             }
+            // "web website": a real word, but one the next word goes well past.
+            if EditMerge.isClippedWord(previous, of: word) { return true }
         }
         guard words.count >= 4 else { return false }
         for index in 2..<(words.count - 1)

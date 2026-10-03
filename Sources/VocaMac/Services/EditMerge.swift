@@ -321,13 +321,14 @@ enum EditMerge {
             if Array(hunk.following.prefix(keys.count)).map(\.key) == keys { return true }
             if Array(hunk.preceding.suffix(keys.count)).map(\.key) == keys { return true }
         }
-        // "diff different", "sor sorry", "S see", "sn scan": a cut-off start
-        // of the next word, with nothing between them. A lone letter only
+        // "diff different", "sor sorry", "S see", "sn scan", "web website": a
+        // cut-off start of the next word, with nothing between them. A lone letter only
         // opens a sentence: mid-sentence it is usually a label ("option B
         // build", "use x xcode").
         if keys.count == 1, hunk.removed.count == 1, let next = hunk.following.first,
            hunk.next?.isWord == true, hunk.previous.map({ $0.isWord || [".", "!", "?", ","].contains($0.text) }) ?? true,
-           isCutOffStart(first.key, of: next.key, allowsLetter: hunk.sentenceStart, isKnownWord: isKnownWord) {
+           isCutOffStart(first.key, of: next.key, allowsLetter: hunk.sentenceStart, isKnownWord: isKnownWord)
+            || isClippedWord(first.key, of: next.key) {
             return true
         }
         // "I want to, I need to": an abandoned start the next words redo.
@@ -481,6 +482,35 @@ enum EditMerge {
         }
         return true
     }
+
+    /// Whether `fragment`, a real word, is still a clipped start of `next`
+    /// when the model removed it: "web website", "sub substantial". Only for
+    /// words of three or more letters that `next` goes well past, and never
+    /// an inflection ("view views", "run running") or a word that commonly
+    /// comes before a longer one on purpose ("add address", "use user").
+    static func isClippedWord(_ fragment: String, of next: String) -> Bool {
+        guard fragment.count >= 3, next.count >= fragment.count + 3, next.hasPrefix(fragment),
+              fragment.allSatisfy(\.isLetter), next.allSatisfy(\.isLetter),
+              !wordsBeforeLongerWords.contains(fragment) else { return false }
+        var rest = next.dropFirst(fragment.count)
+        if rest.first == fragment.last, rest.count > 1 { rest = rest.dropFirst() }
+        return !inflections.contains(String(rest)) && !inflections.contains(String(next.dropFirst(fragment.count)))
+    }
+
+    private static let inflections: Set<String> = [
+        "s", "es", "ed", "d", "ing", "ings", "er", "ers", "est", "ly", "y", "ies", "ied", "ment", "ments",
+        "ness", "able", "ful", "less", "ion", "ions", "ation", "ations", "ity", "al", "ally", "ive",
+    ]
+
+    private static let wordsBeforeLongerWords: Set<String> = [
+        "add", "use", "run", "set", "get", "put", "pass", "port", "test", "check", "build", "log", "list",
+        "load", "read", "start", "stop", "push", "pull", "sort", "find", "open", "close", "save", "show",
+        "view", "edit", "make", "take", "type", "call", "print", "copy", "move", "fix", "mark", "sign",
+        "form", "help", "back", "over", "under", "out", "down", "any", "some", "every", "all", "can",
+        "not", "for", "the", "and", "but", "are", "was", "his", "her", "our", "you", "new", "now", "own",
+        "one", "two", "see", "too", "off", "end", "top", "key", "man", "car", "air", "sun", "day", "way",
+        "work", "home", "line", "time", "water", "fire", "book", "hand", "head", "side", "land", "light",
+    ]
 
     private static let questionLeadIns: Set<String> = ["hey", "hi", "so", "okay", "ok", "well", "and", "but", "also", "oh"]
 

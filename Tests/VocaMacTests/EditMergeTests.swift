@@ -46,6 +46,15 @@ final class EditMergeTests: XCTestCase {
         XCTAssertEqual(merge("run ts tsx now", "run tsx now"), "run ts tsx now")
     }
 
+    func testRealWordsTheNextWordGoesWellPastGo() {
+        XCTAssertEqual(merge("I want it on my web website.", "I want it on my website.").text,
+                       "I want it on my website.")
+        XCTAssertEqual(merge("a very sub substantial benefit", "a very substantial benefit").text,
+                       "a very substantial benefit")
+        XCTAssertEqual(merge("so many view views", "so many views").text, "so many view views")
+        XCTAssertEqual(merge("then use user names", "then user names").text, "then use user names")
+    }
+
     func testADashThatJoinsTwoWordsStaysAsSpoken() {
         XCTAssertEqual(merge("Pick option B build for the release.", "Pick option B—build for the release.").text,
                        "Pick option B build for the release.")

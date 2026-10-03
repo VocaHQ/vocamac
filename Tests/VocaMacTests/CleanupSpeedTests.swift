@@ -25,11 +25,14 @@ final class CleanupNeedTests: XCTestCase {
         XCTAssertNotNil(reason("We can easily sn scan it."))
         XCTAssertNotNil(reason("The wh- the build passed."))
         XCTAssertNotNil(reason("It passed. N"))
+        XCTAssertNotNil(reason("It is a very sub substantial benefit.", technical: true))
+        XCTAssertNotNil(reason("Show it on my web website.", technical: true))
     }
 
     func testOrdinaryShortWordsAreNotStutters() {
         XCTAssertNil(reason("We go to today's meeting in an hour."))
         XCTAssertNil(reason("It is in inside the box."))
+        XCTAssertNil(reason("We need better view views."))
     }
 
     func testWhatTheEngineLeftUnpunctuatedGoesToTheModel() {

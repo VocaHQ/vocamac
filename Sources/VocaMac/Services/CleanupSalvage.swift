@@ -35,6 +35,9 @@ enum CleanupSalvage {
         let target = tokens(in: candidate)
         guard !source.isEmpty, source.count * max(target.count, 1) <= 4_000_000 else { return [] }
         let kept = alignedSourceIndices(source.map(\.core), target.map(\.core))
+        // A real word counts as clipped ("web website") only in sentences:
+        // in "pip install pip pipenv" both are packages.
+        let allowsClippedWords = WritingStyleEngine.readsAsProse(original)
 
         var deletions: [NSRange] = []
         var index = 0
@@ -42,7 +45,10 @@ enum CleanupSalvage {
             guard !kept.contains(index) else { index += 1; continue }
             var end = index
             while end + 1 < source.count, !kept.contains(end + 1) { end += 1 }
-            if let ranges = safeRanges(for: Array(index...end), in: source, kept: kept, isKnownWord: isKnownWord) {
+            if let ranges = safeRanges(
+                for: Array(index...end), in: source, kept: kept,
+                allowsClippedWords: allowsClippedWords, isKnownWord: isKnownWord
+            ) {
                 deletions.append(contentsOf: ranges)
             }
             index = end + 1
@@ -71,7 +77,8 @@ enum CleanupSalvage {
     /// first copy, so "the, the build" loses "the," rather than leaving
     /// "the, build".
     private static func safeRanges(
-        for run: [Int], in source: [Token], kept: Set<Int>, isKnownWord: (String) -> Bool
+        for run: [Int], in source: [Token], kept: Set<Int>, allowsClippedWords: Bool,
+        isKnownWord: (String) -> Bool
     ) -> [NSRange]? {
         // Hesitations can go wherever they sit, even beside an unsafe edit;
         // judge what is left.
@@ -122,7 +129,7 @@ enum CleanupSalvage {
         if run.count == 1, let next, next == first + 1,
            source[first].text.allSatisfy(\.isLetter), source[next].text.allSatisfy(\.isLetter),
            EditMerge.isCutOffStart(source[first].core, of: source[next].core, allowsLetter: false, isKnownWord: isKnownWord)
-            || EditMerge.isClippedWord(source[first].core, of: source[next].core) {
+            || (allowsClippedWords && EditMerge.isClippedWord(source[first].core, of: source[next].core)) {
             return wholeRun
         }
         // "I want to, I need to": an abandoned start, marked by a comma or

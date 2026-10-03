@@ -216,6 +216,10 @@ final class DictationOutputPipelineTests: XCTestCase {
             ("ask S see", "ask S see"),
             // Deliberate repeats and inflections stay.
             ("more power more powerful", "more power more powerful"),
+            // Two things, not a restart: a repeated article, or a plural.
+            ("we need the work the workers finished", "we need the work the workers finished"),
+            ("fix this test this tests file", "fix this test this tests file"),
+            ("ship big change big changes now", "ship big change big changes now"),
         ]
         for (input, expected) in cases {
             XCTAssertEqual(WritingStyleEngine.removeCutOffWords(input, isKnownWord: isKnownWord).text, expected, input)
@@ -233,17 +237,34 @@ final class DictationOutputPipelineTests: XCTestCase {
             WritingStyleEngine.removeCutOffWords("cp a s send ./file to the dir", prose: false, isKnownWord: isKnownWord).text,
             "cp a s send ./file to the dir"
         )
-        // A chain is a slip anywhere.
+        XCTAssertEqual(
+            WritingStyleEngine.removeCutOffWords("git push origin s staging release", prose: false, isKnownWord: isKnownWord).text,
+            "git push origin s staging release"
+        )
+        // A chain needs sentences too, and never starts from a one-letter word.
+        XCTAssertEqual(
+            WritingStyleEngine.removeCutOffWords("please check you have ex extract extracted it", prose: false, isKnownWord: isKnownWord).text,
+            "please check you have extracted it"
+        )
         XCTAssertEqual(
             WritingStyleEngine.removeCutOffWords("ex extract extracted", prose: false, isKnownWord: isKnownWord).text,
-            "extracted"
+            "ex extract extracted"
         )
+        XCTAssertEqual(
+            WritingStyleEngine.removeCutOffWords("cp a an animal", prose: false, isKnownWord: isKnownWord).text,
+            "cp a an animal"
+        )
+        XCTAssertEqual(WritingStyleEngine.removeCutOffWords("I saw a an animal", isKnownWord: isKnownWord).text,
+                       "I saw a an animal")
     }
 
     func testReadsAsProse() {
         XCTAssertTrue(WritingStyleEngine.readsAsProse("Can you check why the CI job failed on iOS."))
         XCTAssertTrue(WritingStyleEngine.readsAsProse("do an end-to-end audit, and \"fix\" what's broken"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("git push origin main"))
+        XCTAssertFalse(WritingStyleEngine.readsAsProse("git push origin s staging release"))
+        XCTAssertFalse(WritingStyleEngine.readsAsProse("can you run git push origin s staging"))
+        XCTAssertFalse(WritingStyleEngine.readsAsProse("pip install pip pipenv requests numpy"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("please run ls -la in the src folder"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("open the file at src/app and fix it"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("set the value FOO=bar and then restart it"))

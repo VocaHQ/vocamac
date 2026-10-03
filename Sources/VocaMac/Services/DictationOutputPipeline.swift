@@ -565,10 +565,11 @@ struct DictationOutputPipeline {
 
     static let alreadyCleanSummary = "Already clean — cleanup model not needed"
 
-    /// Code/Terminal text the model saw but had no safe deletion for. Not
-    /// "no filler found", which is the summary when the model isn't asked.
+    /// Code/Terminal text the model saw but had no safe deletion for, either
+    /// because it changed nothing or because nothing it changed was safe.
+    /// Not "no filler found", which is the summary when the model isn't asked.
     static func noSafeFillerSummary(_ styleName: String) -> String {
-        "\(styleName) style — model's edits weren't safe to apply, commands kept exact"
+        "\(styleName) style — model found nothing safe to remove, commands kept exact"
     }
 
     /// Whether the model would get VocaMac's own cleanup instructions, as

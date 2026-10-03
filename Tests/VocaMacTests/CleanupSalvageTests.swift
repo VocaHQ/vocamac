@@ -53,14 +53,19 @@ final class CleanupSalvageTests: XCTestCase {
     }
 
     func testRealWordsTheNextWordGoesWellPastGo() {
+        // Only in sentences: in a command both words are arguments.
+        XCTAssertEqual(salvage("pip install pip pipenv", "pip install pipenv"), "pip install pip pipenv")
+        XCTAssertEqual(salvage("then put the link on the web website for us", "then put the link on the website for us"),
+                       "then put the link on the website for us")
         XCTAssertEqual(salvage("shown on my web website in this way", "shown on my website in this way"),
                        "shown on my website in this way")
         XCTAssertEqual(salvage("doesn't have a very sub substantial benefit", "doesn't have a very substantial benefit"),
                        "doesn't have a very substantial benefit")
         // Inflections and words that come before a longer one on purpose stay.
-        XCTAssertEqual(salvage("better view views here", "better views here"), "better view views here")
-        XCTAssertEqual(salvage("we run running jobs", "we running jobs"), "we run running jobs")
-        XCTAssertEqual(salvage("then add address field", "then address field"), "then add address field")
+        XCTAssertEqual(salvage("we need better view views here", "we need better views here"),
+                       "we need better view views here")
+        XCTAssertEqual(salvage("can we run running jobs", "can we running jobs"), "can we run running jobs")
+        XCTAssertEqual(salvage("then we add address field", "then we address field"), "then we add address field")
         XCTAssertEqual(salvage("it will be better", "it will better"), "it will be better")
     }
 

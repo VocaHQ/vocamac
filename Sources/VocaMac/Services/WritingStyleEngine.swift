@@ -319,7 +319,9 @@ enum WritingStyleEngine {
             // later in the text doesn't hide the pattern it sat in.
             let ahead = Array(((index + 1)..<tokens.count).lazy.filter { !removed.contains($0) }.prefix(3))
             // "ex extract extracted": each word a longer start of the next.
-            if ahead.count >= 2, isPlainWord(index), isPlainWord(ahead[0]),
+            // Never from a one-letter word ("cp a an animal" names two
+            // files), and in Code and Terminal only in sentences.
+            if sentenceLike, fragment.count >= 2, ahead.count >= 2, isPlainWord(index), isPlainWord(ahead[0]),
                keys[ahead[1]].allSatisfy(\.isLetter), isKnownWord(keys[ahead[1]]),
                fragment.count < keys[ahead[0]].count, keys[ahead[0]].count < keys[ahead[1]].count,
                keys[ahead[0]].hasPrefix(fragment), keys[ahead[1]].hasPrefix(keys[ahead[0]]) {
@@ -329,11 +331,16 @@ enum WritingStyleEngine {
             // "less clutter less cluttery": the same two words again, the
             // second one finished this time. The repeated word is the signal;
             // the finished one needn't be in the dictionary ("cluttery").
+            // A repeated article or preposition before a plural or other
+            // form of the word is ordinary grammar: "the work the workers
+            // finished" names two things.
             if sentenceLike, ahead.count == 3, isPlainWord(index), isPlainWord(ahead[0]),
                keys[ahead[1]] == fragment, tokens[ahead[1]].trailing.isEmpty,
-               !CleanupSalvage.intentionalRepeats.contains(fragment), keys[ahead[0]].count >= 3,
+               !CleanupSalvage.intentionalRepeats.contains(fragment), !restartFunctionWords.contains(fragment),
+               keys[ahead[0]].count >= 3,
                keys[ahead[2]].count > keys[ahead[0]].count, keys[ahead[2]].hasPrefix(keys[ahead[0]]),
-               keys[ahead[2]].allSatisfy(\.isLetter) {
+               keys[ahead[2]].allSatisfy(\.isLetter),
+               !isWordForm(keys[ahead[2]], of: keys[ahead[0]]) {
                 removed.formUnion([index, ahead[0]])
                 continue
             }
@@ -370,6 +377,23 @@ enum WritingStyleEngine {
         return (removeWordRuns(removed.map { tokens[$0].range }, from: text, prose: prose), removed.count)
     }
 
+    /// Words that repeat in ordinary sentences: "the work the workers".
+    private static let restartFunctionWords: Set<String> = [
+        "the", "a", "an", "this", "that", "these", "those", "my", "your", "our", "their", "his", "her",
+        "its", "some", "any", "every", "each", "no", "in", "on", "at", "to", "for", "of", "with",
+        "from", "by", "and", "or", "but", "i", "you", "we", "they", "he", "she", "it",
+    ]
+
+    /// Whether `word` is `stem` with a grammatical ending: "workers",
+    /// "tests", "running". "cluttery" is not; it finishes the stem.
+    private static func isWordForm(_ word: String, of stem: String) -> Bool {
+        let endings: Set<String> = ["s", "es", "ed", "d", "ing", "er", "ers", "est"]
+        var rest = word.dropFirst(stem.count)
+        if endings.contains(String(rest)) { return true }
+        if rest.first == stem.last { rest = rest.dropFirst() }
+        return endings.contains(String(rest))
+    }
+
     /// Words a letter after them is a name for, not the start of the next
     /// word: "option b build", "plan b backup", "command s save".
     static let letterLabels: Set<String> = [
@@ -382,11 +406,15 @@ enum WritingStyleEngine {
     ]
 
     /// Whether Code or Terminal text reads as sentences rather than a command:
-    /// several words and nothing a command is made of, such as a path, flag,
-    /// pipe, or `key=value`. Dictation to a coding assistant usually does.
+    /// several words, at least two of the small words sentences are made of,
+    /// no command-line tool, and nothing a command is made of, such as a
+    /// path, flag, pipe, or `key=value`. Dictation to a coding assistant
+    /// usually does; "git push origin s staging release" does not.
     static func readsAsProse(_ text: String) -> Bool {
         let words = text.split(whereSeparator: \.isWhitespace)
         guard words.count >= 6 else { return false }
+        let keys = Set(words.map { $0.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" } })
+        guard keys.intersection(sentenceWords).count >= 2, keys.isDisjoint(with: commandTools) else { return false }
         return !words.contains { word in
             let body = word.drop { "\"'(“‘".contains($0) }
             let core = body.reversed().drop { ",.!?;:…\"')”’".contains($0) }.reversed()
@@ -394,6 +422,22 @@ enum WritingStyleEngine {
                 || core.contains(".")
         }
     }
+
+    private static let sentenceWords: Set<String> = [
+        "the", "a", "an", "is", "are", "was", "be", "to", "of", "and", "that", "this", "it", "can",
+        "you", "we", "i", "please", "what", "why", "how", "so", "if", "should", "would", "could",
+        "have", "has", "do", "does", "not", "but", "because", "there", "where", "when", "will",
+        "with", "for", "in", "on", "me", "my", "our", "it's", "let's",
+    ]
+
+    /// Tool names that mean the text is (or quotes) a command. Ones that are
+    /// also ordinary English ("make", "open", "cat") aren't here.
+    private static let commandTools: Set<String> = [
+        "git", "gh", "npm", "npx", "pnpm", "yarn", "pip", "pip3", "pipx", "brew", "docker", "kubectl",
+        "cargo", "rustup", "sudo", "ssh", "scp", "rsync", "curl", "wget", "chmod", "chown", "mkdir",
+        "rmdir", "rm", "mv", "cp", "ls", "cd", "grep", "rg", "sed", "awk", "tar", "xcodebuild",
+        "python", "python3", "node", "deno", "bun", "uv", "poetry", "conda", "apt", "systemctl",
+    ]
 
     /// Whitespace-separated tokens. One joined to symbols ("--sup",
     /// "src/supp") isn't all letters, so it is never a fragment or its word.

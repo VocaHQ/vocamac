@@ -64,7 +64,7 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "trailing-space",
-            page: .dictation,
+            page: .formatting,
             title: "Trailing Space After Dictation",
             subtitle: "Space between utterances",
             keywords: ["space", "output", "glue", "whitespace"]
@@ -99,28 +99,28 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "auto-capitalize",
-            page: .dictation,
+            page: .formatting,
             title: "Auto-Capitalize Sentences",
             subtitle: "Capitalize after punctuation",
             keywords: ["capitalize", "output", "sentence", "punctuation"]
         ),
         SettingsSearchEntry(
             id: "numbers-as-digits",
-            page: .dictation,
+            page: .formatting,
             title: "Write Numbers as Digits",
             subtitle: "“twenty three” becomes “23”",
             keywords: ["numbers", "digits", "numerals", "output"]
         ),
         SettingsSearchEntry(
             id: "number-symbols",
-            page: .dictation,
+            page: .formatting,
             title: "Use Symbols and Ordinals",
             subtitle: "“fifty percent” becomes “50%”",
             keywords: ["percent", "currency", "dollar", "ordinal", "date", "minus", "symbols"]
         ),
         SettingsSearchEntry(
             id: "spoken-emoji",
-            page: .dictation,
+            page: .formatting,
             title: "Spoken Emoji",
             subtitle: "“crying emoji” becomes 😭",
             keywords: ["emoji", "emojis", "smiley", "output"]
@@ -343,14 +343,14 @@ enum SettingsSearchIndex {
         ),
         SettingsSearchEntry(
             id: "language",
-            page: .speechModel,
+            page: .language,
             title: "Transcription Language",
             subtitle: "Auto-detect or pick a language",
             keywords: ["language", "locale", "english", "hungarian"]
         ),
         SettingsSearchEntry(
             id: "translation",
-            page: .speechModel,
+            page: .language,
             title: "Translation",
             subtitle: "Translate speech to English",
             keywords: ["translate", "english"]

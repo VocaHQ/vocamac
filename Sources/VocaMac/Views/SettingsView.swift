@@ -189,6 +189,10 @@ struct SettingsView: View {
             switch selectedPage ?? .dictation {
             case .dictation:
                 DictationSettingsPage()
+            case .formatting:
+                FormattingSettingsPage()
+            case .language:
+                LanguageSettingsPage()
             case .history:
                 HistorySettingsPage()
             case .dictionary:
@@ -550,9 +554,39 @@ struct DictationSettingsPage: View {
                 }
             }
 
-            // One group for everything that shapes the typed text. Per-app
-            // overrides live in Writing Styles.
-            VocaSettingsGroup("Your Text") {
+            ShortcutSettingsGroup()
+
+            // Here rather than under Cleanup: it speeds up transcription with
+            // Smart Cleanup off too.
+            VocaSettingsGroup("Speed") {
+                SettingsToggleRow(
+                    title: "Process while speaking",
+                    detail: "Transcribes each sentence as you finish it, so long dictations paste sooner.",
+                    isOn: $appState.processWhileSpeaking
+                )
+                .settingsTarget("process-while-speaking")
+                .help("Cleans each sentence up too when Smart Cleanup is on. Your Mac works while you talk, "
+                    + "which uses more battery, and that work is wasted if you cancel. Not used for dictations "
+                    + "started in Low Power Mode or while your Mac runs hot. Command Mode and previews are unaffected.")
+                Text("Uses more battery while you talk. Skipped in Low Power Mode and when your Mac runs hot.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// MARK: - Formatting Settings
+
+/// Rules that shape the typed text everywhere. Per-app overrides live in
+/// Writing Styles.
+struct FormattingSettingsPage: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VocaSettingsPageContent {
+            VocaSettingsGroup("Typed Text") {
                 SettingsToggleRow(
                     title: "Add a trailing space",
                     detail: "Keeps dictations from running together.",
@@ -591,26 +625,6 @@ struct DictationSettingsPage: View {
                 )
                 .settingsTarget("spoken-emoji")
             }
-
-            // Here rather than under Cleanup: it speeds up transcription with
-            // Smart Cleanup off too.
-            VocaSettingsGroup("Speed") {
-                SettingsToggleRow(
-                    title: "Process while speaking",
-                    detail: "Transcribes each sentence as you finish it, so long dictations paste sooner.",
-                    isOn: $appState.processWhileSpeaking
-                )
-                .settingsTarget("process-while-speaking")
-                .help("Cleans each sentence up too when Smart Cleanup is on. Your Mac works while you talk, "
-                    + "which uses more battery, and that work is wasted if you cancel. Not used for dictations "
-                    + "started in Low Power Mode or while your Mac runs hot. Command Mode and previews are unaffected.")
-                Text("Uses more battery while you talk. Skipped in Low Power Mode and when your Mac runs hot.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            ShortcutSettingsGroup()
         }
     }
 }
@@ -764,7 +778,7 @@ struct ApplicationSettingsPage: View {
 
 struct SpeechModelSettingsPage: View {
     var body: some View {
-        ModelSettingsTab(showsLanguageHints: true)
+        ModelSettingsTab()
     }
 }
 
@@ -1223,25 +1237,15 @@ struct AutoPauseAppPickerSheet: View {
 
 struct ModelSettingsTab: View {
     @EnvironmentObject var appState: AppState
-    @State private var languageSearch = ""
-    @State private var isLanguageSectionExpanded = false
     @State private var isEndpointSectionExpanded = false
     @State private var endpointAPIKeyDraft = ""
     @State private var endpointNotice: String?
     @State private var scope: ModelPickerScope = .forYou
     @State private var modelSearch = ""
     @State private var showsAllSuggestions = false
-    @Environment(\.settingsSearchTarget) private var settingsSearchTarget
 
     /// For You rows listed before the rest wait behind "Show more".
     private static let forYouShown = 5
-
-    /// When true, show language / translation / vocabulary below the catalog.
-    var showsLanguageHints: Bool = false
-
-    init(showsLanguageHints: Bool = false) {
-        self.showsLanguageHints = showsLanguageHints
-    }
 
     private var spokenLanguagesBinding: Binding<[String]> {
         Binding(
@@ -1263,18 +1267,6 @@ struct ModelSettingsTab: View {
             recommended: recommendedModel,
             systemLanguages: appState.appleSpeechLanguages
         )
-    }
-
-    private var filteredLanguages: [TranscriptionLanguage] {
-        TranscriptionLanguage.filtered(search: languageSearch)
-    }
-
-    private var activeModel: ModelSize? {
-        appState.currentModel?.size ?? ModelSize(rawValue: appState.selectedModelSize)
-    }
-
-    private var activeEngine: TranscriptionEngine? {
-        activeModel?.engine
     }
 
     private var isSearching: Bool {
@@ -1393,10 +1385,6 @@ struct ModelSettingsTab: View {
                     .help("Larger models are more accurate but slower and use more memory. Accuracy and speed ratings are catalog estimates and vary by language and Mac. Apple Speech assets are managed by macOS.")
 
                 customEndpointSection
-
-                if showsLanguageHints {
-                    languageAndHintsSection
-                }
             }
             .padding()
         }
@@ -1567,102 +1555,6 @@ struct ModelSettingsTab: View {
         case .downloaded: return "Nothing downloaded yet. Pick a model from For You."
         case .all:        return "No models are available on this Mac."
         }
-    }
-
-    private var languageAndHintsSection: some View {
-        // Collapsed by default: building this section's controls costs about
-        // 80ms of the Speech Model page's load, and picking a model is what
-        // the page is for. Language is a second, rarer errand.
-        VocaDisclosureCard(
-            title: "Language & Hints",
-            subtitle: "Recognition language, translation, and custom vocabulary.",
-            systemImage: "globe",
-            isExpanded: $isLanguageSectionExpanded
-        ) {
-            TextField("Search languages", text: $languageSearch)
-                .textFieldStyle(.voca)
-
-            Picker("Language", selection: $appState.selectedLanguage) {
-                ForEach(filteredLanguages) { language in
-                    Text(language.code == "auto"
-                         ? language.displayName
-                         : "\(language.displayName) (\(language.code))")
-                        .tag(language.code)
-                }
-            }
-            .settingsTarget("language")
-
-            if !filteredLanguages.contains(where: { $0.code == appState.selectedLanguage }),
-               let current = TranscriptionLanguage.catalog.first(where: { $0.code == appState.selectedLanguage }) {
-                Text("Current: \(current.displayName)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            Text("Auto-detect works well for most cases. Set a specific language for better accuracy.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let model = appState.currentModel?.size, model.bindsLanguageAtLoadTime {
-                Text("\(model.displayName) applies the language when it loads, so changing it reloads the model.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            // Kept visible while on, so a model that can't translate never
-            // hides a switch the user needs to turn off.
-            if activeModel?.translatesToEnglish == true || appState.translationEnabled || settingsSearchTarget == "translation" {
-                Divider()
-
-                Toggle("Enable translation", isOn: $appState.translationEnabled)
-                    .disabled(activeModel?.translatesToEnglish != true && !appState.translationEnabled)
-                    .settingsTarget("translation")
-
-                Text(translationCaption)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if appState.translationEnabled, activeModel?.translatesToEnglish != true {
-                    Button("Show Models That Translate") {
-                        scope = .all
-                        modelSearch = "translate"
-                    }
-                }
-            }
-
-            Divider()
-
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Vocabulary")
-                    Text(activeEngine?.supportsCustomVocabulary == true
-                         ? "Your dictionary spells names your way with every model; this model also uses it as a recognition hint."
-                         : "Your dictionary spells names your way with every model.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer()
-                Button("Open Dictionary") { appState.requestSettingsPage(.dictionary) }
-            }
-    }
-        .onChange(of: appState.selectedLanguage) {
-            Task { @MainActor in
-                await appState.languageDidChange()
-            }
-        }
-        .revealSettingsTargets(["language", "translation"], expanded: $isLanguageSectionExpanded)
-    }
-
-    private var translationCaption: String {
-        guard appState.translationEnabled else {
-            return "Speech is transcribed as spoken. The language setting is only a recognition hint."
-        }
-        if let activeModel, !activeModel.translatesToEnglish {
-            return "\(activeModel.displayName) wasn't trained to translate, so VocaMac transcribes speech as spoken. Switch to a model that translates to use this."
-        }
-        return "Speech is translated to the selected language (or English if set to Auto-detect)."
     }
 }
 

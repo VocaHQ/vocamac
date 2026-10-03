@@ -44,8 +44,8 @@ enum SettingsSection: CaseIterable, Identifiable {
     /// Pages in this group, in sidebar order.
     var pages: [SettingsPage] {
         switch self {
-        case .dictation: return [.dictation, .speechModel, .audio, .performance]
-        case .writing: return [.writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
+        case .dictation: return [.dictation, .speechModel, .language, .audio, .performance]
+        case .writing: return [.formatting, .writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
         case .activity: return [.history, .stats]
         case .app: return [.application, .gateway, .advanced, .about]
         }
@@ -55,6 +55,8 @@ enum SettingsSection: CaseIterable, Identifiable {
 /// Top-level settings topics shown in the left sidebar.
 enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictation
+    case formatting
+    case language
     case history
     case writingStyles
     case dictionary
@@ -75,6 +77,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dictation: return "Dictation"
+        case .formatting: return "Formatting"
+        case .language: return "Language"
         case .history: return "History"
         case .dictionary: return "Dictionary"
         case .writingStyles: return "Writing Styles"
@@ -96,6 +100,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     var systemImage: String {
         switch self {
         case .dictation: return "mic"
+        case .formatting: return "textformat.abc"
+        case .language: return "globe"
         case .history: return "clock.arrow.circlepath"
         case .dictionary: return "character.book.closed"
         case .writingStyles: return "textformat"

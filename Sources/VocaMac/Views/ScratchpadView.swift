@@ -100,6 +100,7 @@ struct ScratchpadView: View {
         }
         .padding(18)
         .vocaPaperBackground()
+        .buttonStyle(VocaOutlineButtonStyle())
         .tint(VocaDesign.accent)
     }
 }

@@ -142,6 +142,10 @@ struct WordFlowLayout: Layout {
 
 /// The one primary action on a screen: an ink capsule that lifts on hover.
 struct VocaPrimaryButtonStyle: ButtonStyle {
+    /// Ink unless a mode owns the action (Command Mode's violet).
+    var fill: Color = VocaDesign.ink
+    var label: Color = VocaDesign.onInk
+
     @Environment(\.isEnabled) private var isEnabled
     @Environment(\.controlSize) private var controlSize
     @State private var isHovered = false
@@ -152,10 +156,10 @@ struct VocaPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: isCompact ? 12.5 : 14, weight: .semibold))
-            .foregroundStyle(VocaDesign.onInk)
+            .foregroundStyle(label)
             .padding(.horizontal, isCompact ? 14 : 22)
             .frame(minHeight: isCompact ? 28 : 40)
-            .background(VocaDesign.ink, in: Capsule())
+            .background(fill, in: Capsule())
             .opacity(isEnabled ? 1 : 0.4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .offset(y: isHovered && isEnabled && !configuration.isPressed ? -1 : 0)
@@ -205,7 +209,6 @@ struct VocaOutlineButtonStyle: ButtonStyle {
                 // rounded to exactly half drew straight seams at its ends.
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
                     .fill(filled ? VocaDesign.ink : VocaDesign.surface)
-                    .shadow(color: .black.opacity(filled ? 0 : 0.08), radius: 0, y: 1)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)

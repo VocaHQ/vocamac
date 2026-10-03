@@ -182,12 +182,16 @@ final class UpdateWindowManager: ObservableObject {
         let updateView = detailView(appState: appState, info: info)
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 520, height: 420),
-            styleMask: [.titled, .closable],
+            contentRect: NSRect(x: 0, y: 0, width: 560, height: 580),
+            styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         window.title = "VocaMac Update"
+        // The dawn scene runs up under a transparent title bar.
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.backgroundColor = VocaDesign.canvasNSColor
         window.contentView = NSHostingView(rootView: updateView)
         window.center()
         window.isReleasedWhenClosed = false

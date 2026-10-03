@@ -129,7 +129,7 @@ struct CommandReviewView: View {
                 Image(systemName: review.kind == .edit ? "wand.and.stars" : "text.bubble")
                     .foregroundStyle(VocaDesign.command)
                 Text(review.kind == .edit ? "Review the edit" : "Answer")
-                    .font(.headline)
+                    .font(VocaDesign.display(17))
                 Spacer(minLength: 8)
                 Text(review.engineName)
                     .font(.caption2)
@@ -167,15 +167,21 @@ struct CommandReviewView: View {
                 Button("Copy", action: onCopy)
                 if review.kind == .edit {
                     Button("Replace", action: onAccept)
-                        .buttonStyle(.borderedProminent)
-                        .tint(VocaDesign.command)
+                        .buttonStyle(VocaPrimaryButtonStyle(fill: VocaDesign.command, label: .white))
                 }
             }
             .controlSize(.small)
         }
         .padding(14)
         .frame(width: CommandReviewPanelController.width)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .buttonStyle(VocaOutlineButtonStyle())
+        .background {
+            ZStack {
+                VocaDesign.canvas
+                PaperGrainOverlay()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(VocaDesign.command.opacity(0.35))

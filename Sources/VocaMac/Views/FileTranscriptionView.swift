@@ -91,6 +91,7 @@ struct FileTranscriptionView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .vocaPaperBackground()
+        .buttonStyle(VocaOutlineButtonStyle())
         .tint(VocaDesign.accent)
     }
 

@@ -5,6 +5,8 @@
 
 import SwiftUI
 
+/// The menu's note that a new version is waiting: a line in the serif, and
+/// one click to see what's new.
 struct UpdateBannerView: View {
     let info: UpdateInfo
     @ObservedObject var updateWindowManager: UpdateWindowManager
@@ -14,29 +16,34 @@ struct UpdateBannerView: View {
         Button {
             updateWindowManager.open(appState: appState, info: info)
         } label: {
-            HStack(spacing: 8) {
-                Image(systemName: "arrow.down.circle.fill")
+            HStack(spacing: 12) {
+                Image(systemName: "arrow.down")
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(VocaDesign.accent)
-                Text("Update \(info.tagName) available")
-                    .font(.callout)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.primary)
-                Spacer()
+                    .frame(width: 28, height: 28)
+                    .background(VocaDesign.accent.opacity(0.13), in: Circle())
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("VocaMac \(info.tagName) is ready")
+                        .font(VocaDesign.display(16))
+                        .foregroundStyle(.primary)
+                    Text("See what's new")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
                 Image(systemName: "chevron.right")
-                    .font(.caption)
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
-            .padding(.vertical, 7)
-            .padding(.horizontal, 10)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(VocaDesign.accent.opacity(0.1))
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("VocaMac \(info.tagName) is ready. See what's new.")
     }
 }
 
+/// The update window: the new version on a dawn scene, what changed as
+/// readable notes, and the one action to take.
 struct UpdateDetailView: View {
     let info: UpdateInfo
     // Closes via the presenting binding rather than @Environment(\.dismiss):
@@ -44,61 +51,129 @@ struct UpdateDetailView: View {
     @Binding var isPresented: Bool
     @EnvironmentObject var appState: AppState
 
+    @State private var isSceneMoving = true
+
+    private var notes: [ReleaseNotes.Block] { ReleaseNotes.blocks(from: info.releaseNotes) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("VocaMac \(info.tagName) Available")
-                        .font(VocaDesign.display(26))
-                    Text(ByteCountFormatter.string(fromByteCount: Int64(info.dmgSize), countStyle: .file))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Later (24h)") {
-                    appState.updateChecker.dismiss()
-                    isPresented = false
-                }
-                .buttonStyle(VocaOutlineButtonStyle())
-                .help("Hide this update for 24 hours")
-
-                Button("Close") {
-                    isPresented = false
-                }
-                .buttonStyle(VocaOutlineButtonStyle())
-                .keyboardShortcut(.cancelAction)
-                .help("Close without snoozing")
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
-
-            Divider()
+            header
 
             ScrollView {
-                Text(info.releaseNotes.isEmpty ? "No release notes provided." : info.releaseNotes)
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(20)
+                VStack(alignment: .leading, spacing: 10) {
+                    // Notes that open on their own heading don't need ours.
+                    if !(notes.first.map(Self.isHeading) ?? false) {
+                        Text("WHAT'S NEW")
+                            .font(VocaDesign.eyebrow)
+                            .tracking(1.4)
+                            .foregroundStyle(VocaDesign.accent)
+                            .padding(.bottom, 2)
+                    }
+                    if notes.isEmpty {
+                        Text("No release notes were published with this version.")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(notes.enumerated()), id: \.offset) { _, block in
+                        noteView(block)
+                    }
+                }
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 22)
             }
-            .frame(maxHeight: 280)
+            .frame(maxHeight: .infinity)
 
-            Divider()
+            Rectangle().fill(VocaDesign.line).frame(height: 1)
 
             actionArea
-                .padding(20)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 18)
         }
-        .frame(width: 520)
+        .frame(width: 560, height: 580)
+        .ignoresSafeArea()
         .vocaPaperBackground()
-        .tint(VocaDesign.accent)
+        .tint(VocaDesign.accentSolid)
+        .background {
+            // Esc closes without snoozing, as the Close button used to.
+            Button("Close") { isPresented = false }
+                .keyboardShortcut(.cancelAction)
+                .hidden()
+        }
+        .task {
+            try? await Task.sleep(for: .seconds(6))
+            isSceneMoving = false
+        }
+    }
+
+    private static func isHeading(_ block: ReleaseNotes.Block) -> Bool {
+        if case .heading = block { return true }
+        return false
+    }
+
+    private var header: some View {
+        ZStack(alignment: .bottomLeading) {
+            VocaScene(mood: .dawn, animated: isSceneMoving, framing: .horizon)
+            HStack(alignment: .lastTextBaseline) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("A NEW VERSION")
+                        .font(VocaDesign.eyebrow)
+                        .tracking(1.6)
+                        .opacity(0.85)
+                    Text("VocaMac \(info.tagName)")
+                        .font(VocaDesign.display(38))
+                        .accessibilityAddTraits(.isHeader)
+                }
+                Spacer()
+                Text(ByteCountFormatter.string(fromByteCount: Int64(info.dmgSize), countStyle: .file))
+                    .font(.caption.weight(.medium))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.16), in: Capsule())
+            }
+            .foregroundStyle(Color(nsColor: VocaPalette.ivory))
+            .shadow(color: .black.opacity(0.25), radius: 10, y: 1)
+            .padding(.horizontal, 28)
+            .padding(.bottom, 20)
+            .riseIn(delay: 0.1, distance: 8)
+        }
+        .frame(height: 176)
+        .clipped()
+    }
+
+    @ViewBuilder
+    private func noteView(_ block: ReleaseNotes.Block) -> some View {
+        switch block {
+        case .heading(let text):
+            Text(ReleaseNotes.attributed(text))
+                .font(VocaDesign.display(20))
+                .padding(.top, 8)
+                .accessibilityAddTraits(.isHeader)
+        case .bullet(let text):
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Circle()
+                    .fill(VocaDesign.clay)
+                    .frame(width: 5, height: 5)
+                    .alignmentGuide(.firstTextBaseline) { $0[.bottom] + 3 }
+                Text(ReleaseNotes.attributed(text))
+                    .font(.system(size: 13.5))
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        case .paragraph(let text):
+            Text(ReleaseNotes.attributed(text))
+                .font(.system(size: 13.5))
+                .foregroundStyle(.secondary)
+                .lineSpacing(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
     private var actionArea: some View {
         switch appState.updateChecker.updateState {
         case .updateAvailable:
-            HStack {
+            HStack(spacing: 14) {
                 Button("Skip This Version") {
                     appState.updateChecker.skipVersion(info.version)
                     isPresented = false
@@ -107,6 +182,13 @@ struct UpdateDetailView: View {
                 .foregroundStyle(.secondary)
 
                 Spacer()
+
+                Button("Later") {
+                    appState.updateChecker.dismiss()
+                    isPresented = false
+                }
+                .buttonStyle(VocaOutlineButtonStyle())
+                .help("Hide this update for 24 hours")
 
                 Button("Download & Install") {
                     Task { @MainActor in
@@ -123,6 +205,10 @@ struct UpdateDetailView: View {
                     Text(install.upgradeCommand)
                         .font(.system(.callout, design: .monospaced))
                         .textSelection(.enabled)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(VocaDesign.line))
                     Spacer()
                     Button("Copy Command") {
                         let pasteboard = NSPasteboard.general
@@ -135,16 +221,14 @@ struct UpdateDetailView: View {
         case .downloading(let progress, let bytesDownloaded, let totalBytes, let eta):
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Text("Downloading update...")
-                        .foregroundStyle(.secondary)
+                    Text("Downloading…")
+                        .font(VocaDesign.display(16))
                     Spacer()
                     Text("\(Int(progress * 100))%")
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                ProgressView(value: progress)
-                    .progressViewStyle(.linear)
-                    .tint(VocaDesign.accent)
+                VocaProgressBar(value: progress)
                 HStack {
                     Text("\(ByteCountFormatter.string(fromByteCount: bytesDownloaded, countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file))")
                         .font(.caption)
@@ -162,13 +246,14 @@ struct UpdateDetailView: View {
                 HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("Verifying download integrity...")
-                        .foregroundStyle(.secondary)
+                    Text("Checking the download…")
+                        .font(VocaDesign.display(16))
                 }
             }
         case .readyToInstall(let dmgPath):
             VStack(alignment: .leading, spacing: 10) {
-                Label("Download complete", systemImage: "checkmark.circle.fill")
+                Label("Ready to install", systemImage: "checkmark.circle.fill")
+                    .font(VocaDesign.display(16))
                     .foregroundStyle(VocaDesign.success)
                 Text("Open the DMG and drag VocaMac to Applications to replace the existing app.")
                     .font(.caption)
@@ -210,5 +295,25 @@ struct UpdateDetailView: View {
             return "\(mins)m \(secs)s remaining"
         }
         return "\(secs)s remaining"
+    }
+}
+
+/// A thin petrol bar on a paper track.
+struct VocaProgressBar: View {
+    let value: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                Capsule()
+                    .fill(VocaDesign.accent)
+                    .frame(width: max(6, geometry.size.width * min(max(value, 0), 1)))
+                    .animation(.easeOut(duration: 0.25), value: value)
+            }
+        }
+        .frame(height: 5)
+        .accessibilityElement()
+        .accessibilityValue("\(Int(value * 100)) percent")
     }
 }

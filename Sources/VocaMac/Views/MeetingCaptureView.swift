@@ -172,6 +172,7 @@ struct MeetingCaptureView: View {
         .padding(20)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .vocaPaperBackground()
+        .buttonStyle(VocaOutlineButtonStyle())
         .tint(VocaDesign.accent)
         .onChange(of: capture.didReachLimit) {
             if capture.didReachLimit, !session.isTranscribing { stop() }

@@ -245,6 +245,8 @@ struct OnboardingView: View {
                             }
                         }
                         .riseIn(delay: 0.3, distance: 20)
+                        // Paper outline buttons wherever a step didn't pick a style.
+                        .buttonStyle(VocaOutlineButtonStyle())
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 28)
@@ -710,9 +712,9 @@ struct HotkeyConfigStep: View {
                 // Activation Mode — the same control the Dictation settings
                 // page uses, so the choice looks the same in both places.
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Activation mode")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                    Text("ACTIVATION MODE")
+                        .font(VocaDesign.eyebrow)
+                        .tracking(1.2)
                         .foregroundStyle(.secondary)
 
                     ActivationModeSelector(selection: $appState.activationMode)
@@ -722,9 +724,9 @@ struct HotkeyConfigStep: View {
 
                 // Hotkey Selection
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Shortcut")
-                        .font(.caption)
-                        .fontWeight(.semibold)
+                    Text("SHORTCUT")
+                        .font(VocaDesign.eyebrow)
+                        .tracking(1.2)
                         .foregroundStyle(.secondary)
 
                     HotKeySelectionControl(
@@ -737,9 +739,9 @@ struct HotkeyConfigStep: View {
                     Divider()
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Double-tap speed")
-                            .font(.caption)
-                            .fontWeight(.semibold)
+                        Text("DOUBLE-TAP SPEED")
+                            .font(VocaDesign.eyebrow)
+                            .tracking(1.2)
                             .foregroundStyle(.secondary)
 
                         HStack {

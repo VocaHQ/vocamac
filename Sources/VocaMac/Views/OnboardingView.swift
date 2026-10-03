@@ -115,6 +115,9 @@ struct OnboardingView: View {
                 stepColumn
                     .padding(.leading, Self.sceneWidth)
                     .opacity(introDone ? 1 : 0)
+                    // Hidden during the opening, so Return can't advance a
+                    // step nobody has seen yet.
+                    .disabled(!introDone)
                 scenePanel
                     .frame(width: introExpanded ? geometry.size.width : Self.sceneWidth)
                     .frame(maxHeight: .infinity)

@@ -33,7 +33,7 @@ struct AboutTab: View {
     private var identitySection: some View {
         Section {
             VStack(spacing: 8) {
-                VocaMarkView(size: 64)
+                BrandLogoView(size: 64)
 
                 Text("VocaMac")
                     .font(VocaDesign.display(34))

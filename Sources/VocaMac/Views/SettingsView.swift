@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("settings.lastPage") private var lastPage = SettingsPage.dictation.rawValue
     @AppStorage("settings.sidebarVisible") private var sidebarVisible = true
     @State private var didRestore = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var hasSearchQuery: Bool {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -110,7 +111,7 @@ struct SettingsView: View {
                 leadingInset: sidebarVisible ? 18 : 84,
                 isSidebarVisible: sidebarVisible
             ) {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) { sidebarVisible.toggle() }
+                withAnimation(reduceMotion ? nil : .spring(response: 0.4, dampingFraction: 0.9)) { sidebarVisible.toggle() }
             }
             if let entry = SettingsSearchIndex.entries.first(where: { $0.id == selectedSearchEntryID }),
                let hint = entry.navigationHint {
@@ -2413,36 +2414,45 @@ struct PermissionsLogsTab: View {
 /// system list it replaces.
 struct SettingsSidebarList: View {
     @Binding var selection: SettingsPage?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let order = SettingsSection.allCases.flatMap(\.pages)
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(SettingsSection.allCases) { section in
-                    Text(section.title.uppercased())
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .tracking(1.3)
-                        .foregroundStyle(.secondary)
-                        .padding(.leading, 10)
-                        .padding(.top, 16)
-                        .padding(.bottom, 4)
-                        .accessibilityAddTraits(.isHeader)
-                    ForEach(section.pages) { page in
-                        SettingsSidebarRow(page: page, isSelected: selection == page) {
-                            selection = page
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(SettingsSection.allCases) { section in
+                        Text(section.title.uppercased())
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .tracking(1.3)
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, 10)
+                            .padding(.top, 16)
+                            .padding(.bottom, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(section.pages) { page in
+                            SettingsSidebarRow(page: page, isSelected: selection == page) {
+                                selection = page
+                            }
+                            .id(page)
                         }
                     }
                 }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 10)
-            .padding(.bottom, 12)
+            .scrollIndicators(.never)
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.downArrow) { move(by: 1) }
+            .onKeyPress(.upArrow) { move(by: -1) }
+            // Arrow keys can choose a row scrolled out of a short window.
+            .onChange(of: selection) { _, page in
+                guard let page else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo(page) }
+            }
         }
-        .scrollIndicators(.never)
-        .focusable()
-        .focusEffectDisabled()
-        .onKeyPress(.downArrow) { move(by: 1) }
-        .onKeyPress(.upArrow) { move(by: -1) }
     }
 
     private func move(by offset: Int) -> KeyPress.Result {
@@ -2459,6 +2469,7 @@ private struct SettingsSidebarRow: View {
     let select: () -> Void
 
     @State private var isHovered = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         Button(action: select) {
@@ -2483,7 +2494,7 @@ private struct SettingsSidebarRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .animation(.easeOut(duration: 0.15), value: isSelected)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isSelected)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -2535,7 +2546,8 @@ struct SettingsSceneHeader: View {
             // Move for a few seconds when a page opens, then hold still, so
             // an open Settings window costs nothing while it sits there.
             isMoving = true
-            try? await Task.sleep(for: .seconds(6))
+            // A cancelled task (another page opened) must not stop the new one.
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
             isMoving = false
         }
     }

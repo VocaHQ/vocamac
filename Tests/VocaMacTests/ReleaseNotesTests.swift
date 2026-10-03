@@ -45,4 +45,35 @@ final class ReleaseNotesTests: XCTestCase {
     func testInlineMarkdownFallsBackToPlainText() {
         XCTAssertEqual(String(ReleaseNotes.attributed("**Bold** and `code`").characters), "Bold and code")
     }
+
+    func testFencedCodeStaysAsWritten() {
+        let notes = """
+        Upgrade with:
+        ```bash
+        brew upgrade --cask vocamac
+          --greedy
+        ```
+        Done.
+        """
+        XCTAssertEqual(ReleaseNotes.blocks(from: notes), [
+            .paragraph("Upgrade with:"),
+            .code("brew upgrade --cask vocamac\n  --greedy"),
+            .paragraph("Done."),
+        ])
+    }
+
+    func testWrappedBulletLineContinuesTheBullet() {
+        let notes = """
+        - Cleanup keeps spoken corrections
+          and punctuation intact.
+        - Second item
+
+        A paragraph after a blank line.
+        """
+        XCTAssertEqual(ReleaseNotes.blocks(from: notes), [
+            .bullet("Cleanup keeps spoken corrections and punctuation intact."),
+            .bullet("Second item"),
+            .paragraph("A paragraph after a blank line."),
+        ])
+    }
 }

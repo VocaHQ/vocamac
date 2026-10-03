@@ -147,6 +147,7 @@ struct VocaPrimaryButtonStyle: ButtonStyle {
     var label: Color = VocaDesign.onInk
 
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.controlSize) private var controlSize
     @State private var isHovered = false
 
@@ -161,13 +162,13 @@ struct VocaPrimaryButtonStyle: ButtonStyle {
             .frame(minHeight: isCompact ? 28 : 40)
             .background(fill, in: Capsule())
             .opacity(isEnabled ? 1 : 0.4)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .offset(y: isHovered && isEnabled && !configuration.isPressed ? -1 : 0)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.97 : 1)
+            .offset(y: isHovered && isEnabled && !configuration.isPressed && !reduceMotion ? -1 : 0)
             .shadow(color: .black.opacity(isHovered && isEnabled ? 0.18 : 0), radius: 10, y: 5)
             .contentShape(Capsule())
             .onHover { isHovered = $0 }
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isHovered)
-            .animation(.spring(response: 0.2, dampingFraction: 0.8), value: configuration.isPressed)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.8), value: isHovered)
+            .animation(reduceMotion ? nil : .spring(response: 0.2, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }
 
@@ -193,33 +194,39 @@ struct VocaArrowLabel: View {
 }
 
 /// A secondary action: an outlined capsule that fills with ink on hover.
+/// A destructive one keeps its warning: clay text, and clay when filled.
 struct VocaOutlineButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovered = false
 
     func makeBody(configuration: Configuration) -> some View {
         let filled = isHovered && isEnabled
+        let isDestructive = configuration.role == .destructive
+        let fillColor = isDestructive ? VocaDesign.clay : VocaDesign.ink
+        let textColor = filled ? (isDestructive ? Color.white : VocaDesign.onInk)
+            : (isDestructive ? VocaDesign.clay : Color.primary)
         configuration.label
             .font(.system(size: 12.5, weight: .semibold))
-            .foregroundStyle(filled ? VocaDesign.onInk : Color.primary)
+            .foregroundStyle(textColor)
             .padding(.horizontal, 14)
             .frame(height: 30)
             .background {
                 // A radius a point under half the height: a stroked shape
                 // rounded to exactly half drew straight seams at its ends.
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .fill(filled ? VocaDesign.ink : VocaDesign.surface)
+                    .fill(filled ? fillColor : VocaDesign.surface)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 13, style: .continuous)
-                    .stroke(Color.primary.opacity(filled ? 0 : 0.2), lineWidth: 1)
+                    .stroke(isDestructive ? VocaDesign.clay.opacity(filled ? 0 : 0.5) : Color.primary.opacity(filled ? 0 : 0.2), lineWidth: 1)
                     .padding(0.5)
             }
             .opacity(isEnabled ? 1 : 0.45)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.96 : 1)
             .contentShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             .onHover { isHovered = $0 }
-            .animation(.easeOut(duration: 0.15), value: isHovered)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: isHovered)
     }
 }
 
@@ -230,6 +237,8 @@ struct VocaStepProgress: View {
     let count: Int
     let current: Int
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         HStack(spacing: 6) {
             ForEach(0..<count, id: \.self) { index in
@@ -238,7 +247,7 @@ struct VocaStepProgress: View {
                     .frame(width: index == current ? 28 : 14, height: 3)
             }
         }
-        .animation(.spring(response: 0.5, dampingFraction: 0.85), value: current)
+        .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.85), value: current)
         .accessibilityElement()
         .accessibilityLabel("Step \(current + 1) of \(count)")
     }
@@ -246,23 +255,20 @@ struct VocaStepProgress: View {
 
 // MARK: - Fields and links
 
-/// A text field on paper: a light sheet with a hairline edge that turns
-/// petrol while the field has focus.
+/// A text field on paper: a light sheet with a hairline edge. It leaves
+/// focus alone, so a field that manages its own focus (the language
+/// picker's search) keeps doing so.
 struct VocaTextFieldStyle: TextFieldStyle {
-    @FocusState private var isFocused: Bool
-
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
             .textFieldStyle(.plain)
-            .focused($isFocused)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(isFocused ? VocaDesign.accent.opacity(0.7) : VocaDesign.line)
+                    .strokeBorder(VocaDesign.line)
             )
-            .animation(.easeOut(duration: 0.15), value: isFocused)
     }
 }
 

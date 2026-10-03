@@ -11,15 +11,20 @@ enum ReleaseNotes {
         case heading(String)
         case bullet(String)
         case paragraph(String)
+        /// A fenced command or snippet, kept line for line.
+        case code(String)
     }
 
     /// Blocks in reading order. Blank lines end a paragraph; consecutive
-    /// text lines join into one. HTML comments, images, horizontal rules and
-    /// table rows are dropped: the window is for reading, the release page
-    /// has the rest.
+    /// text lines join into one, and a line that follows a bullet without a
+    /// blank line continues that bullet. Fenced code stays as written. HTML
+    /// comments, images, horizontal rules and table rows are dropped: the
+    /// window is for reading, the release page has the rest.
     static func blocks(from markdown: String) -> [Block] {
         var blocks: [Block] = []
         var paragraph: [String] = []
+        var code: [String]?
+        var continuesBullet = false
 
         func flushParagraph() {
             guard !paragraph.isEmpty else { return }
@@ -32,8 +37,24 @@ enum ReleaseNotes {
         )
         for rawLine in withoutComments.components(separatedBy: .newlines) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
+            if line.hasPrefix("```") {
+                if let lines = code {
+                    blocks.append(.code(lines.joined(separator: "\n")))
+                    code = nil
+                } else {
+                    flushParagraph()
+                    code = []
+                }
+                continuesBullet = false
+                continue
+            }
+            if code != nil {
+                code?.append(rawLine)
+                continue
+            }
             if line.isEmpty {
                 flushParagraph()
+                continuesBullet = false
                 continue
             }
             if line.hasPrefix("!["), line.hasSuffix(")") { continue }
@@ -50,16 +71,24 @@ enum ReleaseNotes {
             if let marker = ["- ", "* ", "+ "].first(where: { line.hasPrefix($0) }) {
                 flushParagraph()
                 blocks.append(.bullet(String(line.dropFirst(marker.count))))
+                continuesBullet = true
                 continue
             }
             if let range = line.range(of: "^[0-9]+[.)] ", options: .regularExpression) {
                 flushParagraph()
                 blocks.append(.bullet(String(line[range.upperBound...])))
+                continuesBullet = true
+                continue
+            }
+            if continuesBullet, case .bullet(let text)? = blocks.last {
+                blocks[blocks.count - 1] = .bullet(text + " " + line)
                 continue
             }
             paragraph.append(line)
         }
         flushParagraph()
+        // An unclosed fence still shows what it held.
+        if let lines = code, !lines.isEmpty { blocks.append(.code(lines.joined(separator: "\n"))) }
         return blocks
     }
 

@@ -496,6 +496,7 @@ struct MenuBarIcon: View {
 
     var body: some View {
         Image(nsImage: makeMenuBarIcon())
+            .accessibilityLabel("VocaMac")
     }
 
     private func makeMenuBarIcon() -> NSImage {
@@ -523,7 +524,7 @@ struct MenuBarIcon: View {
     /// The five-bar waveform, black on clear, for tinting or templating.
     static func waveformImage() -> NSImage {
         let size = NSSize(width: 18, height: markPointSize)
-        return NSImage(size: size, flipped: false) { rect in
+        let image = NSImage(size: size, flipped: false) { rect in
             NSColor.black.setFill()
             let area = rect.insetBy(dx: 2, dy: 1.5)
             for bar in VocaWaveform.barRects(in: area) {
@@ -531,6 +532,8 @@ struct MenuBarIcon: View {
             }
             return true
         }
+        image.accessibilityDescription = "VocaMac"
+        return image
     }
 
     private func fallbackSymbol(named name: String, tint: NSColor?) -> NSImage {

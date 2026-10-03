@@ -165,7 +165,17 @@ struct MenuBarView: View {
             .measureHeight(MenuChromeHeightKey.self)
         }
         .frame(width: MenuPanelMetrics.width)
-        .vocaPaperBackground()
+        .background {
+            ZStack {
+                VocaDesign.canvas
+                PaperGrainOverlay()
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: MenuPanelMetrics.panelRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: MenuPanelMetrics.panelRadius, style: .continuous)
+                .strokeBorder(VocaDesign.line)
+        )
         .background(MenuPanelWindowSizer(height: chromeHeight + scrollHeight, onWindow: { panelWindow.window = $0 }))
         .onPreferenceChange(MenuContentHeightKey.self) { contentHeight = $0 }
         .onPreferenceChange(MenuChromeHeightKey.self) { chromeHeight = $0 }
@@ -1222,6 +1232,8 @@ struct MenuRowButtonStyle: ButtonStyle {
 
 enum MenuPanelMetrics {
     static let width: CGFloat = 380
+    /// The panel's own corner: the paper sheet is the window's shape.
+    static let panelRadius: CGFloat = 16
     static let inset: CGFloat = 12
     static let cardRadius: CGFloat = 14
     static let tileRadius: CGFloat = 11
@@ -1259,8 +1271,33 @@ private struct MenuPanelWindowSizer: NSViewRepresentable {
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
+            if let window { Self.makePaperPanel(window) }
             onWindow?(window)
             scheduleResize()
+        }
+
+        /// The panel paints its own rounded paper sheet. Left alone, the
+        /// system window draws its material and a light rim around it, and
+        /// the paper sat inside that as a second, square-cornered frame.
+        /// Clearing the window and hiding the material leaves one edge: the
+        /// sheet's own hairline, with the window shadow following its shape.
+        static func makePaperPanel(_ window: NSWindow) {
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            if let frameView = window.contentView?.superview {
+                hideSystemMaterial(in: frameView)
+            }
+            window.invalidateShadow()
+        }
+
+        private static func hideSystemMaterial(in view: NSView) {
+            for subview in view.subviews {
+                // NSVisualEffectView, and the glass view newer systems use.
+                if subview is NSVisualEffectView || String(describing: type(of: subview)).contains("GlassEffect") {
+                    subview.isHidden = true
+                }
+                hideSystemMaterial(in: subview)
+            }
         }
 
         private func scheduleResize() {

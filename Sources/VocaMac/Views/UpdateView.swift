@@ -101,7 +101,7 @@ struct UpdateDetailView: View {
                 .hidden()
         }
         .task {
-            try? await Task.sleep(for: .seconds(6))
+            do { try await Task.sleep(for: .seconds(6)) } catch { return }
             isSceneMoving = false
         }
     }
@@ -160,6 +160,13 @@ struct UpdateDetailView: View {
                     .lineSpacing(2)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        case .code(let text):
+            Text(text)
+                .font(.system(.callout, design: .monospaced))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(VocaDesign.line))
         case .paragraph(let text):
             Text(ReleaseNotes.attributed(text))
                 .font(.system(size: 13.5))
@@ -302,6 +309,8 @@ struct UpdateDetailView: View {
 struct VocaProgressBar: View {
     let value: Double
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
@@ -309,7 +318,7 @@ struct VocaProgressBar: View {
                 Capsule()
                     .fill(VocaDesign.accent)
                     .frame(width: max(6, geometry.size.width * min(max(value, 0), 1)))
-                    .animation(.easeOut(duration: 0.25), value: value)
+                    .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: value)
             }
         }
         .frame(height: 5)

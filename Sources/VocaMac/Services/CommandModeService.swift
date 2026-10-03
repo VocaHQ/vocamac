@@ -81,7 +81,7 @@ enum SelectionCaptureFailure: Error, Equatable {
         case .unreadable:
             return "VocaMac couldn't read the selection in this app. Select the text again, or copy it and try once more."
         case .needsClipboardFallback:
-            return "This app doesn't share its selection with VocaMac. To edit text here, turn on “Copy the selection when an app doesn't share it” in Settings → Cleanup → Command Mode."
+            return "This app doesn't share its selection with VocaMac. To edit text here, turn on “Copy the selection when an app hides it” in Settings → Command Mode."
         }
     }
 }

@@ -183,7 +183,7 @@ enum CommandReviewMode: String, CaseIterable, Identifiable {
     }
 }
 
-/// What Settings → Cleanup → Try It shows.
+/// What Settings → Smart Cleanup → Try It shows.
 struct CleanupTryResult: Equatable {
     let input: String
     let text: String
@@ -761,6 +761,10 @@ final class AppState: ObservableObject {
 
     /// Settings page to show the next time the Settings window appears.
     @Published var requestedSettingsPage: SettingsPage?
+
+    /// A search the Speech Model page applies to its whole catalog when it
+    /// next appears, then clears.
+    @Published var requestedSpeechModelSearch: String?
 
     /// Failed dictation whose retry banner the user closed.
     @Published private(set) var dismissedRecoveryEntryID: UUID?
@@ -4191,6 +4195,12 @@ extension AppState {
         return size?.displayName ?? name
     }
 
+    /// Open Speech Model showing only models that translate.
+    func showModelsThatTranslate() {
+        requestedSpeechModelSearch = "translate"
+        requestSettingsPage(.speechModel)
+    }
+
     /// Open Settings on a specific page (e.g. History from the menu bar).
     func requestSettingsPage(_ page: SettingsPage) {
         requestedSettingsPage = page
@@ -4340,15 +4350,15 @@ extension AppState {
         case .appleIntelligence:
             guard !appleIntelligenceAvailable() else { return nil }
             return AppleIntelligenceTextService.availabilityProblem()
-                ?? "Apple Intelligence is unavailable. Choose another Command Mode model in Settings → Cleanup."
+                ?? "Apple Intelligence is unavailable. Choose another model in Settings → Command Mode."
         case .endpoint:
             if cleanupEndpoint.isLocal {
-                return "Command Mode is set to use the cleanup endpoint, but none is configured. Choose a model in Settings → Cleanup."
+                return "Command Mode is set to use the cleanup endpoint, but none is configured. Choose a model in Settings → Command Mode."
             }
             return cleanupEndpoint.validationProblem()
         case .local(let kind):
             guard transcriptCleanup.isDownloaded(kind) else {
-                return "Download \(kind.descriptor.displayName) in Settings → Cleanup → Command Mode first."
+                return "Download \(kind.descriptor.displayName) in Settings → Command Mode first."
             }
             return nil
         }

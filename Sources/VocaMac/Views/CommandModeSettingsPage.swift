@@ -50,6 +50,14 @@ struct CommandModeSettingsPage: View {
                     )
                     .disabled(isDownloading)
                     .settingsTarget("command-mode-share")
+                } else {
+                    // Search still lands somewhere, and says why there's no switch.
+                    Divider()
+                    SettingsRow(
+                        title: "Use the Smart Cleanup model",
+                        detail: "Smart Cleanup runs with \(appState.cleanupEndpoint.provider.displayName), so there's no model on this Mac to share. Choose \(appState.cleanupEndpoint.provider.displayName) in the menu above to use it for edits too."
+                    ) { EmptyView() }
+                    .settingsTarget("command-mode-share")
                 }
 
                 AIModelDownloadProgress()

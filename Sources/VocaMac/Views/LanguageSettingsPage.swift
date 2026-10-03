@@ -64,7 +64,7 @@ struct LanguageSettingsPage: View {
 
                 if activeModel?.translatesToEnglish != true {
                     Button("Choose a Model That Translates") {
-                        appState.requestSettingsPage(.speechModel)
+                        appState.showModelsThatTranslate()
                     }
                     .controlSize(.small)
                 }

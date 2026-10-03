@@ -141,7 +141,12 @@ struct AIModelSharingTip: View {
     /// What sharing saves, and what it costs when the shared model is
     /// slower at cleanup than the one in use.
     private func detail(for kind: CleanupModelKind) -> String {
-        var text = "Smart Cleanup and Command Mode can run on the same model: one download, one model in memory, and edits start without waiting for a second model to load."
+        var text = "Smart Cleanup and Command Mode can run on the same model: one download and one model in memory."
+        // Only a Mac that can't keep both loaded makes edits wait for a swap.
+        if case .local(let commandKind) = appState.commandModeEngine,
+           !appState.usesSeparateCommandSlot(for: commandKind) {
+            text += " Edits also start sooner, without waiting for a second model to load."
+        }
         let current = appState.selectedCleanupModelKind
         if kind != current, kind.isSlowForCleanup || kind.descriptor.ramRequiredGB > current.descriptor.ramRequiredGB {
             text += " Cleanup would use \(kind.descriptor.displayName) instead of \(current.descriptor.displayName), which takes a little longer per dictation."
@@ -417,7 +422,7 @@ private struct AIModelLibraryRow: View {
                 .foregroundStyle(role == .cleanup ? VocaDesign.accentSolid : VocaDesign.command)
         } else {
             HStack(spacing: 8) {
-                Button(isDownloaded ? "Use" : "Download") {
+                Button(isDownloaded ? "Use" : "Download & Use") {
                     Task { @MainActor in await appState.useAIModel(kind, for: role) }
                 }
                 .controlSize(.small)
@@ -425,6 +430,20 @@ private struct AIModelLibraryRow: View {
                 .help(appState.sharesAIModel && kind.supportsCommandMode
                       ? "Smart Cleanup and Command Mode share a model, so both will use it"
                       : "")
+                if !isDownloaded {
+                    // Getting a model ready for later, say before going
+                    // offline, shouldn't switch what either feature runs.
+                    Button {
+                        Task { @MainActor in await appState.downloadAIModel(kind) }
+                    } label: {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .disabled(isDownloadingAnother)
+                    .help("Download only, without using it yet")
+                    .accessibilityLabel("Download \(descriptor.displayName) only")
+                }
                 if isDownloaded && !usedByOther {
                     Button {
                         showDeleteAlert = true

@@ -190,4 +190,20 @@ final class AIModelRoleTests: XCTestCase {
         mocks.whisperService.loadedModelName = nil
         XCTAssertNil(state.loadedModelDisplayName)
     }
+
+    func testChoosingATranslatingModelOpensSpeechModelFiltered() {
+        let (state, _) = AppState.makeTestState()
+        state.showModelsThatTranslate()
+        XCTAssertEqual(state.requestedSettingsPage, .speechModel)
+        XCTAssertEqual(state.requestedSpeechModelSearch, "translate")
+        XCTAssertTrue(ModelSize.allCases.contains { $0.translatesToEnglish })
+    }
+
+    func testCommandModeProblemsPointToTheCommandModePage() {
+        let (state, cleanup) = makeState()
+        cleanup.downloadedKinds = []
+        let problem = state.commandModeProblem(for: .local(.qwen3_4b_instruct_2507_q4_k_m))
+        XCTAssertEqual(problem?.contains("Settings → Command Mode"), true)
+        XCTAssertEqual(problem?.contains("Cleanup"), false)
+    }
 }

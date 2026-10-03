@@ -1432,6 +1432,12 @@ struct ModelSettingsTab: View {
         .task {
             await appState.refreshAppleSpeechLanguages()
         }
+        .onChange(of: appState.requestedSpeechModelSearch, initial: true) { _, search in
+            guard let search else { return }
+            scope = .all
+            modelSearch = search
+            appState.requestedSpeechModelSearch = nil
+        }
     }
 
     /// Where the Custom Endpoint model sends recordings: the same two

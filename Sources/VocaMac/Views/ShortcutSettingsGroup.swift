@@ -3,6 +3,7 @@
 //
 // Settings for the shortcuts beyond the activation hotkey: paste the last
 // dictation, hands-free dictation, Escape to cancel, and a mouse button.
+// Command Mode's shortcut lives on the Command Mode page.
 
 import SwiftUI
 
@@ -22,12 +23,6 @@ struct ShortcutSettingsGroup: View {
                 detail: "Press to start, press again to stop."
             )
             .settingsTarget("hands-free-shortcut")
-            Divider()
-            ShortcutRecorderRow(
-                action: .commandMode,
-                detail: "Select text, then say how to change it."
-            )
-            .settingsTarget("command-mode-shortcut")
             Divider()
             SettingsToggleRow(
                 title: "Escape cancels dictation",

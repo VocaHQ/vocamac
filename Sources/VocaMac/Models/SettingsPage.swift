@@ -45,7 +45,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     var pages: [SettingsPage] {
         switch self {
         case .dictation: return [.dictation, .speechModel, .audio, .performance]
-        case .writing: return [.writingStyles, .cleanup, .dictionary, .snippets]
+        case .writing: return [.writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
         case .activity: return [.history, .stats]
         case .app: return [.application, .gateway, .advanced, .about]
         }
@@ -60,6 +60,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case dictionary
     case snippets
     case cleanup
+    case commandMode
     case speechModel
     case audio
     case performance
@@ -78,7 +79,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .dictionary: return "Dictionary"
         case .writingStyles: return "Writing Styles"
         case .snippets: return "Snippets"
-        case .cleanup: return "Cleanup"
+        case .cleanup: return "Smart Cleanup"
+        case .commandMode: return "Command Mode"
         case .speechModel: return "Speech Model"
         case .audio: return "Audio"
         case .performance: return "Performance"
@@ -98,7 +100,8 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .dictionary: return "character.book.closed"
         case .writingStyles: return "textformat"
         case .snippets: return "text.quote"
-        case .cleanup: return "wand.and.stars"
+        case .cleanup: return "sparkles"
+        case .commandMode: return "wand.and.stars"
         case .speechModel: return "brain"
         case .audio: return "waveform"
         case .performance: return "bolt.circle"

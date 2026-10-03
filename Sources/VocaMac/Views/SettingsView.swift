@@ -199,6 +199,8 @@ struct SettingsView: View {
                 SnippetsSettingsTab()
             case .cleanup:
                 CleanupSettingsPage()
+            case .commandMode:
+                CommandModeSettingsPage()
             case .speechModel:
                 SpeechModelSettingsPage()
             case .audio:

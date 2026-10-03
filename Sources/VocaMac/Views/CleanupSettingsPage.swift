@@ -1,7 +1,8 @@
 // CleanupSettingsPage.swift
 // VocaMac
 //
-// Settings for optional on-device transcript cleanup.
+// Settings for Smart Cleanup, the optional pass that tidies each dictation.
+// Command Mode has its own page; the two only meet when they share a model.
 
 import SwiftUI
 
@@ -15,8 +16,6 @@ struct CleanupSettingsPage: View {
     @State private var tryItRunning = false
     @State private var isPromptExpanded = false
     @State private var isInferenceExpanded = false
-    @State private var isCommandModeExpanded = false
-    @State private var isMoreModelsExpanded = false
     @State private var apiKeyDraft = ""
     @State private var endpointNotice: String?
 
@@ -28,13 +27,10 @@ struct CleanupSettingsPage: View {
 
     var body: some View {
         VocaSettingsPageContent {
-            // The two features, what each one runs, and whether it's ready.
-            // People used to piece this together from two separate model
-            // lists, and assumed a model picked for one also ran the other.
-            VocaSettingsGroup("Cleanup and Command Mode") {
+            VocaSettingsGroup("Smart Cleanup") {
                 AIFeatureRow(
-                    title: "Smart Cleanup",
-                    detail: "Tidies dictation unless an app or one-off choice bypasses cleanup.",
+                    title: "Tidy every dictation",
+                    detail: "Removes filler words, fixes punctuation, and keeps your corrections, before the text is typed.",
                     systemImage: "sparkles",
                     tint: VocaDesign.accentSolid
                 ) {
@@ -42,40 +38,20 @@ struct CleanupSettingsPage: View {
                     Toggle("Smart Cleanup", isOn: $appState.transcriptCleanupEnabled)
                         .labelsHidden()
                 } status: {
-                    cleanupStatus
+                    VStack(alignment: .leading, spacing: 4) {
+                        cleanupStatus
+                        if appState.sharesAIModel {
+                            AIStatusLine(
+                                text: "Command Mode uses this model too. Change that on the Command Mode page.",
+                                systemImage: "link",
+                                color: .secondary
+                            )
+                        }
+                    }
                 }
-
-                Divider()
-
-                AIFeatureRow(
-                    title: "Command Mode",
-                    detail: "Edits text you select, when you ask.",
-                    systemImage: "wand.and.stars",
-                    tint: VocaDesign.command
-                ) {
-                    AIModelMenu(role: .commandMode)
-                } status: {
-                    commandStatus
-                }
-
-                if appState.cleanupEndpoint.isLocal {
-                    Divider()
-                    SettingsToggleRow(
-                        title: "Use one model for both",
-                        detail: sharingDetail,
-                        isOn: Binding(
-                            get: { appState.sharesAIModel },
-                            set: { shared in
-                                Task { @MainActor in await appState.setSharesAIModel(shared) }
-                            }
-                        )
-                    )
-                    .disabled(isDownloading)
-                }
-
-                downloadProgressLine
+                AIModelDownloadProgress()
             }
-            .settingsTarget("cleanup", aliases: ["command-mode-model"])
+            .settingsTarget("cleanup")
 
             VocaSettingsGroup("Cleanup Level") {
                 Picker("Cleanup level", selection: $appState.transcriptCleanupLevel) {
@@ -138,11 +114,12 @@ struct CleanupSettingsPage: View {
             }
             .settingsTarget("cleanup-try")
 
-            modelLibrary.settingsTarget("cleanup-model")
+            AIModelLibrary(role: .cleanup)
+                .settingsTarget("cleanup-model")
 
             VocaDisclosureCard(
-                title: "Inference",
-                subtitle: "Where cleanup runs: on this Mac or an endpoint you choose.",
+                title: "Where Cleanup Runs",
+                subtitle: "On this Mac, or a server you choose such as Ollama or LM Studio.",
                 systemImage: "cpu",
                 badge: appState.cleanupEndpoint.provider.displayName,
                 isExpanded: $isInferenceExpanded
@@ -204,20 +181,6 @@ struct CleanupSettingsPage: View {
             }
             .revealSettingsTargets(["cleanup-provider"], expanded: $isInferenceExpanded)
             .settingsTarget("cleanup-provider")
-
-            VocaDisclosureCard(
-                title: "Command Mode Options",
-                subtitle: "Shortcut, saved commands, review, and voice actions.",
-                systemImage: "wand.and.stars",
-                isExpanded: $isCommandModeExpanded
-            ) {
-                CommandModeSettingsGroup(embedded: true)
-            }
-            .revealSettingsTargets(
-                ["command-mode-clipboard", "command-mode-review", "command-mode-saved", "command-mode-actions"],
-                expanded: $isCommandModeExpanded
-            )
-            .settingsTarget("command-mode-clipboard")
 
             // The disclosure card is its own surface; wrapping it in a group
             // card would draw a card inside a card.
@@ -381,11 +344,6 @@ struct CleanupSettingsPage: View {
         }
     }
 
-    /// Whether any cleanup model is on disk, not just the selected one.
-    private var hasDownloadedModel: Bool {
-        CleanupModelKind.cleanupChoices.contains { appState.transcriptCleanup.isDownloaded($0) }
-    }
-
     /// Characters of transcript that still fit alongside the drafted prompt.
     private var isPromptCustomised: Bool {
         promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -408,70 +366,6 @@ struct CleanupSettingsPage: View {
         appState.transcriptCleanupPrompt = isDefault ? "" : draft
     }
 
-    private var isDownloading: Bool {
-        if case .downloading = appState.transcriptCleanup.modelState { return true }
-        return false
-    }
-
-    /// Rows that stay visible: anything downloaded, in use, downloading, or
-    /// suggested for this Mac. The rest wait behind one disclosure row.
-    private func isProminentModel(_ kind: CleanupModelKind) -> Bool {
-        if case .downloading(let active, _) = appState.transcriptCleanup.modelState, active == kind {
-            return true
-        }
-        let suggestion = appState.cleanupModelSuggestion
-        return appState.transcriptCleanup.isDownloaded(kind)
-            || appState.selectedCleanupModelKind == kind
-            || appState.commandModeEngine == .local(kind)
-            || suggestion.cleanup == kind
-            || suggestion.commandMode == kind
-    }
-
-    private var modelLibrary: some View {
-        let prominent = CleanupModelKind.allCases.filter(isProminentModel)
-        let more = CleanupModelKind.allCases.filter { !isProminentModel($0) }
-        return VocaSettingsGroup("On-Device Models", subtitle: "Download a model once and use it for either feature.") {
-            ForEach(prominent) { kind in
-                AIModelLibraryRow(kind: kind)
-                if kind != prominent.last || !more.isEmpty {
-                    Divider()
-                }
-            }
-            if !more.isEmpty {
-                DisclosureGroup(isExpanded: $isMoreModelsExpanded) {
-                    ForEach(more) { kind in
-                        AIModelLibraryRow(kind: kind)
-                        if kind != more.last {
-                            Divider()
-                        }
-                    }
-                } label: {
-                    Text("\(more.count) more \(more.count == 1 ? "model" : "models")")
-                }
-                .disclosureGroupStyle(VocaDisclosureGroupStyle())
-            }
-        }
-    }
-
-    /// Says in one sentence what running one or two models means right now.
-    private var sharingDetail: String {
-        let cleanup = appState.selectedCleanupModelKind.descriptor.displayName
-        if appState.sharesAIModel {
-            return "\(cleanup) does both: one download, one model in memory."
-        }
-        switch appState.commandModeEngine {
-        case .local(let kind) where kind == appState.selectedCleanupModelKind:
-            return "Both use \(cleanup) for now, but choosing a model for one won't change the other."
-        case .local(let kind):
-            if appState.usesSeparateCommandSlot(for: kind) {
-                return "\(cleanup) cleans up and \(kind.descriptor.displayName) edits. This Mac has the memory to keep both loaded, so neither waits for the other."
-            }
-            return "\(cleanup) cleans up and \(kind.descriptor.displayName) edits. They take turns in memory, so an edit starts slower."
-        case .appleIntelligence, .endpoint:
-            return "Command Mode runs with \(appState.commandModeEngine.displayName), so it needs no model here."
-        }
-    }
-
     @ViewBuilder
     private var cleanupStatus: some View {
         let kind = appState.selectedCleanupModelKind
@@ -480,7 +374,7 @@ struct CleanupSettingsPage: View {
                 AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: VocaDesign.warning)
             } else {
                 AIStatusLine(
-                    text: "Runs with \(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel), set in Inference below.",
+                    text: "Runs with \(appState.cleanupEndpoint.provider.displayName) · \(appState.cleanupEndpoint.resolvedModel), set in Where Cleanup Runs below.",
                     systemImage: "network",
                     color: .secondary
                 )
@@ -518,577 +412,5 @@ struct CleanupSettingsPage: View {
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private var commandStatus: some View {
-        let engine = appState.commandModeEngine
-        if appState.shortcut(for: .commandMode) == nil {
-            HStack(spacing: 8) {
-                AIStatusLine(text: "Off until it has a shortcut.", systemImage: "keyboard", color: VocaDesign.warning)
-                if let suggested = ShortcutValidation.suggestion(for: .commandMode, appState: appState) {
-                    Button("Use \(KeyCodeReference.displayName(for: suggested))") {
-                        appState.setShortcut(suggested, for: .commandMode)
-                    }
-                    .controlSize(.small)
-                    .help("Three modifiers, rarely used by other apps")
-                }
-            }
-        } else if case .local(let kind) = engine, !appState.transcriptCleanup.isDownloaded(kind) {
-            HStack(spacing: 8) {
-                AIStatusLine(text: "\(kind.descriptor.displayName) isn't downloaded yet.", systemImage: "arrow.down.circle", color: VocaDesign.warning)
-                Button("Download \(kind.descriptor.sizeDescription)") {
-                    Task { @MainActor in await appState.useAIModel(kind, for: .commandMode) }
-                }
-                .controlSize(.small)
-                .disabled(isDownloading)
-            }
-        } else if let problem = appState.commandModeProblem(for: engine) {
-            AIStatusLine(text: problem, systemImage: "exclamationmark.triangle.fill", color: VocaDesign.warning)
-        } else if let combo = appState.shortcut(for: .commandMode) {
-            AIStatusLine(
-                text: "Ready. Select text, press \(KeyCodeReference.displayName(for: combo)), and say the edit.",
-                systemImage: "checkmark.circle.fill",
-                color: VocaDesign.command
-            )
-        }
-    }
-
-    /// One download runs at a time, whichever feature asked for it.
-    @ViewBuilder
-    private var downloadProgressLine: some View {
-        if case .downloading(let kind, let progress) = appState.transcriptCleanup.modelState {
-            Divider()
-            HStack(spacing: 10) {
-                ProgressView(value: progress)
-                    .frame(width: 110)
-                Text("Downloading \(kind.descriptor.displayName) — \(Int(progress * 100))%")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Cancel") {
-                    appState.cancelCleanupDownload()
-                }
-                .controlSize(.small)
-            }
-        }
-    }
-}
-
-// MARK: - Command Mode
-
-/// Command Mode's shortcut and options. Its model is chosen at the top of
-/// the page, next to the cleanup model.
-struct CommandModeSettingsGroup: View {
-    @EnvironmentObject var appState: AppState
-
-    /// Inside a disclosure card that already names the group, draw only the
-    /// rows — a second titled card would repeat the heading one level down.
-    var embedded = false
-
-    var body: some View {
-        if embedded {
-            VStack(alignment: .leading, spacing: 12) { rows }
-        } else {
-            VocaSettingsGroup("Command Mode") { rows }
-        }
-    }
-
-    @ViewBuilder
-    private var rows: some View {
-        Text("Select text in any app, press the shortcut, and say what to change. With nothing selected, say what to write and it is typed at the cursor. The original stays in the menu bar so you can copy it back.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-
-        CommandModeExamples()
-
-        ShortcutRecorderRow(
-            action: .commandMode,
-            detail: "Press once, speak, and press again — or hold it while speaking.",
-            title: "Shortcut"
-        )
-
-        Divider()
-
-        SettingsToggleRow(
-            title: "Copy the selection when an app hides it",
-            detail: "For terminals and editors that don't share selected text.",
-            isOn: $appState.commandModeClipboardFallback
-        )
-        .help("VocaMac copies the selection with ⌘C and puts your clipboard back right away. Clipboard managers may briefly see the selected text.")
-
-        Divider()
-
-        HStack(alignment: .firstTextBaseline) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Review edits before replacing")
-                Text("Shows what changed and waits. Press the Command Mode shortcut to replace, or Esc to discard.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 16)
-            Picker("Review edits before replacing", selection: $appState.commandModeReview) {
-                ForEach(CommandReviewMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .labelsHidden()
-            .fixedSize()
-        }
-        .settingsTarget("command-mode-review")
-
-        Divider()
-
-        SavedCommandsEditor()
-            .settingsTarget("command-mode-saved")
-
-        Divider()
-
-        SettingsToggleRow(
-            title: "Voice actions",
-            detail: "Say “open Safari”, “search the web for…”, “remind me to…”, or “run the shortcut…”. Only what you say starts an action, never the selected text.",
-            isOn: $appState.voiceActionsEnabled
-        )
-        .settingsTarget("command-mode-actions")
-        if appState.voiceActionsEnabled {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Shortcuts VocaMac may run")
-                    .font(.caption)
-                TextEditor(text: $appState.voiceActionShortcuts)
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(height: 54)
-                    .vocaTextEditor()
-                    .accessibilityLabel("Shortcuts VocaMac may run, one per line")
-                Text("One name per line, as it appears in the Shortcuts app. A shortcut that isn't listed never runs. Selected text is passed to the shortcut as its input.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-/// The user's saved Command Mode instructions: a name, the instruction, and
-/// an optional shortcut each.
-private struct SavedCommandsEditor: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        let commands = appState.savedCommands
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Saved commands")
-                    Text("Instructions you use often. Say a command's name in Command Mode, or give it a shortcut to run it on the selection without speaking.")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 16)
-                Button("Add") {
-                    appState.savedCommands = commands + [SavedCommand(name: "", instruction: "")]
-                }
-                .controlSize(.small)
-            }
-            if commands.isEmpty {
-                Button("Add “Fix grammar”, “Shorter”, and “More formal”") {
-                    appState.savedCommands = SavedCommand.starters
-                }
-                .controlSize(.small)
-            }
-            ForEach(commands) { command in
-                SavedCommandRow(command: command)
-            }
-        }
-    }
-}
-
-private struct SavedCommandRow: View {
-    @EnvironmentObject var appState: AppState
-    let command: SavedCommand
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                TextField("Name", text: binding(\.name))
-                    .textFieldStyle(.voca)
-                    .frame(width: 130)
-                    .accessibilityLabel("Command name")
-                TextField("Instruction, e.g. “fix grammar and spelling”", text: binding(\.instruction))
-                    .textFieldStyle(.voca)
-                    .accessibilityLabel("Instruction")
-                Button {
-                    appState.savedCommands = appState.savedCommands.filter { $0.id != command.id }
-                } label: {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.borderless)
-                .help("Delete this command")
-                .accessibilityLabel("Delete \(command.name.isEmpty ? "command" : command.name)")
-            }
-            ShortcutRecorderRow(
-                action: .savedCommand(command.id),
-                detail: "Runs it on the selected text.",
-                title: "Shortcut"
-            )
-            .font(.caption)
-        }
-        .padding(8)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-    private func binding(_ keyPath: WritableKeyPath<SavedCommand, String>) -> Binding<String> {
-        Binding(
-            get: { appState.savedCommands.first { $0.id == command.id }?[keyPath: keyPath] ?? "" },
-            set: { value in
-                var commands = appState.savedCommands
-                guard let index = commands.firstIndex(where: { $0.id == command.id }) else { return }
-                commands[index][keyPath: keyPath] = value
-                appState.savedCommands = commands
-            }
-        )
-    }
-}
-
-/// Instructions that show the range of what Command Mode can do.
-private struct CommandModeExamples: View {
-    private static let phrases = [
-        "make this shorter", "fix grammar and spelling", "make it more formal",
-        "turn this into bullet points", "translate to Spanish", "write a polite reply",
-        "uppercase", "sort these lines", "shorter still", "undo that",
-    ]
-
-    var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 6, alignment: .leading)],
-                  alignment: .leading, spacing: 6) {
-            ForEach(Self.phrases, id: \.self) { phrase in
-                Text("“\(phrase)”")
-                    .font(.caption)
-                    .foregroundStyle(VocaDesign.command)
-                    .lineLimit(1)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(VocaDesign.command.opacity(0.10), in: Capsule())
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Example instructions: " + Self.phrases.joined(separator: ", "))
-    }
-}
-
-private struct RecommendedBadge: View {
-    let reason: String
-
-    var body: some View {
-        Text("Recommended")
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 1)
-            .background(VocaDesign.accent.opacity(0.12))
-            .foregroundStyle(VocaDesign.accent)
-            .cornerRadius(4)
-            .help("Recommended for your Mac. \(reason)")
-    }
-}
-
-// MARK: - Model Choice Components
-
-/// One of the two AI features: what it does, the model it runs, and a status
-/// line only when there is something to know.
-private struct AIFeatureRow<Trailing: View, Status: View>: View {
-    let title: String
-    let detail: String
-    let systemImage: String
-    let tint: Color
-    @ViewBuilder let trailing: Trailing
-    @ViewBuilder let status: Status
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 30, height: 30)
-                    .background(tint.opacity(0.13), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline)
-                    Text(detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 12)
-                trailing
-            }
-            status
-                .padding(.leading, 40)
-        }
-    }
-}
-
-private struct AIStatusLine: View {
-    let text: String
-    let systemImage: String
-    let color: Color
-
-    var body: some View {
-        Label(text, systemImage: systemImage)
-            .font(.caption)
-            .foregroundStyle(color)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-}
-
-/// Pick the model for one feature. Undownloaded models say so and download
-/// when chosen.
-private struct AIModelMenu: View {
-    @EnvironmentObject var appState: AppState
-    let role: AIModelRole
-
-    var body: some View {
-        Menu {
-            ForEach(localChoices) { kind in
-                VocaMenuChoice(title: menuTitle(kind), isSelected: isSelected(kind)) {
-                    Task { @MainActor in await appState.useAIModel(kind, for: role) }
-                }
-            }
-            if !otherEngines.isEmpty {
-                Divider()
-                ForEach(otherEngines) { engine in
-                    VocaMenuChoice(title: engine.displayName, isSelected: appState.commandModeEngine == engine) {
-                        appState.selectCommandModeEngine(engine)
-                    }
-                }
-            }
-        } label: {
-            Text(currentName)
-        }
-        .fixedSize()
-        .disabled(isUnavailable)
-        .help(role == .cleanup ? "The model that cleans up dictations" : "What runs Command Mode edits")
-    }
-
-    private var localChoices: [CleanupModelKind] {
-        role == .cleanup ? CleanupModelKind.cleanupChoices : CleanupModelKind.commandModeChoices
-    }
-
-    private var otherEngines: [CommandModeEngine] {
-        guard role == .commandMode else { return [] }
-        var engines: [CommandModeEngine] = []
-        if appState.appleIntelligenceAvailable() || appState.commandModeEngine == .appleIntelligence {
-            engines.append(.appleIntelligence)
-        }
-        if !appState.cleanupEndpoint.isLocal, appState.cleanupEndpoint.validationProblem() == nil {
-            engines.append(.endpoint)
-        }
-        return engines
-    }
-
-    private func isSelected(_ kind: CleanupModelKind) -> Bool {
-        role == .cleanup
-            ? appState.selectedCleanupModelKind == kind
-            : appState.commandModeEngine == .local(kind)
-    }
-
-    private func menuTitle(_ kind: CleanupModelKind) -> String {
-        var title = kind.descriptor.displayName
-        if role == .cleanup, appState.sharesAIModel, !kind.supportsCommandMode {
-            title += " (cleanup only)"
-        }
-        if !appState.transcriptCleanup.isDownloaded(kind) {
-            title += " — download \(kind.descriptor.sizeDescription)"
-        }
-        return title
-    }
-
-    private var currentName: String {
-        switch role {
-        case .cleanup:
-            return appState.cleanupEndpoint.isLocal
-                ? appState.selectedCleanupModelKind.descriptor.displayName
-                : appState.cleanupEndpoint.provider.displayName
-        case .commandMode, .both:
-            return appState.commandModeEngine.displayName
-        }
-    }
-
-    private var isUnavailable: Bool {
-        if case .downloading = appState.transcriptCleanup.modelState { return true }
-        return role == .cleanup && !appState.cleanupEndpoint.isLocal
-    }
-}
-
-/// One downloadable model: who made it, what it can do, which feature uses
-/// it, and one control to download or use it.
-private struct AIModelLibraryRow: View {
-    @EnvironmentObject var appState: AppState
-    let kind: CleanupModelKind
-    @State private var showDeleteAlert = false
-
-    private var descriptor: CleanupModelDescriptor { kind.descriptor }
-    private var isDownloaded: Bool { appState.transcriptCleanup.isDownloaded(kind) }
-    private var usedForCleanup: Bool {
-        appState.cleanupEndpoint.isLocal && appState.selectedCleanupModelKind == kind
-    }
-    private var usedForCommands: Bool { appState.commandModeEngine == .local(kind) }
-    private var isInUse: Bool { usedForCleanup || usedForCommands }
-    /// Already doing every job it can, so there is nothing left to choose.
-    private var hasNothingToChoose: Bool {
-        isDownloaded && usedForCleanup && (usedForCommands || !kind.supportsCommandMode)
-    }
-    private var isSuggested: Bool {
-        let suggestion = appState.cleanupModelSuggestion
-        return suggestion.cleanup == kind || suggestion.commandMode == kind
-    }
-    private var downloadProgress: Double? {
-        if case .downloading(let active, let progress) = appState.transcriptCleanup.modelState, active == kind {
-            return progress
-        }
-        return nil
-    }
-    private var isDownloadingAnother: Bool {
-        if case .downloading(let active, _) = appState.transcriptCleanup.modelState { return active != kind }
-        return false
-    }
-
-    var body: some View {
-        HStack(spacing: 10) {
-            ModelCreatorMark(creator: kind.creator, isActive: isInUse && isDownloaded)
-                .padding(.trailing, 2)
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(descriptor.displayName)
-                        .font(.callout)
-                        .fontWeight(isInUse ? .semibold : .regular)
-                    if isSuggested {
-                        RecommendedBadge(reason: appState.cleanupModelSuggestion.reason)
-                    }
-                }
-                HStack(spacing: 4) {
-                    Text(kind.creator.displayName)
-                    Text("•")
-                    Text(descriptor.sizeDescription)
-                    Text("•")
-                    Text("~\(String(format: "%.1f", descriptor.ramRequiredGB)) GB RAM")
-                }
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                // What it can do, in the features' own colours; a check marks
-                // the feature using it right now.
-                HStack(spacing: 4) {
-                    ModelRolePill(title: "Smart Cleanup", color: VocaDesign.success, isInUse: usedForCleanup)
-                    if kind.supportsCommandMode {
-                        ModelRolePill(title: "Command Mode", color: VocaDesign.command, isInUse: usedForCommands)
-                    }
-                }
-            }
-            .help(descriptor.summary)
-
-            Spacer(minLength: 8)
-
-            trailing
-        }
-        .padding(.vertical, 4)
-        .alert("Delete \(descriptor.displayName)?", isPresented: $showDeleteAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { appState.deleteCleanupModel(kind) }
-        } message: {
-            Text("Removes \(descriptor.sizeDescription) from disk. You can download it again later.")
-        }
-    }
-
-    @ViewBuilder
-    private var trailing: some View {
-        if let progress = downloadProgress {
-            HStack(spacing: 6) {
-                ProgressView(value: progress)
-                    .frame(width: 60)
-                Text("\(Int(progress * 100))%")
-                    .font(.caption2)
-                    .monospacedDigit()
-                    .foregroundStyle(.secondary)
-            }
-        } else {
-            HStack(spacing: 8) {
-                if !hasNothingToChoose {
-                    useControl
-                        .disabled(isDownloadingAnother)
-                }
-                if isDownloaded && !isInUse {
-                    Button {
-                        showDeleteAlert = true
-                    } label: {
-                        Image(systemName: "trash")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .help("Delete download")
-                }
-            }
-        }
-    }
-
-    /// A model that can only clean up, or one used while both features share
-    /// a model, has a single thing to do. A model that could serve either
-    /// feature asks which.
-    @ViewBuilder
-    private var useControl: some View {
-        let title = isDownloaded ? "Use" : "Download"
-        if !kind.supportsCommandMode {
-            Button(title) { use(.cleanup) }
-                .controlSize(.small)
-                .help("Use for Smart Cleanup")
-        } else if appState.sharesAIModel {
-            Button(title) { use(.both) }
-                .controlSize(.small)
-                .help("Use for Smart Cleanup and Command Mode")
-        } else {
-            Menu(title) {
-                Button("For Both") { use(.both) }
-                Button("For Smart Cleanup") { use(.cleanup) }
-                    .disabled(usedForCleanup && isDownloaded)
-                Button("For Command Mode") { use(.commandMode) }
-                    .disabled(usedForCommands && isDownloaded)
-                if !isDownloaded {
-                    Divider()
-                    Button("Download Only") {
-                        Task { @MainActor in await appState.downloadAIModel(kind) }
-                    }
-                }
-            }
-            .controlSize(.small)
-            .fixedSize()
-        }
-    }
-
-    private func use(_ role: AIModelRole) {
-        Task { @MainActor in await appState.useAIModel(kind, for: role) }
-    }
-}
-
-/// A feature a model can run, checked and stronger when it is running it.
-private struct ModelRolePill: View {
-    let title: String
-    let color: Color
-    var isInUse = false
-
-    var body: some View {
-        HStack(spacing: 3) {
-            if isInUse {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            Text(title)
-        }
-        .font(.caption2.weight(isInUse ? .semibold : .medium))
-        .padding(.horizontal, 6)
-        .padding(.vertical, 1)
-        .background(color.opacity(isInUse ? 0.24 : 0.10), in: Capsule())
-        .foregroundStyle(color.opacity(isInUse ? 1 : 0.8))
-        .help(isInUse ? "Running \(title)" : "Can run \(title)")
-        .accessibilityLabel(isInUse ? "\(title), in use" : "Can run \(title)")
     }
 }

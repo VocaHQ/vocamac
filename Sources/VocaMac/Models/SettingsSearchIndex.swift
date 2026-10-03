@@ -84,13 +84,6 @@ enum SettingsSearchIndex {
             keywords: ["hands free", "toggle", "long", "shortcut", "lock"]
         ),
         SettingsSearchEntry(
-            id: "command-mode-shortcut",
-            page: .dictation,
-            title: "Command Mode",
-            subtitle: "Voice-edit selected text while holding a shortcut",
-            keywords: ["command", "selected text", "rewrite", "translate", "shortcut", "hold"]
-        ),
-        SettingsSearchEntry(
             id: "escape-cancel",
             page: .dictation,
             title: "Escape Cancels Dictation",
@@ -217,6 +210,7 @@ enum SettingsSearchIndex {
             keywords: ["snippet", "shortcut", "expansion", "trigger", "replace", "macro", "abbreviation"]
         ),
 
+        // Smart Cleanup
         SettingsSearchEntry(
             id: "cleanup",
             page: .cleanup,
@@ -232,46 +226,11 @@ enum SettingsSearchIndex {
             keywords: ["qwen", "ministral", "model", "download", "recommended", "0.5b", "0.6b", "3b", "gguf"]
         ),
         SettingsSearchEntry(
-            id: "command-mode-clipboard",
-            page: .cleanup,
-            title: "Command Mode Clipboard Copy",
-            subtitle: "Copy selections from apps that don't share them",
-            keywords: ["command", "clipboard", "copy", "terminal", "editor", "selection", "vs code"]
-        ),
-        SettingsSearchEntry(
-            id: "command-mode-saved",
-            page: .cleanup,
-            title: "Saved Commands",
-            subtitle: "Command Mode instructions with a name and a shortcut",
-            keywords: ["command", "saved", "preset", "shortcut", "hotkey", "quick", "fix grammar", "instruction"]
-        ),
-        SettingsSearchEntry(
-            id: "command-mode-review",
-            page: .cleanup,
-            title: "Review Edits Before Replacing",
-            subtitle: "See what Command Mode changed and approve it",
-            keywords: ["command", "review", "diff", "preview", "approve", "confirm", "replace"]
-        ),
-        SettingsSearchEntry(
-            id: "command-mode-actions",
-            page: .cleanup,
-            title: "Voice Actions",
-            subtitle: "Open apps, search the web, add reminders, run Shortcuts",
-            keywords: ["command", "action", "open", "launch", "search", "reminder", "shortcuts", "automation", "run"]
-        ),
-        SettingsSearchEntry(
             id: "cleanup-skip-clean",
             page: .cleanup,
             title: "Skip the Model When There's Nothing to Clean",
             subtitle: "Type clean dictations without waiting for the cleanup model",
             keywords: ["cleanup", "skip", "fast", "faster", "speed", "latency", "clean", "model"]
-        ),
-        SettingsSearchEntry(
-            id: "command-mode-model",
-            page: .cleanup,
-            title: "Command Mode Model",
-            subtitle: "Apple Intelligence, Qwen, or Ministral for editing selected text",
-            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "ministral", "3b", "4b", "7b", "selection"]
         ),
         SettingsSearchEntry(
             id: "cleanup-level",
@@ -283,8 +242,8 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "cleanup-provider",
             page: .cleanup,
-            title: "Cleanup Provider",
-            subtitle: "On-device, Ollama, LM Studio, or OpenAI-compatible",
+            title: "Where Cleanup Runs",
+            subtitle: "On this Mac, Ollama, LM Studio, or OpenAI-compatible",
             keywords: ["endpoint", "ollama", "lm studio", "openai", "api key", "server", "remote"]
         ),
         SettingsSearchEntry(
@@ -300,6 +259,64 @@ enum SettingsSearchIndex {
             title: "Cleanup Prompt",
             subtitle: "Instructions sent to the local model",
             keywords: ["prompt", "instructions", "system"]
+        ),
+
+        // Command Mode
+        SettingsSearchEntry(
+            id: "command-mode-shortcut",
+            page: .commandMode,
+            title: "Command Mode",
+            subtitle: "Edit selected text, or write new text, by voice",
+            keywords: ["command", "selected text", "rewrite", "translate", "shortcut", "hold", "edit"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-model",
+            page: .commandMode,
+            title: "Command Mode Model",
+            subtitle: "Apple Intelligence, Qwen, or Ministral for editing selected text",
+            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "ministral", "3b", "4b", "7b", "selection"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-share",
+            page: .commandMode,
+            title: "Use the Smart Cleanup Model",
+            subtitle: "One model for cleanup and Command Mode",
+            keywords: ["share", "shared", "same model", "both", "memory", "one model"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-review",
+            page: .commandMode,
+            title: "Review Edits Before Replacing",
+            subtitle: "See what Command Mode changed and approve it",
+            keywords: ["command", "review", "diff", "preview", "approve", "confirm", "replace"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-clipboard",
+            page: .commandMode,
+            title: "Command Mode Clipboard Copy",
+            subtitle: "Copy selections from apps that don't share them",
+            keywords: ["command", "clipboard", "copy", "terminal", "editor", "selection", "vs code"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-saved",
+            page: .commandMode,
+            title: "Saved Commands",
+            subtitle: "Command Mode instructions with a name and a shortcut",
+            keywords: ["command", "saved", "preset", "shortcut", "hotkey", "quick", "fix grammar", "instruction"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-actions",
+            page: .commandMode,
+            title: "Voice Actions",
+            subtitle: "Open apps, search the web, add reminders, run Shortcuts",
+            keywords: ["command", "action", "open", "launch", "search", "reminder", "shortcuts", "automation", "run"]
+        ),
+        SettingsSearchEntry(
+            id: "command-mode-models",
+            page: .commandMode,
+            title: "Command Mode Models",
+            subtitle: "Download a model for editing selected text",
+            keywords: ["command", "model", "download", "qwen", "ministral", "3b", "4b", "7b"]
         ),
 
         // Speech Model

@@ -7,6 +7,7 @@
 import Foundation
 import AppKit
 import Combine
+import IOKit.hid
 
 /// Manages system permissions: microphone, accessibility, and input monitoring.
 ///
@@ -140,8 +141,28 @@ final class PermissionManager: ObservableObject {
         requestedThisLaunch: Set<RelaunchablePermission>,
         hotKeyStuckAfterGrant: Bool
     ) -> Bool {
-        if hotKeyStuckAfterGrant { return true }
-        return requestedThisLaunch.contains { permission in
+        hotKeyStuckAfterGrant || isAwaitingGrant(
+            accessibility: accessibility,
+            inputMonitoring: inputMonitoring,
+            requestedThisLaunch: requestedThisLaunch
+        )
+    }
+
+    /// Whether a permission the user went to System Settings for is still off.
+    var isAwaitingGrant: Bool {
+        Self.isAwaitingGrant(
+            accessibility: accessibilityPermission,
+            inputMonitoring: inputMonitoringPermission,
+            requestedThisLaunch: requestedThisLaunch
+        )
+    }
+
+    static func isAwaitingGrant(
+        accessibility: PermissionStatus,
+        inputMonitoring: PermissionStatus,
+        requestedThisLaunch: Set<RelaunchablePermission>
+    ) -> Bool {
+        requestedThisLaunch.contains { permission in
             switch permission {
             case .accessibility: return accessibility != .granted
             case .inputMonitoring: return inputMonitoring != .granted
@@ -251,9 +272,33 @@ final class PermissionManager: ObservableObject {
         startPermissionPolling()
     }
 
-    /// Trigger Input Monitoring permission dialog and open System Settings.
+    /// What asking for Input Monitoring does.
+    enum InputMonitoringRequest: Equatable {
+        /// macOS hasn't asked yet: show its own prompt, which adds VocaMac
+        /// to the list and offers to open System Settings.
+        case askMacOS
+        /// macOS asked before and won't again: open System Settings.
+        case openSettings
+    }
+
+    static func inputMonitoringRequest(for access: IOHIDAccessType) -> InputMonitoringRequest {
+        access == kIOHIDAccessTypeUnknown ? .askMacOS : .openSettings
+    }
+
+    /// Ask for Input Monitoring: macOS's prompt the first time, System
+    /// Settings after that. Doing both at once left two windows asking.
     func requestInputMonitoringPermission() {
         noteRequested(.inputMonitoring)
+        defer { startPermissionPolling() }
+
+        if Self.inputMonitoringRequest(for: IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)) == .askMacOS {
+            // Off the main thread in case macOS waits on the prompt.
+            Task.detached(priority: .userInitiated) {
+                _ = IOHIDRequestAccess(kIOHIDRequestTypeListenEvent)
+            }
+            return
+        }
+
         // Attempting to create an event tap triggers macOS to auto-add
         // the app to the Input Monitoring list in System Settings.
         let tap = CGEvent.tapCreate(
@@ -271,8 +316,6 @@ final class PermissionManager: ObservableObject {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent") {
             NSWorkspace.shared.open(url)
         }
-
-        startPermissionPolling()
     }
 
     // MARK: - Permission Polling

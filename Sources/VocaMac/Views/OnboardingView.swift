@@ -502,7 +502,7 @@ struct PermissionsStep: View {
             }
 
             if appState.permissionsMayNeedRelaunch {
-                RelaunchForPermissionsCard()
+                PermissionHelpCard()
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
@@ -515,38 +515,92 @@ struct PermissionsStep: View {
                 .riseIn(delay: 0.7)
         }
         .padding(16)
+        .onChange(of: appState.accessibilityPermission) { old, new in
+            guard Self.shouldReturnAfterGrant(
+                old: old,
+                new: new,
+                requestedThisLaunch: appState.permissionRequestedThisLaunch(.accessibility),
+                isActive: NSApp.isActive
+            ) else { return }
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// Bring onboarding back once Accessibility comes on in System Settings,
+    /// so the user needn't find the window again. Not for Input Monitoring:
+    /// macOS answers that grant with its own Quit & Reopen dialog, which
+    /// coming forward would cover.
+    static func shouldReturnAfterGrant(
+        old: PermissionStatus,
+        new: PermissionStatus,
+        requestedThisLaunch: Bool,
+        isActive: Bool
+    ) -> Bool {
+        old != .granted && new == .granted && requestedThisLaunch && !isActive
     }
 }
 
-// MARK: - Relaunch For Permissions
+// MARK: - Permission Help
 
-/// Offers to quit and reopen VocaMac after the user went to System Settings
-/// for a permission that still reads as off. macOS applies Input Monitoring,
-/// and sometimes Accessibility, only to a process started after the grant.
-struct RelaunchForPermissionsCard: View {
+/// Help for a permission that won't come on: drag VocaMac into the list
+/// when it isn't there, and quit and reopen when it is on but still reads as
+/// off. macOS applies Input Monitoring, and sometimes Accessibility, only to
+/// a process started after the grant.
+struct PermissionHelpCard: View {
     @EnvironmentObject var appState: AppState
     @State private var relaunchFailed = false
 
-    /// Every permission is on, so only the hotkey is waiting on a reopen.
-    private var onlyHotKeyIsStuck: Bool {
-        appState.accessibilityPermission == .granted && appState.inputMonitoringPermission == .granted
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Every permission is on and only the hotkey waits on a reopen,
+            // so the list already has VocaMac in it.
+            if appState.permissionsAwaitingGrant {
+                dragToAddRow
+                Divider()
+            }
+            relaunchRow
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vocaCard()
+        .accessibilityElement(children: .contain)
     }
 
-    var body: some View {
+    private var dragToAddRow: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                .resizable()
+                .frame(width: 34, height: 34)
+                .onDrag { NSItemProvider(object: Bundle.main.bundleURL as NSURL) }
+                .help("Drag into the Accessibility or Input Monitoring list in System Settings")
+                .accessibilityLabel("VocaMac app icon")
+                .accessibilityHint("Drag into the list in System Settings")
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Don't see VocaMac in the list?")
+                    .font(.system(size: 13.5, weight: .semibold))
+                Text("Drag this icon into the list in System Settings, then switch it on.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var relaunchRow: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "arrow.clockwise")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(VocaDesign.accent)
-                .frame(width: 28, height: 28)
+                .frame(width: 34, height: 34)
                 .background(VocaDesign.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(onlyHotKeyIsStuck ? "One more step for your shortcut" : "Turned VocaMac on, but it still shows as off?")
+                Text(appState.permissionsAwaitingGrant ? "Turned VocaMac on, but it still shows as off?" : "One more step for your shortcut")
                     .font(.system(size: 13.5, weight: .semibold))
-                Text(onlyHotKeyIsStuck
-                     ? "Every permission is on, but macOS hasn't connected your shortcut yet. Reopening VocaMac fixes this."
-                     : "macOS can wait to apply Accessibility and Input Monitoring until VocaMac reopens.")
+                Text(appState.permissionsAwaitingGrant
+                     ? "macOS can wait to apply Accessibility and Input Monitoring until VocaMac reopens."
+                     : "Every permission is on, but macOS hasn't connected your shortcut yet. Reopening VocaMac fixes this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -569,9 +623,6 @@ struct RelaunchForPermissionsCard: View {
                 .padding(.top, 6)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vocaCard()
-        .accessibilityElement(children: .contain)
     }
 }
 

@@ -4,6 +4,7 @@
 // Tests for the PermissionManager service.
 
 import XCTest
+import IOKit.hid
 @testable import VocaMac
 
 // MARK: - PermissionStatus Tests
@@ -168,6 +169,15 @@ final class PermissionRelaunchAdviceTests: XCTestCase {
         ))
     }
 
+    func testAwaitingGrantIgnoresTheHotKey() {
+        XCTAssertFalse(PermissionManager.isAwaitingGrant(
+            accessibility: .granted, inputMonitoring: .granted, requestedThisLaunch: [.accessibility]
+        ))
+        XCTAssertTrue(PermissionManager.isAwaitingGrant(
+            accessibility: .denied, inputMonitoring: .granted, requestedThisLaunch: [.accessibility]
+        ))
+    }
+
     func testAdvisesARelaunchWhenTheHotKeyNeverCameUp() {
         XCTAssertTrue(PermissionManager.mayNeedRelaunch(
             accessibility: .granted, inputMonitoring: .granted,
@@ -210,5 +220,49 @@ final class OnboardingResumeStepTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: "OnboardingResumeStepTests.stale") }
         defaults.set(99, forKey: PreferenceKey.onboardingResumeStep)
         XCTAssertEqual(OnboardingStep.resumeStep(defaults: defaults), .welcome)
+    }
+}
+
+// MARK: - Input Monitoring Request
+
+@MainActor
+final class InputMonitoringRequestTests: XCTestCase {
+
+    func testAsksMacOSWhenItHasNotAskedYet() {
+        XCTAssertEqual(PermissionManager.inputMonitoringRequest(for: kIOHIDAccessTypeUnknown), .askMacOS)
+    }
+
+    func testOpensSettingsOnceMacOSHasAsked() {
+        XCTAssertEqual(PermissionManager.inputMonitoringRequest(for: kIOHIDAccessTypeDenied), .openSettings)
+    }
+}
+
+// MARK: - Returning After A Grant
+
+@MainActor
+final class OnboardingReturnAfterGrantTests: XCTestCase {
+
+    func testReturnsWhenAccessibilityTurnsOnWhileAway() {
+        XCTAssertTrue(PermissionsStep.shouldReturnAfterGrant(
+            old: .denied, new: .granted, requestedThisLaunch: true, isActive: false
+        ))
+    }
+
+    func testStaysPutWhenAlreadyInFront() {
+        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+            old: .denied, new: .granted, requestedThisLaunch: true, isActive: true
+        ))
+    }
+
+    func testStaysPutForAGrantVocaMacDidNotAskFor() {
+        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+            old: .notDetermined, new: .granted, requestedThisLaunch: false, isActive: false
+        ))
+    }
+
+    func testStaysPutWhenNothingChanged() {
+        XCTAssertFalse(PermissionsStep.shouldReturnAfterGrant(
+            old: .granted, new: .granted, requestedThisLaunch: true, isActive: false
+        ))
     }
 }

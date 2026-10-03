@@ -344,6 +344,11 @@ final class AppState: ObservableObject {
     var inputMonitoringPermission: PermissionStatus { permissionManager.inputMonitoringPermission }
     /// Quitting and reopening may get a permission through; see `PermissionManager.mayNeedRelaunch`.
     var permissionsMayNeedRelaunch: Bool { permissionManager.mayNeedRelaunch }
+    /// A permission the user went to System Settings for is still off.
+    var permissionsAwaitingGrant: Bool { permissionManager.isAwaitingGrant }
+    func permissionRequestedThisLaunch(_ permission: RelaunchablePermission) -> Bool {
+        permissionManager.requestedThisLaunch.contains(permission)
+    }
 
     /// Detected system capabilities
     @Published var systemCapabilities: SystemCapabilities?

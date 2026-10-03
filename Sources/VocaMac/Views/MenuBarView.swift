@@ -762,7 +762,9 @@ struct MenuBarView: View {
             && appState.inputMonitoringPermission == .granted
     }
 
-    private var needsSetup: Bool { !allPermissionsGranted || appState.needsSpeechModel }
+    private var needsSetup: Bool {
+        !allPermissionsGranted || appState.needsSpeechModel || appState.permissionsMayNeedRelaunch
+    }
 
     private var permissionsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -825,6 +827,21 @@ struct MenuBarView: View {
                     systemImage: "keyboard",
                     isDenied: appState.inputMonitoringPermission == .denied,
                     action: { appState.requestInputMonitoringPermission() }
+                )
+            }
+
+            if appState.permissionsMayNeedRelaunch {
+                MenuPanelRowDivider()
+                permissionRow(
+                    title: appState.permissionsAwaitingGrant ? "Still shows as off?" : "Shortcut not connected",
+                    detail: appState.permissionsAwaitingGrant
+                        ? "macOS can wait to apply a permission until VocaMac reopens."
+                        : "macOS hasn't connected your shortcut yet. Reopening fixes this.",
+                    systemImage: "arrow.clockwise",
+                    isDenied: false,
+                    buttonTitle: "Reopen",
+                    help: "Quit and reopen VocaMac",
+                    action: { AppRelauncher.relaunch() }
                 )
             }
         }

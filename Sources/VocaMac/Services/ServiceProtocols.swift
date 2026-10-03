@@ -142,6 +142,8 @@ protocol PermissionManaging: AnyObject {
     var inputMonitoringPermission: PermissionStatus { get set }
     var allPermissionsGranted: Bool { get }
     var mayNeedRelaunch: Bool { get }
+    var isAwaitingGrant: Bool { get }
+    var requestedThisLaunch: Set<RelaunchablePermission> { get }
     var onAllPermissionsGranted: (() -> Void)? { get set }
 
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }

@@ -219,7 +219,8 @@ final class DictationOutputPipelineTests: XCTestCase {
             // Two things, not a restart: a repeated article, or a plural.
             ("we need the work the workers finished", "we need the work the workers finished"),
             ("fix this test this tests file", "fix this test this tests file"),
-            ("ship big change big changes now", "ship big change big changes now"),
+            // Any form of the finished word is still a restart.
+            ("make it less clutter less cluttered", "make it less cluttered"),
         ]
         for (input, expected) in cases {
             XCTAssertEqual(WritingStyleEngine.removeCutOffWords(input, isKnownWord: isKnownWord).text, expected, input)
@@ -240,6 +241,16 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(
             WritingStyleEngine.removeCutOffWords("git push origin s staging release", prose: false, isKnownWord: isKnownWord).text,
             "git push origin s staging release"
+        )
+        // A tool named just before makes the words its arguments; one named
+        // after the slip doesn't.
+        XCTAssertEqual(
+            WritingStyleEngine.removeCutOffWords("can you run git push origin s staging", prose: false, isKnownWord: isKnownWord).text,
+            "can you run git push origin s staging"
+        )
+        XCTAssertEqual(
+            WritingStyleEngine.removeCutOffWords("please s see why git failed in the build", prose: false, isKnownWord: isKnownWord).text,
+            "please see why git failed in the build"
         )
         // A chain needs sentences too, and never starts from a one-letter word.
         XCTAssertEqual(
@@ -263,7 +274,6 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertTrue(WritingStyleEngine.readsAsProse("do an end-to-end audit, and \"fix\" what's broken"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("git push origin main"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("git push origin s staging release"))
-        XCTAssertFalse(WritingStyleEngine.readsAsProse("can you run git push origin s staging"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("pip install pip pipenv requests numpy"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("please run ls -la in the src folder"))
         XCTAssertFalse(WritingStyleEngine.readsAsProse("open the file at src/app and fix it"))

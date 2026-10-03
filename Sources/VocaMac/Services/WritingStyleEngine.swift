@@ -285,8 +285,10 @@ enum WritingStyleEngine {
     /// - two words said again with the second one finished ("less clutter less
     ///   cluttery")
     ///
-    /// In Code and Terminal text the letter and the restart only go when the
-    /// text reads as sentences, not a command (`readsAsProse`).
+    /// In Code and Terminal text these only go when the text reads as
+    /// sentences (`readsAsProse`) and no command-line tool was named in the
+    /// few words before (`followsCommandTool`): "please s see why git failed"
+    /// loses its slip, "can you run git push origin s staging" keeps its branch.
     static func removeCutOffWords(
         _ text: String, prose: Bool = true, isKnownWord: (String) -> Bool
     ) -> (text: String, removed: Int) {
@@ -304,7 +306,10 @@ enum WritingStyleEngine {
         where !keys[(index + 1)..<min(index + 3, keys.count)].contains(where: { $0.hasPrefix(key) }) {
             standalone.insert(key)
         }
-        let sentenceLike = prose || readsAsProse(text)
+        let readsAsSentences = prose || readsAsProse(text)
+        func sentenceLike(_ index: Int) -> Bool {
+            prose || (readsAsSentences && !followsCommandTool(keys, at: index))
+        }
         /// A lowercase word of letters only, with nothing stuck to its end.
         func isPlainWord(_ index: Int) -> Bool {
             index < tokens.count && tokens[index].trailing.isEmpty && !tokens[index].word.isEmpty
@@ -321,7 +326,7 @@ enum WritingStyleEngine {
             // "ex extract extracted": each word a longer start of the next.
             // Never from a one-letter word ("cp a an animal" names two
             // files), and in Code and Terminal only in sentences.
-            if sentenceLike, fragment.count >= 2, ahead.count >= 2, isPlainWord(index), isPlainWord(ahead[0]),
+            if sentenceLike(index), fragment.count >= 2, ahead.count >= 2, isPlainWord(index), isPlainWord(ahead[0]),
                keys[ahead[1]].allSatisfy(\.isLetter), isKnownWord(keys[ahead[1]]),
                fragment.count < keys[ahead[0]].count, keys[ahead[0]].count < keys[ahead[1]].count,
                keys[ahead[0]].hasPrefix(fragment), keys[ahead[1]].hasPrefix(keys[ahead[0]]) {
@@ -330,22 +335,21 @@ enum WritingStyleEngine {
             }
             // "less clutter less cluttery": the same two words again, the
             // second one finished this time. The repeated word is the signal;
-            // the finished one needn't be in the dictionary ("cluttery").
-            // A repeated article or preposition before a plural or other
-            // form of the word is ordinary grammar: "the work the workers
-            // finished" names two things.
-            if sentenceLike, ahead.count == 3, isPlainWord(index), isPlainWord(ahead[0]),
+            // the finished one needn't be in the dictionary ("cluttery"), and
+            // may be any form of it ("cluttered"). A repeated article,
+            // preposition, or pronoun is ordinary grammar instead: "the work
+            // the workers finished" names two things.
+            if sentenceLike(index), ahead.count == 3, isPlainWord(index), isPlainWord(ahead[0]),
                keys[ahead[1]] == fragment, tokens[ahead[1]].trailing.isEmpty,
                !CleanupSalvage.intentionalRepeats.contains(fragment), !restartFunctionWords.contains(fragment),
                keys[ahead[0]].count >= 3,
                keys[ahead[2]].count > keys[ahead[0]].count, keys[ahead[2]].hasPrefix(keys[ahead[0]]),
-               keys[ahead[2]].allSatisfy(\.isLetter),
-               !isWordForm(keys[ahead[2]], of: keys[ahead[0]]) {
+               keys[ahead[2]].allSatisfy(\.isLetter) {
                 removed.formUnion([index, ahead[0]])
                 continue
             }
             // "please s see": a letter between two words, starting the second.
-            if sentenceLike, fragment.count == 1, fragment != "x", isPlainWord(index), index > 0,
+            if sentenceLike(index), fragment.count == 1, fragment != "x", isPlainWord(index), index > 0,
                let next = ahead.first, tokens[next].word == keys[next], keys[next].count >= 3,
                keys[next].allSatisfy(\.isLetter), !standalone.contains(fragment),
                tokens[index - 1].trailing.isEmpty, !removed.contains(index - 1),
@@ -384,16 +388,6 @@ enum WritingStyleEngine {
         "from", "by", "and", "or", "but", "i", "you", "we", "they", "he", "she", "it",
     ]
 
-    /// Whether `word` is `stem` with a grammatical ending: "workers",
-    /// "tests", "running". "cluttery" is not; it finishes the stem.
-    private static func isWordForm(_ word: String, of stem: String) -> Bool {
-        let endings: Set<String> = ["s", "es", "ed", "d", "ing", "er", "ers", "est"]
-        var rest = word.dropFirst(stem.count)
-        if endings.contains(String(rest)) { return true }
-        if rest.first == stem.last { rest = rest.dropFirst() }
-        return endings.contains(String(rest))
-    }
-
     /// Words a letter after them is a name for, not the start of the next
     /// word: "option b build", "plan b backup", "command s save".
     static let letterLabels: Set<String> = [
@@ -407,15 +401,19 @@ enum WritingStyleEngine {
 
     /// Whether Code or Terminal text reads as sentences rather than a command:
     /// several words, at least two of the small words sentences are made of,
-    /// no command-line tool, and nothing a command is made of, such as a
-    /// path, flag, pipe, or `key=value`. Dictation to a coding assistant
-    /// usually does; "git push origin s staging release" does not.
+    /// and no command syntax (`hasCommandSyntax`). Dictation to a coding
+    /// assistant usually does; "git push origin s staging release" does not.
     static func readsAsProse(_ text: String) -> Bool {
         let words = text.split(whereSeparator: \.isWhitespace)
         guard words.count >= 6 else { return false }
         let keys = Set(words.map { $0.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "'" } })
-        guard keys.intersection(sentenceWords).count >= 2, keys.isDisjoint(with: commandTools) else { return false }
-        return !words.contains { word in
+        return keys.intersection(sentenceWords).count >= 2 && !hasCommandSyntax(text)
+    }
+
+    /// A path, flag, pipe, `key=value`, dotted name, or other piece of
+    /// syntax that ordinary sentences don't contain.
+    static func hasCommandSyntax(_ text: String) -> Bool {
+        text.split(whereSeparator: \.isWhitespace).contains { word in
             let body = word.drop { "\"'(“‘".contains($0) }
             let core = body.reversed().drop { ",.!?;:…\"')”’".contains($0) }.reversed()
             return body.first == "-" || core.contains(where: { "/\\=_{}[]<>|$`~@#*".contains($0) })
@@ -429,6 +427,15 @@ enum WritingStyleEngine {
         "have", "has", "do", "does", "not", "but", "because", "there", "where", "when", "will",
         "with", "for", "in", "on", "me", "my", "our", "it's", "let's",
     ]
+
+    /// Whether a command-line tool is named among the few words before
+    /// `index`, which makes the words there its arguments: the `s` in "git
+    /// push origin s staging", the second `pip` in "pip install pip pipenv".
+    /// A tool named after the slip ("please s see why git failed") doesn't
+    /// count.
+    static func followsCommandTool(_ keys: [String], at index: Int) -> Bool {
+        keys[max(0, index - 4)..<min(index, keys.count)].contains { commandTools.contains($0) }
+    }
 
     /// Tool names that mean the text is (or quotes) a command. Ones that are
     /// also ordinary English ("make", "open", "cat") aren't here.

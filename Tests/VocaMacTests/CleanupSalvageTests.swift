@@ -55,6 +55,11 @@ final class CleanupSalvageTests: XCTestCase {
     func testRealWordsTheNextWordGoesWellPastGo() {
         // Only in sentences: in a command both words are arguments.
         XCTAssertEqual(salvage("pip install pip pipenv", "pip install pipenv"), "pip install pip pipenv")
+        XCTAssertEqual(salvage("then pip install pip pipenv", "then pip install pipenv"), "then pip install pip pipenv")
+        XCTAssertEqual(salvage("rename the src/web website folder", "rename the src/web folder"),
+                       "rename the src/web website folder")
+        // A short request is fine without command syntax or a tool.
+        XCTAssertEqual(salvage("show my web website", "show my website"), "show my website")
         XCTAssertEqual(salvage("then put the link on the web website for us", "then put the link on the website for us"),
                        "then put the link on the website for us")
         XCTAssertEqual(salvage("shown on my web website in this way", "shown on my website in this way"),

@@ -58,8 +58,9 @@ final class CleanupSalvageTests: XCTestCase {
         XCTAssertEqual(salvage("then pip install pip pipenv", "then pip install pipenv"), "then pip install pip pipenv")
         XCTAssertEqual(salvage("rename the src/web website folder", "rename the src/web folder"),
                        "rename the src/web website folder")
-        // A short request is fine without command syntax or a tool.
-        XCTAssertEqual(salvage("show my web website", "show my website"), "show my website")
+        // A short request may be a command without a known tool.
+        XCTAssertEqual(salvage("make web website", "make website"), "make web website")
+        XCTAssertEqual(salvage("show my web website", "show my website"), "show my web website")
         XCTAssertEqual(salvage("then put the link on the web website for us", "then put the link on the website for us"),
                        "then put the link on the website for us")
         XCTAssertEqual(salvage("shown on my web website in this way", "shown on my website in this way"),

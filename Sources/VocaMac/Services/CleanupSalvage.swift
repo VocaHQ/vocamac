@@ -35,10 +35,9 @@ enum CleanupSalvage {
         let target = tokens(in: candidate)
         guard !source.isEmpty, source.count * max(target.count, 1) <= 4_000_000 else { return [] }
         let kept = alignedSourceIndices(source.map(\.core), target.map(\.core))
-        // A real word counts as clipped ("web website") only outside command
-        // syntax and not right after a tool: in "pip install pip pipenv"
-        // both are packages. Short requests ("show my web website") qualify.
-        let allowsClippedWords = !WritingStyleEngine.hasCommandSyntax(original)
+        // A real word counts as clipped ("web website") only in sentences: in
+        // "pip install pip pipenv" or "make web website" both are arguments.
+        let allowsClippedWords = WritingStyleEngine.readsAsProse(original)
 
         var deletions: [NSRange] = []
         var index = 0
@@ -130,8 +129,7 @@ enum CleanupSalvage {
         if run.count == 1, let next, next == first + 1,
            source[first].text.allSatisfy(\.isLetter), source[next].text.allSatisfy(\.isLetter),
            EditMerge.isCutOffStart(source[first].core, of: source[next].core, allowsLetter: false, isKnownWord: isKnownWord)
-            || (allowsClippedWords && !WritingStyleEngine.followsCommandTool(source.map(\.core), at: first)
-                && EditMerge.isClippedWord(source[first].core, of: source[next].core)) {
+            || (allowsClippedWords && EditMerge.isClippedWord(source[first].core, of: source[next].core)) {
             return wholeRun
         }
         // "I want to, I need to": an abandoned start, marked by a comma or

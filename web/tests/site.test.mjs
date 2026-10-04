@@ -58,14 +58,14 @@ test("keeps navigation and anchors accessible", () => {
 });
 
 test("keeps the PRODUCT.md product boundary explicit", () => {
-  assert.match(index, /v1\.0\.0/);
+  assert.match(index, /v1\.1\.0/);
   assert.match(index, /macOS 14\+|macOS 14 Sonoma/);
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
   assert.match(index, /Available now/);
   assert.match(index, /includes Parakeet/i);
-  assert.match(index, /Additional engines and models available in v1\.0\.0/i);
+  assert.match(index, /Additional engines and models available in v1\.1\.0/i);
   assert.match(index, /Parakeet/);
   assert.match(index, /sherpa-onnx/);
   assert.doesNotMatch(index, /macOS 13/);
@@ -99,7 +99,7 @@ test("emits valid structured metadata", () => {
   assert.ok(jsonLd, "homepage JSON-LD is present");
   const structured = JSON.parse(jsonLd);
   assert.equal(structured["@type"], "SoftwareApplication");
-  assert.equal(structured.softwareVersion, "1.0.0");
+  assert.equal(structured.softwareVersion, "1.1.0");
   assert.equal(structured.processorRequirements, "Apple Silicon");
 });
 
@@ -144,7 +144,7 @@ test("keeps content available without javascript", () => {
   assert.match(index, /<details[^>]+open/);
   assert.match(index, /<summary>Does my voice leave my Mac\?<\/summary>/);
   assert.match(index, /brew install --cask vocamac/);
-  assert.match(index, /Download v1\.0\.0 DMG/);
+  assert.match(index, /Download v1\.1\.0 DMG/);
   assert.match(script, /IntersectionObserver/);
   assert.match(script, /setTimeout\(function \(\) \{ revealItems\.forEach\(reveal\); \}, 800\)/);
   assert.match(script, /event\.key === "Escape"/);
@@ -263,7 +263,7 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.match(script, /if \(token !== copyFeedbackToken\)/);
 
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
-  assert.match(ogSvg, /v1\.0\.0/);
+  assert.match(ogSvg, /v1\.1\.0/);
   assert.doesNotMatch(ogSvg, /beta/i);
   assert.match(ogSvg, /ON-DEVICE/);
   assert.doesNotMatch(ogSvg, />LOCAL</);
@@ -272,7 +272,7 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   const ogPng = await readFile(join(outputRoot, "og-image.png"));
   assert.equal(
     createHash("sha256").update(ogPng).digest("hex"),
-    "cbe50386dcf13de677e488ca8506561313dc43ea724c8ee246d84d90b5ebd15d",
+    "609ec1295c2554d5658b65eb7d562612a6c82f3d7cd7e93c33a7f2e19ea20d06",
   );
 
   const languages = await readFile(join(outputRoot, "features/languages/index.html"), "utf8");

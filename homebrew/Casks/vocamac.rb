@@ -4,8 +4,8 @@
 # never touches this file, so keep this copy in sync by hand when anything
 # other than the version changes.
 cask "vocamac" do
-  version "1.0.0"
-  sha256 "0ac5b7887bc31b72f39062109a6982efdaa031093c9bc52e69f88c31e4f1e645"
+  version "1.1.0"
+  sha256 "82689e25049b70903e43e1b559c0531020aa777fbf6150b6525e1bb7529d3cb4"
 
   url "https://github.com/VocaHQ/vocamac/releases/download/v#{version}/VocaMac-#{version}-arm64.dmg"
   name "VocaMac"

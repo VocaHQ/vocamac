@@ -23,7 +23,7 @@ VocaMac uses OpenAI's Whisper model, which has a built-in translation capability
 
 The speech-processing step happens on your Mac. VocaMac does not send dictation audio to a Voca cloud endpoint; separate actions such as model and release downloads still need a network connection.
 
-The available source languages and results depend on the selected Whisper model. The current release (v1.0.0) exposes its supported language hints in Settings; it does not promise every language in Whisper's training data.
+The available source languages and results depend on the selected Whisper model. The current release (v1.1.0) exposes its supported language hints in Settings; it does not promise every language in Whisper's training data.
 
 ## Setting Your Source Language
 

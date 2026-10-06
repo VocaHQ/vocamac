@@ -228,6 +228,11 @@ jobs:
           test -f VocaMac.app/Contents/Resources/Assets.car || echo "⚠️ Assets.car missing"
           echo "App bundle verified"
 
+      # Unit tests never start the real app; launch crashes have shipped
+      # past them before (#118, #119, #330).
+      - name: Launch the app
+        run: ./scripts/smoke-test-app.sh VocaMac.app 20
+
   lint:
     name: SwiftLint
     needs: changes

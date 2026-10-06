@@ -354,12 +354,19 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         self.continuation = nil
         stateLock.unlock()
 
+        guard let task else {
+            continuation?.resume(throwing: CancellationError())
+            return
+        }
+        // Fail the caller only once the resume data is saved, so a download
+        // of the same model started right after the cancel finds it, and a
+        // late callback can't overwrite what a newer attempt saved.
         let source = self.source
         let resumeStore = self.resumeStore
-        task?.cancel(byProducingResumeData: { data in
+        task.cancel(byProducingResumeData: { data in
             if let data { resumeStore.save(data, for: source) }
+            continuation?.resume(throwing: CancellationError())
         })
-        continuation?.resume(throwing: CancellationError())
     }
 
     // MARK: - URLSessionDownloadDelegate

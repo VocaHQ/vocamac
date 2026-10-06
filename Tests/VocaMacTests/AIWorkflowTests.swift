@@ -429,6 +429,45 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertFalse(VocaDeepLink.settings.requiresExternalConfirmation)
         XCTAssertFalse(VocaDeepLink.transcribeFile.requiresExternalConfirmation)
     }
+
+    // #337: macOS brings VocaMac forward to deliver the URL, so the paste
+    // must go to the app the user came from, not VocaMac.
+    func testReturnTargetSkipsVocaMacForTheLastActiveApp() {
+        XCTAssertEqual(
+            DeepLinkReturnTarget.bundleIdentifier(
+                frontmost: "com.vocamac.app", lastActive: "com.apple.TextEdit", ownBundleIdentifier: "com.vocamac.app"
+            ),
+            "com.apple.TextEdit"
+        )
+    }
+
+    func testReturnTargetPrefersAnotherFrontmostApp() {
+        XCTAssertEqual(
+            DeepLinkReturnTarget.bundleIdentifier(
+                frontmost: "com.apple.Safari", lastActive: "com.apple.TextEdit", ownBundleIdentifier: "com.vocamac.app"
+            ),
+            "com.apple.Safari"
+        )
+    }
+
+    func testPasteLastOnlyGoesIntoTheReturnedApp() {
+        XCTAssertTrue(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 42, ownPID: 7))
+        // The app didn't come back, or something else took focus meanwhile.
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 7, ownPID: 7))
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 99, ownPID: 7))
+        // No app to return to: never paste into VocaMac itself.
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: nil, frontmostPID: 7, ownPID: 7))
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 7, frontmostPID: 7, ownPID: 7))
+    }
+
+    func testReturnTargetIsNilWhenOnlyVocaMacIsKnown() {
+        XCTAssertNil(DeepLinkReturnTarget.bundleIdentifier(
+            frontmost: "com.vocamac.app", lastActive: nil, ownBundleIdentifier: "com.vocamac.app"
+        ))
+        XCTAssertNil(DeepLinkReturnTarget.bundleIdentifier(
+            frontmost: nil, lastActive: "", ownBundleIdentifier: "com.vocamac.app"
+        ))
+    }
 }
 
 final class SettingsArchiveTests: XCTestCase {
@@ -1388,5 +1427,27 @@ final class IncrementalAudioTranscriberTests: XCTestCase {
 
         _ = try await task.value
         XCTAssertEqual(calls.count, 1)
+    }
+}
+
+@MainActor
+final class DeepLinkErrorTests: XCTestCase {
+    func testAFailedPasteDoesNotReplaceARecording() async {
+        let (appState, _) = AppState.makeTestState()
+        await appState.startRecording()
+        XCTAssertEqual(appState.appStatus, .recording)
+
+        appState.showDeepLinkError("Couldn't return to the app you came from, so nothing was pasted.")
+
+        XCTAssertEqual(appState.appStatus, .recording, "Escape and the Stop button depend on this status")
+        XCTAssertTrue(appState.isRecording)
+        await appState.cancelRecording()
+    }
+
+    func testAFailedPasteIsShownWhenIdle() {
+        let (appState, _) = AppState.makeTestState()
+        appState.showDeepLinkError("Nothing was pasted.")
+        XCTAssertEqual(appState.appStatus, .error)
+        XCTAssertEqual(appState.errorMessage, "Nothing was pasted.")
     }
 }

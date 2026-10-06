@@ -89,7 +89,13 @@ install_cli() {
     # Create vocamac launcher
     cat > "$HOME/.local/bin/vocamac" << LAUNCHER
 #!/bin/bash
-# VocaMac launcher — kills any running instance and starts fresh
+# VocaMac launcher.
+# With arguments (vocamac --list-models --json, --transcribe-file …), run the
+# headless CLI and leave a running VocaMac alone.
+# Without arguments, kill any running instance and start the app fresh.
+if [ "\$#" -gt 0 ]; then
+    exec "$PROJECT_DIR/$BINARY_PATH" "\$@"
+fi
 killall VocaMac 2>/dev/null
 sleep 0.5
 "$PROJECT_DIR/$BINARY_PATH" &

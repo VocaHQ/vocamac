@@ -5,7 +5,7 @@
 # bundle lookup, AppState init, service init) have reached users before.
 # This runs the bundle's own binary the way users do:
 #
-#   1. `--list-models` through the headless CLI, which must print the catalog
+#   1. `--list-models --json` through the headless CLI, which must print the catalog
 #      and exit 0 without starting the GUI.
 #   2. The GUI, which must still be running after a settle period.
 #
@@ -67,20 +67,20 @@ show_crash_reports() {
 
 # ─── 1. Headless CLI ─────────────────────────────────────────────────────────
 
-echo "▶ $BINARY --list-models"
+echo "▶ $BINARY --list-models --json"
 set +e
-CLI_OUTPUT="$("$BINARY" --list-models 2>&1)"
+CLI_OUTPUT="$("$BINARY" --list-models --json 2>&1)"
 CLI_STATUS=$?
 set -e
 echo "$CLI_OUTPUT" | head -n 20
 if [ "$CLI_STATUS" -ne 0 ]; then
-    echo "❌ --list-models exited with status $CLI_STATUS"
+    echo "❌ --list-models --json exited with status $CLI_STATUS"
     sleep 3  # give ReportCrash time to write the report
     show_crash_reports
     exit 1
 fi
 if [ -z "$CLI_OUTPUT" ]; then
-    echo "❌ --list-models printed nothing"
+    echo "❌ --list-models --json printed nothing"
     exit 1
 fi
 echo "✅ CLI ran"

@@ -88,6 +88,7 @@ make build         # .app in repo root (fast iteration)
 make install-cli   # vocamac / vocamac-build → ~/.local/bin
 make test          # swift test (what CI runs for the app)
 make lint          # pinned SwiftLint, strict (CI fails on any violation)
+make smoke         # launch the built .app; fails if it crashes (quits a running VocaMac)
 make dmg           # Dist DMG → dist/
 make run           # open the locally built .app
 make clean
@@ -200,7 +201,7 @@ Version-bump changelog tables go in the **PR description**, not a tracked file. 
 | Dependency | Purpose | Pin |
 |------------|---------|-----|
 | [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (Argmax OSS SDK) | Whisper CoreML | `.upToNextMinor(from: "1.1.0")` |
-| [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.15.7")` (pre-1.0) |
+| [FluidAudio](https://github.com/FluidInference/FluidAudio) | Parakeet CoreML / ANE | `.upToNextMinor(from: "0.17.1")` (pre-1.0) |
 | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) | Specialized ONNX, CPU | exact `1.13.8` (matching xcframework) |
 | [LLM.swift](https://github.com/eastriverlee/LLM.swift) | GGUF cleanup (llama.cpp) | exact `3.0.3` (vendors a pinned llama.cpp xcframework) |
 

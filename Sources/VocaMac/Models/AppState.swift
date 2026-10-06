@@ -3346,6 +3346,21 @@ final class AppState: ObservableObject {
     static let deliveryFailureMessageDuration: TimeInterval = 10
 
     /// Surface a short-lived error state for settings and menu UI.
+    /// A deep link that couldn't do what it was asked, shown like any other
+    /// passing error.
+    ///
+    /// Never over a dictation in progress: the error status would hide its
+    /// controls and disarm Escape while the microphone kept recording. Then
+    /// the message is logged and the Mac beeps.
+    func showDeepLinkError(_ message: String) {
+        VocaLogger.warning(.appState, message)
+        guard !isRecording, appStatus != .recording, appStatus != .processing else {
+            NSSound.beep()
+            return
+        }
+        showTemporaryError(message)
+    }
+
     private func showTemporaryError(_ message: String, duration: TimeInterval = 5.0) {
         errorMessage = message
         appStatus = .error

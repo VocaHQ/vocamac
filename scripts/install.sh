@@ -90,7 +90,7 @@ install_cli() {
     cat > "$HOME/.local/bin/vocamac" << LAUNCHER
 #!/bin/bash
 # VocaMac launcher.
-# With arguments (vocamac --list-models, --transcribe-file …), run the
+# With arguments (vocamac --list-models --json, --transcribe-file …), run the
 # headless CLI and leave a running VocaMac alone.
 # Without arguments, kill any running instance and start the app fresh.
 if [ "\$#" -gt 0 ]; then

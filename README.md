@@ -233,7 +233,7 @@ make install-cli
 
 This installs two development helpers to `~/.local/bin`:
 
-- `vocamac`: Launch VocaMac in background. With arguments (`vocamac --list-models`), it runs the headless CLI described below instead and leaves a running app alone
+- `vocamac`: Launch VocaMac in background. With arguments (`vocamac --list-models --json`), it runs the headless CLI described below instead and leaves a running app alone
 - `vocamac-build`: Rebuild from source after pulling updates
 
 Because the launcher runs a development binary from Terminal, macOS may assign its GUI permissions to the terminal app rather than the installed VocaMac app.

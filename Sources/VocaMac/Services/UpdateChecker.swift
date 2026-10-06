@@ -188,6 +188,27 @@ final class UpdateChecker: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+    /// Replaces this app with the downloaded update and relaunches it.
+    var installer = UpdateInstaller()
+
+    /// Verify and stage the update, then quit so the helper can swap it in
+    /// and relaunch. On failure nothing has changed and the DMG can still be
+    /// opened by hand.
+    func installAndRelaunch(dmgPath: URL) async {
+        updateState = .installing
+        do {
+            let staged = try await installer.stage(dmg: dmgPath)
+            _ = try installer.launchSwapHelper(for: staged)
+            VocaLogger.info(.updateChecker, "Installing \(staged.version) and relaunching")
+            try? FileManager.default.removeItem(at: dmgPath)
+            NSApp.terminate(nil)
+        } catch {
+            let message = error.localizedDescription
+            VocaLogger.warning(.updateChecker, "In-place install stopped: \(message)")
+            updateState = .installFailed(dmgPath: dmgPath, message: message)
+        }
+    }
+
     func skipVersion(_ version: String) {
         UserDefaults.standard.set(version, forKey: skippedVersionKey)
         lastKnownUpdateInfo = nil

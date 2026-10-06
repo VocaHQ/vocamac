@@ -262,7 +262,39 @@ struct UpdateDetailView: View {
                 Label("Ready to install", systemImage: "checkmark.circle.fill")
                     .font(VocaDesign.display(16))
                     .foregroundStyle(VocaDesign.success)
-                Text("Open the DMG and drag VocaMac to Applications to replace the existing app.")
+                Text(isBusy
+                     ? "Finish the current dictation first. VocaMac quits for a moment to install."
+                     : "VocaMac quits, replaces itself, and opens again. Your settings and permissions stay.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack {
+                    Button("Install and Relaunch") {
+                        Task { @MainActor in
+                            await appState.updateChecker.installAndRelaunch(dmgPath: dmgPath)
+                        }
+                    }
+                    .buttonStyle(VocaPrimaryButtonStyle())
+                    .disabled(isBusy)
+                    Button("Open DMG") {
+                        appState.updateChecker.openDMG(at: dmgPath)
+                        isPresented = false
+                    }
+                    .buttonStyle(.vocaLink)
+                    .font(.caption)
+                }
+            }
+        case .installing:
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Installing…")
+                    .font(VocaDesign.display(16))
+            }
+        case .installFailed(let dmgPath, let message):
+            VStack(alignment: .leading, spacing: 10) {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(VocaDesign.warning)
+                Text("Open the DMG and drag VocaMac to Applications to install it by hand.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Button("Open DMG") {
@@ -293,6 +325,11 @@ struct UpdateDetailView: View {
         default:
             EmptyView()
         }
+    }
+
+    /// Quitting mid-dictation would lose it.
+    private var isBusy: Bool {
+        appState.isRecording || appState.appStatus == .processing
     }
 
     private func formatETA(_ seconds: Double) -> String {

@@ -285,7 +285,11 @@ struct AboutTab: View {
         case .verifying:
             return "Verifying download integrity..."
         case .readyToInstall:
-            return "Update downloaded. Open the DMG to install."
+            return "Update downloaded and ready to install."
+        case .installing:
+            return "Installing update..."
+        case .installFailed(_, let message):
+            return message
         case .checking:
             return "Checking for updates..."
         case .idle:

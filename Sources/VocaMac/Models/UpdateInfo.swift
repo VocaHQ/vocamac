@@ -74,5 +74,10 @@ enum UpdateState: Equatable {
     case downloading(progress: Double, bytesDownloaded: Int64, totalBytes: Int64, estimatedSecondsRemaining: Double)
     case verifying
     case readyToInstall(dmgPath: URL)
+    /// Verifying and staging the new app before quitting to swap it in.
+    case installing
+    /// The in-place install stopped before touching the running app; the
+    /// DMG can still be opened to install by hand.
+    case installFailed(dmgPath: URL, message: String)
     case error(String)
 }

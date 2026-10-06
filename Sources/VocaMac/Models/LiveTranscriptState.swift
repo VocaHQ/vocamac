@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 /// The words recognised so far in a live recording.
@@ -6,8 +7,9 @@ import SwiftUI
 /// one redraws only the text that shows it, not every view observing
 /// `AppState` (the whole menu bar panel and any open Settings page).
 @MainActor
-final class LiveTranscriptState: ObservableObject {
-    @Published private(set) var text: String = ""
+@Observable
+final class LiveTranscriptState {
+    private(set) var text: String = ""
 
     func update(_ value: String) {
         guard value != text else { return }
@@ -17,7 +19,7 @@ final class LiveTranscriptState: ObservableObject {
 
 /// The live transcript in the menu bar panel; empty text shows nothing.
 struct ObservedLiveTranscriptView: View {
-    @ObservedObject var state: LiveTranscriptState
+    let state: LiveTranscriptState
 
     var body: some View {
         if !state.text.isEmpty {

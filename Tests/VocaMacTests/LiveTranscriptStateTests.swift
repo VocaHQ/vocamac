@@ -2,21 +2,26 @@
 // VocaMac Tests
 
 import Combine
+import Observation
 import XCTest
 @testable import VocaMac
 
 @MainActor
 final class LiveTranscriptStateTests: XCTestCase {
+    /// Whether reading `text` and then running `change` notifies observers.
+    private func notifies(_ state: LiveTranscriptState, _ change: () -> Void) -> Bool {
+        var notified = false
+        withObservationTracking { _ = state.text } onChange: { notified = true }
+        change()
+        return notified
+    }
+
     func testRepeatedPartialDoesNotRedraw() {
         let state = LiveTranscriptState()
-        var changes = 0
-        let subscription = state.objectWillChange.sink { changes += 1 }
-        state.update("hello")
-        state.update("hello")
-        state.update("hello world")
+        XCTAssertTrue(notifies(state) { state.update("hello") })
+        XCTAssertFalse(notifies(state) { state.update("hello") })
+        XCTAssertTrue(notifies(state) { state.update("hello world") })
         XCTAssertEqual(state.text, "hello world")
-        XCTAssertEqual(changes, 2)
-        subscription.cancel()
     }
 
     func testPartialsDoNotInvalidateAppState() async {

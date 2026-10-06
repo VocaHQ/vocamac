@@ -1,7 +1,7 @@
 # VocaMac — Makefile
 # Run `make help` for available commands.
 
-.PHONY: build install install-cli dmg release test lint clean reset run help
+.PHONY: build install install-cli dmg release test lint clean reset run promo-film help
 
 .DEFAULT_GOAL := help
 
@@ -67,6 +67,10 @@ reset:
 run:
 	@open VocaMac.app 2>/dev/null || (echo "❌ VocaMac.app not found. Run 'make build' first." && exit 1)
 
+## Render the 60-second promo film from docs/screenshots (needs ffmpeg)
+promo-film:
+	@./scripts/generate-promo-film.sh
+
 ## Show this help
 help:
 	@echo "VocaMac — Available Commands"
@@ -79,6 +83,7 @@ help:
 	@echo "  make test         Run tests"
 	@echo "  make lint         Lint Swift sources (SwiftLint)"
 	@echo "  make run          Launch the locally built .app"
+	@echo "  make promo-film   Render the promo film to dist/vocamac-promo.mp4 (needs ffmpeg)"
 	@echo "  make clean        Remove build artifacts"
 	@echo "  make reset        Delete all local app data (models, cache, prefs)"
 	@echo "  make help         Show this help"

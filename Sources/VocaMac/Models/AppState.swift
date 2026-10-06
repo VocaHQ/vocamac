@@ -3346,6 +3346,13 @@ final class AppState: ObservableObject {
     static let deliveryFailureMessageDuration: TimeInterval = 10
 
     /// Surface a short-lived error state for settings and menu UI.
+    /// A deep link that couldn't do what it was asked, shown like any other
+    /// passing error.
+    func showDeepLinkError(_ message: String) {
+        VocaLogger.warning(.appState, message)
+        showTemporaryError(message)
+    }
+
     private func showTemporaryError(_ message: String, duration: TimeInterval = 5.0) {
         errorMessage = message
         appStatus = .error

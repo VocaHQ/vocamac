@@ -95,3 +95,13 @@ enum DeepLinkReturnTarget {
         return nil
     }
 }
+
+extension DeepLinkReturnTarget {
+    /// Whether a confirmed paste-last may go ahead: only into the app the
+    /// user came from, once it is really in front again. Otherwise Cmd+V
+    /// would land in VocaMac or in whatever app took focus meanwhile.
+    static func shouldPaste(returnTargetPID: pid_t?, frontmostPID: pid_t?, ownPID: pid_t) -> Bool {
+        guard let returnTargetPID, returnTargetPID != ownPID else { return false }
+        return frontmostPID == returnTargetPID
+    }
+}

@@ -4,6 +4,7 @@
 // Protocol abstractions for all services that AppState depends on.
 // Enables dependency injection and test mocking.
 
+import AppKit
 import Foundation
 import Combine
 
@@ -308,9 +309,14 @@ protocol FrontmostAppResolving: AnyObject {
     /// while either is open the frontmost app *is* VocaMac, and "which style
     /// applies here" has to be answered about the app the user came from.
     func lastActiveApp() -> RunningAppSnapshot?
+
+    /// The running instance behind `lastActiveApp()`. Two copies of an app
+    /// share a bundle ID, so only the instance says which one the user was in.
+    func lastActiveApplication() -> NSRunningApplication?
 }
 
 extension FrontmostAppResolving {
+    func lastActiveApplication() -> NSRunningApplication? { nil }
     /// The app a dictation should be styled for: whatever is in front, falling
     /// back to the last app that was.
     @MainActor

@@ -450,6 +450,16 @@ final class DeepLinkRouterTests: XCTestCase {
         )
     }
 
+    func testPasteLastOnlyGoesIntoTheReturnedApp() {
+        XCTAssertTrue(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 42, ownPID: 7))
+        // The app didn't come back, or something else took focus meanwhile.
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 7, ownPID: 7))
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 42, frontmostPID: 99, ownPID: 7))
+        // No app to return to: never paste into VocaMac itself.
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: nil, frontmostPID: 7, ownPID: 7))
+        XCTAssertFalse(DeepLinkReturnTarget.shouldPaste(returnTargetPID: 7, frontmostPID: 7, ownPID: 7))
+    }
+
     func testReturnTargetIsNilWhenOnlyVocaMacIsKnown() {
         XCTAssertNil(DeepLinkReturnTarget.bundleIdentifier(
             frontmost: "com.vocamac.app", lastActive: nil, ownBundleIdentifier: "com.vocamac.app"

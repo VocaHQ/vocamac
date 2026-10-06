@@ -383,7 +383,7 @@ struct VocaMacApp: App {
                 let returnTarget: NSRunningApplication?
                 if link.requiresExternalConfirmation {
                     returnTarget = Self.deepLinkReturnTarget(
-                        lastActive: self.appState.frontmostAppResolver.lastActiveApp()
+                        lastActive: self.appState.frontmostAppResolver.lastActiveApplication()
                     )
                     let alert = NSAlert()
                     alert.alertStyle = .warning
@@ -399,8 +399,19 @@ struct VocaMacApp: App {
                     // The confirmation window activates VocaMac. Put the user's
                     // original destination back in front before recording or text
                     // insertion resolves its target.
+                    var isBackInFront = false
                     if let returnTarget {
-                        await Self.reactivate(returnTarget)
+                        isBackInFront = await Self.reactivate(returnTarget)
+                    }
+                    if link == .pasteLast, !DeepLinkReturnTarget.shouldPaste(
+                        returnTargetPID: isBackInFront ? returnTarget?.processIdentifier : nil,
+                        frontmostPID: NSWorkspace.shared.frontmostApplication?.processIdentifier,
+                        ownPID: ProcessInfo.processInfo.processIdentifier
+                    ) {
+                        appState.showDeepLinkError(
+                            "Couldn't return to the app you came from, so nothing was pasted. Use the Paste Last Dictation shortcut there instead."
+                        )
+                        return
                     }
                     await appState.handleDeepLink(link)
                     switch link {
@@ -428,32 +439,41 @@ struct VocaMacApp: App {
     /// The app a confirmed deep link should act on (#337). macOS brings
     /// VocaMac forward to deliver the URL, so the frontmost app is usually
     /// VocaMac by now; fall back to the last other app the user was in.
-    private static func deepLinkReturnTarget(lastActive: RunningAppSnapshot?) -> NSRunningApplication? {
+    /// The exact instance is kept, not looked up by bundle ID: with two
+    /// copies of an app running, the first match may not be the user's.
+    private static func deepLinkReturnTarget(lastActive: NSRunningApplication?) -> NSRunningApplication? {
         let frontmost = NSWorkspace.shared.frontmostApplication
         guard let bundleID = DeepLinkReturnTarget.bundleIdentifier(
             frontmost: frontmost?.bundleIdentifier,
             lastActive: lastActive?.bundleIdentifier,
             ownBundleIdentifier: Bundle.main.bundleIdentifier
         ) else { return nil }
-        if frontmost?.bundleIdentifier == bundleID { return frontmost }
-        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first
+        return frontmost?.bundleIdentifier == bundleID ? frontmost : lastActive
     }
 
     /// Put `app` back in front and wait (up to a second) until it is, so a
     /// paste or recording that follows targets it rather than VocaMac.
+    /// False when it quit or didn't come forward, or lost focus again while
+    /// it restored its window.
     @MainActor
-    private static func reactivate(_ app: NSRunningApplication) async {
+    private static func reactivate(_ app: NSRunningApplication) async -> Bool {
+        guard !app.isTerminated else { return false }
         NSApp.yieldActivation(to: app)
         app.activate()
+        func isFront() -> Bool {
+            NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier
+        }
         for _ in 0..<20 {
-            if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+            if isFront() {
                 // Let the app restore its key window and focused field.
                 try? await Task.sleep(for: .milliseconds(100))
-                return
+                if isFront() { return true }
+                break
             }
             try? await Task.sleep(for: .milliseconds(50))
         }
         VocaLogger.warning(.general, "Could not bring \(app.localizedName ?? "the previous app") back in front after a deep link")
+        return false
     }
 
     /// Terminate any other running instances of VocaMac

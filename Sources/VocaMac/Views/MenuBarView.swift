@@ -566,14 +566,7 @@ struct MenuBarView: View {
                 )
                 .frame(height: 6)
 
-                if !appState.liveTranscript.isEmpty {
-                    Text(appState.liveTranscript)
-                        .font(.callout)
-                        .lineLimit(4)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .accessibilityLabel("Live transcript")
-                }
+                ObservedLiveTranscriptView(state: appState.liveTranscriptState)
 
                 // Stop/recovery button — visible during recording so the user
                 // can unstick the app if the hotkey isn't responding

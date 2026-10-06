@@ -691,6 +691,38 @@ final class CommandModePromptTests: XCTestCase {
                        "An unverifiable selection is left alone")
     }
 
+    func testReadOnlySelectionOnlyMatchesAnAnswerOnlySnapshot() {
+        let element = AXElementBox(element: AXUIElementCreateSystemWide())
+        let readOnly = SelectedTextSnapshot(
+            element: nil, processID: 7, text: "a web page passage",
+            range: CFRange(location: 0, length: 18), isEditable: false
+        )
+        let editable = SelectedTextSnapshot(
+            element: nil, processID: 7, text: "a web page passage",
+            range: CFRange(location: 0, length: 18)
+        )
+        let probe = AccessibilityTextReader.SelectionProbe.readOnly(
+            element: element, processID: 7, text: "a web page passage", range: CFRange(location: 0, length: 18)
+        )
+        XCTAssertTrue(AccessibilitySelectedTextService.selectionStillMatches(readOnly, probe: probe))
+        // An edit planned for an editable field must not land in text that
+        // has since become read-only.
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(editable, probe: probe))
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(
+            readOnly,
+            probe: .readOnly(element: element, processID: 7, text: "another passage", range: nil)
+        ))
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(
+            readOnly,
+            probe: .readOnly(element: element, processID: 7, text: "a web page passage", range: CFRange(location: 4, length: 18))
+        ))
+    }
+
+    func testSelectionInAPasswordFieldNeverMatches() {
+        let snapshot = SelectedTextSnapshot(element: nil, processID: 7, text: "hunter2", range: nil)
+        XCTAssertFalse(AccessibilitySelectedTextService.selectionStillMatches(snapshot, probe: .secure))
+    }
+
     func testVSCodeEmptySelectionLineCopyIsNotASelection() {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name("CommandModeTests.\(UUID().uuidString)"))
         defer { pasteboard.releaseGlobally() }

@@ -429,6 +429,35 @@ final class DeepLinkRouterTests: XCTestCase {
         XCTAssertFalse(VocaDeepLink.settings.requiresExternalConfirmation)
         XCTAssertFalse(VocaDeepLink.transcribeFile.requiresExternalConfirmation)
     }
+
+    // #337: macOS brings VocaMac forward to deliver the URL, so the paste
+    // must go to the app the user came from, not VocaMac.
+    func testReturnTargetSkipsVocaMacForTheLastActiveApp() {
+        XCTAssertEqual(
+            DeepLinkReturnTarget.bundleIdentifier(
+                frontmost: "com.vocamac.app", lastActive: "com.apple.TextEdit", ownBundleIdentifier: "com.vocamac.app"
+            ),
+            "com.apple.TextEdit"
+        )
+    }
+
+    func testReturnTargetPrefersAnotherFrontmostApp() {
+        XCTAssertEqual(
+            DeepLinkReturnTarget.bundleIdentifier(
+                frontmost: "com.apple.Safari", lastActive: "com.apple.TextEdit", ownBundleIdentifier: "com.vocamac.app"
+            ),
+            "com.apple.Safari"
+        )
+    }
+
+    func testReturnTargetIsNilWhenOnlyVocaMacIsKnown() {
+        XCTAssertNil(DeepLinkReturnTarget.bundleIdentifier(
+            frontmost: "com.vocamac.app", lastActive: nil, ownBundleIdentifier: "com.vocamac.app"
+        ))
+        XCTAssertNil(DeepLinkReturnTarget.bundleIdentifier(
+            frontmost: nil, lastActive: "", ownBundleIdentifier: "com.vocamac.app"
+        ))
+    }
 }
 
 final class SettingsArchiveTests: XCTestCase {

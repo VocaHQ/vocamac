@@ -203,10 +203,12 @@ final class UpdateInstallerTests: XCTestCase {
         app.arguments = ["0.6"]
         try app.run()
 
+        let result = directory.appendingPathComponent("result.txt")
         let helper = try installer.launchSwapHelper(
             for: StagedUpdate(stagedAppURL: staged, version: "1.2.0"),
             processID: app.processIdentifier,
-            opener: opener.path
+            opener: opener.path,
+            resultFile: result
         )
         // Not swapped while the app is still running.
         try await Task.sleep(nanoseconds: 200_000_000)
@@ -224,20 +226,74 @@ final class UpdateInstallerTests: XCTestCase {
             try String(contentsOf: opened, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
             installer.runningAppURL.path
         )
+        XCTAssertEqual(UpdateInstaller.consumeResult(at: result), "installed 1.2.0")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: result.path), "Read once")
     }
 
     func testSwapHelperKeepsTheOldAppWhenTheStagedOneIsMissing() async throws {
         let installer = try installer()
         let missing = directory.appendingPathComponent("Applications/.VocaMac-update-gone.app", isDirectory: true)
+        let result = directory.appendingPathComponent("result.txt")
         let helper = try installer.launchSwapHelper(
             for: StagedUpdate(stagedAppURL: missing, version: "1.2.0"),
             processID: 999_999,
-            opener: "/usr/bin/true"
+            opener: "/usr/bin/true",
+            resultFile: result
         )
         try await waitForExit(helper)
+        XCTAssertEqual(
+            UpdateInstaller.consumeResult(at: result),
+            "failed: couldn't move 1.2.0 into place; the previous version was put back"
+        )
 
         let info = NSDictionary(contentsOf: installer.runningAppURL.appendingPathComponent("Contents/Info.plist"))
         XCTAssertEqual(info?["CFBundleShortVersionString"] as? String, "1.0.0")
         XCTAssertEqual(try stagedLeftovers(), ["VocaMac.app"])
+    }
+
+    // MARK: - Reporting the outcome
+
+    @MainActor
+    func testAFailedInstallIsReportedOnTheNextLaunch() {
+        let checker = UpdateChecker()
+        checker.reportLastInstallResult("failed: couldn't move 1.2.0 into place; the previous version was put back")
+        guard case .error(let message) = checker.updateState else {
+            return XCTFail("Expected an error, got \(checker.updateState)")
+        }
+        XCTAssertTrue(message.hasPrefix("The last update didn't install: couldn't move 1.2.0"))
+    }
+
+    @MainActor
+    func testASuccessfulInstallLeavesTheStateAlone() {
+        let checker = UpdateChecker()
+        checker.reportLastInstallResult("installed 1.2.0")
+        XCTAssertEqual(checker.updateState, .idle)
+        checker.reportLastInstallResult(nil)
+        XCTAssertEqual(checker.updateState, .idle)
+    }
+
+    @MainActor
+    func testInstallingBlocksUpdateChecks() async {
+        let checker = UpdateChecker()
+        checker.updateState = .installing
+        await checker.checkForUpdates { XCTFail("No check while installing"); throw URLError(.cancelled) }
+        XCTAssertEqual(checker.updateState, .installing)
+    }
+
+    @MainActor
+    func testADictationThatOutlastsStagingStopsTheInstall() async throws {
+        let dmg = try makeDMG(version: "1.2.0")
+        let checker = UpdateChecker()
+        checker.installer = try installer()
+        checker.isDictationBusy = { true }
+        checker.busyWaitSeconds = 0.3
+
+        await checker.installAndRelaunch(dmgPath: dmg)
+
+        guard case .installFailed(_, let message) = checker.updateState else {
+            return XCTFail("Expected installFailed, got \(checker.updateState)")
+        }
+        XCTAssertEqual(message, UpdateInstallError.dictationInProgress.errorDescription)
+        XCTAssertEqual(try stagedLeftovers(), ["VocaMac.app"], "The staged copy is removed")
     }
 }

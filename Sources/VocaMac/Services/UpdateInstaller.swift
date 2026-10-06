@@ -18,6 +18,7 @@ enum UpdateInstallError: LocalizedError, Equatable {
     case notNewer(found: String)
     case copyFailed(String)
     case helperFailed(String)
+    case dictationInProgress
 
     var errorDescription: String? {
         switch self {
@@ -39,6 +40,8 @@ enum UpdateInstallError: LocalizedError, Equatable {
             return "Couldn't copy the update: \(detail)"
         case .helperFailed(let detail):
             return "Couldn't start the installer: \(detail)"
+        case .dictationInProgress:
+            return "A dictation is still running. Install again when it's done."
         }
     }
 }
@@ -104,10 +107,26 @@ struct UpdateInstaller {
         } catch {
             result = .failure(error)
         }
-        // Detach whatever happened; -force covers a Finder window that
-        // happens to look at the volume.
-        _ = try? await Self.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"], failure: UpdateInstallError.mountFailed)
+        await Self.detach(mountPoint)
         return try result.get()
+    }
+
+    /// Detach whatever happened; -force covers a Finder window that happens
+    /// to look at the volume. One retry, because a volume still being read
+    /// can refuse the first time; a volume that stays mounted is logged.
+    private static func detach(_ mountPoint: URL) async {
+        for attempt in 1...2 {
+            do {
+                try await run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"], failure: UpdateInstallError.mountFailed)
+                return
+            } catch {
+                if attempt == 2 {
+                    VocaLogger.warning(.updateChecker, "Update volume stayed mounted at \(mountPoint.path): \(error.localizedDescription)")
+                } else {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                }
+            }
+        }
     }
 
     private func verifyAndCopy(_ newApp: URL, into parent: URL, requirement: String) async throws -> StagedUpdate {
@@ -144,34 +163,63 @@ struct UpdateInstaller {
     /// spliced into the script.
     ///
     /// $1 pid to wait for, $2 installed app, $3 staged app, $4 backup path,
-    /// $5 command that opens the app.
+    /// $5 command that opens the app, $6 file the outcome is written to (read
+    /// by the next launch), $7 the new version.
     static let swapScript = """
-    pid="$1"; current="$2"; staged="$3"; backup="$4"; opener="$5"
+    pid="$1"; current="$2"; staged="$3"; backup="$4"; opener="$5"; result="$6"; version="$7"
+    report() { printf '%s\\n' "$1" > "$result" 2>/dev/null; }
     waited=0
     while kill -0 "$pid" 2>/dev/null; do
         sleep 0.2
         waited=$((waited + 1))
-        if [ "$waited" -ge 300 ]; then rm -rf "$staged"; exit 1; fi
+        if [ "$waited" -ge 300 ]; then
+            rm -rf "$staged"
+            report "failed: VocaMac didn't quit, so $version wasn't installed"
+            exit 1
+        fi
     done
     if mv "$current" "$backup"; then
         if mv "$staged" "$current"; then
             rm -rf "$backup"
+            report "installed $version"
         else
             mv "$backup" "$current"
             rm -rf "$staged"
+            report "failed: couldn't move $version into place; the previous version was put back"
         fi
     else
         rm -rf "$staged"
+        report "failed: couldn't move the installed app aside to install $version"
     fi
-    "$opener" "$current"
+    if ! "$opener" "$current"; then
+        printf '%s\\n' "reopen failed" >> "$result" 2>/dev/null
+    fi
     """
+
+    /// Where the helper leaves the outcome for the next launch to read.
+    static var defaultResultFile: URL {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        return support.appendingPathComponent("VocaMac/last-update-result.txt")
+    }
+
+    /// The last helper's outcome, removed once read.
+    static func consumeResult(at file: URL = defaultResultFile) -> String? {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return nil }
+        try? FileManager.default.removeItem(at: file)
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// Start the swap helper. The caller quits the app right after.
     func launchSwapHelper(
         for staged: StagedUpdate,
         processID: pid_t = ProcessInfo.processInfo.processIdentifier,
-        opener: String = "/usr/bin/open"
+        opener: String = "/usr/bin/open",
+        resultFile: URL = UpdateInstaller.defaultResultFile
     ) throws -> Process {
+        try? fileManager.createDirectory(at: resultFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? fileManager.removeItem(at: resultFile)
         let backup = runningAppURL.deletingLastPathComponent()
             .appendingPathComponent(".VocaMac-previous-\(UUID().uuidString).app", isDirectory: true)
         let process = Process()
@@ -179,12 +227,15 @@ struct UpdateInstaller {
         process.arguments = [
             "-c", Self.swapScript, "vocamac-update",
             String(processID), runningAppURL.path, staged.stagedAppURL.path, backup.path, opener,
+            resultFile.path, staged.version,
         ]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
             try process.run()
         } catch {
+            // Nothing else will remove the staged copy.
+            try? fileManager.removeItem(at: staged.stagedAppURL)
             throw UpdateInstallError.helperFailed(error.localizedDescription)
         }
         return process

@@ -1087,6 +1087,11 @@ final class AppState: ObservableObject {
                 .store(in: &cancellables)
         }
 
+        updateChecker.isDictationBusy = { [weak self] in
+            guard let self else { return false }
+            return self.isRecording || self.appStatus == .recording || self.appStatus == .processing
+        }
+
         // Forward updateChecker changes so SwiftUI views observing AppState
         // re-render when updateState changes (nested ObservableObject fix).
         updateChecker.objectWillChange
@@ -3590,6 +3595,7 @@ final class AppState: ObservableObject {
             await syncTranscriptCleanup()
         }
 
+        updateChecker.reportLastInstallResult()
         await updateChecker.checkOnLaunchIfNeeded()
 
         VocaLogger.info(.appState, "Startup complete!")

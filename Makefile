@@ -1,7 +1,7 @@
 # VocaMac — Makefile
 # Run `make help` for available commands.
 
-.PHONY: build install install-cli dmg release test lint clean reset run help
+.PHONY: build install install-cli dmg release test smoke lint clean reset run help
 
 .DEFAULT_GOAL := help
 
@@ -24,6 +24,10 @@ dmg:
 ## Release — tag and push to trigger GitHub Actions release workflow (usage: make release VERSION=0.4.0)
 release:
 	@./scripts/release.sh $(VERSION)
+
+## Launch the built .app and fail if it crashes (quits a running VocaMac)
+smoke:
+	@./scripts/smoke-test-app.sh VocaMac.app
 
 ## Run tests
 test:
@@ -77,6 +81,7 @@ help:
 	@echo "  make dmg          Build DMG for distribution (output in dist/)"
 	@echo "  make release VERSION=X.Y.Z  Tag and release (triggers CI signing + notarization)"
 	@echo "  make test         Run tests"
+	@echo "  make smoke        Launch the built .app and fail if it crashes"
 	@echo "  make lint         Lint Swift sources (SwiftLint)"
 	@echo "  make run          Launch the locally built .app"
 	@echo "  make clean        Remove build artifacts"

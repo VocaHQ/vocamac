@@ -24,7 +24,7 @@ let package = Package(
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", .upToNextMinor(from: "1.1.0")),
         // FluidAudio — NVIDIA Parakeet TDT models as CoreML on the Neural Engine
         // https://github.com/FluidInference/FluidAudio
-        // Held to 0.15.x: this is the version the engine is tested against, and
+        // Held to 0.17.x: this is the version the engine is tested against, and
         // the APIs used here (AsrManager.loadModels, throwing TdtDecoderState,
         // the transcribe language hint) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.

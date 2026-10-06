@@ -20,6 +20,12 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "pause"), .performance)
     }
 
+    func testPasswordQueryFindsTheHistoryExclusions() {
+        let first = SettingsSearchIndex.matches(query: "password").first
+        XCTAssertEqual(first?.id, "history-excluded-apps")
+        XCTAssertEqual(SettingsSearchIndex.matches(query: "exclude").first?.id, "history-excluded-apps")
+    }
+
     func testIdleQueryHitsKeepAlive() {
         let matches = SettingsSearchIndex.matches(query: "idle")
         XCTAssertTrue(matches.contains { $0.id == "idle-unload" })

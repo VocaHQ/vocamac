@@ -199,3 +199,38 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
             .joined(separator: " ")
     }
 }
+
+// MARK: - Excluded apps
+
+/// Apps the user keeps out of History.
+enum HistoryExclusion {
+    /// Whether dictations into `app` are kept out of History. An unknown app
+    /// is never excluded: there is nothing to match.
+    static func isExcluded(_ app: RunningAppSnapshot?, by entries: [AutoPauseAppEntry]) -> Bool {
+        guard let app else { return false }
+        return entries.contains { entry in
+            AppIdentityMatching.matches(
+                configuredBundleIdentifier: entry.bundleIdentifier,
+                configuredProcessName: entry.processName,
+                configuredID: entry.id,
+                snapshot: app
+            )
+        }
+    }
+}
+
+/// JSON text for an app list kept in UserDefaults. Unset or invalid text
+/// decodes to an empty list.
+enum AppListCoding {
+    static func decode(_ json: String?) -> [AutoPauseAppEntry] {
+        guard let data = json?.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode([AutoPauseAppEntry].self, from: data) else { return [] }
+        return decoded
+    }
+
+    static func encode(_ entries: [AutoPauseAppEntry]) -> String {
+        guard let data = try? JSONEncoder().encode(entries),
+              let json = String(data: data, encoding: .utf8) else { return "[]" }
+        return json
+    }
+}

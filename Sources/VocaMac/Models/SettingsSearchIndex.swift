@@ -399,6 +399,13 @@ enum SettingsSearchIndex {
             subtitle: "Delete dictations after a day, a week, or a month",
             keywords: ["retention", "delete", "privacy", "storage", "keep audio"]
         ),
+        SettingsSearchEntry(
+            id: "history-excluded-apps",
+            page: .history,
+            title: "Never Save From These Apps",
+            subtitle: "Keep password managers, banking, or other private apps out of History",
+            keywords: ["exclude", "password", "private", "privacy", "apps", "incognito"]
+        ),
 
         // Audio
         SettingsSearchEntry(

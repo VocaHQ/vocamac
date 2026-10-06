@@ -88,6 +88,7 @@ enum SettingsArchiveService {
         PreferenceKey.commandModeEngine: .string, PreferenceKey.commandModeReview: .string,
         PreferenceKey.savedCommands: .string, PreferenceKey.dictationTone: .string,
         PreferenceKey.handsFreeShortcut: .string, PreferenceKey.historyRetention: .string,
+        PreferenceKey.historyExcludedApps: .string,
         PreferenceKey.learnCorrectionsMode: .string, PreferenceKey.pasteLastShortcut: .string,
         PreferenceKey.selectedLanguage: .string, PreferenceKey.selectedModelSize: .string,
         PreferenceKey.spokenLanguages: .string, PreferenceKey.modelRecommendationPriority: .string,

@@ -74,3 +74,34 @@ extension AppState {
         }
     }
 }
+
+/// Which app a confirmed deep link should act on.
+enum DeepLinkReturnTarget {
+
+    /// The bundle ID to put back in front once the user allows a link.
+    ///
+    /// macOS brings VocaMac forward to deliver a `vocamac://` URL, so by the
+    /// time the link is handled the frontmost app is usually VocaMac itself.
+    /// The app the user came from is then the last other app to be activated.
+    static func bundleIdentifier(
+        frontmost: String?,
+        lastActive: String?,
+        ownBundleIdentifier: String?
+    ) -> String? {
+        for candidate in [frontmost, lastActive] {
+            guard let candidate, !candidate.isEmpty, candidate != ownBundleIdentifier else { continue }
+            return candidate
+        }
+        return nil
+    }
+}
+
+extension DeepLinkReturnTarget {
+    /// Whether a confirmed paste-last may go ahead: only into the app the
+    /// user came from, once it is really in front again. Otherwise Cmd+V
+    /// would land in VocaMac or in whatever app took focus meanwhile.
+    static func shouldPaste(returnTargetPID: pid_t?, frontmostPID: pid_t?, ownPID: pid_t) -> Bool {
+        guard let returnTargetPID, returnTargetPID != ownPID else { return false }
+        return frontmostPID == returnTargetPID
+    }
+}

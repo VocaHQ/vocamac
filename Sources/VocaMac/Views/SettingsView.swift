@@ -1226,8 +1226,10 @@ private struct MemoryFigure: View {
     }
 }
 
-/// Picker sheet listing currently running apps for the auto-pause list.
+/// Picker sheet listing currently running apps, for the auto-pause list and
+/// the apps kept out of History.
 struct AutoPauseAppPickerSheet: View {
+    var message = "Pick an app. Dictation pauses while that app is running."
     let onPick: (AutoPauseAppEntry) -> Void
     let onCancel: () -> Void
 
@@ -1238,7 +1240,7 @@ struct AutoPauseAppPickerSheet: View {
             Text("Choose Running App")
                 .font(.headline)
 
-            Text("Pick an app. Dictation pauses while that app is running.")
+            Text(message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
 

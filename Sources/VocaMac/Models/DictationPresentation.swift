@@ -188,7 +188,8 @@ extension AppState {
     var isDictationReady: Bool { dictationReadiness.isReady }
 
     var lastDictationText: String? {
-        let text = (historyEnabled ? historyStore.latestDeliveredText : nil) ?? lastOutput?.text ?? heldOutput
+        let saved = historyEnabled ? (lastUnsavedDictation ?? historyStore.latestDeliveredText) : nil
+        let text = saved ?? lastOutput?.text ?? heldOutput
         guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return text
     }

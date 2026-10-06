@@ -44,6 +44,7 @@ enum PreferenceKey {
     static let historyEnabled = "vocamac.history.enabled"
     static let historyKeepsAudio = "vocamac.history.keepAudio"
     static let historyRetention = "vocamac.history.retention"
+    static let historyExcludedApps = "vocamac.history.excludedApps"
     static let escapeCancelsDictation = "vocamac.shortcuts.escapeCancels"
     static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
     static let handsFreeShortcut = "vocamac.shortcuts.handsFree"

@@ -31,6 +31,8 @@ final class MockAudioEngine: AudioRecording {
     var forceResetCallCount = 0
     var startRecordingResult = true
     var startRecordingDelay: TimeInterval = 0
+    /// Holds the start (like a Bluetooth route settling) until opened.
+    var startRecordingGate: StepGate?
     private(set) var cancelPendingStartCallCount = 0
     /// Mirrors the real engine: a start cancelled while it is still negotiating
     /// the input route is abandoned and reports failure.
@@ -53,6 +55,7 @@ final class MockAudioEngine: AudioRecording {
         if startRecordingDelay > 0 {
             Thread.sleep(forTimeInterval: startRecordingDelay)
         }
+        startRecordingGate?.waitBlocking()
         lastSilenceThreshold = silenceThreshold
         lastSilenceDuration = silenceDuration
         lastMaxDuration = maxDuration
@@ -576,6 +579,9 @@ final class MockWhisperService: SpeechTranscribing {
     var mockTranscriptionResult: VocaTranscription = VocaTranscription(text: "mock transcription", duration: 1.0, detectedLanguage: "en", audioLengthSeconds: 1.0, modelUsed: .tiny)
     var shouldThrow = false
     var transcribeDelayNanoseconds: UInt64 = 0
+    /// Hold a transcription or a model load until opened.
+    var transcribeGate: StepGate?
+    var loadGate: StepGate?
     private(set) var removeRetiredEngineStateCallCount = 0
 
     func removeRetiredEngineState() {
@@ -590,6 +596,7 @@ final class MockWhisperService: SpeechTranscribing {
         if transcribeDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: transcribeDelayNanoseconds)
         }
+        await transcribeGate?.wait()
         if shouldThrow {
             throw WhisperError.transcriptionFailed(reason: "mock error")
         }
@@ -607,6 +614,7 @@ final class MockWhisperService: SpeechTranscribing {
         if loadDelayNanoseconds > 0 {
             try await Task.sleep(nanoseconds: loadDelayNanoseconds)
         }
+        await loadGate?.wait()
 
         if !loadResponses.isEmpty {
             let response = loadResponses.removeFirst()
@@ -958,6 +966,7 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
         for key in [
             PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio, PreferenceKey.historyRetention,
+            PreferenceKey.historyExcludedApps,
             PreferenceKey.escapeCancelsDictation, PreferenceKey.pasteLastShortcut, PreferenceKey.handsFreeShortcut,
             PreferenceKey.mouseTriggerButton, PreferenceKey.wordReplacements, PreferenceKey.dictionarySuggestions,
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,

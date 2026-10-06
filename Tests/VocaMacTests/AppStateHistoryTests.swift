@@ -340,3 +340,162 @@ final class AppStateHistoryTests: XCTestCase {
         XCTAssertTrue(appState.vocabularyTerms.isEmpty)
     }
 }
+
+// MARK: - Apps kept out of History
+
+@MainActor
+final class HistoryExclusionTests: XCTestCase {
+
+    private let speech = [Float](repeating: 0.2, count: 8_000)
+    private let onePassword = RunningAppSnapshot(
+        displayName: "1Password", bundleIdentifier: "com.1password.1password", processName: "1Password"
+    )
+
+    private func dictate(_ appState: AppState, _ mocks: TestMocks, into app: RunningAppSnapshot, text: String) async {
+        mocks.frontmostAppResolver.frontmostApp = app
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: text, duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        mocks.audioEngine.stopRecordingResult = speech
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+    }
+
+    func testDictationIntoAnExcludedAppIsTypedButNotSaved() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.addHistoryExcludedApp(AutoPauseAppEntry.from(snapshot: onePassword))
+
+        await dictate(appState, mocks, into: onePassword, text: "my secret note")
+
+        XCTAssertNotNil(mocks.textInjector.lastInjectedText)
+        XCTAssertTrue(appState.historyStore.entries.isEmpty)
+        // Paste-last still works: it keeps the text in memory only.
+        XCTAssertNotNil(appState.lastDictationText)
+    }
+
+    func testPasteLastUsesTheExcludedDictationNotAnOlderSavedOne() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.addHistoryExcludedApp(AutoPauseAppEntry.from(snapshot: onePassword))
+        await dictate(appState, mocks, into: RunningAppSnapshot(displayName: "Notes", bundleIdentifier: "com.apple.Notes"), text: "groceries")
+        await dictate(appState, mocks, into: onePassword, text: "vault note")
+        let delivered = mocks.textInjector.lastInjectedText
+
+        XCTAssertEqual(appState.historyStore.entries.count, 1)
+        XCTAssertEqual(appState.lastDictationText, delivered)
+    }
+
+    func testOtherAppsAreStillSaved() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.addHistoryExcludedApp(AutoPauseAppEntry.from(snapshot: onePassword))
+
+        await dictate(appState, mocks, into: RunningAppSnapshot(displayName: "Notes", bundleIdentifier: "com.apple.Notes"), text: "groceries")
+
+        XCTAssertEqual(appState.historyStore.entries.first?.appName, "Notes")
+    }
+
+    func testExcludedAppsPersistAndCanBeRemoved() {
+        let (appState, _) = AppState.makeTestState()
+        let entry = AutoPauseAppEntry.from(snapshot: onePassword)
+        appState.addHistoryExcludedApp(entry)
+        appState.addHistoryExcludedApp(entry)
+        XCTAssertEqual(appState.historyExcludedApps, [entry])
+
+        appState.removeHistoryExcludedApp(entry)
+        XCTAssertTrue(appState.historyExcludedApps.isEmpty)
+    }
+
+    func testMatchingUsesBundleIDThenProcessName() {
+        let byBundle = AutoPauseAppEntry(id: "com.1password.1password", displayName: "1Password",
+                                         bundleIdentifier: "com.1password.1password")
+        let byProcess = AutoPauseAppEntry(id: "KeePassXC", displayName: "KeePassXC", processName: "KeePassXC")
+        XCTAssertTrue(HistoryExclusion.isExcluded(onePassword, by: [byBundle]))
+        XCTAssertTrue(HistoryExclusion.isExcluded(
+            RunningAppSnapshot(displayName: "KeePassXC", processName: "KeePassXC"), by: [byProcess]
+        ))
+        XCTAssertFalse(HistoryExclusion.isExcluded(
+            RunningAppSnapshot(displayName: "Notes", bundleIdentifier: "com.apple.Notes"), by: [byBundle, byProcess]
+        ))
+        XCTAssertFalse(HistoryExclusion.isExcluded(nil, by: [byBundle]))
+        XCTAssertFalse(HistoryExclusion.isExcluded(onePassword, by: []))
+    }
+
+    func testAppListCodingToleratesBadText() {
+        XCTAssertEqual(AppListCoding.decode(nil), [])
+        XCTAssertEqual(AppListCoding.decode("not json"), [])
+        let entry = AutoPauseAppEntry.from(snapshot: onePassword)
+        XCTAssertEqual(AppListCoding.decode(AppListCoding.encode([entry])), [entry])
+    }
+}
+
+// MARK: - Review follow-ups
+
+@MainActor
+final class HistoryExclusionDeliveryTests: XCTestCase {
+    private let speech = [Float](repeating: 0.2, count: 8_000)
+    private let notes = RunningAppSnapshot(displayName: "Notes", bundleIdentifier: "com.apple.Notes")
+    private let vault = RunningAppSnapshot(displayName: "1Password", bundleIdentifier: "com.1password.1password")
+
+    func testSwitchingToAnExcludedAppDuringTranscriptionRemovesTheEntry() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.addHistoryExcludedApp(AutoPauseAppEntry.from(snapshot: vault))
+        mocks.frontmostAppResolver.frontmostApp = notes
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "secret words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        mocks.whisperService.transcribeDelayNanoseconds = 200_000_000
+        mocks.audioEngine.stopRecordingResult = speech
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        for _ in 0..<200 where appState.historyStore.entries.isEmpty { await Task.yield() }
+        XCTAssertEqual(appState.historyStore.entries.count, 1, "Saved when recording ended in Notes")
+        // The user moves to the excluded app before the text arrives.
+        mocks.frontmostAppResolver.frontmostApp = vault
+        await stop.value
+
+        XCTAssertTrue(appState.historyStore.entries.isEmpty)
+        XCTAssertEqual(appState.lastDictationText, mocks.textInjector.lastInjectedText)
+    }
+
+    func testInAppTestDictationDoesNotReplaceTheLastDelivered() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = notes
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "real dictation", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        mocks.audioEngine.stopRecordingResult = speech
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+        let delivered = appState.lastDictationText
+
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "settings test", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        await appState.startRecording(injectResult: false)
+        await appState.stopRecordingAndTranscribe()
+
+        XCTAssertEqual(appState.lastDictationText, delivered)
+    }
+
+    func testDictationWhileHistoryIsPausedStaysTheOneToPaste() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = notes
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "saved words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+
+        appState.historyEnabled = false
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "paused words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+        let newest = mocks.textInjector.lastInjectedText
+        appState.historyEnabled = true
+
+        XCTAssertEqual(appState.historyStore.entries.count, 1)
+        XCTAssertEqual(appState.lastDictationText, newest)
+    }
+}

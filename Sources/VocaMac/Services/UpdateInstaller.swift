@@ -66,15 +66,16 @@ struct StagedUpdate: Equatable {
 /// falls back to opening the DMG for a manual install. Because the new app
 /// is signed by the same team, macOS keeps its Accessibility, Input
 /// Monitoring and Microphone permissions.
-struct UpdateInstaller {
+/// Sendable: staging runs off the main actor.
+struct UpdateInstaller: Sendable {
     var runningAppURL: URL = Bundle.main.bundleURL
     var bundleIdentifier: String = Bundle.main.bundleIdentifier ?? "com.vocamac.app"
     var currentVersion: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     /// The code-signing requirement the new app must meet, or nil when the
     /// running app can't supply one (ad-hoc or unsigned builds).
-    var requirement: () -> String? = { UpdateInstaller.developerIDRequirement() }
-    var isNewer: (_ found: String, _ current: String) -> Bool = { UpdateInstaller.isNewer($0, than: $1) }
-    var fileManager: FileManager = .default
+    var requirement: @Sendable () -> String? = { UpdateInstaller.developerIDRequirement() }
+    var isNewer: @Sendable (_ found: String, _ current: String) -> Bool = { UpdateInstaller.isNewer($0, than: $1) }
+    private var fileManager: FileManager { .default }
 
     static let appName = "VocaMac.app"
 

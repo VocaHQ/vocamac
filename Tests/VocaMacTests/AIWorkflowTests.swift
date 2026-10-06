@@ -1429,3 +1429,25 @@ final class IncrementalAudioTranscriberTests: XCTestCase {
         XCTAssertEqual(calls.count, 1)
     }
 }
+
+@MainActor
+final class DeepLinkErrorTests: XCTestCase {
+    func testAFailedPasteDoesNotReplaceARecording() async {
+        let (appState, _) = AppState.makeTestState()
+        await appState.startRecording()
+        XCTAssertEqual(appState.appStatus, .recording)
+
+        appState.showDeepLinkError("Couldn't return to the app you came from, so nothing was pasted.")
+
+        XCTAssertEqual(appState.appStatus, .recording, "Escape and the Stop button depend on this status")
+        XCTAssertTrue(appState.isRecording)
+        await appState.cancelRecording()
+    }
+
+    func testAFailedPasteIsShownWhenIdle() {
+        let (appState, _) = AppState.makeTestState()
+        appState.showDeepLinkError("Nothing was pasted.")
+        XCTAssertEqual(appState.appStatus, .error)
+        XCTAssertEqual(appState.errorMessage, "Nothing was pasted.")
+    }
+}

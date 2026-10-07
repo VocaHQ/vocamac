@@ -779,6 +779,14 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertFalse(step.reported, "A minute and a half of speech must not raise the floor over it")
     }
 
+    func testSteadyNoiseUnderTheSettingStillEndsInSilence() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        // Hands-free started, nobody spoke: a quiet room under the setting.
+        let step = feed(&detector, energy: 0.002, seconds: 3, from: start)
+        XCTAssertTrue(step.reported, "The room's own noise is not speech")
+    }
+
     func testOrdinaryMicrophoneKeepsTheUsersSetting() {
         XCTAssertEqual(
             SilenceDetector.soundThreshold(user: 0.01, speechPeak: 0.05, noiseFloor: 0.002), 0.01,

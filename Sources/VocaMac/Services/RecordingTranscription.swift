@@ -192,7 +192,9 @@ enum IncrementalAudioTranscriber {
         var version: Int { changes.version }
         /// Wait until audio arrives or input ends after `version`.
         func waitForChange(after seen: Int) async {
-            guard changes.version == seen else { return }
+            // A cancellation whose wake-up reached the actor first would
+            // otherwise leave this waiter with nothing left to wake it.
+            guard changes.version == seen, !Task.isCancelled else { return }
             changes.wake()
             await withCheckedContinuation { changes.waiter = $0 }
         }
@@ -453,7 +455,8 @@ extension IncrementalAudioTranscriber {
 
         /// Wait until audio arrives or input ends after `version`.
         func waitForChange(after seen: Int) async {
-            guard changes.version == seen else { return }
+            // See `Buffer.waitForChange`: never install a waiter once cancelled.
+            guard changes.version == seen, !Task.isCancelled else { return }
             changes.wake()
             await withCheckedContinuation { changes.waiter = $0 }
         }

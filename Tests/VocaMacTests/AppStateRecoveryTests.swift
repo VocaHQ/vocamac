@@ -119,6 +119,54 @@ final class AppStateRecoveryTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .idle)
     }
 
+    func testReleasingBeforeTheMicrophoneDeliveredAnythingKeepsNothing() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+
+        await appState.startRecording()
+        await waitUntil { mocks.audioEngine.isCurrentlyRecording }
+        // Released before the first tap buffer: whatever is recorded later
+        // was said after the key came up.
+        await appState.stopRecordingAndTranscribe()
+
+        await stop.value
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        await waitUntil { appState.appStatus == .idle }
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1, "Nothing said while the key was down, so nothing is pasted")
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording)
+    }
+
+    func testMicrophoneOpenedEarlySilencesPlaybackAndUndoesItWhenDiscarded() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.duckOtherAudioEnabled = true
+        appState.pauseSpotifyEnabled = true
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+        let ducksBefore = mocks.audioDucker.duckCallCount
+        let pausesBefore = mocks.spotifyPauser.pauseCallCount
+        let restoresBefore = mocks.audioDucker.restoreCallCount
+
+        await appState.startRecording()
+        await waitUntil { mocks.audioDucker.duckCallCount > ducksBefore }
+        XCTAssertEqual(mocks.audioDucker.duckCallCount, ducksBefore + 1, "Music is muted while the user talks")
+        XCTAssertEqual(mocks.spotifyPauser.pauseCallCount, pausesBefore + 1)
+
+        await appState.cancelDictation()
+        await stop.value
+        await waitUntil { mocks.audioDucker.restoreCallCount > restoresBefore }
+        XCTAssertGreaterThan(mocks.audioDucker.restoreCallCount, restoresBefore, "Discarding undoes the mute")
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording)
+    }
+
     func testPressingAgainBeforeItStartsCarriesOnWithTheSameDictation() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = speech

@@ -2621,7 +2621,9 @@ final class AppState: ObservableObject {
         isStoppingAudio = true
         let generation = recordingGeneration
         var audioData = await stopAudioEngine()
-        if let keepingFirst, keepingFirst > 0, audioData.count > keepingFirst {
+        // Zero is a real limit: the key came up before the microphone
+        // delivered anything, so nothing recorded since belongs to it.
+        if let keepingFirst, keepingFirst >= 0, audioData.count > keepingFirst {
             audioData = Array(audioData.prefix(keepingFirst))
         }
         isStoppingAudio = false
@@ -3149,7 +3151,14 @@ final class AppState: ObservableObject {
         let start = Task { @MainActor [weak self] () -> Bool in
             guard let self else { return false }
             let started = await self.startConfiguredAudioEngine()
-            if started, self.soundEffectsEnabled, self.earlyCapture?.counter === counter {
+            guard started, self.earlyCapture?.counter === counter else { return started }
+            // Live now: silence playback as a dictation start would, so music
+            // is not recorded under what the user says while waiting.
+            // `discardEarlyCapture` undoes it; an adopted capture's recording
+            // undoes it when it ends.
+            let mutedOtherAudio = self.duckOtherAudioEnabled && self.audioDucker.duck()
+            if self.pauseSpotifyEnabled { self.spotifyPauser.pause() }
+            if self.soundEffectsEnabled, !mutedOtherAudio {
                 self.soundManager.playStartSound()
             }
             return started
@@ -3168,6 +3177,9 @@ final class AppState: ObservableObject {
         Task { @MainActor [weak self] in
             guard await early.start.value, let self, !self.isCapturingAudio else { return }
             _ = await self.stopAudioEngine()
+            // Undo the mute and pause applied when the capture went live.
+            self.audioDucker.restore()
+            self.spotifyPauser.resume()
             VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
         }
     }

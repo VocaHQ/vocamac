@@ -107,6 +107,10 @@ struct SilenceDetector {
         noiseFloor = nil
     }
 
+    /// The loudest recent sound only lowers the threshold once it is this far
+    /// over the room's noise: steady noise on its own is not speech.
+    static let speechEvidenceRatio: Float = 4
+
     /// Per chunk; about twelve seconds to halve at 85 ms chunks.
     static let peakDecay: Float = 0.995
     /// Per chunk; the floor follows louder sound only very slowly, so speech
@@ -125,7 +129,11 @@ struct SilenceDetector {
     /// and what the recording has heard.
     static func soundThreshold(user threshold: Float, speechPeak: Float, noiseFloor: Float?) -> Float {
         var level = threshold
-        if speechPeak > 0 {
+        // Only once something clearly louder than the room has been heard:
+        // otherwise steady noise under the setting set its own threshold
+        // and counted as sound for ever.
+        let heardSpeech = speechPeak > 0 && speechPeak >= (noiseFloor ?? 0) * speechEvidenceRatio
+        if heardSpeech {
             level = min(level, max(minimumThreshold, speechPeak * speechRatio))
         }
         if let noiseFloor {
@@ -694,6 +702,8 @@ final class AudioEngine: @unchecked Sendable {
                 // flag is only set once the start is confirmed, and the first
                 // buffers arrive before that — dropping them clips the start of
                 // short push-to-talk utterances. Failure paths clear the buffer.
+                // A new recording is a new signal: start the resampler clean.
+                converterCache.resetForNextCapture()
                 setCaptureActive(true)
 
                 var startError: Error?

@@ -134,6 +134,7 @@ final class ParakeetService: @unchecked Sendable {
     /// cleanup releases shared caches, and if it runs loose it can tear those
     /// down after the next model has begun using them.
     func unloadModelAndWait() async {
+        await finishPendingCleanup()
         guard let manager = takeManager() else { return }
         await manager.cleanup()
         await vocabularyBoost.unload()
@@ -144,11 +145,35 @@ final class ParakeetService: @unchecked Sendable {
     /// Used on teardown paths where there is nothing to race with.
     func unloadModel() {
         guard let manager = takeManager() else { return }
-        Task { [vocabularyBoost] in
+        let previous = pendingCleanup
+        pendingCleanup = Task { [vocabularyBoost] in
+            await previous?.value
             await manager.cleanup()
             await vocabularyBoost.unload()
         }
         VocaLogger.info(.parakeetService, "Parakeet model unloaded")
+    }
+
+    /// Cleanup `unloadModel` started without waiting. The next load waits
+    /// for it, so it cannot release shared CoreML state after the new model
+    /// has started using it.
+    private var pendingCleanup: Task<Void, Never>?
+
+    /// How long a load waits for that cleanup. A model the router gave up on
+    /// (`Deadline`) may be stuck in the very call it was abandoned in, and
+    /// its cleanup with it; the load then goes ahead rather than hang too.
+    static let pendingCleanupWaitSeconds: TimeInterval = 15
+
+    private func finishPendingCleanup() async {
+        guard let cleanup = pendingCleanup else { return }
+        pendingCleanup = nil
+        do {
+            try await Deadline.run(seconds: Self.pendingCleanupWaitSeconds, operation: "Parakeet cleanup") {
+                await cleanup.value
+            }
+        } catch {
+            VocaLogger.warning(.parakeetService, "Previous Parakeet model is still cleaning up; loading anyway")
+        }
     }
 
     /// Detach the current manager so only one caller can clean it up.

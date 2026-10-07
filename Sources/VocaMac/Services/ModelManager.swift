@@ -21,9 +21,15 @@ enum ModelManagerError: LocalizedError {
     case tokenizerAssetsUnavailable(String)
     case checksumMismatch(model: String, expected: String, actual: String)
     case insufficientDiskSpace(model: String, requiredBytes: Int64, availableBytes: Int64)
+    case incompleteDownload(model: String, expectedBytes: Int64, actualBytes: Int64)
 
     var errorDescription: String? {
         switch self {
+        case .incompleteDownload(let model, let expectedBytes, let actualBytes):
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            return "The download for \(model) is incomplete (\(formatter.string(fromByteCount: actualBytes)) "
+                + "of \(formatter.string(fromByteCount: expectedBytes))). It was discarded. Please try again."
         case .modelNotAvailable(let name):
             return "Model '\(name)' is not available."
         case .downloadFailed(let reason):
@@ -331,7 +337,7 @@ final class ModelManager: @unchecked Sendable {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
-        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B, .customEndpoint:
             // Not WhisperKit models — identified by their raw value.
@@ -561,6 +567,52 @@ final class ModelManager: @unchecked Sendable {
             VocaLogger.info(.modelManager, "Download cancelled for \(size.displayName)")
             throw CancellationError()
         }
+    }
+
+    /// Check a finished download's size on disk against the catalog's.
+    ///
+    /// The WhisperKit and Parakeet downloads only confirm that each file
+    /// exists, so a truncated weight file would load (or fail to compile)
+    /// as if it were the model. `fileSizeBytes` is the real installed size,
+    /// so anything clearly short of it is discarded.
+    private func verifyInstalledSize(of size: ModelSize, at directory: URL) throws {
+        let actual = Self.directorySize(at: directory)
+        guard Self.isInstalledSizeComplete(actual: actual, expected: size.fileSizeBytes) else {
+            VocaLogger.error(
+                .modelManager,
+                "Download of \(size.displayName) is \(actual) bytes, expected about \(size.fileSizeBytes); discarding it"
+            )
+            try? fileManager.removeItem(at: directory)
+            throw ModelManagerError.incompleteDownload(
+                model: size.displayName, expectedBytes: size.fileSizeBytes, actualBytes: actual
+            )
+        }
+    }
+
+    /// Whether `actual` bytes on disk can be the whole of a model expected to
+    /// take `expected`. Two percent of slack allows for the catalog sizes
+    /// being read from the repository rather than from an install.
+    static func isInstalledSizeComplete(actual: Int64, expected: Int64) -> Bool {
+        guard expected > 0 else { return true }
+        return actual >= expected - expected / 50
+    }
+
+    /// Total size of the regular files under `directory`, following links.
+    static func directorySize(at directory: URL) -> Int64 {
+        let resolved = directory.resolvingSymlinksInPath()
+        guard let enumerator = FileManager.default.enumerator(
+            at: resolved,
+            includingPropertiesForKeys: [.fileSizeKey, .isRegularFileKey],
+            options: []
+        ) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            let file = url.resolvingSymlinksInPath()
+            guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey]),
+                  values.isRegularFile == true else { continue }
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
     }
 
     /// Remove whatever a cancelled first download left in the model's
@@ -817,6 +869,7 @@ final class ModelManager: @unchecked Sendable {
             guard AsrModels.modelsExist(at: directory, version: version) else {
                 throw ModelManagerError.missingModelDirectory(directory.path)
             }
+            try verifyInstalledSize(of: size, at: directory)
 
             onProgress(1.0)
             VocaLogger.info(.modelManager, "Parakeet model '\(size.rawValue)' downloaded to: \(directory.path)")
@@ -852,30 +905,18 @@ final class ModelManager: @unchecked Sendable {
             config.prewarm = false
             config.load = false  // Don't load into memory, just download
 
-            // Report initial progress
-            onProgress(0.05)
+            onProgress(0.02)
 
-            // Simulate progress while downloading, since WhisperKit doesn't
-            // expose granular download progress in this usage pattern.
-            // Use `try` (not `try?`) so Task.sleep throws on cancellation,
-            // which cleanly exits the loop.
-            let progressTask = Task { @Sendable in
-                var currentProgress = 0.05
-                do {
-                    while !Task.isCancelled && currentProgress < 0.90 {
-                        try await Task.sleep(nanoseconds: 800_000_000)  // 0.8s intervals
-                        guard !Task.isCancelled else { break }
-                        currentProgress += Double.random(in: 0.03...0.08)
-                        currentProgress = min(currentProgress, 0.90)
-                        onProgress(currentProgress)
-                    }
-                } catch {
-                    // Task was cancelled — stop updating progress
-                }
+            // The same download `WhisperKit(config)` runs when it is not
+            // given a folder, called directly so the bytes received drive the
+            // progress bar instead of a timer guessing at it.
+            _ = try await WhisperKit.download(
+                variant: config.model ?? whisperKitModelName(for: size),
+                downloadBase: downloadBase,
+                from: config.modelRepo ?? whisperKitRepo(for: size)
+            ) { progress in
+                onProgress(0.02 + 0.93 * min(1, max(0, progress.fractionCompleted)))
             }
-
-            defer { progressTask.cancel() }
-            _ = try await WhisperKit(config)
 
             // The Hub downloader returns normally, with whatever files it
             // finished, when its task is cancelled.
@@ -892,6 +933,7 @@ final class ModelManager: @unchecked Sendable {
             guard hasRequiredModelAssets(at: installedDir) else {
                 throw ModelManagerError.missingModelDirectory(installedDir.path)
             }
+            try verifyInstalledSize(of: size, at: installedDir)
 
             onProgress(1.0)
             VocaLogger.info(.modelManager, "Model '\(whisperKitModelName(for: size))' downloaded successfully to: \(installedDir.path)")
@@ -952,6 +994,7 @@ final class ModelManager: @unchecked Sendable {
         [
             modelStorageBase(forRepo: Self.argmaxModelRepo),
             modelStorageBase(forRepo: Self.communityModelRepo),
+            parakeetDirectory(for: .ultra),
             parakeetDirectory(for: .v3),
             parakeetDirectory(for: .v2),
             parakeetDirectory(for: .tdtCtc110m),

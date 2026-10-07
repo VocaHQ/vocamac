@@ -9,6 +9,7 @@ import SwiftUI
 import Combine
 import AppKit
 import ServiceManagement
+import os
 
 // MARK: - Enums
 
@@ -633,6 +634,15 @@ final class AppState: ObservableObject {
         let verifiesShortcut: Bool
     }
     private var queuedRecordingStart: QueuedRecordingStart?
+
+    /// The microphone, opened at once for a push-to-talk dictation queued
+    /// behind one still finishing. Waiting for the delivery before opening it
+    /// lost everything said in the meantime — and all of it when the key came
+    /// up first. The queued recording adopts this capture when it starts.
+    private var earlyCapture: EarlyCapture?
+
+    /// The speech model load in progress, if any.
+    private var inFlightModelLoad: Task<Void, Error>?
 
     /// Set while a Settings control records a new shortcut with the hotkey
     /// listener turned off, so permission recovery leaves the listener off.
@@ -1525,10 +1535,7 @@ final class AppState: ObservableObject {
         }
 
         sleepWakeMonitor.onWillSleep = { [weak self] in
-            self?.modelKeepAlive.cancel()
-            if self?.isRecording == true || self?.appStatus == .recording {
-                self?.forceRecovery()
-            }
+            self?.handleWillSleep()
         }
         sleepWakeMonitor.onDidWake = { [weak self] in
             guard let self else { return }
@@ -1565,8 +1572,26 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// The Mac is about to sleep. A dictation in progress is stopped as if
+    /// the key came up rather than discarded: its audio is saved to History
+    /// first, so it is transcribed (now or after wake) or can be retried,
+    /// instead of lost with a closed lid.
+    func handleWillSleep() {
+        modelKeepAlive.cancel()
+        guard isCapturingAudio else { return }
+        VocaLogger.info(.appState, "Mac is going to sleep mid-dictation — stopping and keeping the audio")
+        Task { @MainActor [weak self] in await self?.stopRecordingAndTranscribe() }
+    }
+
     /// Unload the resident model and clear active UI flags.
     func unloadActiveModel(reason: ModelUnloadReason) async {
+        // The idle timer fired on an earlier turn; a dictation may have
+        // started since, and unloading under it fails it at stop.
+        if reason == .idleKeepAlive,
+           appStatus != .idle || isCapturingAudio || isTranscribing || isLoadingModelForRecording {
+            VocaLogger.info(.appState, "Idle unload skipped: a dictation started (\(dictationFlags))")
+            return
+        }
         VocaLogger.info(.appState, "Unloading model (reason=\(reason.rawValue))")
         modelKeepAlive.cancel()
         let beforeMB = ProcessMonitor.currentResidentMemoryMB()
@@ -1661,6 +1686,7 @@ final class AppState: ObservableObject {
         modelKeepAlive.cancel()
 
         queuedRecordingStart = nil
+        discardEarlyCapture()
         if isCapturingAudio {
             VocaLogger.warning(.appState, "Auto-pause entered while recording: stopping without inject")
             recordingGeneration = UUID()
@@ -1713,10 +1739,13 @@ final class AppState: ObservableObject {
     /// Recreate model UI state from the latest catalog and local cache status.
     private func rebuildAvailableModels() {
         availableModels = modelCatalog().map { size in
-            WhisperModelInfo(
+            // A folder is only returned once its files check out, so it
+            // answers "downloaded" too; asking again walked every file twice.
+            let folder = modelManager.modelFolder(for: size)
+            return WhisperModelInfo(
                 size: size,
-                filePath: modelManager.modelFolder(for: size),
-                isDownloaded: modelManager.isModelDownloaded(size),
+                filePath: folder,
+                isDownloaded: folder != nil || modelManager.isModelDownloaded(size),
                 isActive: size.rawValue == selectedModelSize,
                 isSupported: modelManager.isModelSupported(size)
             )
@@ -2001,6 +2030,15 @@ final class AppState: ObservableObject {
         return masked.restore(in: styled)
     }
 
+    /// Stop the decode and cleanup of a dictation that is being abandoned.
+    /// Otherwise the local model keeps generating for it, and the next
+    /// dictation's cleanup waits behind it.
+    private func cancelFinishingWork() {
+        finishingTranscription?.cancel()
+        finishingSpeculator?.cancelAll()
+        transcriptCleanup.cancelCleanup()
+    }
+
     // MARK: - Force Recovery
 
     /// Forcibly reset the entire recording pipeline to idle state.
@@ -2010,11 +2048,12 @@ final class AppState: ObservableObject {
     func forceRecovery() {
         recordingGeneration = UUID()
         queuedRecordingStart = nil
-        finishingTranscription?.cancel()
-        finishingSpeculator?.cancelAll()
-        // Otherwise the local model keeps generating for the abandoned
-        // dictation, and the next dictation's cleanup waits behind it.
-        transcriptCleanup.cancelCleanup()
+        // The engine is reset below, which closes an early capture too.
+        earlyCapture = nil
+        cancelFinishingWork()
+        // A load that never returns would otherwise hold every later load
+        // and dictation behind it; the router drops the model it was loading.
+        inFlightModelLoad?.cancel()
         VocaLogger.warning(.appState, "Force recovery: resetting all state to idle (was appStatus=\(appStatus.rawValue), isRecording=\(isRecording))")
 
         // Reset audio engine unconditionally
@@ -2100,9 +2139,15 @@ final class AppState: ObservableObject {
         // The previous dictation is still being transcribed, cleaned up, or
         // delivered. Never throw it away: start this one when it's done.
         if isTranscribing {
-            if queuedRecordingStart != nil {
+            if queuedRecordingStart != nil, let early = earlyCapture, early.releasedAtSampleCount != nil {
+                // Pressed again before the queued dictation could start. Its
+                // microphone never closed, so it simply carries on.
+                early.releasedAtSampleCount = nil
+                VocaLogger.info(.appState, "Queued dictation resumed before it started")
+            } else if queuedRecordingStart != nil {
                 // Toggle-style triggers (hands-free, menu) press again to stop.
                 queuedRecordingStart = nil
+                discardEarlyCapture()
                 VocaLogger.info(.appState, "Queued dictation withdrawn before it started")
             } else {
                 queuedRecordingStart = QueuedRecordingStart(
@@ -2112,6 +2157,12 @@ final class AppState: ObservableObject {
                     verifiesShortcut: verifiesShortcut
                 )
                 VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
+                // Push to talk speaks while the key is down; toggle-style
+                // starts withdraw on the next press, so only a hold records early.
+                if activationMode == .pushToTalk, !isHandsFreeSession, activeCommandTarget == nil,
+                   micPermission == .granted {
+                    beginEarlyCapture()
+                }
             }
             return
         }
@@ -2240,13 +2291,18 @@ final class AppState: ObservableObject {
         } else {
             partialHandler = nil
         }
-        let commit = commitOptionsForRecording(injectResult: injectResult, generation: generation)
-        let session = whisperService.startStreaming(
+        // A microphone opened early for this dictation already holds its
+        // start. A live session would miss that audio, so it is decoded whole.
+        let adoptedCapture = earlyCapture
+        earlyCapture = nil
+        let commit = adoptedCapture == nil
+            ? commitOptionsForRecording(injectResult: injectResult, generation: generation) : nil
+        let session = adoptedCapture == nil ? whisperService.startStreaming(
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             vocabulary: recognitionHintVocabulary,
             onPartial: partialHandler,
             commit: commit
-        )
+        ) : nil
         if commit == nil || session == nil {
             recordingSpeculator = nil
             recordingVocabulary = nil
@@ -2262,18 +2318,12 @@ final class AppState: ObservableObject {
         audioEngine.onAudioSamples = session.map { session in
             { @Sendable samples, offset in session.append(samples, at: offset) }
         }
-        let automaticExternal = automaticExternalInputIfNeeded()
-        let didStartRecording = await startAudioEngine(
-            silenceThreshold: Float(silenceThreshold),
-            silenceDuration: silenceDuration,
-            maxDuration: TimeInterval(maxRecordingDuration),
-            preferredInputDeviceID: automaticExternal?.id
-                ?? (selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID),
-            preferredInputChannel: automaticExternal == nil ? selectedAudioChannel : 0,
-            preferredInputChannelDeviceID: automaticExternal?.id
-                ?? (selectedAudioChannelDeviceID.isEmpty ? nil : selectedAudioChannelDeviceID),
-            preferredInputChannelCount: automaticExternal?.channelCount ?? selectedAudioChannelCount
-        )
+        let didStartRecording: Bool
+        if let adoptedCapture {
+            didStartRecording = await adoptedCapture.start.value
+        } else {
+            didStartRecording = await startConfiguredAudioEngine()
+        }
         isStartingAudio = false
 
         // The hotkey was released (or the overlay cancelled) while the route was
@@ -2300,35 +2350,59 @@ final class AppState: ObservableObject {
 
         cursorOverlay.transitionToRecording()
 
-        // Play start sound after mic is active (fire-and-forget).
-        // Off is a stored tone and stays silent even when this switch is on.
-        // Muting other audio would silence the cue too, so when that is on,
-        // let the cue finish first.
-        if soundEffectsEnabled && isRecording && appStatus == .recording {
-            let isCommand = activeCommandTarget != nil
-            if duckOtherAudioEnabled {
-                if isCommand { await soundManager.playCommandStartSoundAsync() }
-                else { await soundManager.playStartSoundAsync() }
-            } else {
-                if isCommand { soundManager.playCommandStartSound() }
-                else { soundManager.playStartSound() }
-            }
+        // Spotify Connect plays through another device, outside the Mac's
+        // mixer, so muting cannot reach it — only a transport pause can. Ask
+        // for it the moment the microphone is live (not on a failed start,
+        // which leaves playback alone); the pause itself takes a few hundred
+        // milliseconds. Undone from `isRecording`'s observer on every exit.
+        guard isRecording && appStatus == .recording && recordingGeneration == generation else { return }
+        if pauseSpotifyEnabled {
+            spotifyPauser.pause()
         }
 
-        // Mute other audio once the microphone is live, so a start that never
-        // gets a route leaves playback alone. Undone from `isRecording`'s
-        // observer on every exit. The recording may have ended, or a new one
-        // begun, while the cue played.
-        if isRecording && appStatus == .recording && recordingGeneration == generation {
-            if duckOtherAudioEnabled {
-                audioDucker.duck()
+        // Off is a stored tone and stays silent even when this switch is on.
+        // An adopted early capture played its cue when its microphone opened.
+        let playsCue = soundEffectsEnabled && adoptedCapture == nil
+        let isCommand = activeCommandTarget != nil
+        guard duckOtherAudioEnabled else {
+            if playsCue {
+                if isCommand { soundManager.playCommandStartSound() } else { soundManager.playStartSound() }
             }
-            // Spotify Connect plays through another device, outside the Mac's
-            // mixer, so muting cannot reach it — only a transport pause can.
-            if pauseSpotifyEnabled {
-                spotifyPauser.pause()
-            }
+            return
         }
+
+        // Muting is the whole output device, so it silences the cue too.
+        // A dictation mutes first: the music stopping is the cue, and the
+        // first words are not recorded over the music while a chime plays.
+        // The chime still plays when nothing else was playing.
+        if !isCommand {
+            let mutedOtherAudio = audioDucker.duck()
+            if playsCue && !mutedOtherAudio {
+                soundManager.playStartSound()
+            }
+            return
+        }
+
+        // Command Mode tells the user to wait for its double chime, so it
+        // keeps the chime and mutes once it has played. The recording may
+        // have ended, or a new one begun, while the cue played.
+        if playsCue {
+            await soundManager.playCommandStartSoundAsync()
+        }
+        if isRecording && appStatus == .recording && recordingGeneration == generation {
+            audioDucker.duck()
+        }
+    }
+
+    /// Whether a live session's result is used whatever the screen context
+    /// brings, so its input can end the moment the microphone stops.
+    ///
+    /// Whisper is the exception: its pieces read the vocabulary when they are
+    /// decoded, and a tail decoded before the screen terms arrived would send
+    /// the recording to the batch path instead.
+    private func endsSessionInputAtStop(liveVocabulary: LiveVocabulary?) -> Bool {
+        guard ModelSize(rawValue: selectedModelSize)?.engine == .whisperKit else { return true }
+        return !translatesSpeech && liveVocabulary?.isSettled == true
     }
 
     // MARK: - Process while speaking
@@ -2495,7 +2569,10 @@ final class AppState: ObservableObject {
     ///   for the stop. Any other stop (silence, the time limit, the menu or
     ///   overlay) must also end the hotkey's double-tap session, or the next
     ///   double-tap would be taken as a stop and do nothing.
-    private func stopRecordingAndTranscribe(endsHotKeyToggle: Bool) async {
+    /// - Parameter keepingFirst: Keep only this many samples: a queued
+    ///   dictation whose key came up before it could start is stopped late,
+    ///   and only what was said while the key was down belongs to it.
+    private func stopRecordingAndTranscribe(endsHotKeyToggle: Bool, keepingFirst: Int? = nil) async {
         beginDictationOperation()
         defer { endDictationOperation("stop") }
         // Start-time recordingInjectsResult alone decides injection.
@@ -2508,6 +2585,14 @@ final class AppState: ObservableObject {
         // isRecording and appStatus may be out of sync).
         guard isCapturingAudio else {
             if isLoadingModelForRecording { pendingStopDuringModelLoad = .transcribe }
+            if queuedRecordingStart != nil, let early = earlyCapture, early.releasedAtSampleCount == nil {
+                // The microphone opened early, so what was said is kept and
+                // transcribed once the previous dictation is delivered.
+                early.releasedAtSampleCount = early.counter.count
+                if soundEffectsEnabled { soundManager.playStopSound() }
+                VocaLogger.info(.appState, "Queued dictation ended before it could start — transcribing it next")
+                return
+            }
             if queuedRecordingStart != nil {
                 // Released (or toggled off) before the previous dictation
                 // finished, so this one never started.
@@ -2535,7 +2620,10 @@ final class AppState: ObservableObject {
         guard !isStoppingAudio else { return }
         isStoppingAudio = true
         let generation = recordingGeneration
-        let audioData = await stopAudioEngine()
+        var audioData = await stopAudioEngine()
+        if let keepingFirst, keepingFirst > 0, audioData.count > keepingFirst {
+            audioData = Array(audioData.prefix(keepingFirst))
+        }
         isStoppingAudio = false
         guard generation == recordingGeneration else { return }
         let session = recordingTranscription
@@ -2546,6 +2634,11 @@ final class AppState: ObservableObject {
         finishingSpeculator = speculator
         let liveVocabulary = recordingVocabulary
         recordingVocabulary = nil
+        // Let the engine start on the last piece now: saving to History and
+        // waiting for the screen context below then overlap its decode.
+        if let session, endsSessionInputAtStop(liveVocabulary: liveVocabulary) {
+            session.endInput(expectedSampleCount: audioData.count)
+        }
         let processedWhileSpeaking = recordingProcessesWhileSpeaking
         let stopStarted = ProcessInfo.processInfo.systemUptime
         defer {
@@ -2596,6 +2689,10 @@ final class AppState: ObservableObject {
         screenContextTask = nil
         let documentURLTask = screenDocumentURLTask
         screenDocumentURLTask = nil
+        // Both screen reads wait out one timeout together, alongside the
+        // History write, rather than one after the other.
+        let contextTermsRead = Task { await Self.awaitContextTerms(contextTask) }
+        let documentURLRead = Task { await Self.awaitDocumentURL(documentURLTask) }
         // Journaled before transcribing; the audio is written alongside the
         // transcription, so a failure can still be retried from history.
         let historyID = injectResult ? await beginHistoryEntry(audio: audioData) : nil
@@ -2608,8 +2705,8 @@ final class AppState: ObservableObject {
 
         do {
             let language = selectedLanguage == "auto" ? nil : selectedLanguage
-            let contextTerms = await Self.awaitContextTerms(contextTask)
-            let capturedDocumentURL = await Self.awaitDocumentURL(documentURLTask)
+            let contextTerms = await contextTermsRead.value
+            let capturedDocumentURL = await documentURLRead.value
             let recognitionVocabulary = Self.recognitionVocabulary(
                 customVocabulary, replacementTargets: replacementTargets, contextTerms: contextTerms
             )
@@ -2624,6 +2721,10 @@ final class AppState: ObservableObject {
             if let session, session.language == language, !contextNeedsWhisperBatch {
                 do {
                     result = try await session.finish(expectedSampleCount: audioData.count)
+                } catch RecordingTranscription.StreamError.timedOut {
+                    // The engine was given up on; the batch path would wait
+                    // on a model that is being dropped.
+                    throw RecordingTranscription.StreamError.timedOut
                 } catch {
                     guard generation == recordingGeneration else { return }
                     try Task.checkCancellation()
@@ -2947,9 +3048,8 @@ final class AppState: ObservableObject {
         recordingGeneration = UUID()
         // Escape cancels everything, including a dictation waiting to start.
         queuedRecordingStart = nil
-        finishingTranscription?.cancel()
-        finishingSpeculator?.cancelAll()
-        transcriptCleanup.cancelCleanup()
+        discardEarlyCapture()
+        cancelFinishingWork()
         resetCommandModeState()
         liveTranscript = ""
         isTranscribing = false
@@ -3021,6 +3121,54 @@ final class AppState: ObservableObject {
                 )
                 continuation.resume(returning: didStart)
             }
+        }
+    }
+
+    /// Start the microphone with the user's audio settings.
+    private func startConfiguredAudioEngine() async -> Bool {
+        let automaticExternal = automaticExternalInputIfNeeded()
+        return await startAudioEngine(
+            silenceThreshold: Float(silenceThreshold),
+            silenceDuration: silenceDuration,
+            maxDuration: TimeInterval(maxRecordingDuration),
+            preferredInputDeviceID: automaticExternal?.id
+                ?? (selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID),
+            preferredInputChannel: automaticExternal == nil ? selectedAudioChannel : 0,
+            preferredInputChannelDeviceID: automaticExternal?.id
+                ?? (selectedAudioChannelDeviceID.isEmpty ? nil : selectedAudioChannelDeviceID),
+            preferredInputChannelCount: automaticExternal?.channelCount ?? selectedAudioChannelCount
+        )
+    }
+
+    /// Open the microphone for a queued push-to-talk dictation now, without
+    /// touching the dictation flags: the previous dictation still owns them.
+    private func beginEarlyCapture() {
+        guard earlyCapture == nil else { return }
+        let counter = CapturedSampleCounter()
+        audioEngine.onAudioSamples = { samples, offset in counter.record(offset + samples.count) }
+        let start = Task { @MainActor [weak self] () -> Bool in
+            guard let self else { return false }
+            let started = await self.startConfiguredAudioEngine()
+            if started, self.soundEffectsEnabled, self.earlyCapture?.counter === counter {
+                self.soundManager.playStartSound()
+            }
+            return started
+        }
+        earlyCapture = EarlyCapture(start: start, counter: counter)
+        VocaLogger.info(.appState, "Opened the microphone early for the queued dictation")
+    }
+
+    /// Close a microphone opened early for a queued dictation, discarding
+    /// what it heard.
+    private func discardEarlyCapture() {
+        guard let early = earlyCapture else { return }
+        earlyCapture = nil
+        audioEngine.onAudioSamples = nil
+        audioEngine.cancelPendingStart()
+        Task { @MainActor [weak self] in
+            guard await early.start.value, let self, !self.isCapturingAudio else { return }
+            _ = await self.stopAudioEngine()
+            VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
         }
     }
 
@@ -3097,9 +3245,9 @@ final class AppState: ObservableObject {
         // point (a hotkey reloading after the files were deleted, a language
         // change, an intent) arrives here instead.
         //
-        // `performDownloadModel` rather than `downloadModel`: we already hold
-        // `modelOperationSerializer`, and re-entering it would deadlock this
-        // load behind itself.
+        // Downloads run outside `modelOperationSerializer`, so this cannot
+        // deadlock behind itself; it joins a download of the same model that
+        // Settings already started.
         if !modelManager.isModelDownloaded(targetSize) {
             VocaLogger.info(
                 .appState,
@@ -3150,8 +3298,9 @@ final class AppState: ObservableObject {
                 )
             }
 
-            // Load model with status callback
-            try await whisperService.loadModel(name: modelName, folder: folderURL) { [weak self] phase in
+            // Load model with status callback. Kept as a task of its own so
+            // Force Recovery can give up on a load that never returns.
+            let onPhaseChange: @Sendable (String) -> Void = { [weak self] phase in
                 Task { @MainActor in
                     guard let self = self else { return }
                     if let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
@@ -3160,6 +3309,15 @@ final class AppState: ObservableObject {
                         )
                     }
                 }
+            }
+            let speech = whisperService
+            let load = Task { try await speech.loadModel(name: modelName, folder: folderURL, onPhaseChange: onPhaseChange) }
+            inFlightModelLoad = load
+            defer { if inFlightModelLoad == load { inFlightModelLoad = nil } }
+            try await withTaskCancellationHandler {
+                try await load.value
+            } onCancel: {
+                load.cancel()
             }
             // CoreML has cached the compile even if a newer load supersedes
             // this one, so record it before any early return.
@@ -3456,9 +3614,14 @@ final class AppState: ObservableObject {
             // Nothing will try again until the next key press, which would
             // then withdraw this start instead of beginning one.
             VocaLogger.warning(.appState, "Queued dictation couldn't start: \(dictationFlags)")
+            if earlyCapture?.releasedAtSampleCount != nil {
+                queuedRecordingStart = nil
+                discardEarlyCapture()
+            }
             return
         }
         queuedRecordingStart = nil
+        let releasedAt = earlyCapture?.releasedAtSampleCount
         VocaLogger.info(.appState, "Previous dictation delivered — starting the queued one")
         if queued.isHandsFree { isHandsFreeSession = true }
         await startRecording(
@@ -3466,6 +3629,13 @@ final class AppState: ObservableObject {
             verifiesShortcut: queued.verifiesShortcut
         )
         if queued.isHandsFree && !isRecording { isHandsFreeSession = false }
+        // Its key already came up: finish it now, with only the audio from
+        // while the key was down.
+        if let releasedAt, isCapturingAudio {
+            await stopRecordingAndTranscribe(endsHotKeyToggle: true, keepingFirst: releasedAt)
+        }
+        // A start that never reached the microphone leaves nothing to adopt.
+        discardEarlyCapture()
     }
 
     static let deliveryFailureMessageDuration: TimeInterval = 10
@@ -3556,17 +3726,42 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Download a model's files.
+    ///
+    /// Downloads take turns with each other but not with model loads: a
+    /// first load can spend minutes compiling for the Neural Engine, and a
+    /// download queued behind it moved no bytes and showed no progress until
+    /// it finished. A load that needs a model still being downloaded waits
+    /// for that download (see `performDownloadModel`).
     func downloadModel(_ size: ModelSize) async {
-        _ = try? await modelOperationSerializer.run { [self] in
-            await performDownloadModel(size)
-        }
+        await performDownloadModel(size)
     }
 
-    /// Perform one model download after earlier model operations have
-    /// completed. Keeping the UI updates inside the serialized operation
-    /// prevents multiple progress indicators from representing concurrent
-    /// writes to the model cache.
+    /// Downloads in progress, one per model, so a second request for the
+    /// same model joins the first instead of writing the same files twice.
+    private var modelDownloads: [ModelSize: Task<Void, Never>] = [:]
+
+    /// Runs downloads one at a time, apart from `modelOperationSerializer`.
+    private let downloadSerializer = LoadSerializer()
+
+    /// Download `size`, or wait for its download already in progress.
     private func performDownloadModel(_ size: ModelSize) async {
+        if let running = modelDownloads[size] {
+            await running.value
+            return
+        }
+        let serializer = downloadSerializer
+        let download = Task<Void, Never> { @MainActor [weak self] in
+            _ = try? await serializer.run { [weak self] in
+                await self?.runModelDownload(size)
+            }
+        }
+        modelDownloads[size] = download
+        await download.value
+        modelDownloads[size] = nil
+    }
+
+    private func runModelDownload(_ size: ModelSize) async {
         guard let index = availableModels.firstIndex(where: { $0.size == size }) else {
             // No row to report progress against. Callers check the files
             // afterwards rather than assume success, so say why here.
@@ -3684,8 +3879,7 @@ final class AppState: ObservableObject {
         // Or leave Spotify paused — same idea, farther away (Connect).
         spotifyPauser.resumeAfterUnexpectedExit()
 
-        // 1. Detect hardware
-        systemCapabilities = SystemInfo.detect()
+        // 1. Hardware, detected once in `init`.
         let sysInfo = systemCapabilities
         VocaLogger.info(.appState, "System: \(sysInfo?.processorName ?? "unknown") | \(sysInfo?.physicalMemoryGB ?? 0) GB RAM | \(sysInfo?.coreCount ?? 0) cores")
 
@@ -3728,7 +3922,17 @@ final class AppState: ObservableObject {
             await self?.updateChecker.checkOnLaunchIfNeeded()
         }
 
-        // 4. Load the user's preferred model.
+        whisperService.removeRetiredEngineState()
+        transcriptCleanup.pruneUnknownModels()
+
+        // 4. Load the user's preferred model. The cleanup model loads with
+        // llama.cpp on the GPU while the speech model loads on the Neural
+        // Engine, so when memory has room for both they load together:
+        // one after the other, a dictation right after launch waited for the
+        // second load to start only once the first had finished.
+        let cleanupLoad: Task<Void, Never>? = transcriptCleanupEnabled && startupFitsBothModels()
+            ? Task<Void, Never> { @MainActor [weak self] in await self?.syncTranscriptCleanup() }
+            : nil
         let preparation = Task<Void, Never> { @MainActor [weak self] in
             await self?.prepareStartupModel()
         }
@@ -3736,9 +3940,9 @@ final class AppState: ObservableObject {
         await preparation.value
         startupModelPreparation = nil
 
-        whisperService.removeRetiredEngineState()
-        transcriptCleanup.pruneUnknownModels()
-        if transcriptCleanupEnabled {
+        if let cleanupLoad {
+            await cleanupLoad.value
+        } else if transcriptCleanupEnabled {
             await syncTranscriptCleanup()
         }
 
@@ -3746,6 +3950,23 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Startup complete!")
     }
+    /// Whether the speech model and the cleanup model can load at the same
+    /// time: both downloaded, and free memory for both with room to spare.
+    private func startupFitsBothModels() -> Bool {
+        guard cleanupEndpoint.isLocal else { return false }
+        let speech = ModelSize(rawValue: selectedModelSize) ?? .tiny
+        let cleanup = selectedCleanupModelKind
+        guard modelManager.isModelDownloaded(speech), transcriptCleanup.isDownloaded(cleanup) else { return false }
+        let speechGB = CompiledModelRecord().hasLoaded(speech) ? speech.ramRequiredGB : speech.firstLoadRAMRequiredGB
+        return parallelStartupFits(speechGB + cleanup.descriptor.ramRequiredGB + Self.parallelStartupMarginGB)
+    }
+
+    /// Headroom kept free when both models load together.
+    static let parallelStartupMarginGB = 1.0
+
+    /// Memory gate for loading both models at launch; a seam for tests.
+    var parallelStartupFits: (_ requiredGB: Double) -> Bool = { SystemInfo.canFitInMemory(requiredGB: $0) }
+
     /// Download (if needed) and load the preferred speech model at launch.
     ///
     /// On first launch the preferred model (tiny by default) won't be
@@ -5737,5 +5958,34 @@ extension AppState {
         } catch {
             VocaLogger.error(.dictionary, "Could not save \(key): \(error)")
         }
+    }
+}
+
+// MARK: - Early capture
+
+/// A microphone opened for a queued push-to-talk dictation (see
+/// `AppState.earlyCapture`). Only touched on the main actor.
+private final class EarlyCapture {
+    /// Opening the microphone; true once it is live.
+    let start: Task<Bool, Never>
+    /// How much audio the microphone has delivered.
+    let counter: CapturedSampleCounter
+    /// Samples captured when the key came up, or nil while it is held.
+    var releasedAtSampleCount: Int?
+
+    init(start: Task<Bool, Never>, counter: CapturedSampleCounter) {
+        self.start = start
+        self.counter = counter
+    }
+}
+
+/// Counts samples from the audio tap's thread for the main actor.
+final class CapturedSampleCounter: Sendable {
+    private let total = OSAllocatedUnfairLock(initialState: 0)
+
+    var count: Int { total.withLock { $0 } }
+
+    func record(_ end: Int) {
+        total.withLock { $0 = max($0, end) }
     }
 }

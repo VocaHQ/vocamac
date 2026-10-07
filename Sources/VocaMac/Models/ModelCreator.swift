@@ -197,7 +197,7 @@ extension ModelSize {
             return .openAI
         case .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return .huggingFace
-        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .canary180mFlash:
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .canary180mFlash:
             return .nvidia
         case .appleSpeech:
             return .apple

@@ -27,6 +27,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case vocaHinglish                 = "voca-hinglish"
 
     // Parakeet (FluidAudio)
+    case parakeetUltra                = "parakeet-ultra"
     case parakeetV3                   = "parakeet-tdt-0.6b-v3"
     case parakeetV2                   = "parakeet-tdt-0.6b-v2"
     case parakeetTdtCtc110m           = "parakeet-tdt-ctc-110m"
@@ -50,7 +51,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// Which engine runs this model.
     var engine: TranscriptionEngine {
         switch self {
-        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m:
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetTdtCtc110m:
             return .parakeet
         case .appleSpeech:
             return .appleSpeech
@@ -167,6 +168,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// support from WhisperKit, but is not part of the normal Apple Silicon
     /// catalog because WhisperKit does not list it for M-series Macs.
     static let standardCatalog: [ModelSize] = [
+        .parakeetUltra,
         .parakeetV3,
         .parakeetV2,
         .parakeetTdtCtc110m,
@@ -210,6 +212,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3Turbo:              return "Large v3 Turbo"
         case .medium:                    return "Medium (Legacy)"
         case .vocaHinglish:              return "Voca Hinglish"
+        case .parakeetUltra:             return "Parakeet Ultra (Multilingual)"
         case .parakeetV3:                return "Parakeet v3 (Multilingual)"
         case .parakeetV2:                return "Parakeet v2 (English)"
         case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
@@ -251,6 +254,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3Turbo:              return 3_195_115_988
         case .medium:                    return 1_529_654_233
         case .vocaHinglish:              return 824_300_479
+        case .parakeetUltra:             return 632_314_500
         case .parakeetV3:                return 483_257_242
         case .parakeetV2:                return 464_413_250
         case .parakeetTdtCtc110m:        return 227_468_698
@@ -339,6 +343,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3Turbo:              return 10
         case .medium:                    return 8
         case .vocaHinglish:              return 8
+        case .parakeetUltra:             return 1
         case .parakeetV3:                return 1
         case .parakeetV2:                return 1
         case .parakeetTdtCtc110m:        return 1
@@ -369,6 +374,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .largeV3Turbo:              return "Best"
         case .medium:                    return "Legacy"
         case .vocaHinglish:              return "Best for Hindi"
+        case .parakeetUltra:             return "Excellent"
         case .parakeetV3:                return "Excellent"
         case .parakeetV2:                return "Excellent"
         case .parakeetTdtCtc110m:        return "Great"

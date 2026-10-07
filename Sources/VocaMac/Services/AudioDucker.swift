@@ -291,7 +291,8 @@ final class AudioDucker: AudioDucking {
 
     // MARK: AudioDucking
 
-    func duck() {
+    @discardableResult
+    func duck() -> Bool {
         // Run a settle check still waiting on the last recording now, so a
         // device it would have unmuted is not mistaken for a user's mute.
         settleGeneration += 1
@@ -299,27 +300,27 @@ final class AudioDucker: AudioDucking {
 
         guard let output = control.defaultOutputDevice() else {
             VocaLogger.info(.audioDucker, "No default output device — not muting")
-            return
+            return false
         }
         guard pending[output.uid] == nil else {
             VocaLogger.debug(.audioDucker, "Output is still muted from an earlier recording — leaving it")
-            return
+            return false
         }
         guard control.isOtherAudioPlaying(on: output.id) else {
             VocaLogger.debug(.audioDucker, "Nothing else is playing — leaving the output alone")
-            return
+            return false
         }
 
         let volume = control.volume(of: output.id)
         if let isMuted = control.isMuted(output.id) {
             if isMuted {
                 VocaLogger.info(.audioDucker, "Output is already muted — leaving it as the user set it")
-                return
+                return false
             }
             if control.setMuted(true, on: output.id), control.isMuted(output.id) == true {
                 record(output, .muted(volume: volume))
                 VocaLogger.info(.audioDucker, "Muted device \(output.id) while dictating")
-                return
+                return true
             }
             // Some drivers acknowledge the write and do nothing. Put the flag
             // back in case it half-applied, then use the volume instead.
@@ -329,18 +330,19 @@ final class AudioDucker: AudioDucking {
 
         guard let volume else {
             VocaLogger.info(.audioDucker, "Output has no mute or software volume (e.g. HDMI) — not muting")
-            return
+            return false
         }
         guard volume > Self.silentVolume else {
             VocaLogger.debug(.audioDucker, "Output volume is already at zero — nothing to mute")
-            return
+            return false
         }
         guard control.setVolume(0, of: output.id) else {
             VocaLogger.warning(.audioDucker, "Could not set the volume on device \(output.id)")
-            return
+            return false
         }
         record(output, .zeroedVolume(from: volume))
         VocaLogger.info(.audioDucker, "Set device \(output.id) to 0% while dictating (was \(Self.percent(volume)))")
+        return true
     }
 
     func restore() {

@@ -452,26 +452,69 @@ extension XCTestCase {
 
 final class AudioEngineTests: XCTestCase {
 
-    func testCachedConversionMatchesFreshConverterAcrossBuffersAndRouteChanges() throws {
+    /// A 440 Hz tone at `rate`, `frames` long, starting at `offset`.
+    private func tone(rate: Double, frames: Int, offset: Int = 0) throws -> AVAudioPCMBuffer {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
+        let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(frames)))
+        buffer.frameLength = AVAudioFrameCount(frames)
+        let samples = try XCTUnwrap(buffer.floatChannelData?[0])
+        for frame in 0..<frames {
+            samples[frame] = Float(sin(Double(frame + offset) * 2 * .pi * 440 / rate)) * 0.25
+        }
+        return buffer
+    }
+
+    func testTapBuffersAreResampledAsOneContinuousSignal() throws {
+        let rate = 48_000.0
+        let chunk = 4_096
+        let chunks = 12
+        let whole = try tone(rate: rate, frames: chunk * chunks)
+        let reference = try XCTUnwrap(AudioEngine.convertToWhisperFormat(whole, from: whole.format))
+        let expected = Array(UnsafeBufferPointer(start: reference.floatChannelData?[0], count: Int(reference.frameLength)))
+
         let cache = AudioConverterCache()
-        for rate in [48_000.0, 48_000.0, 44_100.0, 44_100.0] {
-            let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: rate, channels: 1))
-            let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_096))
-            input.frameLength = 4_096
-            let samples = try XCTUnwrap(input.floatChannelData?[0])
-            for frame in 0..<4_096 {
-                samples[frame] = Float(sin(Double(frame) * 2 * .pi * 440 / rate)) * 0.25
-            }
-            let fresh = try XCTUnwrap(AudioEngine.convertToWhisperFormat(input, from: format))
-            let cached = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
-                input, from: format, converterProvider: { cache.converter(from: $0, to: $1) }
+        cache.resetForNextCapture()
+        var streamed: [Float] = []
+        for index in 0..<chunks {
+            let input = try tone(rate: rate, frames: chunk, offset: index * chunk)
+            let output = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+                input, from: input.format,
+                converterProvider: { cache.converter(from: $0, to: $1) },
+                continuous: true
             ))
-            XCTAssertEqual(cached.frameLength, fresh.frameLength)
-            let expected = try XCTUnwrap(fresh.floatChannelData?[0])
-            let actual = try XCTUnwrap(cached.floatChannelData?[0])
-            for frame in 0..<Int(fresh.frameLength) {
-                XCTAssertEqual(actual[frame], expected[frame], accuracy: 0.000_001)
-            }
+            streamed += UnsafeBufferPointer(start: output.floatChannelData?[0], count: Int(output.frameLength))
+        }
+
+        // The converter holds back a few frames of filter delay at the end;
+        // everything it did emit must match one conversion of the whole tone.
+        XCTAssertLessThanOrEqual(expected.count - streamed.count, 64)
+        XCTAssertGreaterThan(streamed.count, expected.count - 64)
+        var worst: Float = 0
+        for frame in 0..<min(streamed.count, expected.count) {
+            worst = max(worst, abs(streamed[frame] - expected[frame]))
+        }
+        XCTAssertLessThan(worst, 0.001, "No seam at buffer boundaries")
+        XCTAssertEqual(cache.creationCount, 1)
+    }
+
+    func testNewCaptureStartsTheConverterFromSilence() throws {
+        let cache = AudioConverterCache()
+        let first = try tone(rate: 48_000, frames: 4_096)
+        _ = AudioEngine.convertToWhisperFormat(
+            first, from: first.format, converterProvider: { cache.converter(from: $0, to: $1) }, continuous: true
+        )
+        cache.resetForNextCapture()
+        let next = try tone(rate: 48_000, frames: 4_096, offset: 1_000)
+        let afterReset = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+            next, from: next.format, converterProvider: { cache.converter(from: $0, to: $1) }, continuous: true
+        ))
+        let fresh = try XCTUnwrap(AudioEngine.convertToWhisperFormat(
+            next, from: next.format,
+            converterProvider: { AVAudioConverter(from: $0, to: $1) }, continuous: true
+        ))
+        XCTAssertEqual(afterReset.frameLength, fresh.frameLength)
+        for frame in 0..<Int(fresh.frameLength) {
+            XCTAssertEqual(afterReset.floatChannelData?[0][frame] ?? 0, fresh.floatChannelData?[0][frame] ?? 1, accuracy: 0.000_001)
         }
     }
 
@@ -683,6 +726,63 @@ final class AudioEngineTests: XCTestCase {
                 at: start.addingTimeInterval(15)
             ),
             "A continuous silent period should notify only once"
+        )
+    }
+
+    // MARK: Silence relative to the microphone
+
+    /// Feed `seconds` of chunks at `energy`, 85 ms apart, returning whether
+    /// silence was reported and the time after the last chunk.
+    private func feed(
+        _ detector: inout SilenceDetector, energy: Float, seconds: Double, from start: Date,
+        threshold: Float = 0.01, duration: TimeInterval = 2
+    ) -> (reported: Bool, end: Date) {
+        var now = start
+        var reported = false
+        let chunks = Int(seconds / 0.085)
+        for _ in 0..<chunks {
+            now = now.addingTimeInterval(0.085)
+            reported = detector.observe(energy: energy, threshold: threshold, duration: duration, at: now) || reported
+        }
+        return (reported, now)
+    }
+
+    func testQuietMicrophoneSpeechIsNotTakenForSilence() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        // Room noise, then speech that never reaches the 0.01 setting.
+        var step = feed(&detector, energy: 0.0005, seconds: 1, from: start)
+        detector.reset(at: step.end)
+        step = feed(&detector, energy: 0.0005, seconds: 0.5, from: step.end)
+        step = feed(&detector, energy: 0.006, seconds: 1, from: step.end)
+        step = feed(&detector, energy: 0.004, seconds: 3, from: step.end)
+        XCTAssertFalse(step.reported, "Speech at the microphone's own level is sound")
+        step = feed(&detector, energy: 0.0005, seconds: 2.5, from: step.end)
+        XCTAssertTrue(step.reported, "The room's level after speech is silence")
+    }
+
+    func testSteadyNoiseOverTheSettingStillEndsInSilence() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        var step = feed(&detector, energy: 0.015, seconds: 1, from: start)
+        step = feed(&detector, energy: 0.06, seconds: 3, from: step.end)
+        XCTAssertFalse(step.reported)
+        step = feed(&detector, energy: 0.015, seconds: 3, from: step.end)
+        XCTAssertTrue(step.reported, "Noise at the room's level is not speech, even over the setting")
+    }
+
+    func testLongSpeechNeverBecomesTheNoiseFloor() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        var step = feed(&detector, energy: 0.002, seconds: 0.5, from: start)
+        step = feed(&detector, energy: 0.05, seconds: 90, from: step.end)
+        XCTAssertFalse(step.reported, "A minute and a half of speech must not raise the floor over it")
+    }
+
+    func testOrdinaryMicrophoneKeepsTheUsersSetting() {
+        XCTAssertEqual(
+            SilenceDetector.soundThreshold(user: 0.01, speechPeak: 0.05, noiseFloor: 0.002), 0.01,
+            accuracy: 1e-6
         )
     }
 

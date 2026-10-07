@@ -56,6 +56,7 @@ final class ParakeetService: @unchecked Sendable {
     /// Map a catalog entry to FluidAudio's model version.
     static func modelVersion(for size: ModelSize) -> AsrModelVersion? {
         switch size {
+        case .parakeetUltra:      return .ultra
         case .parakeetV3:         return .v3
         case .parakeetV2:         return .v2
         case .parakeetTdtCtc110m: return .tdtCtc110m
@@ -88,6 +89,12 @@ final class ParakeetService: @unchecked Sendable {
             onPhaseChange?("Compiling neural engine…")
             let manager = AsrManager(config: .default)
             try await manager.loadModels(models)
+            // A load the router gave up on (`Deadline`) may still finish
+            // later; it must not replace whatever was loaded since.
+            if Task.isCancelled {
+                await manager.cleanup()
+                throw CancellationError()
+            }
 
             self.asrManager = manager
             self.loadedSize = size
@@ -96,9 +103,27 @@ final class ParakeetService: @unchecked Sendable {
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             VocaLogger.info(.parakeetService, "Parakeet model loaded in \(String(format: "%.2f", elapsed))s")
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             VocaLogger.error(.parakeetService, "ERROR loading Parakeet model: \(error)")
             throw ParakeetError.initializationFailed(reason: error.localizedDescription)
+        }
+    }
+
+    /// Run one short decode right after a load, so the user's first
+    /// dictation does not pay for CoreML's first prediction (program
+    /// instantiation, weights paged in). The result is discarded.
+    func warmUp() async {
+        guard let manager = asrManager else { return }
+        let start = CFAbsoluteTimeGetCurrent()
+        do {
+            var decoderState = try TdtDecoderState(decoderLayers: await manager.decoderLayerCount)
+            _ = try await manager.transcribe(WhisperService.warmUpAudio, decoderState: &decoderState, language: nil)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            VocaLogger.info(.parakeetService, "Warm-up decode took \(String(format: "%.2f", elapsed))s")
+        } catch {
+            VocaLogger.debug(.parakeetService, "Warm-up decode failed: \(error.localizedDescription)")
         }
     }
 
@@ -195,6 +220,10 @@ final class ParakeetService: @unchecked Sendable {
                 audioLengthSeconds: audioLengthSeconds,
                 modelUsed: size
             )
+        } catch is CancellationError {
+            // Cancelling a dictation is not a model failure; wrapped, the
+            // router would count it toward reloading the model.
+            throw CancellationError()
         } catch {
             throw ParakeetError.transcriptionFailed(reason: error.localizedDescription)
         }

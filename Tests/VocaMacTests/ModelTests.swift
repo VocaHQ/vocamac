@@ -184,7 +184,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 24)
+        XCTAssertEqual(ModelSize.allCases.count, 25)
     }
 
     func testRawValues() {
@@ -201,6 +201,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.largeV3Turbo.rawValue, "large-v3_turbo")
         XCTAssertEqual(ModelSize.medium.rawValue, "medium")
         XCTAssertEqual(ModelSize.vocaHinglish.rawValue, "voca-hinglish")
+        XCTAssertEqual(ModelSize.parakeetUltra.rawValue, "parakeet-ultra")
         XCTAssertEqual(ModelSize.parakeetV3.rawValue, "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(ModelSize.parakeetV2.rawValue, "parakeet-tdt-0.6b-v2")
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.rawValue, "parakeet-tdt-ctc-110m")
@@ -219,6 +220,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testStandardCatalogIncludesNewEngines() {
+        XCTAssertEqual(ModelSize.standardCatalog.first, .parakeetUltra)
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV3))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV2))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetTdtCtc110m))
@@ -247,6 +249,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testEngineAssignment() {
+        XCTAssertEqual(ModelSize.parakeetUltra.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV3.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV2.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.engine, .parakeet)
@@ -264,6 +267,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testParakeetModelVersionMapping() {
+        XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetUltra), .ultra)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV3), .v3)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV2), .v2)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetTdtCtc110m), .tdtCtc110m)
@@ -412,12 +416,14 @@ final class ModelManagerTests: XCTestCase {
 
     func testModelIdentifiersForNonWhisperEngines() {
         let manager = ModelManager()
+        XCTAssertEqual(manager.modelIdentifier(for: .parakeetUltra), "parakeet-ultra")
         XCTAssertEqual(manager.modelIdentifier(for: .parakeetV3), "parakeet-tdt-0.6b-v3")
         XCTAssertEqual(manager.modelIdentifier(for: .parakeetV2), "parakeet-tdt-0.6b-v2")
         XCTAssertEqual(manager.modelIdentifier(for: .parakeetTdtCtc110m), "parakeet-tdt-ctc-110m")
         XCTAssertEqual(manager.modelIdentifier(for: .appleSpeech), "apple-speech")
         XCTAssertEqual(manager.modelIdentifier(for: .tiny), "openai_whisper-tiny")
 
+        XCTAssertEqual(manager.modelSize(from: "parakeet-ultra"), .parakeetUltra)
         XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-0.6b-v3"), .parakeetV3)
         XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-0.6b-v2"), .parakeetV2)
         XCTAssertEqual(manager.modelSize(from: "parakeet-tdt-ctc-110m"), .parakeetTdtCtc110m)

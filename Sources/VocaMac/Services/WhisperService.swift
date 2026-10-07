@@ -135,6 +135,9 @@ final class WhisperService: @unchecked Sendable {
 
             onPhaseChange?("Loading model…")
             let kit = try await WhisperKit(config)
+            // A load the router gave up on (`Deadline`) may still finish
+            // later; it must not replace whatever was loaded since.
+            try Task.checkCancellation()
 
             onPhaseChange?("Compiling neural engine…")
             stateLock.withLock {
@@ -144,10 +147,44 @@ final class WhisperService: @unchecked Sendable {
 
             let elapsed = CFAbsoluteTimeGetCurrent() - startTime
             VocaLogger.info(.whisperService, "Model loaded in \(String(format: "%.2f", elapsed))s")
+        } catch is CancellationError {
+            throw CancellationError()
         } catch {
             VocaLogger.error(.whisperService, "ERROR loading model: \(error)")
             throw WhisperError.initializationFailed(reason: error.localizedDescription)
         }
+    }
+
+    /// Run one short decode right after a load.
+    ///
+    /// CoreML's first prediction on a freshly loaded model also instantiates
+    /// the compiled programs and pages the weights in, so without this the
+    /// user's first dictation pays for it. The result is discarded.
+    func warmUp() async {
+        guard let kit = whisperKit else { return }
+        let start = CFAbsoluteTimeGetCurrent()
+        let options = DecodingOptions(
+            language: modelSizeFromName(loadedModelName ?? "tiny").pinnedLanguage ?? "en",
+            temperatureFallbackCount: 0,
+            sampleLength: 8,
+            usePrefillPrompt: true,
+            detectLanguage: false,
+            withoutTimestamps: true,
+            windowClipTime: 0
+        )
+        do {
+            _ = try await kit.transcribe(audioArray: Self.warmUpAudio, decodeOptions: options)
+            let elapsed = CFAbsoluteTimeGetCurrent() - start
+            VocaLogger.info(.whisperService, "Warm-up decode took \(String(format: "%.2f", elapsed))s")
+        } catch {
+            VocaLogger.debug(.whisperService, "Warm-up decode failed: \(error.localizedDescription)")
+        }
+    }
+
+    /// One second of near-silence with a little noise, so the encoder and
+    /// decoder both run without Whisper settling on an empty window early.
+    static let warmUpAudio: [Float] = (0..<16_000).map { index in
+        Float(sin(Double(index) * 0.05)) * 0.001
     }
 
     /// Unload the current model and free memory
@@ -177,12 +214,18 @@ final class WhisperService: @unchecked Sendable {
     ///     is a latency cost and is not needed for streaming/commit piece decodes
     ///     that only need the transcript text.
     /// - Returns: VocaTranscription with the transcribed text and metadata
+    ///   - endsAtSpeech: True when trailing silence was already trimmed, so the
+    ///     last fraction of a second is speech and must be decoded.
+    ///   - expectedLanguages: The languages the user says they speak, used
+    ///     when `language` is nil to catch a detection outside them.
     func transcribe(
         audioData: [Float],
         language: String? = nil,
         translate: Bool = false,
         vocabulary: String = "",
-        includeWordTimestamps: Bool = false
+        includeWordTimestamps: Bool = false,
+        endsAtSpeech: Bool = false,
+        expectedLanguages: [String] = []
     ) async throws -> VocaTranscription {
         guard let kit = whisperKit else {
             throw WhisperError.modelNotLoaded
@@ -214,21 +257,45 @@ final class WhisperService: @unchecked Sendable {
         // timestamps ask WhisperKit for DTW alignment — only when the caller
         // needs them for history Timestamps (batch/final), not on every
         // streaming or commit-piece decode.
+        //
+        // With no fallback, WhisperKit's first-token threshold would end any
+        // window whose first word it is unsure of with no text at all, and
+        // nothing would decode it again; `suppressBlank` likewise stops an
+        // end-of-text from being the first token. The prompt is always
+        // prefilled, so auto-detect uses the language it detects instead of
+        // making the decoder guess the language and task tokens itself.
         var options = DecodingOptions(
             task: translate ? .translate : .transcribe,
             language: language,
             temperature: 0.0,
             temperatureFallbackCount: 0,  // No fallback for speed
-            usePrefillPrompt: language != nil || promptTokens != nil,
+            usePrefillPrompt: true,
             detectLanguage: language == nil,
             wordTimestamps: includeWordTimestamps,
-            windowClipTime: Self.windowClipTime(sampleCount: audioData.count),
+            windowClipTime: Self.windowClipTime(sampleCount: audioData.count, endsAtSpeech: endsAtSpeech),
             promptTokens: promptTokens,
+            suppressBlank: true,
+            firstTokenLogProbThreshold: nil,
             chunkingStrategy: nil
         )
 
         do {
             var results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
+
+            // Detection can read a short or filler-heavy clip as another
+            // language ("They had to be um done um" came back in Devanagari).
+            // When that language is not one the user speaks, decode again in
+            // the one they speak first.
+            if language == nil, !translate,
+               let corrected = Self.correctedLanguage(detected: results.first?.language, expected: expectedLanguages) {
+                VocaLogger.warning(
+                    .whisperService,
+                    "Detected \(results.first?.language ?? "?"), which isn't a language the user speaks; decoding again as \(corrected)"
+                )
+                options.language = corrected
+                options.detectLanguage = false
+                results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
+            }
 
             // Concatenate all segment texts
             var rawText = results.map { $0.text }.joined(separator: " ")
@@ -246,7 +313,6 @@ final class WhisperService: @unchecked Sendable {
                     "Prompted transcription was empty for \(loadedModelName ?? "unknown model"); retrying without custom vocabulary"
                 )
                 options.promptTokens = nil
-                options.usePrefillPrompt = language != nil
                 results = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: options)
                 rawText = results.map { $0.text }.joined(separator: " ")
                 fullText = Self.filterHallucinationTokens(rawText)
@@ -263,7 +329,6 @@ final class WhisperService: @unchecked Sendable {
                 )
                 var unprompted = options
                 unprompted.promptTokens = nil
-                unprompted.usePrefillPrompt = language != nil
                 // The looped text still holds the phrase, and collapsing it
                 // below recovers it; only a real answer replaces it.
                 do {
@@ -353,6 +418,10 @@ final class WhisperService: @unchecked Sendable {
                     audioSeconds: audioLengthSeconds
                 )
             )
+        } catch is CancellationError {
+            // Cancelling a dictation is not a model failure; wrapped, the
+            // router would count it toward reloading the model.
+            throw CancellationError()
         } catch {
             throw WhisperError.transcriptionFailed(reason: error.localizedDescription)
         }
@@ -364,7 +433,8 @@ final class WhisperService: @unchecked Sendable {
     static let maxChunkSamples = 480_000
 
     /// Only long files and meetings are split (2 min at 16 kHz). Dictations
-    /// keep WhisperKit's sequential windows, which carry context across them.
+    /// keep WhisperKit's sequential windows, which split at the last timestamp
+    /// Whisper wrote rather than at an arbitrary point.
     static let chunkingThresholdSamples = 1_920_000
 
     /// How many chunks decode at once. The encoder shares one accelerator,
@@ -832,10 +902,20 @@ final class WhisperService: @unchecked Sendable {
 
     /// WhisperKit only decodes while seek < end - windowClipTime. Its default
     /// one-second exclusion skips the entire clip at or below 16,000 samples.
-    /// Retain the default trailing-window protection for longer recordings.
-    static func windowClipTime(sampleCount: Int) -> Float {
-        sampleCount <= 16_000 ? 0 : 1
+    ///
+    /// Longer audio keeps a guard against Whisper inventing words over a
+    /// final sliver of silence. Audio whose trailing silence was already
+    /// trimmed ends in speech, though: after a full 30 s window WhisperKit
+    /// seeks to the last timestamp, and a one-second guard then dropped the
+    /// last words of a 30–31 s dictation. There only the trim's padding
+    /// needs guarding.
+    static func windowClipTime(sampleCount: Int, endsAtSpeech: Bool = false) -> Float {
+        guard sampleCount > 16_000 else { return 0 }
+        return endsAtSpeech ? speechEndWindowClipTime : 1
     }
+
+    /// Just over the silence `SpeechActivityTrimmer` keeps after speech.
+    static let speechEndWindowClipTime = Float(SpeechActivityTrimmer.speechPadding) + 0.1
 
     /// Window clip for a VAD chunk. Intermediate artificial splits must not
     /// discard trailing speech; only the final chunk is the true recording end.
@@ -851,14 +931,49 @@ final class WhisperService: @unchecked Sendable {
     /// trims to its own token budget and strips special tokens internally.
     private static func promptTokens(for vocabulary: String, tokenizer: WhisperTokenizer?) -> [Int]? {
         guard let tokenizer else { return nil }
-        let terms = vocabularyTerms(from: vocabulary)
-        guard !terms.isEmpty else { return nil }
-        let tokens = tokenizer.encode(text: "Glossary: " + terms.joined(separator: ", "))
-        return tokens.isEmpty ? nil : tokens
+        return cappedPromptTokens(terms: vocabularyTerms(from: vocabulary)) { tokenizer.encode(text: $0) }
+    }
+
+    /// The language to decode in instead of `detected`, or nil to keep it:
+    /// the user's first language when they named some and `detected` is
+    /// none of them.
+    static func correctedLanguage(detected: String?, expected: [String]) -> String? {
+        guard let detected, let first = expected.first, !expected.contains(detected) else { return nil }
+        return first
+    }
+
+    /// Most tokens a vocabulary prompt may use.
+    ///
+    /// WhisperKit feeds every prompt token through the decoder, one full
+    /// decoder pass each, before the first word of every 30 s window (and
+    /// again on each retry). Its own cap is 223 tokens, which on a large
+    /// decoder costs seconds per dictation. This keeps about 40 terms.
+    static let maximumPromptTokens = 96
+
+    /// The "Glossary:" prompt for `terms`, dropping terms from the front
+    /// until it fits `maximumPromptTokens`. `recognitionVocabulary` puts
+    /// screen terms first and the user's own words last, so the user's words
+    /// are the last to go.
+    static func cappedPromptTokens(terms: [String], encode: (String) -> [Int]) -> [Int]? {
+        var start = 0
+        while start < terms.count {
+            let tokens = encode("Glossary: " + terms[start...].joined(separator: ", "))
+            if tokens.count <= maximumPromptTokens {
+                return tokens.isEmpty ? nil : tokens
+            }
+            // Drop roughly the excess at once, then refine one at a time.
+            let excess = tokens.count - maximumPromptTokens
+            start += max(1, min(excess / 6, terms.count - start - 1))
+        }
+        return nil
     }
 
     /// Map a model name string to our ModelSize enum
     func modelSizeFromName(_ name: String) -> ModelSize {
+        Self.modelSize(fromName: name)
+    }
+
+    static func modelSize(fromName name: String) -> ModelSize {
         let lowered = name.lowercased()
         if lowered.contains("hinglish") { return .vocaHinglish }
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }

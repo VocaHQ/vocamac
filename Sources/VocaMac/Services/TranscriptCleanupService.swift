@@ -67,7 +67,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// do the job degrades into "the feature quietly does nothing", which is
     /// how the Qwen 3.5 context-reuse breakage hid — so say so instead.
     private var consecutiveFailures = 0
-    private static let failureLimit = 3
+    static let failureLimit = 3
+
+    /// Whether `load` of the model already loaded rebuilds it: only once it
+    /// has failed often enough to be shown as broken.
+    static func rebuildsLoadedModel(afterConsecutiveFailures failures: Int) -> Bool {
+        failures >= failureLimit
+    }
 
     /// Seam for tests. Runs on the main actor once a load has registered its
     /// generation and in-flight entry but before the GGUF is constructed —
@@ -608,7 +614,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             // model that has been failing must rebuild it — llama.cpp state is
             // exactly what a run of empty answers points at — rather than flip
             // the badge back to Ready and change nothing.
-            if consecutiveFailures > 0 {
+            //
+            // Only once it has failed enough to say so. A single rejected
+            // answer is routine (the safety check turns one down, and its
+            // safe edits are still used), and every warm-up and dictation
+            // calls `load`: rebuilding on any failure re-read gigabytes of
+            // weights and the primed prompt before the next dictation.
+            if Self.rebuildsLoadedModel(afterConsecutiveFailures: consecutiveFailures) {
                 VocaLogger.info(.transcriptCleanup, "Rebuilding \(kind.descriptor.displayName) after \(consecutiveFailures) failed cleanups")
                 unload()
             } else {

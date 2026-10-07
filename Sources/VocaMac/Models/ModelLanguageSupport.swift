@@ -54,7 +54,7 @@ extension ModelSize {
         // dictation stays in one script.
         case .vocaHinglish:
             return .only(["hi", "en"])
-        case .parakeetV3:
+        case .parakeetUltra, .parakeetV3:
             return .only(Self.parakeetV3Languages)
         case .parakeetV2, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase:
             return .only(["en"])
@@ -93,6 +93,11 @@ extension ModelSize {
 
     /// Accuracy on a 0–1 scale, from `qualityDescription`.
     var accuracyScore: Double {
+        // Parakeet Ultra is v3 post-trained: lower WER than v3 on every set
+        // FluidAudio reports (LibriSpeech clean 2.13 vs 2.27 %, other 3.81 vs
+        // 4.12 %, FLEURS mean 11.67 vs 14.81 %), so it ranks above v3's
+        // "Excellent" without claiming Whisper Large's "Best".
+        if self == .parakeetUltra { return 0.9 }
         switch qualityDescription {
         case "Good":      return 0.4
         case "Better":    return 0.55
@@ -133,6 +138,7 @@ extension ModelSize {
         case .largeV3Turbo:              return "Whisper Large v3 Turbo."
         case .medium:                    return "Kept for older settings."
         case .vocaHinglish:              return "Hindi and English, both written in Roman script (Hinglish)."
+        case .parakeetUltra:             return "Parakeet v3, post-trained to be more accurate at the same speed. 25 European languages."
         case .parakeetV3:                return "Very fast on the Neural Engine, with 25 European languages."
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."

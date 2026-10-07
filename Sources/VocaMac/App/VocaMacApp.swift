@@ -497,25 +497,31 @@ struct VocaMacApp: App {
         // `Sources/VocaMac/…` open, or `xcodebuild -scheme VocaMac` must not
         // be terminated. A running headless CLI job (e.g.
         // `VocaMac --transcribe-file ... --json`) is left alone too.
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-axo", "pid=,ucomm=,args="]
+        //
+        // Off the main thread: spawning `ps` and reading every process's
+        // command line held up launch, and the bundled app's instances are
+        // already ended above.
+        DispatchQueue.global(qos: .utility).async {
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/ps")
+            task.arguments = ["-axo", "pid=,ucomm=,args="]
 
-        let pipe = Pipe()
-        task.standardOutput = pipe
+            let pipe = Pipe()
+            task.standardOutput = pipe
 
-        do {
-            try task.run()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            task.waitUntilExit()
-            if let output = String(data: data, encoding: .utf8) {
-                for pid in previousGUIInstancePIDs(psOutput: output, currentPID: currentPID) {
-                    VocaLogger.info(.general, "Killing previous VocaMac process (PID \(pid))")
-                    kill(pid, SIGTERM)
+            do {
+                try task.run()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                task.waitUntilExit()
+                if let output = String(data: data, encoding: .utf8) {
+                    for pid in previousGUIInstancePIDs(psOutput: output, currentPID: currentPID) {
+                        VocaLogger.info(.general, "Killing previous VocaMac process (PID \(pid))")
+                        kill(pid, SIGTERM)
+                    }
                 }
+            } catch {
+                // ps not found or failed — not critical
             }
-        } catch {
-            // ps not found or failed — not critical
         }
     }
 

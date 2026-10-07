@@ -74,8 +74,10 @@ extension SoundPlaying {
 
 /// Silences other audio while a recording is open and brings it back afterwards.
 protocol AudioDucking: AnyObject {
-    /// Mute the default output if another app is playing and the user has not muted it already.
-    func duck()
+    /// Mute the default output if another app is playing and the user has
+    /// not muted it already. Returns true when it silenced the output.
+    @discardableResult
+    func duck() -> Bool
     /// Unmute what `duck` muted, if it is still muted.
     func restore()
     /// Undo a mute the previous process did not get to restore (crash, kill).

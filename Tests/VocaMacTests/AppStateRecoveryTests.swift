@@ -89,7 +89,7 @@ final class AppStateRecoveryTests: XCTestCase {
         await appState.cancelRecording()
     }
 
-    func testReleasingBeforeDeliveryFinishesStartsNothingAndKeepsTheFirstDictation() async {
+    func testReleasingBeforeDeliveryFinishesStillDeliversWhatWasSaid() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = speech
         mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
@@ -99,13 +99,89 @@ final class AppStateRecoveryTests: XCTestCase {
         await waitUntil { appState.appStatus == .processing }
 
         await appState.startRecording()
-        // Push-to-talk released while the first dictation is still processing.
+        XCTAssertFalse(appState.isRecording, "The first dictation still owns the dictation state")
+        await waitUntil { mocks.audioEngine.isCurrentlyRecording }
+        XCTAssertTrue(mocks.audioEngine.isCurrentlyRecording, "The microphone opens at the press")
+        // The tap delivers half a second, then push-to-talk is released while
+        // the first dictation is still processing.
+        mocks.audioEngine.onAudioSamples?([Float](repeating: 0.1, count: 8_000), 0)
         await appState.stopRecordingAndTranscribe()
 
         await stop.value
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+        await waitUntil { mocks.textInjector.injectCallCount == 2 && appState.appStatus == .idle }
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 2, "The second dictation is transcribed after the first")
+        XCTAssertEqual(
+            mocks.whisperService.lastTranscribedAudioData?.count, 8_000,
+            "Only the audio from while the key was down belongs to it"
+        )
         XCTAssertFalse(appState.isRecording)
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording)
+        XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    func testPressingAgainBeforeItStartsCarriesOnWithTheSameDictation() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+
+        await appState.startRecording()
+        await waitUntil { mocks.audioEngine.isCurrentlyRecording }
+        mocks.audioEngine.onAudioSamples?([Float](repeating: 0.1, count: 4_000), 0)
+        await appState.stopRecordingAndTranscribe()
+        // A second press and release, still before the first dictation is in.
+        await appState.startRecording()
+        mocks.audioEngine.onAudioSamples?([Float](repeating: 0.1, count: 6_000), 4_000)
+        await appState.stopRecordingAndTranscribe()
+
+        await stop.value
+        await waitUntil { mocks.textInjector.injectCallCount == 2 && appState.appStatus == .idle }
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 2, "One more dictation, not two, and not none")
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, 10_000, "Up to the second release")
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording)
+    }
+
+    func testHoldingThroughTheDeliveryKeepsRecordingFromThePress() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+
+        await appState.startRecording()
+        await waitUntil { mocks.audioEngine.isCurrentlyRecording }
+        await stop.value
+        await waitUntil { appState.isRecording }
+        XCTAssertTrue(appState.isRecording, "The queued dictation adopts the open microphone")
+        XCTAssertEqual(mocks.whisperService.streamingStartCount, 1, "No live session: it would miss the audio from before")
+
+        await appState.stopRecordingAndTranscribe()
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 2)
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, speech.count)
+    }
+
+    func testEscapeClosesAMicrophoneOpenedForAQueuedDictation() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+        await appState.startRecording()
+        await waitUntil { mocks.audioEngine.isCurrentlyRecording }
+
+        await appState.cancelDictation()
+        await stop.value
+        await waitUntil { !mocks.audioEngine.isCurrentlyRecording }
+
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording, "The microphone must not stay open")
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertEqual(appState.appStatus, .idle)
     }
 
@@ -125,6 +201,32 @@ final class AppStateRecoveryTests: XCTestCase {
 
         XCTAssertFalse(appState.isRecording)
         XCTAssertEqual(appState.appStatus, .idle)
+    }
+
+    // MARK: Sleep and idle unload
+
+    func testSleepMidDictationTranscribesInsteadOfDiscarding() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+
+        await appState.startRecording()
+        appState.handleWillSleep()
+        await waitUntil { mocks.textInjector.injectCallCount == 1 }
+
+        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, speech.count, "What was said is kept")
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
+        XCTAssertFalse(appState.isRecording)
+    }
+
+    func testIdleUnloadIsSkippedWhenADictationStartedSince() async {
+        let (appState, mocks) = AppState.makeTestState()
+
+        await appState.startRecording()
+        await appState.unloadActiveModel(reason: .idleKeepAlive)
+
+        XCTAssertEqual(mocks.whisperService.unloadCallCount, 0, "Unloading under a recording fails it at stop")
+        XCTAssertTrue(mocks.whisperService.isModelLoaded)
+        await appState.cancelRecording()
     }
 
     func testHotKeyAfterAnErrorStartsRecordingInTheSamePress() async {

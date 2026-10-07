@@ -5,12 +5,31 @@ import os
 /// Overflow or a capture restart invalidates streaming; AppState retains the
 /// complete recording and retries through the normal batch path.
 final class RecordingTranscription: @unchecked Sendable {
-    enum StreamError: Error { case discontinuity, overflow, incomplete }
+    enum StreamError: LocalizedError {
+        case discontinuity, overflow, incomplete
+        /// The engine did not finish within `finishDeadlineSeconds` of stop.
+        /// The engine was given up on, so the batch path must not wait on it.
+        case timedOut
+
+        var errorDescription: String? {
+            switch self {
+            case .timedOut:
+                return TranscriptionDeadlineError.decodeTimedOut.errorDescription
+            case .discontinuity, .overflow, .incomplete:
+                return "Live transcription was interrupted."
+            }
+        }
+    }
 
     let language: String?
     private struct State {
         var sampleCount = 0
+        /// No more audio is accepted: input was closed, or the stream broke.
         var ended = false
+        /// Input was closed at the right length, so the result can be used.
+        var inputComplete = false
+        /// When input was closed, for the wait-after-stop metric.
+        var inputClosedAt: TimeInterval?
     }
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let continuation: AsyncThrowingStream<[Float], Error>.Continuation
@@ -46,23 +65,58 @@ final class RecordingTranscription: @unchecked Sendable {
         }
     }
 
+    /// Tell the engine no more audio is coming, so it starts on the last
+    /// piece at once instead of when the caller gets around to `finish`.
+    /// Call right after the microphone stops; `finish` does it if not.
+    ///
+    /// Returns false, and ends the session, when the audio the session
+    /// received is not the whole recording.
+    @discardableResult
+    func endInput(expectedSampleCount: Int) -> Bool {
+        let (complete, closeNow) = state.withLock { state -> (Bool, Bool) in
+            if state.ended {
+                return (state.inputComplete && state.sampleCount == expectedSampleCount, false)
+            }
+            state.ended = true
+            state.inputComplete = state.sampleCount == expectedSampleCount
+            if state.inputComplete { state.inputClosedAt = ProcessInfo.processInfo.systemUptime }
+            return (state.inputComplete, true)
+        }
+        if closeNow, complete {
+            continuation.finish()
+        } else if !complete {
+            cancel()
+        }
+        return complete
+    }
+
+    /// Time allowed after stop for the engine to finish the recording.
+    static func finishDeadlineSeconds(expectedSampleCount: Int) -> TimeInterval {
+        Deadline.decodeSeconds(audioSeconds: Double(expectedSampleCount) / 16_000)
+    }
+
     func finish(expectedSampleCount: Int) async throws -> VocaTranscription {
         let interval = PerformanceTrace.begin("StreamingFinalize")
         defer { PerformanceTrace.end(interval) }
-        let complete = state.withLock { state in
-            let complete = state.sampleCount == expectedSampleCount && !state.ended
-            state.ended = true
-            return complete
-        }
-        guard complete else {
-            cancel()
+        guard endInput(expectedSampleCount: expectedSampleCount) else {
             _ = try? await task.value
             throw StreamError.incomplete
         }
-        let start = ProcessInfo.processInfo.systemUptime
-        continuation.finish()
+        let start = state.withLock { $0.inputClosedAt } ?? ProcessInfo.processInfo.systemUptime
+        let task = self.task
+        let seconds = Self.finishDeadlineSeconds(expectedSampleCount: expectedSampleCount)
         return try await withTaskCancellationHandler {
-            let result = try await task.value
+            let result: VocaTranscription
+            do {
+                result = try await Deadline.run(seconds: seconds, operation: "Finishing the transcription") {
+                    try await task.value
+                }
+            } catch is Deadline.Exceeded {
+                // Cancelling the session hands the engine back
+                // (`TranscriptionRouter.runSession`) and drops its model.
+                cancel()
+                throw StreamError.timedOut
+            }
             try Task.checkCancellation()
             guard result.audioLengthSeconds.isFinite,
                   abs(result.audioLengthSeconds * 16_000 - Double(expectedSampleCount)) < 0.5 else {
@@ -125,9 +179,24 @@ enum IncrementalAudioTranscriber {
     private actor Buffer {
         private var samples: [Float] = []
         private var ended = false
+        private var changes = ChangeSignal()
 
-        func append(_ chunk: [Float]) { samples.append(contentsOf: chunk) }
-        func finish() { ended = true }
+        func append(_ chunk: [Float]) {
+            samples.append(contentsOf: chunk)
+            changes.signal()
+        }
+        func finish() {
+            ended = true
+            changes.signal()
+        }
+        var version: Int { changes.version }
+        /// Wait until audio arrives or input ends after `version`.
+        func waitForChange(after seen: Int) async {
+            guard changes.version == seen else { return }
+            changes.wake()
+            await withCheckedContinuation { changes.waiter = $0 }
+        }
+        func wake() { changes.wake() }
         /// Cheap status poll. Returning the samples themselves every tick
         /// would hand out a reference that turns the next `append` into a copy
         /// of the whole recording — hundreds of MB per second in a long session.
@@ -168,6 +237,7 @@ enum IncrementalAudioTranscriber {
                 var lastPartial = ""
                 while true {
                     try Task.checkCancellation()
+                    let version = await buffer.version
                     let status = await buffer.status()
                     if status.ended {
                         guard status.count > 0 else { throw RecordingTranscription.StreamError.incomplete }
@@ -198,7 +268,13 @@ enum IncrementalAudioTranscriber {
                         }
                         continue
                     }
-                    try await Task.sleep(nanoseconds: 250_000_000)
+                    // Woken by the next chunk or by stop, so the final decode
+                    // starts the moment input ends rather than on a poll.
+                    await withTaskCancellationHandler {
+                        await buffer.waitForChange(after: version)
+                    } onCancel: {
+                        Task { await buffer.wake() }
+                    }
                 }
             }
 
@@ -348,8 +424,10 @@ extension IncrementalAudioTranscriber {
         private var pending: [SpeechSegmenter.ClosedPiece] = []
         private var ended = false
         private var lastSpeechEnd = 0
+        private var changes = ChangeSignal()
 
         struct Status {
+            let version: Int
             let total: Int
             let hasPending: Bool
             let ended: Bool
@@ -363,13 +441,23 @@ extension IncrementalAudioTranscriber {
             samples.append(contentsOf: chunk)
             pending.append(contentsOf: closed)
             self.lastSpeechEnd = lastSpeechEnd
+            changes.signal()
         }
 
         func finish(closing closed: [SpeechSegmenter.ClosedPiece], lastSpeechEnd: Int) {
             pending.append(contentsOf: closed)
             self.lastSpeechEnd = lastSpeechEnd
             ended = true
+            changes.signal()
         }
+
+        /// Wait until audio arrives or input ends after `version`.
+        func waitForChange(after seen: Int) async {
+            guard changes.version == seen else { return }
+            changes.wake()
+            await withCheckedContinuation { changes.waiter = $0 }
+        }
+        func wake() { changes.wake() }
 
         private var total: Int { base + samples.count }
         private var openStart: Int { pending.last?.range.upperBound ?? takenEnd }
@@ -380,7 +468,7 @@ extension IncrementalAudioTranscriber {
 
         func status() -> Status {
             Status(
-                total: total, hasPending: !pending.isEmpty, ended: ended,
+                version: changes.version, total: total, hasPending: !pending.isEmpty, ended: ended,
                 openStart: openStart, lastSpeechEnd: lastSpeechEnd
             )
         }
@@ -561,6 +649,10 @@ extension IncrementalAudioTranscriber {
                         continue
                     }
                     let status = await buffer.status()
+                    // Input can end, closing the last piece, between taking
+                    // pending pieces above and reading the status here: decode
+                    // that piece before finishing.
+                    if status.hasPending { continue }
                     if status.ended {
                         guard status.total > 0, let modelUsed else {
                             throw RecordingTranscription.StreamError.incomplete
@@ -634,7 +726,13 @@ extension IncrementalAudioTranscriber {
                         }
                         continue
                     }
-                    try await Task.sleep(nanoseconds: 50_000_000)
+                    // Woken by the next chunk or by stop, so the tail decode
+                    // starts the moment input ends rather than on a poll.
+                    await withTaskCancellationHandler {
+                        await buffer.waitForChange(after: status.version)
+                    } onCancel: {
+                        Task { await buffer.wake() }
+                    }
                 }
             }
 
@@ -1076,5 +1174,27 @@ enum RunawayText {
             }
         }
         return false
+    }
+}
+
+// MARK: - Change signal
+
+/// A version counter and the one task waiting for it to move, kept inside an
+/// actor so a waiting decoder wakes on the next chunk or on stop instead of
+/// polling.
+private struct ChangeSignal {
+    private(set) var version = 0
+    var waiter: CheckedContinuation<Void, Never>?
+
+    /// Record a change and wake the waiting task.
+    mutating func signal() {
+        version += 1
+        wake()
+    }
+
+    /// Wake the waiting task without a change (cancellation).
+    mutating func wake() {
+        waiter?.resume()
+        waiter = nil
     }
 }

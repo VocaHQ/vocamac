@@ -26,17 +26,35 @@ enum AudioCapturePhase: Equatable {
     var evaluatesStopConditions: Bool { self == .recording }
 }
 
-/// Reuses the sample-rate converter while the microphone format is stable.
-/// A route change replaces it; each independent tap buffer resets its state.
+/// Reuses the sample-rate converter while the microphone format is stable,
+/// and keeps its filter state from one tap buffer to the next so a recording
+/// is resampled as one continuous signal. A route change replaces it; a new
+/// tap (`resetForNextCapture`) starts it from silence again.
+///
+/// Resetting it for every 4,096-frame buffer restarted the resampling filter
+/// cold about twelve times a second and rounded each buffer's fractional
+/// output length on its own, leaving a small seam in the audio at every
+/// buffer boundary.
 final class AudioConverterCache {
     private var converter: AVAudioConverter?
     private(set) var creationCount = 0
+    /// Set off the tap thread before a capture; applied by the tap.
+    private let resetPending = OSAllocatedUnfairLock(initialState: false)
+
+    /// Start the next conversion from a clean filter state.
+    func resetForNextCapture() {
+        resetPending.withLock { $0 = true }
+    }
 
     func converter(from source: AVAudioFormat, to destination: AVAudioFormat) -> AVAudioConverter? {
+        let reset = resetPending.withLock { pending -> Bool in
+            defer { pending = false }
+            return pending
+        }
         if let converter,
            converter.inputFormat == source,
            converter.outputFormat == destination {
-            converter.reset()
+            if reset { converter.reset() }
             return converter
         }
         converter = AVAudioConverter(from: source, to: destination)
@@ -63,9 +81,20 @@ final class AudioPCMBufferCache {
 }
 
 /// Tracks continuous silence independently of total recording time.
+///
+/// The user's threshold is a level, and microphones differ: a low-gain USB or
+/// Bluetooth headset can keep normal speech under it, so a hands-free
+/// recording stopped mid-sentence, while steady noise in a loud room stayed
+/// over it and the recording never stopped. The level is therefore also
+/// judged against what this recording has heard: the loudest recent sound
+/// (speech) and the quietest (the room).
 struct SilenceDetector {
     private(set) var lastSoundTime: Date
     private(set) var hasReportedSilence = false
+    /// Loudest recent chunk, decaying, which is speech once the user talks.
+    private(set) var speechPeak: Float = 0
+    /// Quietest recent chunk, rising slowly, which is the room's noise.
+    private(set) var noiseFloor: Float?
 
     init(now: Date = Date()) {
         lastSoundTime = now
@@ -74,6 +103,35 @@ struct SilenceDetector {
     mutating func reset(at now: Date = Date()) {
         lastSoundTime = now
         hasReportedSilence = false
+        speechPeak = 0
+        noiseFloor = nil
+    }
+
+    /// Per chunk; about twelve seconds to halve at 85 ms chunks.
+    static let peakDecay: Float = 0.995
+    /// Per chunk; the floor follows louder sound only very slowly, so speech
+    /// does not become the floor.
+    static let floorRise: Float = 0.001
+    /// Speech this far under the loudest recent sound still counts as sound.
+    static let speechRatio: Float = 0.25
+    /// Sound must be this far over the room's noise.
+    static let noiseMargin: Float = 2
+    /// The noise rule never asks for more than this share of the speech peak.
+    static let noiseCapRatio: Float = 0.5
+    /// Below this, nothing counts as sound however quiet the microphone.
+    static let minimumThreshold: Float = 0.0003
+
+    /// The level above which a chunk is sound, given the user's `threshold`
+    /// and what the recording has heard.
+    static func soundThreshold(user threshold: Float, speechPeak: Float, noiseFloor: Float?) -> Float {
+        var level = threshold
+        if speechPeak > 0 {
+            level = min(level, max(minimumThreshold, speechPeak * speechRatio))
+        }
+        if let noiseFloor {
+            level = max(level, min(noiseFloor * noiseMargin, speechPeak * noiseCapRatio))
+        }
+        return level
     }
 
     mutating func observe(
@@ -82,7 +140,14 @@ struct SilenceDetector {
         duration: TimeInterval,
         at now: Date
     ) -> Bool {
-        if energy > threshold {
+        let level = Self.soundThreshold(user: threshold, speechPeak: speechPeak, noiseFloor: noiseFloor)
+        speechPeak = max(energy, speechPeak * Self.peakDecay)
+        if let floor = noiseFloor, energy >= floor {
+            noiseFloor = floor + (energy - floor) * Self.floorRise
+        } else {
+            noiseFloor = energy
+        }
+        if energy > level {
             lastSoundTime = now
             hasReportedSilence = false
             return false
@@ -873,6 +938,9 @@ final class AudioEngine: @unchecked Sendable {
             .audioEngine,
             "Installing input tap: \(inputFormat.sampleRate)Hz, \(inputFormat.channelCount)ch"
         )
+        // A new tap is a new signal: don't carry the resampler's filter state
+        // over from the last recording or the route before a restart.
+        converterCache.resetForNextCapture()
         // Capture from the first buffer; see the note in `startRecording`.
         setCaptureActive(true)
         var startError: Error?
@@ -1141,6 +1209,7 @@ final class AudioEngine: @unchecked Sendable {
             converterProvider: { [converterCache] source, destination in
                 converterCache.converter(from: source, to: destination)
             },
+            continuous: true,
             monoBufferCache: monoBufferCache,
             outputBufferCache: outputBufferCache
         ) else {
@@ -1229,6 +1298,7 @@ final class AudioEngine: @unchecked Sendable {
         from inputFormat: AVAudioFormat,
         inputChannel: Int = 0,
         converterProvider: ((AVAudioFormat, AVAudioFormat) -> AVAudioConverter?)? = nil,
+        continuous: Bool = false,
         monoBufferCache: AudioPCMBufferCache? = nil,
         outputBufferCache: AudioPCMBufferCache? = nil
     ) -> AVAudioPCMBuffer? {
@@ -1264,11 +1334,13 @@ final class AudioEngine: @unchecked Sendable {
             return nil
         }
 
-        // Calculate output frame capacity based on sample rate ratio
+        // Calculate output frame capacity based on sample rate ratio. A
+        // continuous converter may also hand back frames it held from the
+        // previous buffer.
         let ratio = whisperFormat.sampleRate / sourceFormat.sampleRate
         let outputFrameCapacity = max(
             1,
-            AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio))
+            AVAudioFrameCount(ceil(Double(sourceBuffer.frameLength) * ratio)) + (continuous ? 64 : 0)
         )
 
         guard let outputBuffer = outputBufferCache?.buffer(format: whisperFormat, capacity: outputFrameCapacity)
@@ -1279,9 +1351,12 @@ final class AudioEngine: @unchecked Sendable {
         // The input block runs synchronously inside convert(), on this thread.
         let didProvideInput = UncheckedSendableBox(false)
         let source = UncheckedSendableBox(sourceBuffer)
+        // `.noDataNow` keeps a continuous converter's filter state (and the
+        // input it has not yet turned into output) for the next buffer;
+        // `.endOfStream` flushes and ends the stream.
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
             guard !didProvideInput.value else {
-                outStatus.pointee = .endOfStream
+                outStatus.pointee = continuous ? .noDataNow : .endOfStream
                 return nil
             }
             didProvideInput.value = true

@@ -45,7 +45,7 @@ final class AppStateDuckingTests: XCTestCase {
         XCTAssertEqual(mocks.audioDucker.duckCallCount, 0)
     }
 
-    func testStartCueFinishesBeforeOtherAudioIsMuted() async {
+    func testDictationMutesBeforeAnyCueSoMusicIsNotRecordedUnderIt() async {
         let (appState, mocks) = makeDuckingState()
         appState.soundEffectsEnabled = true
         var cuesPlayedBeforeMute: [MockSoundManager.PlayEvent] = []
@@ -53,8 +53,19 @@ final class AppStateDuckingTests: XCTestCase {
 
         await appState.startRecording()
 
-        XCTAssertEqual(cuesPlayedBeforeMute, [.startAsync], "Muting first would silence the cue")
-        XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0)
+        XCTAssertEqual(cuesPlayedBeforeMute, [], "The cue would play over the music into the microphone")
+        XCTAssertEqual(mocks.soundManager.playLog, [], "Muted output would swallow the cue; the music stopping is the cue")
+    }
+
+    func testCueStillPlaysWhenNothingElseWasPlaying() async {
+        let (appState, mocks) = makeDuckingState()
+        appState.soundEffectsEnabled = true
+        mocks.audioDucker.silencesOutput = false
+
+        await appState.startRecording()
+
+        XCTAssertEqual(mocks.audioDucker.duckCallCount, 1)
+        XCTAssertEqual(mocks.soundManager.playLog, [.start], "Nothing was muted, so the chime is the only cue")
     }
 
     func testCueStaysFireAndForgetWhenMutingIsOff() async {
@@ -65,17 +76,6 @@ final class AppStateDuckingTests: XCTestCase {
         await appState.startRecording()
 
         XCTAssertEqual(mocks.soundManager.playLog, [.start])
-    }
-
-    func testRecordingThatEndsDuringTheCueIsNeverMuted() async {
-        let (appState, mocks) = makeDuckingState()
-        appState.soundEffectsEnabled = true
-        mocks.soundManager.whileStartSoundAsyncPlays = { await appState.cancelRecording() }
-
-        await appState.startRecording()
-
-        XCTAssertFalse(appState.isRecording)
-        XCTAssertEqual(mocks.audioDucker.duckCallCount, 0, "Muting after the recording ended would strand the mute")
     }
 
     func testDeniedMicrophoneNeverDucks() async {

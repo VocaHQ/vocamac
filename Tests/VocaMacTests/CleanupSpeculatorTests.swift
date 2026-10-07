@@ -283,4 +283,27 @@ extension CleanupSpeculatorTests {
         await speculator.waitUntilIdle()
         XCTAssertEqual(cleaner.speculatedTexts, ["we ran out of flour."], "the newer text wins")
     }
+
+    func testNewTextForThePieceBeingCleanedStopsTheOldJob() async {
+        let cleaner = MockTranscriptCleanup()
+        var release: CheckedContinuation<Void, Never>?
+        cleaner.onSpeculate = { await withCheckedContinuation { release = $0 } }
+        cleaner.onCancelCleanup = { release?.resume(); release = nil }
+        let pipeline = DictationOutputPipeline(cleaner: cleaner, snippets: SnippetExpander())
+        let speculator = CleanupSpeculator(pipeline: pipeline) { _ in self.options() }
+
+        // A tentative decode of the piece being spoken starts cleaning...
+        speculator.submit(TranscribedPiece(range: 0..<16_000, text: "so we could could ship it on", language: "en"), index: 0)
+        await waitUntil { release != nil }
+        // ...then the piece closes with more words.
+        cleaner.onSpeculate = nil
+        speculator.submit(TranscribedPiece(range: 0..<16_000, text: firstSentence, language: "en"), index: 0)
+        await waitUntil { cleaner.speculateCallCount == 2 }
+        await speculator.waitUntilIdle()
+
+        XCTAssertEqual(speculator.supersededCount, 1)
+        XCTAssertEqual(cleaner.cancelCleanupCallCount, 1, "the stale answer is never generated in full")
+        XCTAssertEqual(cleaner.speculatedTexts.last, firstSentence)
+        XCTAssertLessThanOrEqual(cleaner.maxConcurrentModelCalls, 1)
+    }
 }

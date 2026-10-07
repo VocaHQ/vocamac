@@ -28,7 +28,7 @@ final class CleanupSpeculator {
     private let options: OptionsProvider
 
     private var completed: [CleanupRequestKey: CleanupAttempt] = [:]
-    private var running: (key: CleanupRequestKey, task: Task<CleanupAttempt, Never>)?
+    private var running: (key: CleanupRequestKey, index: Int, task: Task<CleanupAttempt, Never>)?
     /// Requests not started yet, oldest piece first.
     private var waiting: [(index: Int, request: CleanupRequest)] = []
     static let maxWaiting = 2
@@ -54,6 +54,8 @@ final class CleanupSpeculator {
     private(set) var hitCount = 0
     private(set) var missCount = 0
     private(set) var cancelledCount = 0
+    /// Running jobs stopped because their piece was submitted again.
+    private(set) var supersededCount = 0
 
     init(pipeline: DictationOutputPipeline, options: @escaping OptionsProvider) {
         self.pipeline = pipeline
@@ -103,6 +105,16 @@ final class CleanupSpeculator {
 
     private func enqueue(_ request: CleanupRequest, index: Int) {
         guard completed[request.key] == nil, running?.key != request.key else { return }
+        // New text for the piece being cleaned right now (its tentative
+        // decode was replaced, or the next piece corrected it) means that
+        // answer will never be claimed. Stop it rather than letting the new
+        // text wait for a whole generation nobody uses.
+        if let running, running.index == index, running.key != stoppedKey {
+            stoppedKey = running.key
+            supersededCount += 1
+            PerformanceTrace.event("SpeculativeCleanupSuperseded")
+            pipeline.cleaner.cancelCleanup()
+        }
         waiting.removeAll { $0.index == index }
         waiting.append((index, request))
         waiting.sort { $0.index < $1.index }
@@ -122,7 +134,7 @@ final class CleanupSpeculator {
             defer { PerformanceTrace.end(interval) }
             return await pipeline.speculate(next.request)
         }
-        running = (key, task)
+        running = (key, next.index, task)
         Task { @MainActor [weak self] in
             let attempt = await task.value
             guard let self else { return }

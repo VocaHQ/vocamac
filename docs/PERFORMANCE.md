@@ -18,6 +18,24 @@ partial streamed text is never injected. Cancellation releases the consumer and
 allows queued model operations to finish. Whisper, Parakeet and ONNX retain their
 batch decoding behavior and accuracy policies.
 
+Capture resamples each recording as one continuous signal: the converter keeps
+its filter state from one tap buffer to the next and starts clean on each new
+tap. At stop, a live session's input ends as soon as the microphone stops, so
+the last piece decodes while History is written and the screen context is read.
+Whisper is the exception while its screen terms are still arriving.
+
+Every load and batch decode has a deadline (`Deadline`): 30 minutes for a first
+Neural Engine compile or Apple Speech, 5 minutes for a load from CoreML's cache,
+and 30 s plus three times the audio length (at least 60 s) for a decode. A miss
+drops the model, so the next dictation loads a fresh copy instead of queueing
+behind a call that never returns. A live session that is cancelled and does not
+stop within 3 s gives the engine back the same way. Whisper and Parakeet run a
+short warm-up decode after each load.
+
+A push-to-talk press while the previous dictation is still finishing opens the
+microphone at once. The queued dictation adopts that capture when it starts, or,
+if the key already came up, is transcribed with the audio from while it was down.
+
 Capture reuses mono/conversion PCM buffers and reserves sample storage before
 installing the tap. It transfers the final sample array on stop. Streaming alone
 makes an additional owned copy per tap chunk, since the converter reuses its
@@ -78,6 +96,26 @@ This compares prepared batch time with stop-to-result time after feeding the
 same clip at microphone pace. The report includes both transcripts for accuracy
 review. It measures engine behavior, not microphone startup, total energy, or
 actual paste consumption. Stop other builds before collecting timings.
+
+For transcription accuracy, point the speech benchmark at a corpus of
+`<name>.wav` + `<name>.txt` reference pairs kept outside the checkout:
+
+```sh
+VOCAMAC_ACCURACY_CORPUS=/path/to/corpus \
+VOCAMAC_ACCURACY_MODELS=tiny,parakeet-tdt-0.6b-v3 \
+swift test --filter SpeechAccuracyBenchmarkTests
+```
+
+Each model loads through the app's `TranscriptionRouter`, so silence trimming,
+decoding options and retries match a real dictation. The JSON report (in
+`$TMPDIR`, or `VOCAMAC_ACCURACY_OUTPUT`) has each file's transcript and word
+error rate, the corpus WER per model, empty transcripts, and the first decode
+after the load next to the median warm decode. Models that are not downloaded
+are skipped unless `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1`. Set
+`VOCAMAC_ACCURACY_LANGUAGE`, `VOCAMAC_ACCURACY_VOCABULARY` (comma-separated
+Dictionary terms), or `VOCAMAC_ACCURACY_MAX_WER` (for example `0.15`) to fail
+on a regression. Real microphone recordings find more than synthetic `say`
+audio does. Compare a change against the same corpus before and after.
 
 Before release, compare short and long clips, selected and automatic languages,
 built-in/USB/Bluetooth microphones, rapid start/stop, cancellation, model changes,

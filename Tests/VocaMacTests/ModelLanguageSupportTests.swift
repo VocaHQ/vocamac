@@ -44,6 +44,8 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertLessThan(ModelSize.base.accuracyScore, ModelSize.small.accuracyScore)
         XCTAssertLessThan(ModelSize.small.accuracyScore, ModelSize.parakeetV3.accuracyScore)
         XCTAssertLessThan(ModelSize.parakeetV3.accuracyScore, ModelSize.largeV3Latest.accuracyScore)
+        XCTAssertLessThan(ModelSize.parakeetV3.accuracyScore, ModelSize.parakeetUltra.accuracyScore)
+        XCTAssertEqual(ModelSize.parakeetV3.speedScore, ModelSize.parakeetUltra.speedScore)
     }
 
     func testSpeedScoreSeparatesSlowModels() {
@@ -75,6 +77,7 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertEqual(ModelSize.canary180mFlash.languageCoverage, .only(["en", "es", "de", "fr"]))
         XCTAssertEqual(ModelSize.appleSpeech.languageCoverage, .system)
         XCTAssertEqual(ModelSize.parakeetV3Languages.count, 25)
+        XCTAssertEqual(ModelSize.parakeetUltra.languageCoverage, .only(ModelSize.parakeetV3Languages))
         XCTAssertEqual(ModelSize.qwen3AsrLanguages.count, 30)
         XCTAssertTrue(ModelSize.qwen3AsrLanguages.contains("hi"))
     }

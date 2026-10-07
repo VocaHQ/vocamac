@@ -51,17 +51,19 @@ final class AppStateSpotifyPauseTests: XCTestCase {
         )
     }
 
-    func testRecordingThatEndsDuringTheCueIsNeverPaused() async {
+    func testPauseIsNotHeldBackByTheCue() async {
         let (appState, mocks) = makePausingState()
-        // The awaited cue path runs while ducking is on.
         appState.duckOtherAudioEnabled = true
         appState.soundEffectsEnabled = true
-        mocks.soundManager.whileStartSoundAsyncPlays = { await appState.cancelRecording() }
+        mocks.audioDucker.silencesOutput = false
+        var cuesPlayedBeforePause: [MockSoundManager.PlayEvent]?
+        mocks.audioDucker.onDuck = { cuesPlayedBeforePause = cuesPlayedBeforePause ?? mocks.soundManager.playLog }
 
         await appState.startRecording()
 
-        XCTAssertFalse(appState.isRecording)
-        XCTAssertEqual(mocks.spotifyPauser.pauseCallCount, 0, "Pausing after the recording ended would strand the pause")
+        XCTAssertEqual(mocks.spotifyPauser.pauseCallCount, 1)
+        XCTAssertEqual(mocks.soundManager.startSoundAsyncCallCount, 0, "No awaited cue holds up the pause")
+        XCTAssertEqual(cuesPlayedBeforePause, [], "Playback is silenced before the cue plays")
     }
 
     func testDeniedMicrophoneNeverPauses() async {

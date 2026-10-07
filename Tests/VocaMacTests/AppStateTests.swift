@@ -649,6 +649,40 @@ final class AppStateModelLoadingTests: XCTestCase {
     }
 
     @MainActor
+    func testDownloadDoesNotWaitForAModelLoad() async throws {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small]
+        let whisperService = MockWhisperService()
+        whisperService.loadDelayNanoseconds = 2_000_000_000
+        let (appState, _) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+
+        let load = Task { await appState.loadModel(.small) }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let started = Date()
+        await appState.downloadModel(.medium)
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.0, "A compile in progress must not hold up a download")
+        XCTAssertTrue(modelManager.downloadedModels.contains(.medium))
+        load.cancel()
+        await load.value
+    }
+
+    @MainActor
+    func testSecondRequestForTheSameModelJoinsItsDownload() async throws {
+        let modelManager = MockModelManager()
+        modelManager.downloadDelayNanoseconds = 50_000_000
+        let (appState, _) = AppState.makeTestState(modelManager: modelManager)
+
+        async let first: Void = appState.downloadModel(.small)
+        try await Task.sleep(nanoseconds: 5_000_000)
+        async let second: Void = appState.downloadModel(.small)
+        await first
+        await second
+
+        XCTAssertEqual(modelManager.downloadRequests, [.small], "The files are fetched once")
+    }
+
+    @MainActor
     func testConcurrentModelLoadsAreSerialized() async throws {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small, .medium]

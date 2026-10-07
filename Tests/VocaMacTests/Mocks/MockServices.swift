@@ -162,10 +162,13 @@ final class MockAudioDucker: AudioDucking {
     var restoreCallCount = 0
     var restoreAfterUnexpectedExitCallCount = 0
     var onDuck: (() -> Void)?
+    /// What `duck` reports: true as if other audio was playing and is now muted.
+    var silencesOutput = true
 
-    func duck() {
+    func duck() -> Bool {
         duckCallCount += 1
         onDuck?()
+        return silencesOutput
     }
 
     func restore() {
@@ -493,7 +496,7 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
-        case .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B, .customEndpoint:
             return size.rawValue

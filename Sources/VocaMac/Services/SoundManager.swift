@@ -5,16 +5,31 @@
 
 import Foundation
 import AppKit
+import os
 
 final class SoundManager: NSObject, NSSoundDelegate, @unchecked Sendable {
 
     // MARK: - Properties
 
+    private struct Settings {
+        var volume: Float = 0.5
+        var toneOverride: DictationTone?
+    }
+
+    /// Set from the main actor, read by the async players on other threads.
+    private let settings = OSAllocatedUnfairLock(initialState: Settings())
+
     /// Volume for sound effects (0.0 to 1.0)
-    var volume: Float = 0.5
+    var volume: Float {
+        get { settings.withLock { $0.volume } }
+        set { settings.withLock { $0.volume = newValue } }
+    }
 
     /// Test hook. When set, playback uses this tone instead of the saved preference.
-    var toneOverride: DictationTone?
+    var toneOverride: DictationTone? {
+        get { settings.withLock { $0.toneOverride } }
+        set { settings.withLock { $0.toneOverride = newValue } }
+    }
 
     /// Queue used because NSSound can block while Core Audio wakes or fails.
     private let soundQueue = DispatchQueue(label: "com.vocamac.sound-playback", qos: .utility)

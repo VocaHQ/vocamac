@@ -6,6 +6,7 @@
 // and never needs to know which engine is active.
 
 import Foundation
+import os
 
 final class TranscriptionRouter: @unchecked Sendable {
 
@@ -20,12 +21,27 @@ final class TranscriptionRouter: @unchecked Sendable {
     /// Trims silence before batch decodes; see `SpeechActivityTrimmer`.
     private let voiceActivity = VoiceActivityDetector()
 
+    private struct RouterState {
+        var activeEngine: TranscriptionEngine = .whisperKit
+        var consecutiveFailures = 0
+    }
+
+    /// Written by loads and decodes off the main actor and read from it
+    /// (`isModelLoaded`, `startStreaming`), so it sits behind a lock.
+    private let state = OSAllocatedUnfairLock(initialState: RouterState())
+
     /// Engine that owns the currently loaded model.
-    private(set) var activeEngine: TranscriptionEngine = .whisperKit
+    private(set) var activeEngine: TranscriptionEngine {
+        get { state.withLock { $0.activeEngine } }
+        set { state.withLock { $0.activeEngine = newValue } }
+    }
 
     /// Decodes in a row that failed on the loaded model; see
-    /// `isModelFailure(_:)`.
-    private var consecutiveFailures = 0
+    /// `isModelFailure(_:)`. Only changed inside `operationSerializer`.
+    private var consecutiveFailures: Int {
+        get { state.withLock { $0.consecutiveFailures } }
+        set { state.withLock { $0.consecutiveFailures = newValue } }
+    }
 
     /// Failures in a row after which the model is unloaded, so the next
     /// dictation loads a fresh copy instead of failing the same way.
@@ -125,7 +141,7 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// `activeEngine`, while the other engine's model stayed resident.
     /// Transcription shares the same queue so a hotkey mid-switch cannot
     /// decode against an unloaded engine.
-    func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
+    func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws {
         let interval = PerformanceTrace.begin("ModelLoad")
         defer { PerformanceTrace.end(interval) }
         try await operationSerializer.run { [self] in
@@ -136,7 +152,7 @@ extension TranscriptionRouter: SpeechTranscribing {
     private func performLoad(
         name: String?,
         folder: URL?,
-        onPhaseChange: ((String) -> Void)?
+        onPhaseChange: (@Sendable (String) -> Void)?
     ) async throws {
         let engine = Self.engine(forModelIdentifier: name)
 

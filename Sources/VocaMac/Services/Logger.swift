@@ -161,7 +161,10 @@ enum LogLevel: String {
 /// Unified logging framework for VocaMac
 /// Combines os.Logger (Console.app integration) with persistent file logging
 /// with automatic size-based rotation.
-final class VocaLogger {
+/// Unchecked: the log level is behind a lock, file writes and the rotation
+/// counter belong to `fileQueue`, and `ISO8601DateFormatter` and `os.Logger`
+/// are thread-safe.
+final class VocaLogger: @unchecked Sendable {
     // MARK: - Singleton
 
     static let shared = VocaLogger()
@@ -174,7 +177,12 @@ final class VocaLogger {
     private let osLogger: os.Logger
     private let logMaxSize = 1_000_000
     private let maxRotatedFiles = 3
-    private var currentLogLevel: LogLevel = .info
+    /// Read by every log call, on any thread; set from the main actor.
+    private let logLevel = OSAllocatedUnfairLock(initialState: LogLevel.info)
+    private var currentLogLevel: LogLevel {
+        get { logLevel.withLock { $0 } }
+        set { logLevel.withLock { $0 = newValue } }
+    }
     private var bytesWrittenSinceLastCheck: Int = 0
     private let rotationCheckInterval = 10_000
     private let dateFormatter: ISO8601DateFormatter = {

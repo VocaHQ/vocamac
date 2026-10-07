@@ -13,7 +13,7 @@ import Combine
 protocol AudioRecording: AnyObject {
     var isCurrentlyRecording: Bool { get }
     var onAudioLevel: ((Float) -> Void)? { get set }
-    var onAudioSamples: (([Float], Int) -> Void)? { get set }
+    var onAudioSamples: (@Sendable ([Float], Int) -> Void)? { get set }
     var onSilenceDetected: (() -> Void)? { get set }
     var onMaxDurationReached: (() -> Void)? { get set }
     var onAudioDeviceChanged: (() -> Void)? { get set }
@@ -33,11 +33,11 @@ protocol AudioRecording: AnyObject {
     func cancelPendingStart()
     func forceReset()
     func checkPermissionStatus() -> PermissionStatus
-    func requestPermission(completion: @escaping (Bool) -> Void)
+    func requestPermission(completion: @escaping @Sendable (Bool) -> Void)
 }
 
 extension AudioRecording {
-    var onAudioSamples: (([Float], Int) -> Void)? {
+    var onAudioSamples: (@Sendable ([Float], Int) -> Void)? {
         get { nil }
         // swiftlint:disable:next unused_setter_value
         set { }
@@ -46,7 +46,8 @@ extension AudioRecording {
 
 // MARK: - SoundPlaying
 
-protocol SoundPlaying: AnyObject {
+/// Sendable: AppState awaits its async methods, which run off the main actor.
+protocol SoundPlaying: AnyObject, Sendable {
     var volume: Float { get set }
     func playStartSound()
     func playStartSoundAsync() async
@@ -191,7 +192,8 @@ extension CursorOverlayManaging {
 
 // MARK: - ModelManaging
 
-protocol ModelManaging: AnyObject {
+/// Sendable: downloads and deletes run off the main actor.
+protocol ModelManaging: AnyObject, Sendable {
     func deviceRecommendation() -> (defaultModel: String, supported: [String], disabled: [String])
     func modelFolder(for size: ModelSize) -> URL?
     func bundledModelFolder(for size: ModelSize) -> URL?
@@ -201,7 +203,7 @@ protocol ModelManaging: AnyObject {
     func isModelSupported(_ size: ModelSize) -> Bool
     func modelIdentifier(for size: ModelSize) -> String
     func modelSize(from identifier: String) -> ModelSize?
-    func downloadModel(size: ModelSize, onProgress: @escaping (Double) -> Void) async throws
+    func downloadModel(size: ModelSize, onProgress: @escaping @Sendable (Double) -> Void) async throws
     func cancelDownload(for size: ModelSize)
     func deleteModel(_ size: ModelSize) async throws
     func diskUsageDescription() -> String
@@ -230,7 +232,8 @@ extension ModelManaging {
 
 // MARK: - SpeechTranscribing
 
-protocol SpeechTranscribing: AnyObject {
+/// Sendable: loads and decodes run off the main actor.
+protocol SpeechTranscribing: AnyObject, Sendable {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
     /// Start a live session. With `commit`, finished pieces are decoded while
@@ -243,7 +246,7 @@ protocol SpeechTranscribing: AnyObject {
         commit: StreamingCommitOptions?
     ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
-    func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws
+    func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
     func unloadModel() async
     /// Discard stored state that retired engine code left behind, so callers
@@ -271,7 +274,7 @@ extension SpeechTranscribing {
         startStreaming(language: language, vocabulary: vocabulary, onPartial: onPartial, commit: nil)
     }
 
-    func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: ((String) -> Void)? = nil) async throws {
+    func loadModel(name: String? = nil, folder: URL? = nil, onPhaseChange: (@Sendable (String) -> Void)? = nil) async throws {
         try await _loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
     }
 }

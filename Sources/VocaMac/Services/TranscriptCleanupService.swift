@@ -5,7 +5,9 @@
 
 import Combine
 import Foundation
-import LLM
+// LLM.swift isn't annotated for concurrency; its model object is only used
+// from this service.
+@preconcurrency import LLM
 
 @MainActor
 final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
@@ -364,7 +366,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
                     refusalPrefixes: TranscriptCleanup.refusalPrefixes(allowsTransform: allowsTransform)
                         .filter { !TranscriptCleanup.normalizedForRefusal(chunkInput).contains($0) },
                     onPartial: transform.onPartial.map { onPartial in
-                        { partial in onPartial(written + TranscriptCleanup.sanitize(partial)) }
+                        { @MainActor @Sendable partial in onPartial(written + TranscriptCleanup.sanitize(partial)) }
                     },
                     stop: { [core = llm.core] in core.interrupt() }
                 )

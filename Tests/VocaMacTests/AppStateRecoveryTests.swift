@@ -11,7 +11,7 @@ import XCTest
 private final class SlowStopAudioEngine: AudioRecording {
     var isCurrentlyRecording = false
     var onAudioLevel: ((Float) -> Void)?
-    var onAudioSamples: (([Float], Int) -> Void)?
+    var onAudioSamples: (@Sendable ([Float], Int) -> Void)?
     var onSilenceDetected: (() -> Void)?
     var onMaxDurationReached: (() -> Void)?
     var onAudioDeviceChanged: (() -> Void)?
@@ -44,7 +44,7 @@ private final class SlowStopAudioEngine: AudioRecording {
     func cancelPendingStart() {}
     func forceReset() { isCurrentlyRecording = false }
     func checkPermissionStatus() -> PermissionStatus { .granted }
-    func requestPermission(completion: @escaping (Bool) -> Void) { completion(true) }
+    func requestPermission(completion: @escaping @Sendable (Bool) -> Void) { completion(true) }
 }
 
 @MainActor

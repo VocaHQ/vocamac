@@ -16,7 +16,9 @@ extension Notification.Name {
 /// rebuilt when a view appears, so a headset connected (or removed) while the
 /// menu or Settings window is open leaves the user picking from a stale list —
 /// or staring at a device that is no longer there.
-final class AudioDeviceMonitor {
+/// Unchecked: all mutable state is only touched on `queue`, where Core Audio
+/// also delivers the listener block.
+final class AudioDeviceMonitor: @unchecked Sendable {
 
     static let shared = AudioDeviceMonitor()
 

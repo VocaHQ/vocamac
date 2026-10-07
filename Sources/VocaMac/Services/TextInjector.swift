@@ -8,7 +8,10 @@ import Foundation
 import AppKit
 import Carbon.HIToolbox
 
-final class TextInjector {
+/// Unchecked: `inject` may be called from any thread but hops to the main
+/// thread, where all of this object's mutable state lives. Accessibility
+/// writes run on `accessibilityQueue` and only read immutable configuration.
+final class TextInjector: @unchecked Sendable {
 
     // MARK: - Constants
 
@@ -73,8 +76,9 @@ final class TextInjector {
     /// A process-wide serial queue for the system pasteboard. TextInjector is
     /// normally a singleton, but sharing this coordinator also prevents
     /// separate instances from racing over the same pasteboard.
-    private final class ClipboardInjectionCoordinator {
-        typealias Operation = (@escaping () -> Void) -> Void
+    /// Unchecked: only used on the main thread.
+    private final class ClipboardInjectionCoordinator: @unchecked Sendable {
+        typealias Operation = (@escaping @Sendable () -> Void) -> Void
 
         private var pendingOperations: [Operation] = []
         private var isRunning = false
@@ -165,7 +169,7 @@ final class TextInjector {
     func inject(text: String, preserveClipboard: Bool = true) {
         guard !text.isEmpty else { return }
 
-        let enqueue = { [self] in
+        let enqueue = { @Sendable [self] in
             let targetPID = frontmostPIDProvider()
             enqueueInjection(
                 text: text,
@@ -184,7 +188,7 @@ final class TextInjector {
     func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t) {
         guard !text.isEmpty else { return }
 
-        let enqueue = { [self] in
+        let enqueue = { @Sendable [self] in
             let currentPID = frontmostPIDProvider()
             guard samePasteTarget(expectedProcessID, currentPID) else {
                 reportPasteTargetMismatch(queued: expectedProcessID, current: currentPID)
@@ -207,7 +211,7 @@ final class TextInjector {
     ) {
         let interval = PerformanceTrace.begin("TextDeliveryQueueAndDispatch")
         Self.clipboardInjectionCoordinator.enqueue { [self] finish in
-            let complete = {
+            let complete = { @Sendable in
                 PerformanceTrace.end(interval)
                 finish()
             }
@@ -241,7 +245,7 @@ final class TextInjector {
     private static let accessibilityQueue = DispatchQueue(label: "com.vocamac.text-accessibility", qos: .userInitiated)
 
     /// Clipboard operations remain on main; only cross-process AX work runs on the worker.
-    private func performInjection(text: String, preserveClipboard: Bool, targetPID: pid_t?, completion: @escaping () -> Void) {
+    private func performInjection(text: String, preserveClipboard: Bool, targetPID: pid_t?, completion: @escaping @Sendable () -> Void) {
         let trusted = accessibilityTrustedOverride ?? AXIsProcessTrusted()
         guard trusted else {
             // Without Accessibility neither insertion path works. Leave the
@@ -258,7 +262,7 @@ final class TextInjector {
             completion()
             return
         }
-        let deliverFallback = { [self] (result: AccessibilityInsertion) in
+        let deliverFallback = { @Sendable [self] (result: AccessibilityInsertion) in
             if result == .inserted {
                 PerformanceTrace.event("AccessibilityTextInserted")
                 completion()
@@ -421,7 +425,7 @@ final class TextInjector {
     /// operation only after `completion` is called.
     private func processClipboardInjection(
         _ request: ClipboardInjectionRequest,
-        completion: @escaping () -> Void
+        completion: @escaping @Sendable () -> Void
     ) {
         Task { @MainActor [self] in
             let interval = PerformanceTrace.begin("TextInjectionToPaste")

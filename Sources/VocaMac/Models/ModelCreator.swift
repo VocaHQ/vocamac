@@ -183,7 +183,8 @@ enum ModelCreator: String, CaseIterable, Identifiable {
     }
 
     private static let cacheLock = NSLock()
-    private static var imageCache: [String: NSImage] = [:]
+    /// Only read or written while holding `cacheLock`.
+    nonisolated(unsafe) private static var imageCache: [String: NSImage] = [:]
 }
 
 extension ModelSize {

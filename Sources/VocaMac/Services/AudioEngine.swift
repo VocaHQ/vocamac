@@ -98,7 +98,12 @@ struct SilenceDetector {
     }
 }
 
-final class AudioEngine {
+/// Unchecked: the engine is driven from the main actor and `lifecycleQueue`,
+/// and fed by Core Audio's render thread. State the render thread touches is
+/// in `OSAllocatedUnfairLock`s (see `capturePhase`); the rest is only used on
+/// `lifecycleQueue`. The compiler can't follow that split, so it is
+/// documented here instead.
+final class AudioEngine: @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -112,8 +117,8 @@ final class AudioEngine {
     private let capturedAudio = OSAllocatedUnfairLock(initialState: [Float]())
     private let monoBufferCache = AudioPCMBufferCache()
     private let outputBufferCache = AudioPCMBufferCache()
-    private let sampleObserver = OSAllocatedUnfairLock<(([Float], Int) -> Void)?>(initialState: nil)
-    var onAudioSamples: (([Float], Int) -> Void)? {
+    private let sampleObserver = OSAllocatedUnfairLock<(@Sendable ([Float], Int) -> Void)?>(initialState: nil)
+    var onAudioSamples: (@Sendable ([Float], Int) -> Void)? {
         get { sampleObserver.withLock { $0 } }
         set { sampleObserver.withLock { $0 = newValue } }
     }
@@ -408,8 +413,10 @@ final class AudioEngine {
         engine = nil
         VocaLogger.info(.audioEngine, "Audio engine retired after configuration change")
 
+        // Only kept alive here, never used.
+        let retired = UncheckedSendableBox(oldEngine)
         lifecycleQueue.asyncAfter(deadline: .now() + Self.idleEngineReleaseDelay) {
-            withExtendedLifetime(oldEngine) {}
+            withExtendedLifetime(retired) {}
         }
     }
 
@@ -494,7 +501,7 @@ final class AudioEngine {
     }
 
     /// Request microphone permission from the user
-    func requestPermission(completion: @escaping (Bool) -> Void) {
+    func requestPermission(completion: @escaping @Sendable (Bool) -> Void) {
         AVAudioApplication.requestRecordPermission { granted in
             DispatchQueue.main.async {
                 completion(granted)
@@ -1269,15 +1276,17 @@ final class AudioEngine {
             return nil
         }
 
-        var didProvideInput = false
+        // The input block runs synchronously inside convert(), on this thread.
+        let didProvideInput = UncheckedSendableBox(false)
+        let source = UncheckedSendableBox(sourceBuffer)
         let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-            guard !didProvideInput else {
+            guard !didProvideInput.value else {
                 outStatus.pointee = .endOfStream
                 return nil
             }
-            didProvideInput = true
+            didProvideInput.value = true
             outStatus.pointee = .haveData
-            return sourceBuffer
+            return source.value
         }
 
         var error: NSError?

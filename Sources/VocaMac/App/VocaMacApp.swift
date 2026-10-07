@@ -382,16 +382,21 @@ struct VocaMacApp: App {
                       let link = VocaDeepLink(url: url) else { return }
                 let returnTarget: NSRunningApplication?
                 if link.requiresExternalConfirmation {
-                    returnTarget = Self.deepLinkReturnTarget(
-                        lastActive: self.appState.frontmostAppResolver.lastActiveApplication()
-                    )
-                    let alert = NSAlert()
-                    alert.alertStyle = .warning
-                    alert.messageText = "Allow VocaMac action?"
-                    alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
-                    alert.addButton(withTitle: "Allow")
-                    alert.addButton(withTitle: "Cancel")
-                    guard alert.runModal() == .alertFirstButtonReturn else { return }
+                    // Registered on the main queue, so this is the main actor.
+                    let (target, allowed) = MainActor.assumeIsolated {
+                        let target = Self.deepLinkReturnTarget(
+                            lastActive: self.appState.frontmostAppResolver.lastActiveApplication()
+                        )
+                        let alert = NSAlert()
+                        alert.alertStyle = .warning
+                        alert.messageText = "Allow VocaMac action?"
+                        alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
+                        alert.addButton(withTitle: "Allow")
+                        alert.addButton(withTitle: "Cancel")
+                        return (target, alert.runModal() == .alertFirstButtonReturn)
+                    }
+                    returnTarget = target
+                    guard allowed else { return }
                 } else {
                     returnTarget = nil
                 }

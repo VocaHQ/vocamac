@@ -30,7 +30,8 @@ final class FrontmostAppResolver: FrontmostAppResolving {
     /// notification, which `NSWorkspace` delivers on the main thread.
     private var lastActive: RunningAppSnapshot?
     private var lastActiveInstance: NSRunningApplication?
-    private var observer: NSObjectProtocol?
+    /// nonisolated(unsafe): only `init` sets it and `deinit` reads it.
+    nonisolated(unsafe) private var observer: NSObjectProtocol?
 
     init() {
         let frontmost = NSWorkspace.shared.frontmostApplication

@@ -668,6 +668,9 @@ final class AppState: ObservableObject {
     @Published private(set) var activeWritingTargetName: String?
     @Published var nextWritingProfile: WritingProfile?
     @Published private(set) var lastOutput: DictationOutputResult?
+    /// A crash report from last time, offered for reporting in the menu bar.
+    @Published private(set) var pendingCrashReport: PendingCrashReport?
+    let crashReportFinder: CrashReportFinder?
     /// The last dictation typed into an app kept out of History. History's
     /// newest entry is older than it, so paste-last uses this instead. Kept
     /// apart from `lastOutput`, which in-app tests and the scratchpad set too.
@@ -1073,6 +1076,7 @@ final class AppState: ObservableObject {
         commandModelSlot: TranscriptCleaning? = nil,
         voiceActionPerformer: (any VoiceActionPerforming)? = nil,
         commandReviewPresenter: (any CommandReviewPresenting)? = nil,
+        crashReportFinder: CrashReportFinder? = nil,
         skipSystemIntegration: Bool = false
     ) {
         self.audioEngine = audioEngine
@@ -1090,6 +1094,7 @@ final class AppState: ObservableObject {
         self.transcriptCleanup = transcriptCleanup
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
+        self.crashReportFinder = crashReportFinder ?? (skipSystemIntegration ? nil : CrashReportFinder())
         // Tests and other headless runs keep history in memory and never read
         // another app's text.
         // Launch reads, replays, and compacts history off the main thread.
@@ -2255,7 +2260,7 @@ final class AppState: ObservableObject {
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
         audioEngine.onAudioSamples = session.map { session in
-            { samples, offset in session.append(samples, at: offset) }
+            { @Sendable samples, offset in session.append(samples, at: offset) }
         }
         let automaticExternal = automaticExternalInputIfNeeded()
         let didStartRecording = await startAudioEngine(
@@ -3711,6 +3716,8 @@ final class AppState: ObservableObject {
             VocaLogger.warning(.appState, "Hotkey listener failed to start. Check Accessibility & Input Monitoring permissions.")
         }
 
+        await checkForCrashReport()
+
         // What the last in-place install did, before a new check runs.
         updateChecker.reportLastInstallResult()
 
@@ -4224,6 +4231,53 @@ final class AppState: ObservableObject {
             )
         default: return false
         }
+    }
+}
+
+// MARK: - Crash reports
+
+extension AppState {
+
+    /// Look for a crash report macOS wrote since the last one VocaMac showed.
+    func checkForCrashReport() async {
+        guard let finder = crashReportFinder else { return }
+        let pending = await Task.detached(priority: .utility) { finder.newestUnseenReport() }.value
+        guard let pending else { return }
+        VocaLogger.warning(
+            .general,
+            "VocaMac quit unexpectedly last time: \(pending.report.summary) (\(pending.fileURL.lastPathComponent))"
+        )
+        pendingCrashReport = pending
+    }
+
+    /// Open a pre-filled GitHub issue for the crash. Nothing is sent: the
+    /// user reads it in the browser and decides whether to submit.
+    /// Report waits for a dictation to finish: a browser error would replace
+    /// its status and hide its controls.
+    var canReportPendingCrash: Bool {
+        pendingCrashReport != nil && !isRecording && appStatus != .recording && appStatus != .processing
+    }
+
+    func reportPendingCrash(open: (URL) -> Bool = { NSWorkspace.shared.open($0) }) {
+        guard canReportPendingCrash, let pending = pendingCrashReport else { return }
+        guard open(CrashIssue.url(for: pending.report)) else {
+            // Keep the card so the user can try again or use Show File.
+            showTemporaryError("Couldn't open your browser to report the crash. Use Show File to attach the report to an issue.")
+            return
+        }
+        dismissPendingCrash()
+    }
+
+    /// Show the full crash report in Finder, to attach to an issue.
+    func revealPendingCrashReport() {
+        guard let pending = pendingCrashReport else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([pending.fileURL])
+    }
+
+    func dismissPendingCrash() {
+        guard let pending = pendingCrashReport else { return }
+        crashReportFinder?.markSeen(through: pending.modified)
+        pendingCrashReport = nil
     }
 }
 

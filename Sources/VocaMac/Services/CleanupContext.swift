@@ -10,7 +10,10 @@ enum CleanupContext {
     static func chunks(
         _ text: String, contextTokens: Int, promptTokens: Int,
         allowsSplitting: Bool = true,
-        countTokens: (String) async -> Int
+        countTokens: (String) async -> Int,
+        // Runs on the caller's actor, so `countTokens` (which reads the
+        // cleanup model) never leaves it.
+        isolation: isolated (any Actor)? = #isolation
     ) async -> [String]? {
         guard text.count <= maximumCharacters else { return nil }
         func fits(_ tokens: Int) -> Bool {

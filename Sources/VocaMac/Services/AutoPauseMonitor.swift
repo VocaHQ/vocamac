@@ -118,14 +118,17 @@ final class AutoPauseMonitor: ObservableObject {
     @Published private(set) var activeTrigger: AutoPauseAppEntry?
     private(set) var isRunning: Bool = false
 
-    private var timer: Timer?
+    /// nonisolated(unsafe): read once more by `deinit`, which can't be
+    /// main-actor isolated on macOS 14; nothing else touches it off the main actor.
+    nonisolated(unsafe) private var timer: Timer?
     private struct Configuration: Equatable {
         let enabled: Bool
         let apps: [AutoPauseAppEntry]
         let interval: TimeInterval
     }
     private var lastConfiguration: Configuration?
-    private var configurationObserver: NSObjectProtocol?
+    /// nonisolated(unsafe): see `timer`.
+    nonisolated(unsafe) private var configurationObserver: NSObjectProtocol?
     var isPolling: Bool { timer != nil }
     private var lastPollInterval: TimeInterval = defaultPollIntervalSeconds
 

@@ -92,7 +92,13 @@ jobs:
         run: ./scripts/select-xcode-26.sh
 
       - name: Build (Debug)
-        run: swift build
+        run: |
+          set -o pipefail
+          swift build 2>&1 | tee build.log
+
+      # The app builds with complete concurrency checking; keep it at zero.
+      - name: No compiler warnings in app sources
+        run: ./scripts/check-app-warnings.sh build.log
 
       - name: Test
         run: swift test

@@ -9,13 +9,16 @@ import SwiftUI
 // MARK: - Process Monitor
 
 /// Polls the current process for CPU and memory usage every 5 seconds.
+@MainActor
 final class ProcessMonitor: ObservableObject {
     @Published var cpuUsage: Double = 0       // percentage (0–100+)
     @Published var memoryMB: Double = 0       // resident memory in MB
     @Published var memoryPeakMB: Double = 0   // peak memory seen
     @Published var threadCount: Int = 0       // active thread count
 
-    private var timer: Timer?
+    /// nonisolated(unsafe): read once more by `deinit`, which can't be
+    /// main-actor isolated on macOS 14.
+    nonisolated(unsafe) private var timer: Timer?
 
     init(useTimer: Bool = true) {
         if useTimer {
@@ -30,7 +33,8 @@ final class ProcessMonitor: ObservableObject {
         guard timer == nil else { return }
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            self?.refresh()
+            // Scheduled on the main run loop.
+            MainActor.assumeIsolated { self?.refresh() }
         }
     }
 
@@ -40,7 +44,7 @@ final class ProcessMonitor: ObservableObject {
     }
 
     /// One-shot resident memory sample for the current process (MB).
-    static func currentResidentMemoryMB() -> Double {
+    nonisolated static func currentResidentMemoryMB() -> Double {
         var taskInfo = mach_task_basic_info()
         var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size) / 4
         let kr = withUnsafeMutablePointer(to: &taskInfo) {
@@ -63,9 +67,12 @@ final class ProcessMonitor: ObservableObject {
         }
         if kr == KERN_SUCCESS {
             let mb = Double(taskInfo.resident_size) / (1024 * 1024)
-            DispatchQueue.main.async {
-                self.memoryMB = mb
-                self.memoryPeakMB = max(self.memoryPeakMB, mb)
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.memoryMB = mb
+                    self.memoryPeakMB = max(self.memoryPeakMB, mb)
+                }
             }
         }
 
@@ -97,9 +104,12 @@ final class ProcessMonitor: ObservableObject {
         let size = vm_size_t(MemoryLayout<thread_t>.stride * Int(threadCount))
         vm_deallocate(mach_task_self_, vm_address_t(bitPattern: threads), size)
 
-        DispatchQueue.main.async {
-            self.cpuUsage = totalCPU
-            self.threadCount = count2
+        let cpu = totalCPU
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated {
+                self?.cpuUsage = cpu
+                self?.threadCount = count2
+            }
         }
     }
 }
@@ -205,6 +215,11 @@ struct MenuBarView: View {
             if needsSetup {
                 permissionsSection
                     .menuPanelCard(padding: 0)
+            }
+
+            if let crash = appState.pendingCrashReport {
+                crashSection(crash)
+                    .menuPanelCard()
             }
 
             // A dictation that failed or was interrupted, with its audio saved
@@ -903,6 +918,32 @@ struct MenuBarView: View {
         }
     }
 
+    private func crashSection(_ crash: PendingCrashReport) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("VocaMac quit unexpectedly last time", systemImage: "exclamationmark.triangle")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(VocaDesign.warning)
+            Text("Report opens a new GitHub issue in your browser, filled in with where it crashed. Opening it gives those details to GitHub; nothing is posted until you submit.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Button("Report…") { appState.reportPendingCrash() }
+                    .buttonStyle(VocaPrimaryButtonStyle())
+                    .controlSize(.small)
+                    .disabled(!appState.canReportPendingCrash)
+                    .help(appState.canReportPendingCrash ? "" : "Available when the dictation finishes")
+                Button("Dismiss") { appState.dismissPendingCrash() }
+                    .controlSize(.small)
+                Spacer()
+                Button("Show File") { appState.revealPendingCrashReport() }
+                    .buttonStyle(.vocaLink)
+                    .font(.caption)
+                    .help(crash.fileURL.lastPathComponent)
+            }
+        }
+    }
+
     private func recoveryTitle(_ entry: DictationHistoryEntry) -> String {
         switch entry.status {
         case .interrupted: return "Your last dictation was interrupted"
@@ -1346,13 +1387,13 @@ private struct MenuPanelWindowSizer: NSViewRepresentable {
 }
 
 private struct MenuContentHeightKey: SwiftUI.PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }
 
 /// Summed across the pinned top and bottom of the panel.
 private struct MenuChromeHeightKey: SwiftUI.PreferenceKey {
-    static var defaultValue: CGFloat = 0
+    static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value += nextValue() }
 }
 

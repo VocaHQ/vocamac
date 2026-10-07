@@ -121,6 +121,7 @@ Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/i
 - SwiftUI for views. AppKit only for system integration (windows, event taps, Accessibility, `NSImage` menu bar icon).
 - Prefer `@Observable` for new types. Existing `AppState` is `ObservableObject` — match the surrounding type; do not mix styles in one object.
 - `async/await` over callbacks. `guard` for early returns; avoid deep nesting.
+- The app target builds with complete concurrency checking (`StrictConcurrency` in `Package.swift`), and CI fails on any compiler warning in app sources. Fix a Sendable warning rather than hiding it. `@unchecked Sendable` and `nonisolated(unsafe)` need a comment saying what keeps the state safe (a lock, a serial queue, main-thread only).
 - Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/). Names: `isRecording`, not `flag`.
 - `// MARK: -` sections. `///` on public types/methods and non-trivial private methods.
 - SwiftLint (`.swiftlint.yml`) must pass with `--strict`. Fix the code rather than adding `swiftlint:disable`; when a disable is warranted, scope it to the line (`disable:next`) and say why.

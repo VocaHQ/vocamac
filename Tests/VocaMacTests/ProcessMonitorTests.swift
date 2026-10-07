@@ -3,6 +3,7 @@ import XCTest
 
 @testable import VocaMac
 
+@MainActor
 final class ProcessMonitorTests: XCTestCase {
     func testRefreshDoesNotLeakCurrentThreadSendRights() throws {
         let thread = pthread_mach_thread_np(pthread_self())

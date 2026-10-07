@@ -278,7 +278,9 @@ final class AudioDucker: AudioDucking {
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init,
         schedule: @escaping (TimeInterval, @escaping () -> Void) -> Void = { delay, work in
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+            // The ducker lives on the main thread, and so does `work`.
+            nonisolated(unsafe) let work = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { work() }
         }
     ) {
         self.control = control

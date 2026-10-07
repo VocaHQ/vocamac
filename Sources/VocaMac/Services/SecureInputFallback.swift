@@ -23,7 +23,9 @@ import Carbon.HIToolbox
 /// macOS has no notification for it, so the state is read when an app is
 /// activated (the usual trigger) and every five seconds, the same cadence
 /// as `ProcessMonitor`. The check is a single cheap system call.
-final class SecureInputMonitor {
+/// Unchecked: used only on the main thread. The activation observer is on
+/// the main queue and the timer on the main run loop.
+final class SecureInputMonitor: @unchecked Sendable {
 
     static let pollInterval: TimeInterval = 5
 

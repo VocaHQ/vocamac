@@ -73,7 +73,8 @@ let package = Package(
                 .copy("Resources")
             ],
             swiftSettings: [
-                .unsafeFlags(["-parse-as-library"])
+                .unsafeFlags(["-parse-as-library"]),
+                .enableExperimentalFeature("StrictConcurrency"),
             ]
         ),
         // Test target

@@ -76,7 +76,7 @@ final class WhisperService: @unchecked Sendable {
     func loadModel(
         name modelName: String? = nil,
         folder modelFolder: URL? = nil,
-        onPhaseChange: ((String) -> Void)? = nil
+        onPhaseChange: (@Sendable (String) -> Void)? = nil
     ) async throws {
         // Unload any existing model
         unloadModel()
@@ -396,6 +396,10 @@ final class WhisperService: @unchecked Sendable {
         VocaLogger.info(.whisperService, "Decoding \(chunks.count) chunks of long audio")
 
         var ordered = [[TranscriptionResult]](repeating: [], count: chunks.count)
+        // WhisperKit isn't annotated Sendable, but concurrent transcribe calls
+        // on one instance are how it decodes long audio itself
+        // (`concurrentWorkerCount`); the chunks share nothing else.
+        let kitBox = UncheckedSendableBox(kit)
         try await withThrowingTaskGroup(of: (Int, [TranscriptionResult]).self) { group in
             var running = 0
             for (index, chunk) in chunks.enumerated() {
@@ -410,8 +414,10 @@ final class WhisperService: @unchecked Sendable {
                     sampleCount: chunk.audioSamples.count
                 )
                 let samples = chunk.audioSamples
+                // Each task gets its own copy of the options.
+                let decodeOptions = UncheckedSendableBox(chunkOptions)
                 group.addTask {
-                    (index, try await kit.transcribe(audioArray: samples, decodeOptions: chunkOptions))
+                    (index, try await kitBox.value.transcribe(audioArray: samples, decodeOptions: decodeOptions.value))
                 }
                 running += 1
             }
@@ -891,7 +897,7 @@ extension WhisperService: SpeechTranscribing {
         )
     }
 
-    func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
+    func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws {
         try await loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
     }
 }

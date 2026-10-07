@@ -14,7 +14,7 @@ protocol CorrectionObserving: AnyObject {
     /// Called on the main actor with any corrections found.
     var onCorrections: (([CorrectionLearner.Correction]) -> Void)? { get set }
     /// Start watching the field `text` was just typed into.
-    func observe(insertedText text: String, processID: pid_t, isKnownWord: @escaping (String) -> Bool)
+    func observe(insertedText text: String, processID: pid_t, isKnownWord: @escaping @MainActor @Sendable (String) -> Bool)
     /// Compare now instead of waiting for the timer.
     func flush()
     func cancel()
@@ -34,14 +34,15 @@ final class CorrectionObserver: CorrectionObserving {
         let id: UUID
         let text: String
         let processID: pid_t
-        let isKnownWord: (String) -> Bool
+        /// Main actor: spell checking goes through NSSpellChecker.
+        let isKnownWord: @MainActor @Sendable (String) -> Bool
         var baseline: FocusedTextSnapshot?
     }
 
     private var observation: Observation?
     private var comparisonWork: DispatchWorkItem?
 
-    func observe(insertedText text: String, processID: pid_t, isKnownWord: @escaping (String) -> Bool) {
+    func observe(insertedText text: String, processID: pid_t, isKnownWord: @escaping @MainActor @Sendable (String) -> Bool) {
         flush()
         let id = UUID()
         observation = Observation(id: id, text: text, processID: processID, isKnownWord: isKnownWord)
@@ -74,14 +75,17 @@ final class CorrectionObserver: CorrectionObserving {
                 let index = utf16.index(utf16.startIndex, offsetBy: clamped)
                 return before.distance(from: before.startIndex, to: index)
             }
+            let observer = self
             DispatchQueue.main.async {
-                let corrections = CorrectionLearner.corrections(
-                    inserted: inserted, before: before, after: after,
-                    caretLocation: caret, isKnownWord: isKnownWord
-                )
-                guard !corrections.isEmpty else { return }
-                VocaLogger.info(.dictionary, "Noticed \(corrections.count) correction(s) to dictated text")
-                self?.onCorrections?(corrections)
+                MainActor.assumeIsolated {
+                    let corrections = CorrectionLearner.corrections(
+                        inserted: inserted, before: before, after: after,
+                        caretLocation: caret, isKnownWord: isKnownWord
+                    )
+                    guard !corrections.isEmpty else { return }
+                    VocaLogger.info(.dictionary, "Noticed \(corrections.count) correction(s) to dictated text")
+                    observer?.onCorrections?(corrections)
+                }
             }
         }
     }
@@ -106,9 +110,12 @@ final class CorrectionObserver: CorrectionObserving {
                 value: value,
                 caretLocation: AccessibilityTextReader.caretLocation(of: element)
             )
+            let observer = self
             DispatchQueue.main.async {
-                guard let self, self.observation?.id == id else { return }
-                self.observation?.baseline = snapshot
+                MainActor.assumeIsolated {
+                    guard let observer, observer.observation?.id == id else { return }
+                    observer.observation?.baseline = snapshot
+                }
             }
         }
     }

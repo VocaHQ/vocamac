@@ -11,6 +11,7 @@
 // (`POST <base>/inference`), both answering with JSON like {"text": "..."}.
 
 import Foundation
+import os
 
 /// Failures the endpoint can return, named like the other engines' errors.
 enum CustomEndpointError: LocalizedError, Equatable {
@@ -41,7 +42,10 @@ enum CustomEndpointError: LocalizedError, Equatable {
     }
 }
 
-final class CustomEndpointService: SpeechTranscribing {
+/// Unchecked: the loaded state is behind a lock, the configuration and
+/// credentials are read from UserDefaults and the Keychain (both safe from
+/// any thread), and URLSession is thread-safe.
+final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
 
     /// Endpoint settings, read fresh so a Settings edit applies to the next
     /// dictation without a reload.
@@ -49,8 +53,15 @@ final class CustomEndpointService: SpeechTranscribing {
     private let credentials: EndpointCredentialStoring
     private let session: URLSession
 
-    private(set) var loadedModelName: String?
-    private(set) var isModelLoaded = false
+    private struct LoadState {
+        var modelName: String?
+        var isLoaded = false
+    }
+
+    private let loadState = OSAllocatedUnfairLock(initialState: LoadState())
+
+    var loadedModelName: String? { loadState.withLock { $0.modelName } }
+    var isModelLoaded: Bool { loadState.withLock { $0.isLoaded } }
 
     /// The sample rate recordings are captured at across the app.
     static let sampleRate = 16_000
@@ -91,14 +102,14 @@ final class CustomEndpointService: SpeechTranscribing {
 
     /// Load "the endpoint": validate the saved settings and mark the engine
     /// ready. There is nothing to fetch or warm, so this returns at once.
-    func _loadModel(name: String?, folder: URL?, onPhaseChange: ((String) -> Void)?) async throws {
+    func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws {
         let configuration = configurationProvider()
         if let problem = configuration.validationProblem() {
             VocaLogger.warning(.customEndpointService, "Endpoint settings rejected on load: \(problem)")
             throw CustomEndpointError.notConfigured(problem)
         }
-        loadedModelName = name ?? ModelSize.customEndpoint.rawValue
-        isModelLoaded = true
+        let modelName = name ?? ModelSize.customEndpoint.rawValue
+        loadState.withLock { $0 = LoadState(modelName: modelName, isLoaded: true) }
         VocaLogger.info(
             .customEndpointService,
             "Custom endpoint ready: \(configuration.loggableBaseURL)"
@@ -106,8 +117,7 @@ final class CustomEndpointService: SpeechTranscribing {
     }
 
     func unloadModel() {
-        loadedModelName = nil
-        isModelLoaded = false
+        loadState.withLock { $0 = LoadState() }
     }
 
     /// Upload the recording and return the endpoint's transcript.

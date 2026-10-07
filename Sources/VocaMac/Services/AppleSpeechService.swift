@@ -375,7 +375,7 @@ actor SpeechInputCursor {
         if !ended {
             // A single analyzer owns this iterator; move it out across the suspension.
             var currentIterator = iterator
-            samples = try await currentIterator.next()
+            samples = try await currentIterator.next(isolation: self)
             iterator = currentIterator
             try Task.checkCancellation()
             if samples == nil { ended = true }
@@ -408,9 +408,13 @@ actor SpeechInputCursor {
         if let error { throw error }
         guard status != .error else { throw AppleSpeechError.audioFormatUnavailable }
         // At EOF one call can return only part of what the converter holds.
-        if status == .endOfStream || (ended && output.frameLength == 0) { drained = true }
-        if output.frameLength == 0 { return drained ? nil : try await next() }
-        return AnalyzerInput(buffer: output)
+        let isEmpty = output.frameLength == 0
+        if status == .endOfStream || (ended && isEmpty) { drained = true }
+        if isEmpty { return drained ? nil : try await next() }
+        // The converter wrote into `output` and keeps no reference to it, so
+        // handing it to the analyzer shares nothing with this actor.
+        nonisolated(unsafe) let converted = output
+        return AnalyzerInput(buffer: converted)
     }
 }
 /// AVAudioConverter invokes its input block synchronously and serially. This

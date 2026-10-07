@@ -167,7 +167,10 @@ final class SpotifyPauser: SpotifyPausing {
         defaults: UserDefaults = .standard,
         now: @escaping () -> Date = Date.init,
         perform: @escaping (@escaping () -> Void) -> Void = { work in
-            SpotifyPauser.workQueue.async(execute: work)
+            // Everything the pauser does with its state runs on this one
+            // serial queue, so the work may cross to it.
+            nonisolated(unsafe) let work = work
+            SpotifyPauser.workQueue.async { work() }
         },
         performSync: @escaping (TimeInterval, @escaping () -> Void) -> Void = { timeout, work in
             let item = DispatchWorkItem(block: work)

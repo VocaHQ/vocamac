@@ -246,7 +246,9 @@ private final class HotKeyCaptureNSView: NSView {
     }
 
     private let recorder = HotKeyComboRecorder()
-    private var windowResignObserver: NSObjectProtocol?
+    /// nonisolated(unsafe): `stopMonitoring` also runs from `deinit`, which
+    /// can't be main-actor isolated on macOS 14.
+    nonisolated(unsafe) private var windowResignObserver: NSObjectProtocol?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -258,7 +260,7 @@ private final class HotKeyCaptureNSView: NSView {
     /// Silent teardown — used when SwiftUI removes the view (the parent's
     /// `onDisappear` already restores listener state), so it must not fire
     /// `onCancel` and double-report a completed capture.
-    func stopMonitoring() {
+    nonisolated func stopMonitoring() {
         recorder.stop()
 
         if let windowResignObserver {
@@ -295,7 +297,10 @@ private final class HotKeyCaptureNSView: NSView {
 /// keystroke before the system does, so any combination can be recorded.
 /// Key-down events are consumed while recording so the shortcut being
 /// recorded doesn't also fire its normal action.
-private final class HotKeyComboRecorder {
+///
+/// Unchecked: used only on the main thread; the event tap is on the main run
+/// loop.
+private final class HotKeyComboRecorder: @unchecked Sendable {
     var onCapture: ((HotKeyCombo) -> Void)?
     var onCancel: (() -> Void)?
 
@@ -491,7 +496,8 @@ private final class HotKeyComboRecorder {
         // but defer removing the run loop source so the run loop is never
         // mutated from inside its own source callback.
         CGEvent.tapEnable(tap: tap, enable: false)
-        let source = runLoopSource
+        // CFRunLoop functions are thread-safe; the source is only removed.
+        nonisolated(unsafe) let source = runLoopSource
         eventTap = nil
         runLoopSource = nil
 

@@ -114,7 +114,8 @@ enum AboutSocialMark: String, CaseIterable, Identifiable {
     }
 
     private static let cacheLock = NSLock()
-    private static var imageCache: [String: NSImage] = [:]
+    /// Only read or written while holding `cacheLock`.
+    nonisolated(unsafe) private static var imageCache: [String: NSImage] = [:]
     private static let logicalSize = NSSize(width: 24, height: 24)
     private static let rasterScale: CGFloat = 2
 

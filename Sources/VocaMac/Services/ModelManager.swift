@@ -51,7 +51,9 @@ enum ModelManagerError: LocalizedError {
 
 // MARK: - ModelManager
 
-final class ModelManager {
+/// Unchecked: its two pieces of mutable state, `cachedDiskUsage` and
+/// `downloadTasks`, are only touched under their own locks.
+final class ModelManager: @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -501,7 +503,7 @@ final class ModelManager {
     ///   - onProgress: Progress callback (0.0 to 1.0)
     func downloadModel(
         size: ModelSize,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
         // New files on disk in every branch that can succeed.
         defer { invalidateDiskUsageCache() }
@@ -633,7 +635,7 @@ final class ModelManager {
     /// final extraction step is mapped to the last 5%.
     private func downloadSherpaModel(
         size: ModelSize,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
         try Task.checkCancellation()
         guard let spec = SherpaModelCatalog.spec(for: size) else {
@@ -798,7 +800,7 @@ final class ModelManager {
     /// download progress (unlike the WhisperKit path below).
     private func downloadParakeetModel(
         size: ModelSize,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
         guard let version = parakeetVersion(for: size) else {
             throw ModelManagerError.modelNotAvailable(size.rawValue)
@@ -828,7 +830,7 @@ final class ModelManager {
     /// Download a WhisperKit model using WhisperKit's built-in mechanism.
     private func downloadWhisperKitModel(
         size: ModelSize,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
         VocaLogger.info(.modelManager, "Downloading model: \(whisperKitModelName(for: size))")
 

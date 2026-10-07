@@ -53,7 +53,9 @@ final class PermissionManager: ObservableObject {
     // MARK: - Private
 
     private var permissionPollTimer: Timer?
-    private var observers: [NSObjectProtocol] = []
+    /// nonisolated(unsafe): read once more by `deinit`, which can't be
+    /// main-actor isolated on macOS 14; nothing else touches it off the main actor.
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     /// Called when Accessibility and Input Monitoring are granted but the
     /// hotkey tap is missing or was disabled, so AppState can (re)create it.
@@ -89,19 +91,19 @@ final class PermissionManager: ObservableObject {
     /// notification, the hotkey tap reporting that macOS disabled it, and the
     /// user coming back to VocaMac.
     private func observePermissionChanges() {
-        let recheck: @Sendable (Notification) -> Void = { [weak self] _ in
+        let recheck: @Sendable () -> Void = { [weak self] in
             Task { @MainActor in self?.recheckHotKeyHealth() }
         }
         observers.append(DistributedNotificationCenter.default().addObserver(
             forName: NSNotification.Name("com.apple.accessibility.api"),
             object: nil, queue: .main
-        ) { notification in
+        ) { _ in
             // The trust database updates just after the notification.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { recheck(notification) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { recheck() }
         })
         observers.append(NotificationCenter.default.addObserver(
-            forName: .hotKeyEventTapDisabled, object: nil, queue: .main, using: recheck
-        ))
+            forName: .hotKeyEventTapDisabled, object: nil, queue: .main
+        ) { _ in recheck() })
         observers.append(NotificationCenter.default.addObserver(
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in

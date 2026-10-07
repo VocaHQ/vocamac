@@ -38,7 +38,9 @@ struct AppCLIPreferencesReader: CLIPreferencesReading {
 }
 
 /// Headless orchestration that deliberately bypasses AppState and GUI services.
-final class HeadlessTranscriber {
+/// Unchecked: every stored property is an immutable `let`, and the CLI runs
+/// one command at a time.
+final class HeadlessTranscriber: @unchecked Sendable {
     typealias TranscriberFactory = (_ language: String?) -> SpeechTranscribing
 
     private let modelManager: ModelManaging

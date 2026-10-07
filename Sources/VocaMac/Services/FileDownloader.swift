@@ -54,9 +54,9 @@ final class ProgressThrottle: @unchecked Sendable {
 
     /// Wrap a progress handler so only throttled values reach it.
     static func wrap(
-        _ handler: @escaping (Double) -> Void,
+        _ handler: @escaping @Sendable (Double) -> Void,
         throttle: ProgressThrottle = ProgressThrottle()
-    ) -> (Double) -> Void {
+    ) -> @Sendable (Double) -> Void {
         { progress in
             if throttle.shouldDeliver(progress) { handler(progress) }
         }
@@ -150,7 +150,7 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
     private let source: URL
     private let destination: URL
     private let resumeStore: DownloadResumeStore
-    private let onProgress: (Double) -> Void
+    private let onProgress: @Sendable (Double) -> Void
     private let progressThrottle = ProgressThrottle()
     private var continuation: CheckedContinuation<Void, Error>?
     private var task: URLSessionDownloadTask?
@@ -164,7 +164,7 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         source: URL,
         destination: URL,
         resumeStore: DownloadResumeStore,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) {
         self.source = source
         self.destination = destination
@@ -179,7 +179,7 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         from url: URL,
         to destination: URL,
         resumeStore: DownloadResumeStore = .shared,
-        onProgress: @escaping (Double) -> Void = { _ in }
+        onProgress: @escaping @Sendable (Double) -> Void = { _ in }
     ) async throws {
         var attempt = 0
         while true {
@@ -261,7 +261,7 @@ final class FileDownloader: NSObject, URLSessionDownloadDelegate, @unchecked Sen
         to destination: URL,
         resumeData: Data?,
         resumeStore: DownloadResumeStore,
-        onProgress: @escaping (Double) -> Void
+        onProgress: @escaping @Sendable (Double) -> Void
     ) async throws {
         let downloader = FileDownloader(
             source: url,

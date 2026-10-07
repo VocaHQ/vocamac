@@ -90,7 +90,9 @@ enum FailedAudioDump {
 
 private extension ISO8601DateFormatter {
     /// Colons are legal in HFS+ paths but confuse shell completion and tools.
-    static let dumpFormatter: ISO8601DateFormatter = {
+    /// nonisolated(unsafe): ISO8601DateFormatter is thread-safe, and this one
+    /// is configured once, here.
+    nonisolated(unsafe) static let dumpFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withYear, .withMonth, .withDay, .withTime]
         formatter.timeZone = .current

@@ -115,7 +115,9 @@ final class AudioFileLoader: AudioFileLoading {
             (Double(audioFile.length) / sourceFormat.sampleRate * Self.sampleRate).rounded(.up)
         )))
 
-        var readFailure: Error?
+        // Set inside the converter's input block, which runs synchronously
+        // within convert(to:error:withInputFrom:).
+        let readFailure = UncheckedSendableBox<Error?>(nil)
         var zeroLengthPasses = 0
 
         while true {
@@ -143,7 +145,7 @@ final class AudioFileLoader: AudioFileLoading {
                 do {
                     try audioFile.read(into: inputBuffer, frameCount: requestedFrames)
                 } catch {
-                    readFailure = error
+                    readFailure.value = error
                     inputStatus.pointee = .endOfStream
                     return nil
                 }
@@ -156,7 +158,7 @@ final class AudioFileLoader: AudioFileLoading {
                 return inputBuffer
             }
 
-            if let readFailure {
+            if let readFailure = readFailure.value {
                 throw CLIError(.invalidAudio, "Audio file could not be read: \(readFailure.localizedDescription)")
             }
             if let conversionError {

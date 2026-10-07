@@ -29,7 +29,9 @@ final class ModelKeepAlive: ObservableObject {
     @Published private(set) var isArmed: Bool = false
     private(set) var isRunning: Bool = false
 
-    private var timer: Timer?
+    /// nonisolated(unsafe): read once more by `deinit`, which can't be
+    /// main-actor isolated on macOS 14; nothing else touches it off the main actor.
+    nonisolated(unsafe) private var timer: Timer?
 
     init(
         getConfig: @escaping () -> (enabled: Bool, idleTimeoutSeconds: TimeInterval) = {

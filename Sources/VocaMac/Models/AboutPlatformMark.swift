@@ -75,7 +75,8 @@ enum AboutPlatformMark: String, CaseIterable, Identifiable {
     }
 
     private static let cacheLock = NSLock()
-    private static var imageCache: [String: NSImage] = [:]
+    /// Only read or written while holding `cacheLock`.
+    nonisolated(unsafe) private static var imageCache: [String: NSImage] = [:]
 }
 
 /// A VocaHQ product represented by its platform rather than a raw URL.

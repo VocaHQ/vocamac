@@ -15,7 +15,10 @@ extension Notification.Name {
     static let hotKeyEventTapDisabled = Notification.Name("com.vocamac.hotKeyEventTapDisabled")
 }
 
-final class HotKeyManager {
+/// Unchecked: key state is shared by the event tap thread and the main
+/// thread under `stateLock` (`withState`), and the callbacks and Secure
+/// Input fallback are only used on the main thread.
+final class HotKeyManager: @unchecked Sendable {
 
     // MARK: - Properties
 
@@ -163,7 +166,9 @@ final class HotKeyManager {
     /// - Parameter prompt: Whether to show the system prompt if not trusted
     /// - Returns: true if the app is trusted for Accessibility
     static func checkAccessibilityPermission(prompt: Bool) -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): prompt] as CFDictionary
+        // The literal value of kAXTrustedCheckOptionPrompt, which is a
+        // mutable C global and so not safe to read from Swift concurrency.
+        let options = ["AXTrustedCheckOptionPrompt": prompt] as CFDictionary
         return AXIsProcessTrustedWithOptions(options)
     }
 

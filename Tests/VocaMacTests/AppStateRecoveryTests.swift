@@ -167,6 +167,29 @@ final class AppStateRecoveryTests: XCTestCase {
         XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording)
     }
 
+    func testForceRecoveryUndoesTheEarlyCapturesMuteAndPause() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.duckOtherAudioEnabled = true
+        appState.pauseSpotifyEnabled = true
+        mocks.audioEngine.stopRecordingResult = speech
+        mocks.whisperService.transcribeDelayNanoseconds = 300_000_000
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        await waitUntil { appState.appStatus == .processing }
+        let ducksBefore = mocks.audioDucker.duckCallCount
+        await appState.startRecording()
+        await waitUntil { mocks.audioDucker.duckCallCount > ducksBefore }
+        let restoresBefore = mocks.audioDucker.restoreCallCount
+        let resumesBefore = mocks.spotifyPauser.resumeCallCount
+
+        appState.forceRecovery()
+        await stop.value
+
+        XCTAssertGreaterThan(mocks.audioDucker.restoreCallCount, restoresBefore, "Output must not stay muted")
+        XCTAssertGreaterThan(mocks.spotifyPauser.resumeCallCount, resumesBefore, "Spotify must not stay paused")
+    }
+
     func testPressingAgainBeforeItStartsCarriesOnWithTheSameDictation() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = speech

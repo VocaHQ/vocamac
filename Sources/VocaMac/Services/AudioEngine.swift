@@ -108,8 +108,12 @@ struct SilenceDetector {
     }
 
     /// The loudest recent sound only lowers the threshold once it is this far
-    /// over the room's noise: steady noise on its own is not speech.
-    static let speechEvidenceRatio: Float = 4
+    /// over the room's noise: steady noise on its own is not speech. Once
+    /// lowered, the noise rule still keeps the threshold at least 1.25 times
+    /// the floor, so noise that varies by a quarter never counts as sound.
+    /// Speech three times the room's level clears it even after the floor
+    /// has crept up during a few seconds of talking; a ratio of 3 did not.
+    static let speechEvidenceRatio: Float = 2.5
 
     /// Per chunk; about twelve seconds to halve at 85 ms chunks.
     static let peakDecay: Float = 0.995

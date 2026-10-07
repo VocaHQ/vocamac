@@ -2048,8 +2048,14 @@ final class AppState: ObservableObject {
     func forceRecovery() {
         recordingGeneration = UUID()
         queuedRecordingStart = nil
-        // The engine is reset below, which closes an early capture too.
-        earlyCapture = nil
+        // The engine is reset below, which closes an early capture too. Its
+        // mute and pause were never tied to `isRecording`, so undo them here.
+        if earlyCapture != nil {
+            earlyCapture = nil
+            audioEngine.onAudioSamples = nil
+            audioDucker.restore()
+            spotifyPauser.resume()
+        }
         cancelFinishingWork()
         // A load that never returns would otherwise hold every later load
         // and dictation behind it; the router drops the model it was loading.

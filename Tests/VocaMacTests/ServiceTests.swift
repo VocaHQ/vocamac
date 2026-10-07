@@ -787,6 +787,27 @@ final class AudioEngineTests: XCTestCase {
         XCTAssertTrue(step.reported, "The room's own noise is not speech")
     }
 
+    func testQuietSpeechJustOverTheRoomKeepsRecording() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        var step = feed(&detector, energy: 0.002, seconds: 0.5, from: start)
+        step = feed(&detector, energy: 0.006, seconds: 4, from: step.end)
+        XCTAssertFalse(step.reported, "Speech three times the room's level is sound, though under the setting")
+    }
+
+    func testNoiseThatVariesIsStillSilence() {
+        let start = Date(timeIntervalSinceReferenceDate: 1_000)
+        var detector = SilenceDetector(now: start)
+        var now = start
+        var reported = false
+        for index in 0..<48 {
+            now = now.addingTimeInterval(0.085)
+            let energy: Float = index.isMultiple(of: 2) ? 0.002 : 0.0028
+            reported = detector.observe(energy: energy, threshold: 0.01, duration: 2, at: now) || reported
+        }
+        XCTAssertTrue(reported, "Room noise rising and falling by 40% is not speech")
+    }
+
     func testOrdinaryMicrophoneKeepsTheUsersSetting() {
         XCTAssertEqual(
             SilenceDetector.soundThreshold(user: 0.01, speechPeak: 0.05, noiseFloor: 0.002), 0.01,

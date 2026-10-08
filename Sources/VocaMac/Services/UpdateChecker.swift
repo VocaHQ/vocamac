@@ -25,7 +25,9 @@ enum UpdateCheckerError: LocalizedError {
             case 403, 429:
                 return "The update server is rate-limiting requests right now. Try again later."
             case 404:
-                return "No release was found on the update server."
+                // Shared by the release lookup and the DMG download, so the
+                // message has to describe either one being missing.
+                return "The update server could not find the release or its download."
             case 500...599:
                 return "The update server is having trouble (HTTP \(statusCode)). Try again later."
             default:

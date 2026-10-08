@@ -203,6 +203,11 @@ struct MenuBarView: View {
         }
         // A "saved for Ghostty" notice is wrong once the user is in Discord.
         .onChange(of: appState.activeWritingTargetName) { _, _ in bindNotice = nil }
+        // The header mood clamps night in light mode, so re-evaluate it when
+        // the system appearance flips while the popover is open.
+        .onChange(of: colorScheme) { _, scheme in
+            headerMood = SceneMood.menuHeader(for: scheme)
+        }
     }
 
     private var supplementaryContent: some View {

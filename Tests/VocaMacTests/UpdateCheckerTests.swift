@@ -144,6 +144,42 @@ final class UpdateCheckerTests: XCTestCase {
         }
     }
 
+    func testInvalidStatusCodeRateLimitMessage() {
+        for code in [403, 429] {
+            XCTAssertEqual(
+                UpdateCheckerError.invalidStatusCode(code).errorDescription,
+                "The update server is rate-limiting requests right now. Try again later."
+            )
+        }
+    }
+
+    func testInvalidStatusCodeNotFoundMessage() {
+        // 404 is shared between the release lookup and the DMG download, so
+        // the message must describe either one being missing.
+        XCTAssertEqual(
+            UpdateCheckerError.invalidStatusCode(404).errorDescription,
+            "The update server could not find the release or its download."
+        )
+    }
+
+    func testInvalidStatusCodeServerErrorMessage() {
+        for code in [500, 503, 599] {
+            XCTAssertEqual(
+                UpdateCheckerError.invalidStatusCode(code).errorDescription,
+                "The update server is having trouble (HTTP \(code)). Try again later."
+            )
+        }
+    }
+
+    func testInvalidStatusCodeFallbackMessage() {
+        for code in [400, 418] {
+            XCTAssertEqual(
+                UpdateCheckerError.invalidStatusCode(code).errorDescription,
+                "Update check failed (HTTP \(code))"
+            )
+        }
+    }
+
     private func makeHomebrewFixture(
         caskToken: String,
         version: String,

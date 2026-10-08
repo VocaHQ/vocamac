@@ -50,9 +50,11 @@ struct GatewaySettingsTab: View {
                 } else {
                     Label {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("VocaGateway isn't installed")
+                            Text("Native vocagateway binary not found")
                                 .foregroundStyle(VocaDesign.warning)
-                            Text("Install the vocagateway companion to pair a phone or expose local speech APIs.")
+                            Text(gateway.isLive
+                                 ? "A gateway is already reachable; only the embedded native binary is missing."
+                                 : "Install the vocagateway companion to pair a phone or expose local speech APIs.")
                                 .foregroundStyle(.secondary)
                         }
                     } icon: {

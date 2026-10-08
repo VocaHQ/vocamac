@@ -25,9 +25,8 @@ enum BrandAssets {
         image(named: "voca-mark")
     }
 
-    /// Brand color — the Quiet Wonder petrol, so the mark reads as part of
-    /// the interface rather than a second accent fighting it.
-    static let brandColor = VocaPalette.petrol
+    /// Brand teal `#0F6B57` — the official mark color, now also the accent.
+    static let brandColor = VocaPalette.teal
 }
 
 /// Which artwork the menu bar should show for a given app status.

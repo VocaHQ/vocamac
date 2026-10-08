@@ -1,18 +1,21 @@
 import SwiftUI
 
-/// The Quiet Wonder palette: warm ivory paper, ink, petrol and clay by day;
-/// the same hues on a deep night ink in dark mode.
+/// The Quiet Wonder palette: cool, faintly green paper that sits easily
+/// under the brand teal, with ink and clay by day; the same hues on a deep
+/// night ink in dark mode. Petrol and mist remain for the scene art.
 enum VocaPalette {
-    static let ivory = NSColor(srgbRed: 0.969, green: 0.961, blue: 0.937, alpha: 1)    // #F7F5EF
-    static let paper = NSColor(srgbRed: 0.988, green: 0.984, blue: 0.969, alpha: 1)    // #FCFBF7
-    static let sand = NSColor(srgbRed: 0.937, green: 0.922, blue: 0.882, alpha: 1)     // #EFEBE1
+    static let ivory = NSColor(srgbRed: 0.941, green: 0.957, blue: 0.933, alpha: 1)    // #F0F4EE
+    static let paper = NSColor(srgbRed: 0.973, green: 0.980, blue: 0.965, alpha: 1)    // #F8FAF6
+    static let sand = NSColor(srgbRed: 0.890, green: 0.918, blue: 0.878, alpha: 1)     // #E3EAE0
     static let ink = NSColor(srgbRed: 0.094, green: 0.125, blue: 0.137, alpha: 1)      // #182023
+    static let teal = NSColor(srgbRed: 0.059, green: 0.420, blue: 0.341, alpha: 1)     // #0F6B57
+    static let mint = NSColor(srgbRed: 0.333, green: 0.761, blue: 0.627, alpha: 1)     // #55C2A0
     static let petrol = NSColor(srgbRed: 0.208, green: 0.392, blue: 0.459, alpha: 1)   // #356475
     static let mist = NSColor(srgbRed: 0.498, green: 0.702, blue: 0.761, alpha: 1)     // #7FB3C2
     static let clay = NSColor(srgbRed: 0.722, green: 0.400, blue: 0.290, alpha: 1)     // #B8664A
-    static let nightCanvas = NSColor(srgbRed: 0.071, green: 0.098, blue: 0.110, alpha: 1)  // #12191C
-    static let nightSurface = NSColor(srgbRed: 0.102, green: 0.141, blue: 0.157, alpha: 1) // #1A2428
-    static let nightSand = NSColor(srgbRed: 0.055, green: 0.082, blue: 0.090, alpha: 1)    // #0E1517
+    static let nightCanvas = NSColor(srgbRed: 0.067, green: 0.106, blue: 0.090, alpha: 1)  // #111B17
+    static let nightSurface = NSColor(srgbRed: 0.098, green: 0.145, blue: 0.122, alpha: 1) // #19251F
+    static let nightSand = NSColor(srgbRed: 0.047, green: 0.082, blue: 0.063, alpha: 1)    // #0C1510
 
     /// One color per appearance.
     static func adaptive(light: NSColor, dark: NSColor) -> NSColor {
@@ -24,20 +27,20 @@ enum VocaPalette {
 
 /// Shared, adaptive surfaces for the app. System text colors retain contrast in both appearances.
 enum VocaDesign {
-    /// Petrol by day, a lighter mist at night so icons and selection still
-    /// read against the dark ink canvas.
-    static let accent = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.petrol, dark: VocaPalette.mist))
-    /// Fill for prominent buttons. White text needs the deeper petrol in both
-    /// appearances; the mist accent is too light to carry it.
-    static let accentSolid = Color(nsColor: VocaPalette.petrol)
+    /// The brand teal by day, a lighter mint at night so icons and selection
+    /// still read against the dark ink canvas.
+    static let accent = Color(nsColor: VocaPalette.adaptive(light: VocaPalette.teal, dark: VocaPalette.mint))
+    /// Fill for prominent buttons. White text needs the deeper teal in both
+    /// appearances; the mint accent is too light to carry it.
+    static let accentSolid = Color(nsColor: VocaPalette.teal)
 
-    /// Success and "ready" states. A system green next to the petrol accent
+    /// Success and "ready" states. A system green next to the teal accent
     /// would read as two meanings, so ready uses the accent itself.
     static var success: Color { accent }
 
     /// Command Mode's own color. Editing selected text is a different act
     /// from dictating, so every surface that shows it — overlay, menu bar
-    /// icon, menu, settings — uses violet instead of the dictation petrol.
+    /// icon, menu, settings — uses violet instead of the dictation teal.
     /// Clay would sit beside the palette more quietly, but it is too close to
     /// the amber `warning` to tell apart at a glance.
     static let command = Color(nsColor: commandNSColor)
@@ -61,7 +64,7 @@ enum VocaDesign {
             ? NSColor(red: 1.0, green: 0.80, blue: 0.25, alpha: 1)
             : NSColor(red: 0.62, green: 0.45, blue: 0.0, alpha: 1)
     })
-    /// Warm ivory paper by day, deep night ink in dark mode.
+    /// Cool, faintly green paper by day, deep night ink in dark mode.
     static let canvas = Color(nsColor: canvasNSColor)
     static let canvasNSColor = VocaPalette.adaptive(light: VocaPalette.ivory, dark: VocaPalette.nightCanvas)
     /// Cards: a lighter sheet of paper laid on the canvas.

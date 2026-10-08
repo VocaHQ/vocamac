@@ -21,7 +21,16 @@ enum UpdateCheckerError: LocalizedError {
         case .invalidResponse:
             return "Invalid response from update server"
         case .invalidStatusCode(let statusCode):
-            return "Update check failed (HTTP \(statusCode))"
+            switch statusCode {
+            case 403, 429:
+                return "The update server is rate-limiting requests right now. Try again later."
+            case 404:
+                return "No release was found on the update server."
+            case 500...599:
+                return "The update server is having trouble (HTTP \(statusCode)). Try again later."
+            default:
+                return "Update check failed (HTTP \(statusCode))"
+            }
         case .noDMGAsset:
             return "No DMG asset found in latest release"
         case .failedToMoveDownload:

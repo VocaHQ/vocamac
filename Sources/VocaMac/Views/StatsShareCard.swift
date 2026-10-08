@@ -34,7 +34,7 @@ struct StatsShareCard: View {
 
     private let cardBackground = Color(red: 0.11, green: 0.12, blue: 0.14)
     private let chipBackground = Color.white.opacity(0.06)
-    private let brandGreen = Color(nsColor: BrandAssets.brandGreen)
+    private let brandColor = Color(nsColor: BrandAssets.brandColor)
 
     private static let durationFormatter: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
@@ -66,12 +66,12 @@ struct StatsShareCard: View {
                 shareMetric(
                     title: "Words",
                     value: StatsShareComposer.formatCount(snapshot.totalWords),
-                    accent: brandGreen
+                    accent: brandColor
                 )
                 shareMetric(
                     title: "Sessions",
                     value: StatsShareComposer.formatCount(snapshot.totalTranscriptions),
-                    accent: brandGreen
+                    accent: brandColor
                 )
                 shareMetric(
                     title: "Time",
@@ -81,14 +81,14 @@ struct StatsShareCard: View {
             }
 
             HStack(spacing: 10) {
-                shareMetric(title: "Speed", value: String(format: "%.0f WPM", snapshot.averageWPM), accent: brandGreen)
+                shareMetric(title: "Speed", value: String(format: "%.0f WPM", snapshot.averageWPM), accent: brandColor)
                 shareMetric(title: "Streak", value: "\(snapshot.currentStreak)d", accent: .orange)
                 shareMetric(title: "Best", value: "\(snapshot.bestStreak)d", accent: Color(red: 1.0, green: 0.45, blue: 0.2))
             }
 
             HStack {
                 Capsule()
-                    .fill(brandGreen.opacity(0.85))
+                    .fill(brandColor.opacity(0.85))
                     .frame(width: 28, height: 4)
                 Spacer()
                 Text("vocamac.com")
@@ -105,7 +105,7 @@ struct StatsShareCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(
-                    brandGreen.opacity(0.4),
+                    brandColor.opacity(0.4),
                     lineWidth: 1.2
                 )
         }

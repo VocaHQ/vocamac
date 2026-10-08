@@ -31,6 +31,21 @@ enum SceneMood: String, CaseIterable, Sendable {
         forHour(calendar.component(.hour, from: date))
     }
 
+    /// The popover header scene for the current appearance. In dark mode the
+    /// header follows the clock, but a night strip on the ivory page reads as
+    /// a mismatched block, so light mode never goes darker than dusk.
+    static func menuHeader(
+        for colorScheme: ColorScheme,
+        at date: Date = Date(),
+        calendar: Calendar = .current
+    ) -> SceneMood {
+        let mood = current(at: date, calendar: calendar)
+        if colorScheme == .light && mood == .night {
+            return .dusk
+        }
+        return mood
+    }
+
     var palette: ScenePalette {
         switch self {
         case .dawn:

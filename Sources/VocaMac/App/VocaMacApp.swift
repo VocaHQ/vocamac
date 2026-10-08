@@ -570,9 +570,9 @@ struct MenuBarIcon: View {
             return fallbackSymbol(named: name, tint: nil)
         case .brandMarkTinted:
             if let mark = sizedMark() {
-                return tintedImage(base: mark, color: BrandAssets.brandGreen)
+                return tintedImage(base: mark, color: BrandAssets.brandColor)
             }
-            return fallbackSymbol(named: "mic.fill", tint: BrandAssets.brandGreen)
+            return fallbackSymbol(named: "mic.fill", tint: BrandAssets.brandColor)
         case .systemSymbol(let name):
             return fallbackSymbol(named: name, tint: statusColor)
         }
@@ -642,8 +642,8 @@ struct MenuBarIcon: View {
     private var statusColor: NSColor {
         if isCommandMode { return VocaDesign.commandNSColor }
         switch appStatus {
-        case .idle:       return BrandAssets.brandGreen
-        case .recording:  return BrandAssets.brandGreen
+        case .idle:       return BrandAssets.brandColor
+        case .recording:  return BrandAssets.brandColor
         case .processing: return .systemYellow
         case .error:      return .systemOrange
         }

@@ -30,6 +30,17 @@ final class VocaSceneTests: XCTestCase {
         XCTAssertEqual(SceneMood.current(at: evening, calendar: calendar), .dusk)
     }
 
+    func testMenuHeaderMoodClampsNightInLightMode() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "UTC"))
+        let night = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 3, hour: 23)))
+        let noon = try XCTUnwrap(calendar.date(from: DateComponents(year: 2026, month: 10, day: 3, hour: 12)))
+        XCTAssertEqual(SceneMood.menuHeader(for: .light, at: night, calendar: calendar), .dusk)
+        XCTAssertEqual(SceneMood.menuHeader(for: .dark, at: night, calendar: calendar), .night)
+        XCTAssertEqual(SceneMood.menuHeader(for: .light, at: noon, calendar: calendar), .day)
+        XCTAssertEqual(SceneMood.menuHeader(for: .dark, at: noon, calendar: calendar), .day)
+    }
+
     func testOnlyNightHasStars() {
         for mood in SceneMood.allCases {
             XCTAssertEqual(mood.palette.hasStars, mood == .night, "\(mood)")

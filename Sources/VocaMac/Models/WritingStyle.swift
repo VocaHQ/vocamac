@@ -290,6 +290,16 @@ enum WritingStyle: String, CaseIterable, Identifiable, Codable {
         self != .code && self != .terminal
     }
 
+    /// Whether a long dictation may be laid out in paragraphs (see
+    /// `PauseParagraphs`). Chat messages stay one block, and Code and
+    /// Terminal never get a line the speaker didn't ask for.
+    var allowsParagraphs: Bool {
+        switch self {
+        case .plain, .email, .notes: return true
+        case .code, .terminal, .chat, .slack: return false
+        }
+    }
+
     /// The preset's rules. A binding may override individual fields.
     var defaultRules: WritingStyleRules {
         switch self {

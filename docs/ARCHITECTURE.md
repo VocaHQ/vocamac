@@ -94,6 +94,8 @@ VocaMacApp (entry point)
     │     ├── RecordingTranscription (live session; optional commit mode)
     │     │     └── SpeechSegmenter (cuts pieces at pauses while recording)
     │     ├── CleanupSpeculator (cleans finished pieces before stop)
+    │     ├── PauseParagraphs (blank line at a long pause between sentences,
+    │     │     found in the recording's loudness, placed by word timings)
     │     ├── DictationOutputPipeline
     │     │     ├── SnippetExpander / RewriteProtectedText
     │     │     ├── CleanupNeed (skips the model when the rules left it nothing to do)

@@ -243,7 +243,8 @@ final class ParakeetService: @unchecked Sendable {
                 duration: elapsed,
                 detectedLanguage: language ?? "auto",
                 audioLengthSeconds: audioLengthSeconds,
-                modelUsed: size
+                modelUsed: size,
+                segments: Self.timedSegments(from: result.tokenTimings ?? [], text: text)
             )
         } catch is CancellationError {
             // Cancelling a dictation is not a model failure; wrapped, the
@@ -252,5 +253,39 @@ final class ParakeetService: @unchecked Sendable {
         } catch {
             throw ParakeetError.transcriptionFailed(reason: error.localizedDescription)
         }
+    }
+}
+
+// MARK: - Word timings
+
+extension ParakeetService {
+    /// The decode's token timings as words, in one segment carrying `text`,
+    /// for History Timestamps and paragraph layout. A token that starts with
+    /// a space starts a word; any other continues the word before it, so
+    /// "▁hel", "lo", "," make "hello,". Empty when there are no timings.
+    static func timedSegments(from tokens: [TokenTiming], text: String) -> [TimedSegment] {
+        var words: [TimedWord] = []
+        for token in tokens {
+            let piece = token.token.trimmingCharacters(in: .whitespaces)
+            guard !piece.isEmpty else { continue }
+            let startsWord = token.token.first?.isWhitespace ?? false
+            if !startsWord, var last = words.popLast() {
+                last.word += piece
+                // A full stop is emitted late, often as the next word
+                // starts: it must not stretch the word over the pause.
+                if piece.unicodeScalars.contains(where: CharacterSet.alphanumerics.contains) {
+                    last.end = max(last.end, token.endTime)
+                }
+                last.probability = min(last.probability ?? 1, Double(token.confidence))
+                words.append(last)
+            } else {
+                words.append(TimedWord(
+                    word: piece, start: token.startTime, end: token.endTime,
+                    probability: Double(token.confidence)
+                ))
+            }
+        }
+        guard let first = words.first, let last = words.last else { return [] }
+        return [TimedSegment(start: first.start, end: last.end, text: text, words: words)]
     }
 }

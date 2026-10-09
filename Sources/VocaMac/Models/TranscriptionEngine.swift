@@ -21,6 +21,7 @@ enum PreferenceKey {
     static let numbersAsDigits = "vocamac.numbersAsDigits"
     static let numberSymbols = "vocamac.numberSymbols"
     static let spokenEmoji = "vocamac.spokenEmoji"
+    static let pauseParagraphs = "vocamac.pauseParagraphs"
     static let autoPauseEnabled = "vocamac.autoPause.enabled"
     static let autoPauseApps = "vocamac.autoPause.apps"
     static let autoPausePollInterval = "vocamac.autoPause.pollIntervalSeconds"

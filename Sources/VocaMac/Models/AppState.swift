@@ -440,6 +440,10 @@ final class AppState: ObservableObject {
     /// "crying emoji" → 😭. Off by default, so talking *about* an emoji never
     /// rewrites the sentence until the user opts in.
     @AppStorage(PreferenceKey.spokenEmoji) var spokenEmoji: Bool = false
+    /// Start a new paragraph where a long dictation paused between two
+    /// sentences, and give an email's greeting a line of its own. Only in
+    /// styles that allow paragraphs (`WritingStyle.allowsParagraphs`).
+    @AppStorage(PreferenceKey.pauseParagraphs) var pauseParagraphs: Bool = true
     @AppStorage(PreferenceKey.autoPauseEnabled) var autoPauseEnabled: Bool = false
     @AppStorage(PreferenceKey.autoPausePollInterval) var autoPausePollIntervalSeconds: Double = 5
     @AppStorage(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = false
@@ -756,7 +760,8 @@ final class AppState: ObservableObject {
             cleanupLevel: transcriptCleanupLevel,
             language: RewriteValidation.detectedLanguage(text), autoCapitalize: autoCapitalize,
             trailingSpace: appendTrailingSpace, preview: true,
-            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji
+            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
+            laysOutParagraphs: pauseParagraphs
         )
     }
 
@@ -2803,8 +2808,12 @@ final class AppState: ObservableObject {
                     nextWritingProfile = nil
                     activeWritingStyle = resolved
                 }
+                let laysOutParagraphs = pauseParagraphs && profile.format.allowsParagraphs
+                let spoken = laysOutParagraphs
+                    ? await Self.paragraphsAtPauses(result, audio: audioData)
+                    : result.text
                 let output = await outputPipeline.process(
-                    result.text, profile: profile, snippetList: snippets,
+                    spoken, profile: profile, snippetList: snippets,
                     cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
                     model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
                     cleanupLevel: transcriptCleanupLevel,
@@ -2812,7 +2821,7 @@ final class AppState: ObservableObject {
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
                     dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage),
                     numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                    skipWhenClean: skipCleanDictations,
+                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
                     // Cleaning piece by piece only pays off with answers from
                     // while recording; an endpoint would get one call per piece.
                     pieces: speculator == nil ? [] : result.pieces, speculator: speculator
@@ -4171,7 +4180,7 @@ final class AppState: ObservableObject {
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
             trailingSpace: false, preview: true,
             numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-            skipWhenClean: skipCleanDictations
+            skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs
         )
         return CleanupTryResult(
             input: text, text: output.text, summary: output.summary,
@@ -4564,6 +4573,18 @@ extension AppState {
         dismissedRecoveryEntryID = id
     }
 
+    /// The transcript with a paragraph break at each long pause between two
+    /// sentences. Reads the whole recording's loudness, so it runs off the
+    /// main thread.
+    nonisolated static func paragraphsAtPauses(_ result: VocaTranscription, audio: [Float]) async -> String {
+        let text = result.text
+        let segments = result.segments
+        guard segments.contains(where: { !$0.words.isEmpty }) else { return text }
+        return await Task.detached(priority: .userInitiated) {
+            PauseParagraphs.apply(to: text, segments: segments, audio: audio)
+        }.value
+    }
+
     /// Transcribe a history entry's audio again with the current model and
     /// settings, and copy the result. Never pastes: VocaMac's own window is
     /// in front when this runs, so the paste-last shortcut puts it in place.
@@ -4591,8 +4612,12 @@ extension AppState {
             var output: DictationOutputResult?
             if !text.isEmpty {
                 let profile = resolveWritingStyle(for: entry.targetApp).profile
+                let laysOutParagraphs = pauseParagraphs && profile.format.allowsParagraphs
+                let spoken = laysOutParagraphs
+                    ? await Self.paragraphsAtPauses(result, audio: samples)
+                    : result.text
                 output = await outputPipeline.process(
-                    result.text, profile: profile, snippetList: snippets,
+                    spoken, profile: profile, snippetList: snippets,
                     cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
                     model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
                     cleanupLevel: transcriptCleanupLevel,
@@ -4600,7 +4625,7 @@ extension AppState {
                     trailingSpace: appendTrailingSpace,
                     dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage),
                     numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                    skipWhenClean: skipCleanDictations
+                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs
                 )
             }
             historyStore.recordRetry(

@@ -624,6 +624,14 @@ struct FormattingSettingsPage: View {
                     isOn: $appState.spokenEmoji
                 )
                 .settingsTarget("spoken-emoji")
+                Divider()
+                SettingsToggleRow(
+                    title: "Paragraph breaks",
+                    detail: "Pause for a breath between sentences to start a new paragraph. "
+                        + "Emails also get their greeting on its own line. Plain, Email, and Notes styles only.",
+                    isOn: $appState.pauseParagraphs
+                )
+                .settingsTarget("pause-paragraphs")
             }
         }
     }

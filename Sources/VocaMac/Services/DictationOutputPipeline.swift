@@ -27,6 +27,10 @@ struct DictationOutputOptions {
     /// Leave the model out when the rule stages left it nothing to do
     /// (see `CleanupNeed`).
     var skipWhenClean: Bool = false
+    /// Lay the text out in paragraphs where the style allows it. Pauses are
+    /// turned into paragraph breaks before the pipeline (they need the
+    /// recording); here it puts an email's greeting on a line of its own.
+    var laysOutParagraphs: Bool = false
 }
 
 /// What the cleanup model is asked, exactly. Two requests with the same key
@@ -71,6 +75,7 @@ struct DictationOutputPipeline {
         numberSymbols: Bool = false,
         spokenEmoji: Bool = false,
         skipWhenClean: Bool = false,
+        laysOutParagraphs: Bool = false,
         pieces: [TranscribedPiece] = [],
         speculator: CleanupSpeculator? = nil
     ) async -> DictationOutputResult {
@@ -82,7 +87,7 @@ struct DictationOutputPipeline {
                 cleanupLevel: cleanupLevel, language: language, autoCapitalize: autoCapitalize,
                 trailingSpace: trailingSpace, preview: preview, dictionary: dictionary,
                 numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                skipWhenClean: skipWhenClean
+                skipWhenClean: skipWhenClean, laysOutParagraphs: laysOutParagraphs
             ),
             pieces: pieces, speculator: speculator
         )
@@ -91,7 +96,9 @@ struct DictationOutputPipeline {
     /// - Parameters:
     ///   - pieces: The pieces a live session decoded, in order, whose texts
     ///     joined are `original`. With two or more, the model runs piece by
-    ///     piece; everything else still runs over the whole text.
+    ///     piece; everything else still runs over the whole text. Paragraphs
+    ///     go to the model one by one too, so it never has to keep a line
+    ///     break.
     ///   - speculator: Cleanups started while recording. A piece whose request
     ///     matches one exactly reuses its answer instead of running again.
     func process(
@@ -105,7 +112,10 @@ struct DictationOutputPipeline {
         // cleanup puts after it is dropped on the way out.
         var closingGlyph: String?
         func result(_ text: String, _ summary: String) -> DictationOutputResult {
-            let text = closingGlyph.map { Self.droppingFullStop(after: $0, in: text) } ?? text
+            var text = closingGlyph.map { Self.droppingFullStop(after: $0, in: text) } ?? text
+            if options.laysOutParagraphs, options.profile.format == .email, options.profile.cleanup != .raw {
+                text = PauseParagraphs.separatingGreeting(text)
+            }
             return DictationOutputResult(original: original, text: text, summary: summary)
         }
         guard options.profile.cleanup != .raw else { return result(original, "Raw transcription") }
@@ -128,14 +138,14 @@ struct DictationOutputPipeline {
         }
 
         let masked = prepared.masked
-        let slices = pieces.count >= 2
+        let slices = Self.splittingParagraphs(pieces.count >= 2
             ? Self.slices(of: masked.text, pieces: pieces) { text in
                 guard case .prepared(let piece) = prepare(text, options: options, isEnglishText: prepared.isEnglishText) else {
                     return ""
                 }
                 return piece.masked.text
             }
-            : [Self.wholeSlice(of: masked.text)]
+            : [Self.wholeSlice(of: masked.text)])
         let sources = slices.map(\.text)
         let protectedSlices = await Task.detached(priority: .userInitiated) {
             sources.map(RewriteProtectedText.init)
@@ -824,7 +834,9 @@ struct DictationOutputPipeline {
     /// sentence), that piece is joined with the next ones until the combined
     /// text matches, so those pieces go to the model together. If nothing
     /// matches, the rest of the text is one slice. Placeholders are numbered
-    /// per text, so any two are treated as equal when comparing.
+    /// per text, so any two are treated as equal when comparing, and so is
+    /// any run of whitespace: a paragraph break laid out at a pause stands
+    /// where the piece has a space.
     ///
     /// - Parameter prepare: The prepared (masked) text for a piece's raw text.
     static func slices(
@@ -833,7 +845,8 @@ struct DictationOutputPipeline {
         prepare: (String) -> String
     ) -> [TextSlice] {
         let wholeScalars = Array(whole.unicodeScalars)
-        let normalizedWhole = wholeScalars.map(normalizedForMatching)
+        // `wholeOffsets[i]` is where `normalizedWhole[i]` sits in `wholeScalars`.
+        let (normalizedWhole, wholeOffsets) = collapsedForMatching(wholeScalars)
         var ranges: [Range<Int>] = []
         var cursor = skippingWhitespace(normalizedWhole, from: 0)
         var start = 0
@@ -841,7 +854,7 @@ struct DictationOutputPipeline {
             for end in start..<pieces.count {
                 let raw = TranscribedPiece.join(Array(pieces[start...end]))
                 let prepared = prepare(raw).trimmingCharacters(in: .whitespacesAndNewlines)
-                let candidate = prepared.unicodeScalars.map(normalizedForMatching)
+                let candidate = collapsedForMatching(Array(prepared.unicodeScalars)).scalars
                 guard !candidate.isEmpty else {
                     // Nothing left of this piece (only "um"): it has no slice.
                     if end == start {
@@ -868,6 +881,9 @@ struct DictationOutputPipeline {
             if upper > cursor { ranges.append(cursor..<upper) }
         }
         guard ranges.count >= 2 else { return [wholeSlice(of: whole)] }
+        // Back to the whole text's own scalars. A range starts and ends on a
+        // non-space, which maps to exactly one scalar.
+        ranges = ranges.map { wholeOffsets[$0.lowerBound]..<(wholeOffsets[$0.upperBound - 1] + 1) }
 
         func string(_ range: Range<Int>) -> String {
             var view = String.UnicodeScalarView()
@@ -878,6 +894,58 @@ struct DictationOutputPipeline {
             let separator = index == 0 ? "" : string(ranges[index - 1].upperBound..<range.lowerBound)
             return TextSlice(text: string(range), separatorBefore: separator)
         }
+    }
+
+    /// `scalars` as `slices` compares them, with where each one came from.
+    /// Each run of whitespace becomes one space.
+    private static func collapsedForMatching(_ scalars: [Unicode.Scalar]) -> (scalars: [Unicode.Scalar], offsets: [Int]) {
+        var collapsed: [Unicode.Scalar] = []
+        var offsets: [Int] = []
+        collapsed.reserveCapacity(scalars.count)
+        offsets.reserveCapacity(scalars.count)
+        for (offset, scalar) in scalars.enumerated() {
+            if scalar.properties.isWhitespace {
+                if collapsed.last == " " { continue }
+                collapsed.append(" ")
+            } else {
+                collapsed.append(normalizedForMatching(scalar))
+            }
+            offsets.append(offset)
+        }
+        return (collapsed, offsets)
+    }
+
+    private static let paragraphBreakExpression = try? NSRegularExpression(pattern: #"\s*\n[ \t]*\n\s*"#)
+
+    /// `slices` with each one split again at its blank lines, the blank line
+    /// (and the spaces around it) becoming the separator. One paragraph never
+    /// reaches the model with another, so the answer can't merge them.
+    static func splittingParagraphs(_ slices: [TextSlice]) -> [TextSlice] {
+        guard let paragraphBreakExpression else { return slices }
+        var result: [TextSlice] = []
+        for slice in slices {
+            let text = slice.text as NSString
+            var separator = slice.separatorBefore
+            var location = 0
+            for match in paragraphBreakExpression.matches(in: slice.text, range: NSRange(location: 0, length: text.length)) {
+                let part = text.substring(with: NSRange(location: location, length: match.range.location - location))
+                if !part.isEmpty {
+                    result.append(TextSlice(text: part, separatorBefore: separator))
+                    separator = text.substring(with: match.range)
+                } else {
+                    separator += text.substring(with: match.range)
+                }
+                location = NSMaxRange(match.range)
+            }
+            let rest = text.substring(from: location)
+            if !rest.isEmpty {
+                result.append(TextSlice(text: rest, separatorBefore: separator))
+            } else if let last = result.popLast() {
+                // Trailing whitespace after the last paragraph stays with it.
+                result.append(TextSlice(text: last.text + separator, separatorBefore: last.separatorBefore))
+            }
+        }
+        return result
     }
 
     private static func normalizedForMatching(_ scalar: Unicode.Scalar) -> Unicode.Scalar {

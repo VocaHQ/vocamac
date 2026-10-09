@@ -126,6 +126,14 @@ enum SettingsSearchIndex {
             keywords: ["emoji", "emojis", "smiley", "output"]
         ),
         SettingsSearchEntry(
+            id: "pause-paragraphs",
+            page: .formatting,
+            // Not "pause": that query belongs to auto-pause on Performance.
+            title: "Paragraph Breaks",
+            subtitle: "A long silence between sentences starts a new paragraph",
+            keywords: ["paragraphs", "line break", "new line", "silence", "greeting", "layout"]
+        ),
+        SettingsSearchEntry(
             id: "process-while-speaking",
             page: .dictation,
             title: "Process While Speaking",

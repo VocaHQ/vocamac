@@ -127,6 +127,9 @@ protocol HotKeyShortcutMonitoring: AnyObject {
     func updateShortcuts(_ shortcuts: [HotKeyShortcutAction: HotKeyCombo])
     func setCancelKeyArmed(_ armed: Bool)
     func updateMouseTrigger(button: Int)
+    /// Whether the last `onRecordingStart` came from the mouse trigger
+    /// button rather than the key. Read on the main thread.
+    var lastStartWasMouseButton: Bool { get }
 }
 
 extension HotKeyManager: HotKeyShortcutMonitoring {}
@@ -196,6 +199,9 @@ protocol CursorOverlayManaging: AnyObject {
     func setControlActions(stop: @escaping @MainActor () -> Void, cancel: @escaping @MainActor () -> Void)
     /// Whether Escape cancels, so the overlay only offers it when it does.
     func setEscapeHintVisible(_ visible: Bool)
+    /// How this dictation ends ("Let go of Right ⌥ to type"), and whether it
+    /// carries on after the key is let go. `show` resets it.
+    func setStopHint(_ hint: OverlayStopHint?)
 }
 
 extension CursorOverlayManaging {
@@ -205,6 +211,7 @@ extension CursorOverlayManaging {
     func transitionToCleaningUp() {}
     func setControlActions(stop: @escaping @MainActor () -> Void, cancel: @escaping @MainActor () -> Void) {}
     func setEscapeHintVisible(_ visible: Bool) {}
+    func setStopHint(_ hint: OverlayStopHint?) {}
 }
 
 // MARK: - ModelManaging
@@ -363,7 +370,10 @@ extension TextInjecting {
 protocol StatsManaging: AnyObject {
     var stats: UserStats { get }
     var objectWillChangePublisher: AnyPublisher<Void, Never> { get }
-    func recordTranscription(_ transcription: VocaTranscription)
+    /// Count a finished transcription. `isDictation` is false for file
+    /// and meeting transcriptions: they count toward words and totals, but
+    /// not toward the day's speaking time or the longest dictation.
+    func recordTranscription(_ transcription: VocaTranscription, isDictation: Bool)
     /// Remember how long a dictation took to paste after stop.
     func recordStopWait(_ wait: StopWait)
     func refreshCurrentStreak()
@@ -372,6 +382,11 @@ protocol StatsManaging: AnyObject {
 }
 
 extension StatsManaging {
+    /// Count a finished dictation.
+    func recordTranscription(_ transcription: VocaTranscription) {
+        recordTranscription(transcription, isDictation: true)
+    }
+
     func recordStopWait(_ wait: StopWait) {}
     func refreshCurrentStreak() {}
     func flushPendingSaves() {}

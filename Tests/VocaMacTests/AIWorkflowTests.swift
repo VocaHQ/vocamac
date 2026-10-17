@@ -904,6 +904,10 @@ final class CommandModeFlowTests: XCTestCase {
 
         XCTAssertTrue(app.isRecording, "A quick release should switch to toggle mode")
         XCTAssertNil(selection.replacement)
+        // The overlay stops saying “Let go to apply”: it takes a second press.
+        XCTAssertEqual(mocks.cursorOverlay.stopHint?.isCommandMode, true)
+        XCTAssertEqual(mocks.cursorOverlay.stopHint?.isHandsFree, true)
+        XCTAssertEqual(app.overlayStopHint, .commandPress(shortcut: app.shortcut(for: .commandMode).map { CalmKeyCaps.compactText(for: $0) }))
 
         await app.handleShortcut(.commandMode)
 

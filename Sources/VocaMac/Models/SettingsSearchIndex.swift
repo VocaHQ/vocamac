@@ -18,9 +18,9 @@ struct SettingsSearchEntry: Hashable, Identifiable {
     var navigationHint: String? {
         switch id {
         case "app-cleanup-prompt", "spoken-symbols":
-            return "Choose an app under Your Apps, open its edit options, then expand Advanced."
+            return "Click an app under Used in, choose Customize…, then open Advanced."
         case "writing-style-rule-transfer":
-            return "Use the … menu under Your Apps to import or export your app list."
+            return "Use the ⋯ menu at the top of Styles to import or export your app list."
         case "gateway-docker":
             return "Docker fallback is available when the native gateway isn't installed."
         default: return nil
@@ -51,96 +51,97 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "activation-mode",
             page: .dictation,
-            title: "Activation Mode",
+            title: "Holding or double-tapping the dictation key",
             subtitle: "Push to talk or double-tap toggle",
-            keywords: ["hotkey", "ptt", "toggle", "hold"]
+            keywords: ["hotkey", "ptt", "toggle", "hold", "activation mode"]
         ),
         SettingsSearchEntry(
             id: "hotkey",
             page: .dictation,
-            title: "Hotkey",
+            title: "Dictation key",
             subtitle: "Activation key",
-            keywords: ["shortcut", "option", "key"]
+            keywords: ["shortcut", "option", "key", "hotkey"]
         ),
         SettingsSearchEntry(
             id: "trailing-space",
             page: .formatting,
-            title: "Trailing Space After Dictation",
+            title: "Add a space after each dictation",
             subtitle: "Space between utterances",
-            keywords: ["space", "output", "glue", "whitespace"]
+            keywords: ["space", "output", "glue", "whitespace", "trailing space after dictation"]
         ),
         SettingsSearchEntry(
             id: "paste-last-shortcut",
             page: .dictation,
-            title: "Paste Last Dictation",
+            title: "Paste last dictation",
             subtitle: "Shortcut to type your last dictation again",
-            keywords: ["paste", "last", "again", "repeat", "shortcut", "clipboard"]
+            keywords: ["paste", "last", "again", "repeat", "shortcut", "clipboard", "paste last dictation"]
         ),
         SettingsSearchEntry(
             id: "hands-free-shortcut",
             page: .dictation,
-            title: "Hands-free Dictation",
+            title: "Hands-free",
             subtitle: "Shortcut to start and stop without holding",
-            keywords: ["hands free", "toggle", "long", "shortcut", "lock"]
+            keywords: ["hands free", "toggle", "long", "shortcut", "lock", "hands-free dictation"]
         ),
         SettingsSearchEntry(
             id: "escape-cancel",
             page: .dictation,
-            title: "Escape Cancels Dictation",
+            title: "Escape cancels dictation",
             subtitle: "Throw away a recording with Escape",
-            keywords: ["escape", "esc", "cancel", "discard", "abort"]
+            keywords: ["escape", "esc", "cancel", "discard", "abort", "escape cancels dictation"]
         ),
         SettingsSearchEntry(
             id: "mouse-trigger",
             page: .dictation,
-            title: "Mouse Button",
+            title: "Mouse button",
             subtitle: "Dictate with a middle or side mouse button",
-            keywords: ["mouse", "button", "middle", "side", "click"]
+            keywords: ["mouse", "button", "middle", "side", "click", "mouse button"]
         ),
         SettingsSearchEntry(
             id: "auto-capitalize",
             page: .formatting,
-            title: "Auto-Capitalize Sentences",
+            title: "Capitalize sentences",
             subtitle: "Capitalize after punctuation",
-            keywords: ["capitalize", "output", "sentence", "punctuation"]
+            keywords: ["capitalize", "output", "sentence", "punctuation", "auto-capitalize sentences"]
         ),
         SettingsSearchEntry(
             id: "numbers-as-digits",
             page: .formatting,
-            title: "Write Numbers as Digits",
+            title: "Write numbers as digits",
             subtitle: "“twenty three” becomes “23”",
-            keywords: ["numbers", "digits", "numerals", "output"]
+            keywords: ["numbers", "digits", "numerals", "output", "write numbers as digits"]
         ),
         SettingsSearchEntry(
             id: "number-symbols",
             page: .formatting,
-            title: "Use Symbols and Ordinals",
+            title: "Use symbols and ordinals",
             subtitle: "“fifty percent” becomes “50%”",
-            keywords: ["percent", "currency", "dollar", "ordinal", "date", "minus", "symbols"]
+            keywords: ["percent", "currency", "dollar", "ordinal", "date", "minus", "symbols", "use symbols and ordinals"]
         ),
         SettingsSearchEntry(
             id: "spoken-emoji",
             page: .formatting,
-            title: "Spoken Emoji",
+            title: "Spoken emoji",
             subtitle: "“crying emoji” becomes 😭",
-            keywords: ["emoji", "emojis", "smiley", "output"]
+            keywords: ["emoji", "emojis", "smiley", "output", "spoken emoji"]
         ),
         SettingsSearchEntry(
             id: "pause-paragraphs",
             page: .formatting,
             // Not "pause": that query belongs to auto-pause on Performance.
-            title: "Paragraph Breaks",
+            title: "Paragraph breaks",
             subtitle: "A long silence between sentences starts a new paragraph",
-            keywords: ["paragraphs", "line break", "new line", "silence", "greeting", "layout"]
+            keywords: ["paragraphs", "line break", "new line", "silence", "greeting", "layout", "paragraph breaks"]
         ),
         SettingsSearchEntry(
             id: "process-while-speaking",
             page: .dictation,
-            title: "Process While Speaking",
+            title: "Process while speaking",
             subtitle: "Transcribe and clean up each sentence before you stop",
             keywords: [
                 "speed", "faster", "latency", "wait", "streaming", "sentence", "live", "battery",
                 "long dictation", "low power",
+                "process while speaking",
             ]
         ),
 
@@ -148,30 +149,30 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "writing-styles",
             page: .writingStyles,
-            title: "Writing Styles",
+            title: "Styles",
             subtitle: "Make dictation fit the app you're typing in",
-            keywords: ["style", "per-app", "app", "formatting", "output", "shape"]
+            keywords: ["style", "per-app", "app", "formatting", "output", "shape", "writing styles"]
         ),
         SettingsSearchEntry(
             id: "default-writing-style",
             page: .writingStyles,
-            title: "Style Everywhere Else",
+            title: "Style for everything else",
             subtitle: "Used for apps you haven't set up",
-            keywords: ["default", "style", "plain", "fallback"]
+            keywords: ["default", "style", "plain", "fallback", "style everywhere else"]
         ),
         SettingsSearchEntry(
             id: "writing-wording",
             page: .writingStyles,
-            title: "Tone: Formal or Casual",
+            title: "Reword to sound Formal or Casual",
             subtitle: "Reword dictation to sound formal or casual",
-            keywords: ["tone", "formal", "casual", "professional", "friends", "conversation", "wording", "rewrite"]
+            keywords: ["tone", "formal", "casual", "professional", "friends", "conversation", "wording", "rewrite", "tone: formal or casual"]
         ),
         SettingsSearchEntry(
             id: "app-style-rules",
             page: .writingStyles,
-            title: "Your Apps",
+            title: "Apps with their own style",
             subtitle: "Give an app its own writing style",
-            keywords: ["rules", "cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding"]
+            keywords: ["rules", "cursor", "vscode", "slack", "terminal", "messages", "mail app", "notes", "binding", "your apps"]
         ),
         SettingsSearchEntry(
             id: "website-style-rules",
@@ -183,39 +184,39 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "app-cleanup-prompt",
             page: .writingStyles,
-            title: "Per-App Cleanup Instructions",
+            title: "Cleanup instructions for one app",
             subtitle: "Custom cleanup instructions for an app or website",
-            keywords: ["custom", "prompt", "per-app", "per-site", "instructions", "cleanup"]
+            keywords: ["custom", "prompt", "per-app", "per-site", "instructions", "cleanup", "per-app cleanup instructions"]
         ),
         SettingsSearchEntry(
             id: "spoken-symbols",
             page: .writingStyles,
-            title: "Spoken Filenames and Paths",
+            title: "Spoken file names and paths",
             subtitle: "Turn \"config dot json\" into config.json",
-            keywords: ["filename", "path", "dot", "slash", "camel case", "snake case", "identifier", "symbols"]
+            keywords: ["filename", "path", "dot", "slash", "camel case", "snake case", "identifier", "symbols", "spoken filenames and paths"]
         ),
         SettingsSearchEntry(
             id: "writing-style-rule-transfer",
             page: .writingStyles,
-            title: "Export and Import App List",
+            title: "Export and import the app list",
             subtitle: "Move your app styles between Macs",
-            keywords: ["export", "import", "backup", "share", "json", "transfer", "remove all"]
+            keywords: ["export", "import", "backup", "share", "json", "transfer", "remove all", "export and import app list"]
         ),
         SettingsSearchEntry(
             id: "writing-style-preview",
             page: .writingStyles,
-            title: "Try a Style",
+            title: "Try a style",
             subtitle: "See what each style types",
-            keywords: ["preview", "sample", "test", "try"]
+            keywords: ["preview", "sample", "test", "try", "try a style"]
         ),
 
         // Snippets
         SettingsSearchEntry(
             id: "snippets",
             page: .snippets,
-            title: "Custom Snippets",
+            title: "Snippets",
             subtitle: "Replace spoken triggers with saved text",
-            keywords: ["snippet", "shortcut", "expansion", "trigger", "replace", "macro", "abbreviation"]
+            keywords: ["snippet", "shortcut", "expansion", "trigger", "replace", "macro", "abbreviation", "custom snippets"]
         ),
 
         // Smart Cleanup
@@ -229,44 +230,44 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "cleanup-model",
             page: .cleanup,
-            title: "Cleanup Model",
+            title: "Smart Cleanup model",
             subtitle: "Download a model for on-device cleanup",
-            keywords: ["qwen", "ministral", "model", "download", "recommended", "0.5b", "0.6b", "3b", "gguf"]
+            keywords: ["qwen", "ministral", "model", "download", "recommended", "0.5b", "0.6b", "3b", "gguf", "cleanup model"]
         ),
         SettingsSearchEntry(
             id: "cleanup-skip-clean",
             page: .cleanup,
-            title: "Skip the Model When There's Nothing to Clean",
+            title: "Skip the model when there’s nothing to clean",
             subtitle: "Type clean dictations without waiting for the cleanup model",
-            keywords: ["cleanup", "skip", "fast", "faster", "speed", "latency", "clean", "model"]
+            keywords: ["cleanup", "skip", "fast", "faster", "speed", "latency", "clean", "model", "skip the model when there's nothing to clean"]
         ),
         SettingsSearchEntry(
             id: "cleanup-level",
             page: .cleanup,
-            title: "Cleanup Level",
+            title: "How much to change",
             subtitle: "None, Light, Medium, Grammar, or High",
-            keywords: ["level", "none", "light", "medium", "grammar", "high", "corrections"]
+            keywords: ["level", "none", "light", "medium", "grammar", "high", "corrections", "cleanup level"]
         ),
         SettingsSearchEntry(
             id: "cleanup-provider",
             page: .cleanup,
-            title: "Where Cleanup Runs",
+            title: "Where cleanup runs",
             subtitle: "On this Mac, Ollama, LM Studio, or OpenAI-compatible",
-            keywords: ["endpoint", "ollama", "lm studio", "openai", "api key", "server", "remote"]
+            keywords: ["endpoint", "ollama", "lm studio", "openai", "api key", "server", "remote", "where cleanup runs"]
         ),
         SettingsSearchEntry(
             id: "cleanup-try",
             page: .cleanup,
-            title: "Try Cleanup",
+            title: "Try it with your words",
             subtitle: "Run your own text through the cleanup model",
-            keywords: ["try", "test", "preview", "sample", "check", "grammar"]
+            keywords: ["try", "test", "preview", "sample", "check", "grammar", "try cleanup"]
         ),
         SettingsSearchEntry(
             id: "cleanup-prompt",
             page: .cleanup,
-            title: "Cleanup Prompt",
+            title: "Custom instructions",
             subtitle: "Instructions sent to the local model",
-            keywords: ["prompt", "instructions", "system"]
+            keywords: ["prompt", "instructions", "system", "cleanup prompt"]
         ),
 
         // Command Mode
@@ -280,88 +281,88 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "command-mode-model",
             page: .commandMode,
-            title: "Command Mode Model",
+            title: "Command Mode uses",
             subtitle: "Apple Intelligence, Qwen, or Ministral for editing selected text",
-            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "ministral", "3b", "4b", "7b", "selection"]
+            keywords: ["command", "edit", "rewrite", "translate", "apple intelligence", "qwen", "ministral", "3b", "4b", "7b", "selection", "command mode model"]
         ),
         SettingsSearchEntry(
             id: "command-mode-share",
             page: .commandMode,
-            title: "Use the Smart Cleanup Model",
+            title: "Same model as Smart Cleanup",
             subtitle: "One model for cleanup and Command Mode",
-            keywords: ["share", "shared", "same model", "both", "memory", "one model"]
+            keywords: ["share", "shared", "same model", "both", "memory", "one model", "use the smart cleanup model"]
         ),
         SettingsSearchEntry(
             id: "command-mode-review",
             page: .commandMode,
-            title: "Review Edits Before Replacing",
+            title: "Preview before replacing",
             subtitle: "See what Command Mode changed and approve it",
-            keywords: ["command", "review", "diff", "preview", "approve", "confirm", "replace"]
+            keywords: ["command", "review", "diff", "preview", "approve", "confirm", "replace", "review edits before replacing"]
         ),
         SettingsSearchEntry(
             id: "command-mode-clipboard",
             page: .commandMode,
-            title: "Command Mode Clipboard Copy",
+            title: "Copy the selection when an app hides it",
             subtitle: "Copy selections from apps that don't share them",
-            keywords: ["command", "clipboard", "copy", "terminal", "editor", "selection", "vs code"]
+            keywords: ["command", "clipboard", "copy", "terminal", "editor", "selection", "vs code", "command mode clipboard copy"]
         ),
         SettingsSearchEntry(
             id: "command-mode-saved",
             page: .commandMode,
-            title: "Saved Commands",
+            title: "Saved commands",
             subtitle: "Command Mode instructions with a name and a shortcut",
-            keywords: ["command", "saved", "preset", "shortcut", "hotkey", "quick", "fix grammar", "instruction"]
+            keywords: ["command", "saved", "preset", "shortcut", "hotkey", "quick", "fix grammar", "instruction", "saved commands"]
         ),
         SettingsSearchEntry(
             id: "command-mode-actions",
             page: .commandMode,
-            title: "Voice Actions",
+            title: "Voice actions",
             subtitle: "Open apps, search the web, add reminders, run Shortcuts",
-            keywords: ["command", "action", "open", "launch", "search", "reminder", "shortcuts", "automation", "run"]
+            keywords: ["command", "action", "open", "launch", "search", "reminder", "shortcuts", "automation", "run", "voice actions"]
         ),
         SettingsSearchEntry(
             id: "command-mode-models",
             page: .commandMode,
-            title: "Command Mode Models",
+            title: "Writing AI models",
             subtitle: "Download a model for editing selected text",
-            keywords: ["command", "model", "download", "qwen", "ministral", "3b", "4b", "7b"]
+            keywords: ["command", "model", "download", "qwen", "ministral", "3b", "4b", "7b", "command mode models"]
         ),
 
         // Speech Model
         SettingsSearchEntry(
             id: "models",
             page: .speechModel,
-            title: "Speech Models",
+            title: "Speech models",
             subtitle: "Download and select engines",
-            keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download", "endpoint", "remote", "server"]
+            keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download", "endpoint", "remote", "server", "speech models"]
         ),
         SettingsSearchEntry(
             id: "custom-endpoint",
             page: .speechModel,
-            title: "Custom Endpoint",
+            title: "Your own server",
             subtitle: "Send recordings to your Whisper-compatible server",
-            keywords: ["endpoint", "remote", "server", "openai", "whisper.cpp", "api", "upload"]
+            keywords: ["endpoint", "remote", "server", "openai", "whisper.cpp", "api", "upload", "custom endpoint"]
         ),
         SettingsSearchEntry(
             id: "spoken-languages",
             page: .language,
-            title: "Languages You Speak",
+            title: "Languages you speak",
             subtitle: "Sets recognition and the models suggested for you",
-            keywords: ["language", "languages", "multilingual", "bilingual", "filter", "hindi", "spanish", "i speak"]
+            keywords: ["language", "languages", "multilingual", "bilingual", "filter", "hindi", "spanish", "i speak", "languages you speak"]
         ),
         SettingsSearchEntry(
             id: "language",
             page: .language,
-            title: "Transcription Language",
+            title: "Listen for",
             subtitle: "Auto-detect or pick a language",
-            keywords: ["language", "locale", "english", "hungarian"]
+            keywords: ["language", "locale", "english", "hungarian", "transcription language"]
         ),
         SettingsSearchEntry(
             id: "translation",
             page: .language,
-            title: "Translation",
+            title: "Translate into English",
             subtitle: "Translate speech to English",
-            keywords: ["translate", "english"]
+            keywords: ["translate", "english", "translation"]
         ),
         SettingsSearchEntry(
             id: "vocabulary",
@@ -380,39 +381,39 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "learn-corrections",
             page: .dictionary,
-            title: "Learn from My Corrections",
+            title: "Learn from my corrections",
             subtitle: "Suggest words you fixed after dictating",
-            keywords: ["learn", "auto", "suggest", "correction", "edit"]
+            keywords: ["learn", "auto", "suggest", "correction", "edit", "learn from my corrections"]
         ),
         SettingsSearchEntry(
             id: "screen-context",
             page: .dictionary,
-            title: "Spell Names from the Screen",
+            title: "Spell names from the screen",
             subtitle: "Match names and identifiers you can see",
-            keywords: ["context", "screen", "identifier", "variable", "code", "names", "accessibility"]
+            keywords: ["context", "screen", "identifier", "variable", "code", "names", "accessibility", "spell names from the screen"]
         ),
 
         // History
         SettingsSearchEntry(
             id: "history",
             page: .history,
-            title: "Dictation History",
+            title: "Keep a history of dictations",
             subtitle: "Find, copy, replay, and retry past dictations",
-            keywords: ["history", "past", "previous", "transcripts", "retry", "search", "recordings", "audio", "undo"]
+            keywords: ["history", "past", "previous", "transcripts", "retry", "search", "recordings", "audio", "undo", "dictation history"]
         ),
         SettingsSearchEntry(
             id: "history-retention",
             page: .history,
-            title: "Keep History For",
+            title: "Delete dictations older than",
             subtitle: "Delete dictations after a day, a week, or a month",
-            keywords: ["retention", "delete", "privacy", "storage", "keep audio"]
+            keywords: ["retention", "delete", "privacy", "storage", "keep audio", "keep history for"]
         ),
         SettingsSearchEntry(
             id: "history-excluded-apps",
             page: .history,
-            title: "Never Save From These Apps",
+            title: "Never save from these apps",
             subtitle: "Keep password managers, banking, or other private apps out of History",
-            keywords: ["exclude", "password", "private", "privacy", "apps", "incognito"]
+            keywords: ["exclude", "password", "private", "privacy", "apps", "incognito", "never save from these apps"]
         ),
 
         // Audio
@@ -426,118 +427,118 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "closed-lid-microphone",
             page: .audio,
-            title: "External Microphone with Lid Closed",
+            title: "Use an external microphone when the lid is closed",
             subtitle: "Automatically use a non-built-in input in clamshell mode",
-            keywords: ["external", "microphone", "lid", "closed", "clamshell", "dock"]
+            keywords: ["external", "microphone", "lid", "closed", "clamshell", "dock", "external microphone with lid closed"]
         ),
         SettingsSearchEntry(
             id: "skip-silence",
             page: .audio,
-            title: "Skip Silence Before Transcribing",
+            title: "Skip silence",
             subtitle: "Cut quiet stretches so the model only hears speech",
-            keywords: ["vad", "voice activity", "silence", "trim", "hallucination"]
+            keywords: ["vad", "voice activity", "silence", "trim", "hallucination", "skip silence before transcribing"]
         ),
         SettingsSearchEntry(
             id: "silence",
             page: .audio,
-            title: "Silence Detection",
+            title: "Stop after silence",
             subtitle: "Auto-stop after silence",
-            keywords: ["vad", "silence", "sensitivity", "threshold"]
+            keywords: ["vad", "silence", "sensitivity", "threshold", "silence detection"]
         ),
         SettingsSearchEntry(
             id: "sound-effects",
             page: .audio,
-            title: "Sound",
+            title: "Start and stop sound",
             subtitle: "Start and stop tone, or Off",
-            keywords: ["sound", "sounds", "beep", "chime", "audio", "cue", "tone", "dictation tone", "preview", "mute sounds"]
+            keywords: ["sound", "sounds", "beep", "chime", "audio", "cue", "tone", "dictation tone", "preview", "mute sounds", "sound"]
         ),
         SettingsSearchEntry(
             id: "other-audio",
             page: .audio,
-            title: "Other Audio",
+            title: "Mute other audio while dictating",
             subtitle: "Mute music while dictating",
-            keywords: ["duck", "mute", "music", "volume", "quiet", "lower", "playback", "youtube"]
+            keywords: ["duck", "mute", "music", "volume", "quiet", "lower", "playback", "youtube", "other audio"]
         ),
         SettingsSearchEntry(
             id: "spotify-pause",
             page: .audio,
-            title: "Spotify While Dictating",
+            title: "Spotify while dictating",
             subtitle: "Holds playback while the mic is open, Connect included",
-            keywords: ["spotify", "connect", "music", "resume", "playback", "speaker"]
+            keywords: ["spotify", "connect", "music", "resume", "playback", "speaker", "spotify while dictating"]
         ),
 
         // Performance
         SettingsSearchEntry(
             id: "model-status",
             page: .performance,
-            title: "Model Status",
+            title: "Model memory",
             subtitle: "Loaded or unloaded",
-            keywords: ["loaded", "unload", "ram", "memory", "status", "pause"]
+            keywords: ["loaded", "unload", "ram", "memory", "status", "pause", "model status"]
         ),
         SettingsSearchEntry(
             id: "auto-pause",
             page: .performance,
-            title: "Auto-Pause for Apps",
+            title: "Pause for apps",
             subtitle: "Unload while listed apps run",
-            keywords: ["pause", "game", "app", "offload", "unload"]
+            keywords: ["pause", "game", "app", "offload", "unload", "auto-pause for apps"]
         ),
         SettingsSearchEntry(
             id: "idle-unload",
             page: .performance,
-            title: "Unload Model When Idle",
+            title: "Unload models when idle",
             subtitle: "Keep-alive timeout",
-            keywords: ["idle", "keepalive", "keep-alive", "battery", "ram", "unload"]
+            keywords: ["idle", "keepalive", "keep-alive", "battery", "ram", "unload", "unload model when idle"]
         ),
         SettingsSearchEntry(
             id: "resources",
             page: .advanced,
-            title: "Resource Usage",
+            title: "Resource usage",
             subtitle: "App CPU and memory",
-            keywords: ["cpu", "memory", "ram", "resources", "system"]
+            keywords: ["cpu", "memory", "ram", "resources", "system", "resource usage"]
         ),
         SettingsSearchEntry(
             id: "system-info",
             page: .about,
-            title: "System Information",
+            title: "This Mac",
             subtitle: "CPU, RAM, Metal",
-            keywords: ["system", "metal", "device", "hardware"]
+            keywords: ["system", "metal", "device", "hardware", "system information"]
         ),
 
         // Application
         SettingsSearchEntry(
             id: "launch-at-login",
             page: .application,
-            title: "Launch at Login",
-            keywords: ["startup", "login"]
+            title: "Open at login",
+            keywords: ["startup", "login", "launch at login"]
         ),
         SettingsSearchEntry(
             id: "clipboard",
             page: .application,
-            title: "Preserve Clipboard",
-            keywords: ["clipboard", "paste"]
+            title: "Restore clipboard after typing",
+            keywords: ["clipboard", "paste", "preserve clipboard"]
         ),
         SettingsSearchEntry(
             id: "cursor-overlay",
             page: .dictation,
-            title: "Recording Overlay",
+            title: "While you talk",
             subtitle: "Style and position near the cursor",
-            keywords: ["overlay", "cursor", "indicator", "mic", "position", "style", "hud", "pill", "stop", "cancel"]
+            keywords: ["overlay", "cursor", "indicator", "mic", "position", "style", "hud", "pill", "stop", "cancel", "recording overlay"]
         ),
         SettingsSearchEntry(
             id: "settings-backup",
             page: .application,
-            title: "Settings Backup",
+            title: "Back up settings, dictionary and snippets",
             subtitle: "Export or import VocaMac preferences",
-            keywords: ["settings", "backup", "export", "import", "transfer", "json"]
+            keywords: ["settings", "backup", "export", "import", "transfer", "json", "settings backup"]
         ),
 
         // Gateway
         SettingsSearchEntry(
             id: "gateway",
             page: .gateway,
-            title: "Gateway",
+            title: "Phone gateway",
             subtitle: "Optional self-hosted VocaGateway",
-            keywords: ["gateway", "vocagateway", "pair", "phone", "docker", "self-hosted", "qr"]
+            keywords: ["gateway", "vocagateway", "pair", "phone", "docker", "self-hosted", "qr", "gateway"]
         ),
         SettingsSearchEntry(
             id: "gateway-pair",
@@ -549,23 +550,23 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "gateway-docker",
             page: .gateway,
-            title: "Docker fallback",
+            title: "Use Docker instead",
             subtitle: "Install Docker Desktop when native binary is missing",
-            keywords: ["docker", "desktop", "container", "compose"]
+            keywords: ["docker", "desktop", "container", "compose", "docker fallback"]
         ),
 
         // Stats / Advanced / About
         SettingsSearchEntry(
             id: "stats",
             page: .stats,
-            title: "Usage Stats",
-            keywords: ["streak", "words", "history", "share", "social", "linkedin"]
+            title: "Insights",
+            keywords: ["streak", "words", "history", "share", "social", "linkedin", "usage stats"]
         ),
         SettingsSearchEntry(
             id: "logs",
             page: .advanced,
-            title: "Debug Logs",
-            keywords: ["log", "debug", "export", "advanced", "diagnostics"]
+            title: "Logs",
+            keywords: ["log", "debug", "export", "advanced", "diagnostics", "debug logs"]
         ),
         SettingsSearchEntry(
             id: "permissions",
@@ -583,9 +584,9 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "model-credits",
             page: .about,
-            title: "Model Credits",
+            title: "Model credits",
             subtitle: "The teams who made the speech and cleanup models",
-            keywords: ["credits", "attribution", "openai", "nvidia", "qwen", "mistral", "whisper", "parakeet"]
+            keywords: ["credits", "attribution", "openai", "nvidia", "qwen", "mistral", "whisper", "parakeet", "model credits"]
         ),
         SettingsSearchEntry(
             id: "updates",

@@ -42,7 +42,7 @@ final class SettingsSearchIndexTests: XCTestCase {
             XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: term), .commandMode, term)
         }
         XCTAssertFalse(SettingsSearchIndex.entries.contains { $0.page == .cleanup && $0.id.hasPrefix("command-mode") })
-        XCTAssertEqual(SettingsSection.containing(.commandMode), .writing)
+        XCTAssertEqual(CalmNavigation.destination(for: .commandMode), .main(.commands))
     }
 
     func testEndpointQueryFindsCustomEndpointOnSpeechModel() {
@@ -65,8 +65,9 @@ final class SettingsSearchIndexTests: XCTestCase {
     func testLanguageAndTranslationHaveTheirOwnPage() {
         XCTAssertEqual(SettingsSearchIndex.entries.first { $0.id == "language" }?.page, .language)
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "translation"), .language)
-        XCTAssertEqual(SettingsSection.containing(.language), .dictation)
-        XCTAssertEqual(SettingsSection.containing(.formatting), .writing)
+        XCTAssertEqual(CalmNavigation.destination(for: .language), .settings(.languages))
+        XCTAssertEqual(CalmSettingsDestination.languages.parent, .general)
+        XCTAssertEqual(CalmNavigation.destination(for: .formatting), .main(.styles))
     }
 
     func testUnknownQueryIsEmpty() {
@@ -127,27 +128,46 @@ final class SettingsSearchIndexTests: XCTestCase {
     }
 }
 
-// MARK: - Sidebar layout
+// MARK: - Window layout (v3)
 
 final class SettingsSectionTests: XCTestCase {
-    func testEveryPageAppearsInExactlyOneSection() {
-        let listed = SettingsSection.allCases.flatMap(\.pages)
-        XCTAssertEqual(listed.count, Set(listed).count, "a page is listed twice")
-        XCTAssertEqual(Set(listed), Set(SettingsPage.allCases), "a page is missing from the sidebar")
+    /// Every old page still has a home, so deep links, menu bar entries
+    /// and error fixes that name one keep working.
+    func testEveryPageHasExactlyOneHome() {
+        for page in SettingsPage.allCases {
+            switch CalmNavigation.destination(for: page) {
+            case .main(let main):
+                XCTAssertTrue(CalmMainPage.allCases.contains(main), "\(page)")
+            case .settings(let destination):
+                XCTAssertTrue(
+                    CalmSettingsMenuGroup.containing(destination) != nil || destination == .about,
+                    "\(page) is not reachable from the Settings menu"
+                )
+            }
+        }
+        let homes = Set(SettingsPage.allCases.map(CalmNavigation.destination(for:)))
+        let mainPages = Set(CalmMainPage.allCases.map(CalmDestination.main))
+        XCTAssertTrue(mainPages.isSubset(of: homes), "a sidebar page has nothing mapped to it")
     }
 
     func testPerformanceSitsBesideTheSpeechModel() {
-        XCTAssertTrue(SettingsSection.dictation.pages.contains(.performance))
-        XCTAssertTrue(SettingsSection.dictation.pages.contains(.speechModel))
+        // v3: performance joins audio and app settings in System; the
+        // speech model has Models to itself, one step away in the menu.
+        XCTAssertEqual(CalmNavigation.destination(for: .performance), .settings(.system))
+        XCTAssertEqual(CalmNavigation.destination(for: .audio), .settings(.system))
+        XCTAssertEqual(CalmNavigation.destination(for: .speechModel), .settings(.models))
+        XCTAssertEqual(CalmSettingsMenuGroup.settings.items, [.general, .system, .models, .cleanup])
     }
 
     func testPermissionsPageKeepsItsStoredRawValue() {
         // A remembered last page is stored by raw value.
         XCTAssertEqual(SettingsPage.advanced.rawValue, "advanced")
         XCTAssertEqual(SettingsPage.advanced.title, "Permissions & Logs")
+        XCTAssertEqual(CalmNavigation.destination(for: .advanced), .settings(.advanced))
     }
 
     func testOldAdvancedSearchTermsStillFindThePermissionsPage() {
         XCTAssertTrue(SettingsSearchIndex.matches(query: "advanced").contains { $0.page == .advanced })
+        XCTAssertTrue(CalmNavigation.searchGroups(for: "advanced").contains { $0.destination == .settings(.advanced) })
     }
 }

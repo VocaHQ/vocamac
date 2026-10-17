@@ -257,6 +257,7 @@ final class MockHotKeyManager: HotKeyMonitoring, HotKeyShortcutMonitoring {
     var onShortcutReleased: ((HotKeyShortcutAction) -> Void)?
     var onCancel: (() -> Void)?
     var shortcuts: [HotKeyShortcutAction: HotKeyCombo] = [:]
+    var lastStartWasMouseButton = false
     var isCancelKeyArmed = false
     var mouseTriggerButton = 0
 
@@ -373,6 +374,11 @@ final class MockCursorOverlay: CursorOverlayManaging {
 
     func setLiveWordsAvailable(_ available: Bool) {
         liveWordsAvailable = available
+    }
+
+    var stopHint: OverlayStopHint?
+    func setStopHint(_ hint: OverlayStopHint?) {
+        stopHint = hint
     }
 
     func show(style: OverlayStyle, position: OverlayPosition) {
@@ -718,8 +724,12 @@ final class MockStatsManager: StatsManaging, ObservableObject {
         objectWillChange.eraseToAnyPublisher()
     }
 
-    func recordTranscription(_ transcription: VocaTranscription) {
+    /// The `isDictation` flag of each recorded transcription, in order.
+    var recordedIsDictation: [Bool] = []
+
+    func recordTranscription(_ transcription: VocaTranscription, isDictation: Bool) {
         recordCallCount += 1
+        recordedIsDictation.append(isDictation)
     }
 
     var recordedStopWaits: [StopWait] = []
@@ -894,8 +904,12 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
         downloadedKinds.contains(kind)
     }
 
+    /// Runs inside `download` before it finishes, to look at the app mid-download.
+    var onDownload: (() async -> Void)?
+
     func download(_ kind: CleanupModelKind) async {
         downloadCallCount += 1
+        await onDownload?()
         if downloadSucceeds {
             downloadedKinds.insert(kind)
             modelState = .idle

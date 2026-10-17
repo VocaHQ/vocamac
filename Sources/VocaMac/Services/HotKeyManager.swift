@@ -118,6 +118,10 @@ final class HotKeyManager: @unchecked Sendable {
     /// Whether the mouse trigger button's press was consumed.
     private var isMouseButtonHeld = false
 
+    /// Whether the last `onRecordingStart` came from the mouse button.
+    /// Main thread only: set just before that callback runs there.
+    private(set) var lastStartWasMouseButton = false
+
     // MARK: - Secure Input Fallback
 
     /// Watches Secure Event Input, which silences key events in the tap.
@@ -730,6 +734,7 @@ final class HotKeyManager: @unchecked Sendable {
     /// Process a key-down event for the target hotkey
     private func handleKeyDown() {
         let currentTime = CFAbsoluteTimeGetCurrent()
+        let byMouse = isMouseButtonHeld
         VocaLogger.debug(.hotKeyManager, "Key DOWN detected (mode=\(mode.rawValue))")
 
         switch mode {
@@ -740,6 +745,7 @@ final class HotKeyManager: @unchecked Sendable {
                 VocaLogger.debug(.hotKeyManager, "Push-to-talk: START recording")
                 startSafetyTimer()
                 DispatchQueue.main.async { [weak self] in
+                    self?.lastStartWasMouseButton = byMouse
                     self?.onRecordingStart?()
                 }
             } else {
@@ -766,6 +772,7 @@ final class HotKeyManager: @unchecked Sendable {
                 DispatchQueue.main.async { [weak self] in
                     guard let self = self else { return }
                     if shouldStart {
+                        self.lastStartWasMouseButton = byMouse
                         self.onRecordingStart?()
                     } else {
                         self.onRecordingStop?()

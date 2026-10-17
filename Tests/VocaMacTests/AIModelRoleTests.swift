@@ -171,6 +171,72 @@ final class AIModelRoleTests: XCTestCase {
         XCTAssertEqual(state.commandModeEngine, .local(.qwen25_1_5b_q4_k_m))
     }
 
+    // MARK: Back from a server
+
+    private func onServer(_ state: AppState) {
+        var endpoint = state.cleanupEndpoint
+        endpoint.provider = .ollama
+        state.cleanupEndpoint = endpoint
+        state.commandModeEngine = .endpoint
+        state.transcriptCleanupEnabled = true
+    }
+
+    /// The server keeps cleaning while the model downloads and loads; only
+    /// then does cleanup (and Command Mode on the server) move to this Mac.
+    func testMovingCleanupToThisMacWaitsForTheModel() async {
+        let (state, cleanup) = makeState()
+        onServer(state)
+        cleanup.downloadedKinds.remove(.ministral3_3b_q4_k_m)
+        var wasOnServerWhileDownloading = false
+        cleanup.onDownload = { wasOnServerWhileDownloading = !state.cleanupEndpoint.isLocal }
+        var wasOnServerWhileLoading: Bool?
+        cleanup.onLoad = { if wasOnServerWhileLoading == nil { wasOnServerWhileLoading = !state.cleanupEndpoint.isLocal } }
+
+        let moved = await state.calmMoveCleanupToThisMac(.ministral3_3b_q4_k_m, for: .cleanup)
+
+        XCTAssertTrue(moved)
+        XCTAssertTrue(wasOnServerWhileDownloading)
+        XCTAssertEqual(wasOnServerWhileLoading, true)
+        XCTAssertTrue(state.cleanupEndpoint.isLocal)
+        XCTAssertEqual(state.selectedCleanupModelKind, .ministral3_3b_q4_k_m)
+        XCTAssertEqual(state.commandModeEngine, .local(.ministral3_3b_q4_k_m), "Command Mode leaves the server too")
+    }
+
+    func testFailedOrSupersededMoveKeepsTheServer() async {
+        let (state, cleanup) = makeState()
+        onServer(state)
+        cleanup.downloadedKinds.remove(.ministral3_3b_q4_k_m)
+        cleanup.downloadSucceeds = false
+        let failed = await state.calmMoveCleanupToThisMac(.ministral3_3b_q4_k_m, for: .cleanup)
+        XCTAssertFalse(failed)
+        XCTAssertEqual(state.cleanupEndpoint.provider, .ollama)
+        XCTAssertEqual(state.commandModeEngine, .endpoint)
+        XCTAssertEqual(state.selectedCleanupModelKind, .defaultKind)
+
+        cleanup.downloadSucceeds = true
+        let superseded = await state.calmMoveCleanupToThisMac(.ministral3_3b_q4_k_m, for: .cleanup) { false }
+        XCTAssertFalse(superseded)
+        XCTAssertEqual(state.cleanupEndpoint.provider, .ollama)
+    }
+
+    /// While the two share a model, only a plain cleanup pick moves both:
+    /// “Use for Command Mode only” leaves the cleanup model alone.
+    func testCommandModeOnlyPickLeavesCleanupWhileSharing() async {
+        let (state, _) = makeState()
+        state.transcriptCleanupEnabled = true
+        await state.useAIModel(.ministral3_3b_q4_k_m, for: .both)
+        XCTAssertTrue(state.sharesAIModel)
+        let picker = CalmModelPicker()
+
+        picker.startWriting(.qwen25_7b_q4_k_m, role: .commandMode, cancelling: nil, appState: state)
+        for _ in 0..<200 where picker.pendingCommandMode != nil { await Task.yield() }
+
+        XCTAssertNil(picker.pendingCommandMode)
+        XCTAssertEqual(state.commandModeEngine, .local(.qwen25_7b_q4_k_m))
+        XCTAssertEqual(state.selectedCleanupModelKind, .ministral3_3b_q4_k_m)
+        XCTAssertFalse(state.sharesAIModel)
+    }
+
     func testChoosingWhileCleanupIsOffDoesNotLoadAModel() async {
         let (state, cleanup) = makeState()
         await state.useAIModel(.qwen25_1_5b_q4_k_m, for: .cleanup)
@@ -182,10 +248,10 @@ final class AIModelRoleTests: XCTestCase {
         let (state, mocks) = AppState.makeTestState()
         state.currentModel = nil
         mocks.whisperService.loadedModelName = "openai_whisper-tiny"
-        XCTAssertEqual(state.loadedModelDisplayName, ModelSize.tiny.displayName)
+        XCTAssertEqual(state.loadedModelDisplayName, CalmModelText.name(.tiny))
 
         mocks.whisperService.loadedModelName = ModelSize.allCases.last?.rawValue
-        XCTAssertEqual(state.loadedModelDisplayName, ModelSize.allCases.last?.displayName)
+        XCTAssertEqual(state.loadedModelDisplayName, ModelSize.allCases.last.map(CalmModelText.name))
 
         mocks.whisperService.loadedModelName = nil
         XCTAssertNil(state.loadedModelDisplayName)

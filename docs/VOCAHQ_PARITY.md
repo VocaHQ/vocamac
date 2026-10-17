@@ -236,7 +236,7 @@ Phases 1–3 and the language half of Phase 4 shipped in PR #207. Remaining Phas
 | Auto-pause | `AutoPauseMonitor` |
 | Idle unload | `ModelKeepAlive` |
 | Sleep/wake | `SleepWakeMonitor` |
-| Settings shell | `SettingsView` (custom sidebar + detail) |
+| Settings shell | `CalmWindowView` (sidebar pages + Settings sheet) |
 | Search index | `SettingsSearchIndex` |
 | Tests | `Tests/VocaMacTests/` (matching, formatter, keep-alive, search, languages, …) |
 

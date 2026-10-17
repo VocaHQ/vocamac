@@ -19,7 +19,13 @@ final class DictationHistoryStore: ObservableObject {
     static let maximumAudioBytes: Int64 = 1 << 30
 
     /// Newest first.
-    @Published private(set) var entries: [DictationHistoryEntry] = []
+    @Published private(set) var entries: [DictationHistoryEntry] = [] {
+        didSet { revision &+= 1 }
+    }
+
+    /// Changes whenever `entries` does, so views can cache what they derive
+    /// from history without comparing every entry.
+    private(set) var revision = 0
 
     /// True when a change is in memory but the disk refused both the journal
     /// and the index. Every later save rewrites the whole index until one

@@ -157,12 +157,13 @@ final class SettingsPageGatewayTests: XCTestCase {
         }
         XCTAssertLessThan(gatewayIndex, aboutIndex)
 
-        let sidebar = SettingsSection.app.pages
-        guard let sidebarGateway = sidebar.firstIndex(of: .gateway),
-              let sidebarAbout = sidebar.firstIndex(of: .about) else {
-            return XCTFail("gateway must appear in the VocaMac settings group before About")
-        }
-        XCTAssertLessThan(sidebarGateway, sidebarAbout)
+        // v3: the phone gateway is a sub-page of Settings › Advanced, and
+        // About opens from the sheet menu's footer.
+        XCTAssertEqual(CalmNavigation.destination(for: .gateway), .settings(.gateway))
+        XCTAssertEqual(CalmSettingsDestination.gateway.parent, .advanced)
+        XCTAssertEqual(CalmSettingsDestination.gateway.menuItem, .advanced)
+        XCTAssertEqual(CalmNavigation.destination(for: .about), .settings(.about))
+        XCTAssertNil(CalmSettingsMenuGroup.containing(.about))
     }
 
     func testSettingsSearchIndexHitsGatewayKeywords() {

@@ -25,13 +25,23 @@ struct UserStats: Codable, Equatable {
     var bestStreak: Int = 0
 
     /// Daily word counts to calculate trends and streaks
-    /// Key is date string in "yyyy-MM-dd" format
+    /// Key is date string in "yyyy-MM-dd" format. Buckets are never pruned,
+    /// so the Insights heatmap always has the full year (53 weeks) behind it.
     var dailyWordCounts: [String: Int] = [:]
 
     /// Daily successful-transcription counts used to distinguish activity from
     /// a corrupt or legitimately zero-word daily bucket.
     /// Key is date string in "yyyy-MM-dd" format.
     var dailyTranscriptionCounts: [String: Int] = [:]
+
+    /// Daily seconds of recorded speech, for the Insights heatmap's Time
+    /// view. Key is date string in "yyyy-MM-dd" format. Absent from stats
+    /// saved by builds before it, so older days have words but no time.
+    var dailyAudioSeconds: [String: Double] = [:]
+
+    /// The longest single recording that produced text, in seconds.
+    /// Zero until a dictation is recorded by a build that tracks it.
+    var longestDictationSeconds: Double = 0
 
     /// Time-zone identifier used to create and interpret daily buckets.
     /// Keeping this stable prevents travel from reinterpreting historical keys.
@@ -40,6 +50,12 @@ struct UserStats: Codable, Equatable {
     /// The most recent waits between stopping a dictation and its text being
     /// pasted, oldest first, at most `maxStopWaits`.
     var stopWaits: [StopWait] = []
+
+    /// When Reset All Statistics last ran, if it has. Personal bests filled
+    /// in from history count only entries after this moment, so a reset
+    /// isn't undone by dictations from earlier the same day. Absent from
+    /// stats saved before it, and from stats never reset.
+    var resetDate: Date?
 
     /// Calculated average Words Per Minute (WPM).
     /// Note: This is "words-per-minute-of-audio", dividing total words by total audio duration.
@@ -95,11 +111,21 @@ extension UserStats {
         ) ?? dailyTranscriptionCounts
         dailyTranscriptionCounts = decodedDailyTranscriptionCounts.mapValues { max(0, $0) }
 
+        let decodedDailyAudio = container.decodeLossily(
+            [String: Double].self,
+            forKey: .dailyAudioSeconds
+        ) ?? dailyAudioSeconds
+        dailyAudioSeconds = decodedDailyAudio.filter { $0.value.isFinite && $0.value > 0 }
+
+        let decodedLongest = container.decodeLossily(Double.self, forKey: .longestDictationSeconds) ?? 0
+        longestDictationSeconds = decodedLongest.isFinite && decodedLongest > 0 ? decodedLongest : 0
+
         timeZoneIdentifier = container.decodeLossily(String.self, forKey: .timeZoneIdentifier)
         // Entry by entry, so one damaged wait doesn't cost the rest.
         let decodedStopWaits = (container.decodeLossily([LossyElement<StopWait>].self, forKey: .stopWaits) ?? [])
             .compactMap(\.value)
         stopWaits = Array(decodedStopWaits.filter(\.isValid).suffix(Self.maxStopWaits))
+        resetDate = container.decodeLossily(Date.self, forKey: .resetDate)
     }
 }
 

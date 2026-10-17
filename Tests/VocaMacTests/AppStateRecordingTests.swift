@@ -369,6 +369,8 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(result.text, "mock transcription")
         XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.1])
         XCTAssertEqual(appState.appStatus, .idle)
+        // A meeting is counted, but not as a dictation.
+        XCTAssertEqual(mocks.statsManager.recordedIsDictation, [false])
     }
 
     func testSystemAudioTranscriptionWaitsForAnActiveDictation() async throws {
@@ -538,6 +540,8 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, 1_600)
         XCTAssertNil(mocks.textInjector.lastInjectedText)
         XCTAssertEqual(appState.appStatus, .idle)
+        // A file is counted, but not as a dictation.
+        XCTAssertEqual(mocks.statsManager.recordedIsDictation, [false])
     }
 
     func testStopTimeInjectResultFalseCannotDemoteOrdinaryDictation() async {

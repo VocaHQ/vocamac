@@ -29,32 +29,3 @@ struct NextDictationSummary: View {
         .accessibilityElement(children: .combine)
     }
 }
-
-/// Original and final text stay together when inspecting an output change.
-struct TranscriptComparisonView: View {
-    let original: String
-    let final: String
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .top, spacing: 16) {
-                column("Original", text: original).frame(minWidth: 180)
-                column("Final text", text: final).frame(minWidth: 180)
-            }
-            VStack(alignment: .leading, spacing: 12) {
-                column("Original", text: original)
-                column("Final text", text: final)
-            }
-        }
-    }
-
-    private func column(_ title: String, text: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                .accessibilityAddTraits(.isHeader)
-            Text(text).textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}

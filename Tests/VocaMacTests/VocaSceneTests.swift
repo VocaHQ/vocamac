@@ -61,16 +61,26 @@ final class VocaSceneTests: XCTestCase {
 
     // MARK: - Settings
 
-    func testEverySettingsPageBelongsToItsSidebarGroup() {
-        for section in SettingsSection.allCases {
-            for page in section.pages {
-                XCTAssertEqual(SettingsSection.containing(page), section, "\(page)")
+    // v3 drops the per-group scene headers; the Settings sheet's menu
+    // groups are what keep the pages apart now.
+    func testEverySettingsPageBelongsToItsMenuGroup() {
+        for group in CalmSettingsMenuGroup.allCases {
+            for item in group.items {
+                XCTAssertEqual(CalmSettingsMenuGroup.containing(item), group, "\(item)")
             }
+        }
+        for destination in CalmSettingsDestination.allCases where destination.parent != nil {
+            XCTAssertEqual(
+                CalmSettingsMenuGroup.containing(destination),
+                destination.parent.flatMap(CalmSettingsMenuGroup.containing), "\(destination)"
+            )
         }
     }
 
-    func testEachSettingsGroupHasItsOwnTimeOfDay() {
-        let moods = SettingsSection.allCases.map(\.mood)
-        XCTAssertEqual(Set(moods).count, moods.count)
+    func testEachSettingsGroupHasItsOwnCaption() {
+        let titles = CalmSettingsMenuGroup.allCases.map(\.title)
+        XCTAssertEqual(Set(titles).count, titles.count)
+        let items = CalmSettingsMenuGroup.allCases.flatMap(\.items)
+        XCTAssertEqual(Set(items).count, items.count, "a menu item is listed twice")
     }
 }

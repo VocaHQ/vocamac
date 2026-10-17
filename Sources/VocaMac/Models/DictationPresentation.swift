@@ -195,6 +195,9 @@ extension AppState {
     /// The hardware shortcut uses the normal recording path. During an
     /// explicitly armed shortcut check its output stays inside onboarding.
     func startRecordingFromActivationShortcut() async {
+        let byMouse = (hotKeyManager as? HotKeyShortcutMonitoring)?.lastStartWasMouseButton == true
+        dictationTrigger = byMouse ? .mouseButton : .dictationKey
+        defer { dictationTrigger = .other }
         if onboardingVerification.mode == .shortcut {
             onboardingVerification.shortcutDetected = true
             await startRecording(injectResult: false, verifiesShortcut: true)

@@ -664,6 +664,9 @@ final class CommandModeAutomationTests: XCTestCase {
             name: "Tidy up", instruction: "fix grammar and spelling",
             shortcut: HotKeyCombo(keyCode: 5, modifiers: [.control, .option, .command]).storageString
         )
+        // Saved-command shortcuts are live only while Command Mode is on.
+        fixture.app.setShortcut(HotKeyCombo(keyCode: 14, modifiers: [.control, .option]), for: .commandMode)
+        defer { fixture.app.setShortcut(nil, for: .commandMode) }
         fixture.app.savedCommands = [command]
         fixture.cleanup.cleanHandler = { _ in "She goes to the office." }
 

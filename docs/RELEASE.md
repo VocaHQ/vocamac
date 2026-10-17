@@ -28,7 +28,7 @@ Pre-release versions use suffixes: `v0.1.0-alpha`, `v0.1.0-beta.1`
    - `scripts/build.sh` — both `CFBundleVersion` and `CFBundleShortVersionString` in the Info.plist template
    - `web/data/product.toml` — the whole `[stable]` block: `version`, `tag`, `status`, `released`, `releaseURL`, and the `Verified:` comment at the top. Hugo renders the JSON-LD `softwareVersion` and the hero badge from these, so nothing in `web/layouts/` needs editing.
    - `README.md` — the platform table row for macOS (status and version)
-   - _(No Swift change needed — the About tab reads the version from `Info.plist` via `appVersionDisplay` in `SettingsView.swift`.)_
+   - _(No Swift change needed — Settings › About reads the version from `Info.plist` via `CalmSettingsMenu.appVersion` in `CalmWindowView.swift`.)_
    - `homebrew/Casks/vocamac.rb` — version and sha256 (if doing a manual tap update)
    - **Do NOT** create a `docs/RELEASE_NOTES_vX.Y.Z.md` file — release notes live out-of-tree (see [Release Notes (out-of-tree)](#release-notes-out-of-tree) below)
 4. **Test locally**:

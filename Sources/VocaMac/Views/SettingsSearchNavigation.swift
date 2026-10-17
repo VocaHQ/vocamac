@@ -27,10 +27,16 @@ private struct SettingsSearchTarget: ViewModifier {
             .background {
                 ForEach(ids.dropFirst(), id: \.self) { Color.clear.id($0) }
             }
+            // Drawn inside the control's frame: v3 rows run edge to edge
+            // in their panel, so an outset ring would spill past it.
             .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(highlighted ? VocaDesign.accent : .clear, lineWidth: 2)
-                    .padding(-3)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(highlighted ? CalmColor.accentSoft : .clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(highlighted ? CalmColor.accent : .clear, lineWidth: 2)
+                    )
+                    .animation(.easeOut(duration: 0.2), value: highlighted)
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
             }
@@ -43,24 +49,8 @@ private struct SettingsSearchTarget: ViewModifier {
     }
 }
 
-private struct SettingsSearchReveal: ViewModifier {
-    let ids: [String]
-    @Binding var expanded: Bool
-    @Environment(\.settingsSearchTarget) private var selected
-
-    func body(content: Content) -> some View {
-        content.onChange(of: selected, initial: true) { _, target in
-            if let target, ids.contains(target) { expanded = true }
-        }
-    }
-}
-
 extension View {
     func settingsTarget(_ id: String, aliases: [String] = []) -> some View {
         modifier(SettingsSearchTarget(ids: [id] + aliases))
-    }
-
-    func revealSettingsTargets(_ ids: [String], expanded: Binding<Bool>) -> some View {
-        modifier(SettingsSearchReveal(ids: ids, expanded: expanded))
     }
 }

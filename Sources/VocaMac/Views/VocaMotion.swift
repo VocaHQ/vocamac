@@ -293,34 +293,3 @@ struct VocaLinkButtonStyle: ButtonStyle {
 extension ButtonStyle where Self == VocaLinkButtonStyle {
     static var vocaLink: VocaLinkButtonStyle { VocaLinkButtonStyle() }
 }
-
-// MARK: - Form pieces
-
-/// A section heading in a grouped form, set in the serif like the headings
-/// on the hand-built pages.
-struct VocaFormSectionHeader: View {
-    let title: String
-
-    init(_ title: String) { self.title = title }
-
-    var body: some View {
-        Text(title)
-            .font(VocaDesign.display(20))
-            .foregroundStyle(.primary)
-            .textCase(nil)
-            .padding(.bottom, 2)
-            .accessibilityAddTraits(.isHeader)
-    }
-}
-
-extension View {
-    /// A multi-line text box: an inset well of the canvas inside a card,
-    /// with a hairline edge.
-    func vocaTextEditor() -> some View {
-        self
-            .scrollContentBackground(.hidden)
-            .padding(8)
-            .background(VocaDesign.canvas, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(VocaDesign.line))
-    }
-}

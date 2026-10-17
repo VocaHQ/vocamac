@@ -112,7 +112,7 @@ class StatsManager: StatsManaging, ObservableObject {
         }
     }
 
-    func recordTranscription(_ transcription: VocaTranscription) {
+    func recordTranscription(_ transcription: VocaTranscription, isDictation: Bool) {
         let text = transcription.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
@@ -145,6 +145,16 @@ class StatsManager: StatsManaging, ObservableObject {
             updatedStats.dailyTranscriptionCounts[dateKey, default: 0],
             1
         )
+        // A file or meeting is not speech the user dictated: it would
+        // inflate the day's speaking time and the longest dictation.
+        let audioSeconds = transcription.audioLengthSeconds
+        if isDictation, audioSeconds.isFinite, audioSeconds > 0 {
+            updatedStats.dailyAudioSeconds[dateKey] = addingDuration(
+                audioSeconds,
+                to: updatedStats.dailyAudioSeconds[dateKey, default: 0]
+            )
+            updatedStats.longestDictationSeconds = max(updatedStats.longestDictationSeconds, audioSeconds)
+        }
         updatedStats.timeZoneIdentifier = statisticsTimeZone.identifier
 
         if updatedStats.lastUsageDate.map({ transcription.timestamp > $0 }) ?? true {
@@ -180,7 +190,7 @@ class StatsManager: StatsManaging, ObservableObject {
     }
 
     func resetStats() {
-        stats = UserStats(timeZoneIdentifier: statisticsTimeZone.identifier)
+        stats = UserStats(timeZoneIdentifier: statisticsTimeZone.identifier, resetDate: now())
         saveStats()
     }
 

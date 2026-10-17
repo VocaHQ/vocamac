@@ -1083,7 +1083,7 @@ struct MenuBarView: View {
                 appState.historyEnabled.toggle()
             }
             menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", keyEquivalent: ",") {
-                settingsManager.open(appState: appState)
+                settingsManager.open(appState: appState, page: .dictation)
             }
             if gateway.status.allowsPairing {
                 menuRow("Pair phone…", systemImage: "qrcode", shortcut: nil) {

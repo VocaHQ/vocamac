@@ -48,7 +48,7 @@ VocaMac is a native macOS menu bar application built with Swift and SwiftUI. It 
 │  ┌──────────────────────────────────────────────────────┐    │
 │  │                   SwiftUI Layer                       │    │
 │  │  ┌──────────────┐  ┌────────────┐  ┌──────────────┐ │    │
-│  │  │ MenuBarView  │  │SettingsView│                  │    │
+│  │  │ MenuBarView  │  │CalmWindow  │                  │    │
 │  │  └──────────────┘  └────────────┘  └──────────────┘ │    │
 │  └──────────────────────────────────────────────────────┘    │
 └──────────────────────────────────────────────────────────────┘
@@ -113,8 +113,7 @@ VocaMacApp (entry point)
     │     └── TextInjector
     │     └── SoundManager
     ├── MenuBarView
-    ├── SettingsView
-    └── SettingsView
+    └── CalmWindowView (sidebar pages + Settings sheet)
 ```
 
 ### 3.2 Module Specifications

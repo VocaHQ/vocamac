@@ -20,8 +20,8 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
     /// off: the rule-based steps run without the model.
     var withoutSmartCleanup: String {
         removesHesitations
-            ? "Smart Cleanup is off: no model runs. “Um”, “uh”, and spoken corrections of days, numbers, and times are still handled at this level, and Formatting settings still apply."
-            : "Smart Cleanup is off: no model runs. Your words are kept as spoken; Formatting settings still apply."
+            ? "Smart Cleanup is off: no model runs. “Um”, “uh”, and spoken corrections of days, numbers, and times are still handled at this level, and your Styles still apply."
+            : "Smart Cleanup is off: no model runs. Your words are kept as spoken; your Styles still apply."
     }
 
     var displayName: String {

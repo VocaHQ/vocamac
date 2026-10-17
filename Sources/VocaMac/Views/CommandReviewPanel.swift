@@ -46,7 +46,8 @@ protocol CommandReviewPresenting: AnyObject {
 final class CommandReviewPanelController: CommandReviewPresenting {
     private var panel: NSPanel?
 
-    static let width: CGFloat = 560
+    /// The design's Command Mode preview card: 480 wide.
+    static let width: CGFloat = 480
     static let maximumHeight: CGFloat = 460
 
     func show(
@@ -115,109 +116,162 @@ private final class FirstMouseHostingView<Content: View>: NSHostingView<Content>
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// The Command Mode preview: the instruction as its title, the selection
+/// struck through, the result in a panel, and Keep original / Replace. Uses
+/// the normal theme, since it asks for a decision; violet only marks it as
+/// Command Mode.
 struct CommandReviewView: View {
     let review: CommandReview
     let onAccept: () -> Void
     let onCopy: () -> Void
     let onDismiss: () -> Void
 
-    @Environment(\.colorScheme) private var colorScheme
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Image(systemName: review.kind == .edit ? "wand.and.stars" : "text.bubble")
-                    .foregroundStyle(VocaDesign.command)
-                Text(review.kind == .edit ? "Review the edit" : "Answer")
-                    .font(VocaDesign.display(17))
-                Spacer(minLength: 8)
-                Text(review.engineName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text("“\(review.instruction)”")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .lineLimit(2)
+        VStack(alignment: .leading, spacing: 14) {
+            header
 
             ScrollView {
-                Text(Self.content(for: review, colorScheme: colorScheme))
-                    .font(.callout)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(10)
-            }
-            .frame(maxHeight: 280)
-            .background(VocaDesign.surface, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(VocaDesign.line))
-
-            if let note = review.note {
-                Label("Check this: \(note).", systemImage: "exclamationmark.triangle")
-                    .font(.caption)
-                    .foregroundStyle(VocaDesign.warning)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 8) {
-                Text(hint)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                Button(review.kind == .edit ? "Discard" : "Close", action: onDismiss)
-                Button("Copy", action: onCopy)
-                if review.kind == .edit {
-                    Button("Replace", action: onAccept)
-                        .buttonStyle(VocaPrimaryButtonStyle(fill: VocaDesign.command, label: .white))
+                VStack(alignment: .leading, spacing: 8) {
+                    if review.kind == .edit {
+                        Text(review.original.trimmingCharacters(in: .whitespacesAndNewlines))
+                            .font(.system(size: 14))
+                            .lineSpacing(5)
+                            .foregroundStyle(CalmColor.muted)
+                            .strikethrough(true, color: CalmColor.amber)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityLabel("Before: \(review.original)")
+                    }
+                    Text(review.result.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(CalmFont.sf(14, weight: 500))
+                        .lineSpacing(5)
+                        .foregroundStyle(CalmColor.ink)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: CalmMetrics.Radius.panel, style: .continuous)
+                                .fill(CalmColor.panel)
+                        )
+                        .accessibilityLabel(review.kind == .edit ? "After: \(review.result)" : "Answer: \(review.result)")
                 }
             }
-            .controlSize(.small)
-        }
-        .padding(14)
-        .frame(width: CommandReviewPanelController.width)
-        .buttonStyle(VocaOutlineButtonStyle())
-        .background {
-            ZStack {
-                VocaDesign.canvas
-                PaperGrainOverlay()
+            .scrollIndicators(.automatic)
+            .frame(maxHeight: 300)
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let note = review.note {
+                CalmInlineNotice("Check this: \(note).", tone: .warning)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+            footer
         }
+        .padding(CalmMetrics.dialogPadding)
+        .frame(width: CommandReviewPanelController.width, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: CalmMetrics.Radius.dialog, style: .continuous)
+                .fill(CalmColor.content)
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(VocaDesign.command.opacity(0.35))
+            RoundedRectangle(cornerRadius: CalmMetrics.Radius.dialog, style: .continuous)
+                .strokeBorder(CalmColor.line2, lineWidth: 1)
         )
         .accessibilityElement(children: .contain)
         .accessibilityLabel(review.kind == .edit ? "Command Mode edit to review" : "Command Mode answer")
     }
 
-    private var hint: String {
-        switch review.kind {
-        case .edit:
-            let accept = review.acceptShortcut.map { "\($0) replaces" } ?? "Replace applies it"
-            return "\(accept) · Esc discards"
-        case .answer:
-            return "Esc closes"
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            CalmIcon(.commands, size: 15)
+                .foregroundStyle(CalmColor.violet)
+                .frame(width: 26, height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(Self.violetSoft)
+                )
+            Text(Self.title(for: review))
+                .font(CalmFont.sf(15, weight: 650))
+                .foregroundStyle(CalmColor.ink)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 8)
+            Text(review.engineName)
+                .font(CalmFont.note)
+                .foregroundStyle(CalmColor.muted)
+                .lineLimit(1)
+                .help("The model that wrote this")
+            if review.kind == .edit {
+                // Copy sits up here so the footer keeps the design's two
+                // buttons at full width.
+                Button(action: onCopy) {
+                    CalmIcon(.copy, size: 15)
+                }
+                .calmIconButton(size: 28)
+                .help("Copy the result")
+                .accessibilityLabel("Copy the result")
+            }
         }
     }
 
-    /// The result as text to show: an edit as what changed, an answer as it is.
-    static func content(for review: CommandReview, colorScheme: ColorScheme) -> AttributedString {
-        guard review.kind == .edit else { return AttributedString(review.result) }
-        var text = AttributedString()
-        for segment in WordDiff.segments(from: review.original, to: review.result) {
-            var part = AttributedString(segment.text)
-            switch segment.kind {
-            case .same:
-                break
-            case .removed:
-                part.foregroundColor = VocaDesign.clay.opacity(colorScheme == .dark ? 0.95 : 0.9)
-                part.strikethroughStyle = .single
-            case .added:
-                part.foregroundColor = VocaDesign.accent
-                part.underlineStyle = .single
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Text(review.kind == .edit ? "Say “undo” to go back later" : "Esc closes")
+                .font(CalmFont.description)
+                .foregroundStyle(CalmColor.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.9)
+            Spacer(minLength: 8)
+            if review.kind == .edit {
+                Button("Keep original", action: onDismiss)
+                    .calmButton(.secondary)
+                    .fixedSize()
+                    .help("Leave the text as it is (Esc)")
+                Button(action: onAccept) {
+                    HStack(spacing: 4) {
+                        Text("Replace")
+                        if let keys = review.acceptShortcut {
+                            Self.keyCap(keys)
+                        }
+                    }
+                }
+                .calmButton(.primary)
+                .fixedSize()
+                .help(review.acceptShortcut.map { "Replace the selection (\($0))" } ?? "Replace the selection")
+            } else {
+                Button("Close", action: onDismiss)
+                    .calmButton(.secondary)
+                    .help("Close (Esc)")
+                Button("Copy", action: onCopy)
+                    .calmButton(.primary)
             }
-            text += part
         }
-        return text
+    }
+
+    /// The keys that accept, on the primary button: a 20-point cap with a
+    /// faint ring in the button's own text colour.
+    private static func keyCap(_ keys: String) -> some View {
+        let shape = RoundedRectangle(cornerRadius: CalmMetrics.Radius.key, style: .continuous)
+        return Text(keys)
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 6)
+            .frame(minWidth: 20, minHeight: 20, maxHeight: 20)
+            .overlay(shape.strokeBorder(CalmColor.onPrimary.opacity(0.3), lineWidth: 1))
+    }
+
+    /// Violet at 9% (light) or 13% (dark), behind the Command Mode icon.
+    static let violetSoft = Color(nsColor: NSColor.calmAdaptive(
+        light: CalmNSColor.rgb(0x7047DB, 0.09), dark: CalmNSColor.rgb(0xB89EFF, 0.13)
+    ))
+
+    /// The instruction as a title: "make this shorter" → "Make this shorter".
+    static func title(for review: CommandReview) -> String {
+        let instruction = review.instruction
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "“”\"."))
+        guard let first = instruction.first else {
+            return review.kind == .edit ? "Review the edit" : "Answer"
+        }
+        return first.uppercased() + instruction.dropFirst()
     }
 }

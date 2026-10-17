@@ -55,13 +55,6 @@ final class ModelLanguageSupportTests: XCTestCase {
         XCTAssertEqual(ModelSize.largeV3.speedScore, 0.1, accuracy: 0.001)
     }
 
-    func testRatingWordsMatchTheDotsShown() {
-        XCTAssertEqual(ModelRating.dots(for: ModelSize.largeV3.speedScore), 0.5)
-        XCTAssertEqual(ModelRating.describe(ModelSize.largeV3.speedScore), "0.5 of 5")
-        XCTAssertEqual(ModelRating.describe(ModelSize.tiny.speedScore), "5 of 5")
-        XCTAssertEqual(ModelRating.describe(0.7), "3.5 of 5")
-    }
-
     func testLargeSlowModelsRankBelowCompactOnes() {
         let models = [info(.largeV3), info(.qwen3Asr06B), info(.largeV3LatestCompact)]
         let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["hi"])
@@ -104,7 +97,7 @@ final class ModelLanguageSupportTests: XCTestCase {
         let models = [info(.vocaHinglish), info(.parakeetV2)]
         let forYou = ModelPickerCatalog.models(in: .forYou, from: models, spokenLanguages: ["en", "hi"])
         XCTAssertEqual(forYou, [.vocaHinglish])
-        XCTAssertEqual(ModelLanguageBadge.label(for: .vocaHinglish, systemLanguages: nil), "2 languages")
+        XCTAssertEqual(ModelPickerCatalog.languageCodes(for: .vocaHinglish, systemLanguages: nil)?.count, 2)
     }
 
     func testVocaHinglishLoadsOnAnEightGigabyteMac() {
@@ -240,11 +233,12 @@ final class ModelLanguageSupportTests: XCTestCase {
         )
     }
 
-    func testLanguageLabels() {
-        XCTAssertEqual(ModelLanguageBadge.label(for: .small, systemLanguages: nil), "99 languages")
-        XCTAssertEqual(ModelLanguageBadge.label(for: .parakeetV2, systemLanguages: nil), "English only")
-        XCTAssertEqual(ModelLanguageBadge.label(for: .parakeetV3, systemLanguages: nil), "25 languages")
-        XCTAssertEqual(ModelLanguageBadge.label(for: .appleSpeech, systemLanguages: ["en", "fr"]), "2 languages")
+    func testLanguageCoverageCounts() {
+        // nil: the model understands every language VocaMac lists.
+        XCTAssertNil(ModelPickerCatalog.languageCodes(for: .small, systemLanguages: nil))
+        XCTAssertEqual(ModelPickerCatalog.languageCodes(for: .parakeetV2, systemLanguages: nil), ["en"])
+        XCTAssertEqual(ModelPickerCatalog.languageCodes(for: .parakeetV3, systemLanguages: nil)?.count, 25)
+        XCTAssertEqual(ModelPickerCatalog.languageCodes(for: .appleSpeech, systemLanguages: ["en", "fr"])?.count, 2)
     }
 
     // MARK: - Spoken Languages

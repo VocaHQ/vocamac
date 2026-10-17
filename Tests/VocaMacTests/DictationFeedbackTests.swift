@@ -192,7 +192,9 @@ final class CleanupLevelDisplayTests: XCTestCase {
         XCTAssertFalse(CleanupLevel.light.withoutSmartCleanup.contains("“Um”"))
         XCTAssertFalse(CleanupLevel.none.withoutSmartCleanup.contains("“Um”"))
         for level in CleanupLevel.allCases {
-            XCTAssertTrue(level.withoutSmartCleanup.contains("Formatting"))
+            // Formatting lives on the Styles page in v3.
+            XCTAssertTrue(level.withoutSmartCleanup.contains("Styles"))
+            XCTAssertFalse(level.withoutSmartCleanup.contains("Formatting"))
         }
     }
 }
@@ -364,5 +366,71 @@ final class AppStateDictationFeedbackTests: XCTestCase {
 
         XCTAssertEqual(mocks.cursorOverlay.escapeHintVisible, false)
         await appState.cancelRecording()
+    }
+}
+
+// MARK: - Overlay Stop Hint
+
+@MainActor
+final class OverlayStopHintStateTests: XCTestCase {
+
+    func testHintFollowsTheActivationModeAndKey() {
+        let (state, _) = AppState.makeTestState()
+        let savedMode = state.activationMode
+        let savedKey = state.hotKeyCode
+        let savedModifiers = state.hotKeyModifiers
+        defer {
+            state.activationMode = savedMode
+            state.hotKeyCode = savedKey
+            state.hotKeyModifiers = savedModifiers
+        }
+        state.hotKeyCode = 61
+        state.hotKeyModifiers = []
+        state.dictationTrigger = .dictationKey
+        defer { state.dictationTrigger = .other }
+
+        state.activationMode = .pushToTalk
+        XCTAssertEqual(state.overlayStopHint, .hold(key: "Right ⌥"))
+
+        state.activationMode = .doubleTapToggle
+        XCTAssertEqual(state.overlayStopHint, .doubleTap(key: "Right ⌥"))
+        XCTAssertTrue(state.overlayStopHint.isHandsFree)
+    }
+
+    /// A deep link in push to talk has no key to let go of: pressing the
+    /// dictation key types it. The mouse button is named as itself.
+    func testHintFollowsHowTheDictationStarted() async {
+        let (state, mocks) = AppState.makeTestState()
+        let saved = (state.activationMode, state.hotKeyCode, state.hotKeyModifiers, state.showCursorIndicator, state.overlayStyle)
+        defer {
+            state.activationMode = saved.0
+            state.hotKeyCode = saved.1
+            state.hotKeyModifiers = saved.2
+            state.showCursorIndicator = saved.3
+            state.overlayStyle = saved.4
+        }
+        state.activationMode = .pushToTalk
+        state.hotKeyCode = 61
+        state.hotKeyModifiers = []
+        state.showCursorIndicator = true
+        state.overlayStyle = .minimal
+
+        await state.handleDeepLink(.startDictation)
+        XCTAssertTrue(state.isRecording)
+        XCTAssertEqual(mocks.cursorOverlay.stopHint, .press(key: "Right ⌥"))
+        XCTAssertEqual(mocks.cursorOverlay.stopHint?.instruction, "Press Right ⌥ to type")
+        XCTAssertEqual(mocks.cursorOverlay.stopHint?.isHandsFree, true)
+        await state.cancelRecording()
+
+        mocks.hotKeyManager.lastStartWasMouseButton = true
+        await state.startRecordingFromActivationShortcut()
+        XCTAssertEqual(mocks.cursorOverlay.stopHint, .hold(key: "the mouse button"))
+        XCTAssertEqual(state.dictationTrigger, .other, "the trigger only lasts for its start")
+        await state.cancelRecording()
+
+        mocks.hotKeyManager.lastStartWasMouseButton = false
+        await state.startRecordingFromActivationShortcut()
+        XCTAssertEqual(mocks.cursorOverlay.stopHint, .hold(key: "Right ⌥"))
+        await state.cancelRecording()
     }
 }

@@ -2,7 +2,7 @@
 // VocaMac Tests
 //
 // Durable Settings navigation: requested page and pair-phone presentation
-// must survive until SettingsView / GatewaySettingsTab consume them.
+// must survive until the window (CalmWindowView) and the gateway page consume them.
 
 import XCTest
 @testable import VocaMac
@@ -57,5 +57,21 @@ final class SettingsWindowManagerTests: XCTestCase {
 
         XCTAssertEqual(manager.requestedPage, .audio)
         XCTAssertFalse(manager.pendingPairingPresentation)
+    }
+
+    /// A page requested in the old vocabulary lands in its v3 home.
+    func testRequestedPageOpensItsV3Home() {
+        let manager = SettingsWindowManager()
+        let navigator = CalmNavigator()
+        manager.recordOpenRequest(page: .history)
+        if let page = manager.consumeRequestedPage() { navigator.open(page) }
+        XCTAssertEqual(navigator.mainPage, .home)
+        XCTAssertFalse(navigator.isSettingsPresented)
+
+        manager.recordOpenRequest(showPairing: true)
+        if let page = manager.consumeRequestedPage() { navigator.open(page) }
+        XCTAssertTrue(navigator.isSettingsPresented)
+        XCTAssertEqual(navigator.settingsDestination, .gateway)
+        XCTAssertEqual(navigator.backDestination, .advanced)
     }
 }

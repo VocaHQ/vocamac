@@ -271,6 +271,12 @@ final class AppState: ObservableObject {
         isCapturingAudio && !recordingInjectsResult && activeCommandTarget == nil
     }
 
+    /// Whether the practice recording is Settings › General's Test
+    /// dictation (not the Scratchpad's).
+    var isSettingsTestRecording: Bool {
+        isPracticeRecording && nonInjectedOutputDestination == .settingsTest
+    }
+
     private var recordingTranscription: RecordingTranscription?
     private var finishingTranscription: RecordingTranscription?
     /// Cleanups of finished pieces, run while recording ("Process while
@@ -339,6 +345,10 @@ final class AppState: ObservableObject {
     @Published var onboardingVerification = OnboardingVerification()
     /// Last Settings → Test Dictation result (shown in the sidebar footer; not injected).
     @Published var settingsTestResultText: String?
+    /// A Settings test dictation is still starting: its microphone may be
+    /// open while the speech model loads, before `isSettingsTestRecording`
+    /// turns true. Leaving the page then must still close it.
+    var isStartingSettingsTest = false
     @AppStorage("vocamac.scratchpad.text") var scratchpadText: String = ""
 
     /// Error message to display, if any
@@ -653,6 +663,7 @@ final class AppState: ObservableObject {
         let outputDestination: ScratchpadOutputDestination
         let isHandsFree: Bool
         let verifiesShortcut: Bool
+        let trigger: DictationTrigger
     }
     private var queuedRecordingStart: QueuedRecordingStart?
 
@@ -890,7 +901,7 @@ final class AppState: ObservableObject {
 
     /// Whether the current recording was started with the hands-free
     /// shortcut, so silence ends it the way it ends a double-tap recording.
-    private var isHandsFreeSession = false
+    private(set) var isHandsFreeSession = false
 
     /// True from the end of a recording until its text is delivered. Escape
     /// cancels during this window as well as while recording.
@@ -921,6 +932,15 @@ final class AppState: ObservableObject {
     /// The edit a review panel is holding until it is approved.
     private var pendingReviewEdit: PendingCommandEdit?
     private var commandModePressStartedAt: Date?
+
+    /// Whether the Command Mode shortcut is still held from the press that
+    /// started the session (false after a quick press, which needs a second).
+    var isCommandModeKeyHeld: Bool { commandModePressStartedAt != nil }
+
+    /// What started the dictation being set up, for the overlay's finish
+    /// hint: set around a start by the dictation key or mouse button (and a
+    /// queued one), `.other` otherwise.
+    var dictationTrigger: DictationTrigger = .other
     /// Engine chosen when the current Command Mode session began.
     private var activeCommandEngine: CommandModeEngine?
     /// App whose selection is being edited, for the history entry.
@@ -2036,6 +2056,10 @@ final class AppState: ObservableObject {
             return 0
         }
         writingStyleBindings = merged
+        // A re-added app goes to the tab its catalog entry picks, not one it
+        // was pinned to before it was removed.
+        let existingIDs = Set(existing.map(\.id))
+        calmResetStyleGroups(forApps: merged.map(\.id).filter { !existingIDs.contains($0) })
         let added = merged.count - existing.count
         VocaLogger.info(.appState, "Added \(added) suggested writing style rule(s)")
         return added
@@ -2216,7 +2240,8 @@ final class AppState: ObservableObject {
                     injectResult: injectResult,
                     outputDestination: outputDestination,
                     isHandsFree: isHandsFreeSession,
-                    verifiesShortcut: verifiesShortcut
+                    verifiesShortcut: verifiesShortcut,
+                    trigger: dictationTrigger
                 )
                 VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
                 // Push to talk speaks while the key is down; toggle-style
@@ -2288,6 +2313,7 @@ final class AppState: ObservableObject {
                 if showCursorIndicator && overlayStyle != .off {
                     cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
                     cursorOverlay.show(style: overlayStyle, position: overlayPosition)
+                    cursorOverlay.setStopHint(overlayStopHint)
                     cursorOverlay.setLoadingSpeechModel(true)
                 }
             }
@@ -2365,6 +2391,7 @@ final class AppState: ObservableObject {
         if showCursorIndicator && overlayStyle != .off {
             cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
             cursorOverlay.show(style: overlayStyle, position: overlayPosition)
+            cursorOverlay.setStopHint(overlayStopHint)
             cursorOverlay.setCommandSession(commandModeSession)
         }
 
@@ -3802,6 +3829,8 @@ final class AppState: ObservableObject {
         let releasedAt = earlyCapture?.releasedAtSampleCount
         VocaLogger.info(.appState, "Previous dictation delivered — starting the queued one")
         if queued.isHandsFree { isHandsFreeSession = true }
+        dictationTrigger = queued.trigger
+        defer { dictationTrigger = .other }
         await startRecording(
             injectResult: queued.injectResult, outputDestination: queued.outputDestination,
             verifiesShortcut: queued.verifiesShortcut
@@ -4572,7 +4601,7 @@ final class AppState: ObservableObject {
             translate: translatesSpeech,
             vocabulary: recognitionHintVocabulary
         )
-        statsManager.recordTranscription(result)
+        statsManager.recordTranscription(result, isDictation: false)
         lastTranscription = result
         return result
     }
@@ -4608,7 +4637,7 @@ final class AppState: ObservableObject {
             vocabulary: recognitionHintVocabulary
         )
         try Task.checkCancellation()
-        statsManager.recordTranscription(result)
+        statsManager.recordTranscription(result, isDictation: false)
         lastTranscription = result
         return result
     }
@@ -4856,10 +4885,10 @@ extension AppState {
     /// report an identifier ("openai_whisper-tiny"), which is for logs, not
     /// for people.
     var loadedModelDisplayName: String? {
-        if let model = currentModel { return model.size.displayName }
+        if let model = currentModel { return CalmModelText.name(model.size) }
         guard let name = whisperService.loadedModelName else { return nil }
         let size = ModelSize(rawValue: name) ?? modelManager.modelSize(from: name)
-        return size?.displayName ?? name
+        return size.map(CalmModelText.name) ?? name
     }
 
     /// Open Speech Model showing only models that translate.
@@ -4885,10 +4914,13 @@ extension AppState {
         if let combo = HotKeyCombo(storageString: handsFreeShortcut) {
             shortcuts[.handsFreeToggle] = combo
         }
-        if let combo = HotKeyCombo(storageString: commandModeShortcut) {
-            shortcuts[.commandMode] = combo
+        let commandMode = HotKeyCombo(storageString: commandModeShortcut)
+        if let commandMode {
+            shortcuts[.commandMode] = commandMode
         }
-        for command in savedCommands where command.isUsable {
+        // Saved commands are part of Command Mode: while it is off (no
+        // shortcut), their shortcuts are off too. Turning it on restores them.
+        for command in savedCommands where command.isUsable && commandMode != nil {
             if let combo = HotKeyCombo(storageString: command.shortcut) {
                 shortcuts[.savedCommand(command.id)] = combo
             }
@@ -4979,6 +5011,8 @@ extension AppState {
         // and ended the command before any audio could exist.
         guard Date().timeIntervalSince(startedAt) >= commandModeHoldThreshold else {
             VocaLogger.debug(.appState, "Command Mode quick press — waiting for a second press")
+            // The overlay said “Let go to apply”; now it takes a second press.
+            cursorOverlay.setStopHint(overlayStopHint)
             return
         }
 
@@ -5691,7 +5725,8 @@ extension AppState {
 
     /// Run a saved command on the current selection.
     func runSavedCommand(_ id: UUID) async {
-        guard let command = savedCommands.first(where: { $0.id == id }), command.isUsable else { return }
+        guard isCommandModeOn,
+              let command = savedCommands.first(where: { $0.id == id }), command.isUsable else { return }
         await runCommand(instruction: command.instruction)
     }
 
@@ -5901,7 +5936,10 @@ extension AppState {
 
     func setVocabularyTerms(_ terms: [String]) {
         var seen = Set<String>()
+        // A comma or new line inside a term would read back as two terms
+        // (and could duplicate one already listed), so split them here.
         let cleaned = terms
+            .flatMap { RecognitionHints.vocabularyTerms(from: $0) }
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         customVocabulary = cleaned.joined(separator: "\n")

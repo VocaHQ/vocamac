@@ -8,6 +8,7 @@ import SwiftUI
 
 extension Notification.Name {
     static let vocaOpenURL = Notification.Name("com.vocamac.open-url")
+    static let showOnboarding = Notification.Name("com.vocamac.showOnboarding")
 }
 
 final class VocaApplicationDelegate: NSObject, NSApplicationDelegate {
@@ -18,7 +19,8 @@ final class VocaApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-/// Manages the settings window for menu-bar-only apps
+/// Manages VocaMac's main window (sidebar pages and the Settings sheet)
+/// for a menu-bar-only app.
 @MainActor
 final class SettingsWindowManager: ObservableObject {
     /// Shared instance. The deep-link observer in `VocaMacApp.init` reads
@@ -32,8 +34,10 @@ final class SettingsWindowManager: ObservableObject {
     private var settingsWindow: NSWindow?
     private var closeObserver: NSObjectProtocol?
 
-    /// Sidebar page to apply when Settings appears. Survives first-open timing.
-    /// Settings also honors `AppState.requestedSettingsPage`.
+    /// Page to show when the window appears, in the `SettingsPage`
+    /// vocabulary (mapped to a sidebar page or a Settings sheet page by
+    /// `CalmNavigation`). Survives first-open timing. The window also honors
+    /// `AppState.requestedSettingsPage`.
     @Published private(set) var requestedPage: SettingsPage?
 
     /// Pair-phone sheet to present when Gateway settings appears.
@@ -54,37 +58,45 @@ final class SettingsWindowManager: ObservableObject {
             return
         }
 
-        // Create the settings view
-        let settingsView = SettingsView()
+        // The v3 window: sidebar pages, with Settings as a sheet inside it.
+        let windowView = CalmWindowView()
             .environmentObject(appState)
             .environmentObject(self)
+        let defaultSize = SettingsWindowGeometry.defaultContentSize
 
         // Create a new window
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+            contentRect: NSRect(origin: .zero, size: defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        window.title = "VocaMac Settings"
-        // Content runs up under a transparent title bar, so the page's scene
-        // and the sidebar's paper reach the top edge as in onboarding.
+        window.title = "VocaMac"
+        // Content runs up under a transparent title bar, so the frame-coloured
+        // sidebar reaches the top edge with the traffic lights sitting in it.
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.backgroundColor = VocaDesign.canvasNSColor
-        let hostingController = NSHostingController(rootView: settingsView)
+        window.backgroundColor = CalmNSColor.frame
+        let hostingController = NSHostingController(rootView: windowView)
         hostingController.sizingOptions = []
         window.contentViewController = hostingController
-        window.contentMinSize = NSSize(width: 760, height: 580)
+        // Room for the Settings sheet (1000 × 680), clamped to a small
+        // screen; the sheet shrinks with a window smaller than that.
+        let visibleFrame = NSScreen.main?.visibleFrame
+        window.contentMinSize = SettingsWindowGeometry.minimumContentSize(forVisibleFrame: visibleFrame)
         // With automatic hosting sizing disabled, attaching the controller
         // can collapse the initial window to its 1-point intrinsic width.
         // Establish the default again before applying a saved frame.
-        window.setContentSize(NSSize(width: 860, height: 620))
+        window.setContentSize(SettingsWindowGeometry.openingContentSize(forVisibleFrame: visibleFrame))
         window.autorecalculatesKeyViewLoop = true
-        if !window.setFrameUsingName("VocaMac.Settings") { window.center() }
+        if !window.setFrameUsingName(SettingsWindowGeometry.frameAutosaveName) { window.center() }
         restoreUsableFrame(window)
-        window.setFrameAutosaveName("VocaMac.Settings")
+        window.setFrameAutosaveName(SettingsWindowGeometry.frameAutosaveName)
+        // The old Settings window's frame is never used again.
+        for name in SettingsWindowGeometry.retiredFrameAutosaveNames {
+            UserDefaults.standard.removeObject(forKey: "NSWindow Frame \(name)")
+        }
         window.isReleasedWhenClosed = false
         window.makeKeyAndOrderFront(nil)
 
@@ -101,8 +113,10 @@ final class SettingsWindowManager: ObservableObject {
             forName: NSWindow.willCloseNotification,
             object: window,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self, weak appState] _ in
             MainActor.assumeIsolated {
+                // A test dictation started in General stops with the window.
+                if let appState { Task { @MainActor in await appState.stopSettingsTestDictation() } }
                 guard let self else { return }
                 self.settingsWindow = nil
                 if let observer = self.closeObserver {
@@ -146,8 +160,10 @@ final class SettingsWindowManager: ObservableObject {
     /// earlier display configuration before making the window visible.
     private func restoreUsableFrame(_ window: NSWindow) {
         let screens = NSScreen.screens.map(\.visibleFrame)
+        let screen = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+        window.contentMinSize = SettingsWindowGeometry.minimumContentSize(forVisibleFrame: screen)
         if SettingsWindowGeometry.needsReset(window.frame, screens: screens) {
-            window.setContentSize(NSSize(width: 860, height: 620))
+            window.setContentSize(SettingsWindowGeometry.openingContentSize(forVisibleFrame: screen))
             window.center()
         }
     }
@@ -425,8 +441,12 @@ struct VocaMacApp: App {
                     }
                     await appState.handleDeepLink(link)
                     switch link {
-                    case .history, .settings:
+                    case .history:
                         settingsManager.open(appState: appState)
+                    case .settings:
+                        // Open the Settings sheet, not whichever sidebar page
+                        // the window last showed.
+                        settingsManager.open(appState: appState, page: .dictation)
                     case .transcribeFile:
                         fileTranscriptionManager.open(appState: appState)
                     case .scratchpad:

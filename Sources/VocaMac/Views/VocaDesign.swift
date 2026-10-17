@@ -112,148 +112,10 @@ extension View {
     func vocaCard() -> some View { modifier(VocaCard()) }
 }
 
-struct VocaPageHeader: View {
-    let title: String
-    let subtitle: String?
-    var horizontalPadding: CGFloat = 24
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(VocaDesign.display(subtitle == nil ? 30 : 32))
-                .accessibilityAddTraits(.isHeader)
-            if let subtitle {
-                Text(subtitle).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, horizontalPadding)
-        .padding(.top, 20)
-        .padding(.bottom, subtitle == nil ? 4 : 20)
-    }
-}
-
-struct VocaGroupBoxStyle: GroupBoxStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            configuration.label.font(.headline)
-            configuration.content
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vocaCard()
-    }
-}
-
 extension View {
     /// A secondary action in the paper outline style.
     func vocaGlassButton() -> some View {
         buttonStyle(VocaOutlineButtonStyle())
-    }
-}
-
-/// Native sidebar vibrancy for onboarding and older macOS releases.
-struct VocaSidebarMaterial: NSViewRepresentable {
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        NSVisualEffectView()
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        view.wantsLayer = true
-        view.layer?.backgroundColor = reduceTransparency ? NSColor.windowBackgroundColor.cgColor : nil
-    }
-}
-
-/// The heading that sits above every settings card.
-///
-/// It carries an icon only where the heading has siblings it must be told
-/// apart from — the speech engines. A heading that is unique on its page
-/// ("Behavior", "Your Text", "Streak") stays text-only, which is also what
-/// `Form(.grouped)` draws for its own `Section` headers.
-struct VocaSectionHeader: View {
-    let title: String
-    var systemImage: String?
-    var subtitle: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                if let systemImage {
-                    Image(systemName: systemImage)
-                        .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(VocaDesign.accent)
-                }
-                Text(title)
-            }
-            .font(VocaDesign.display(20))
-            .accessibilityAddTraits(.isHeader)
-
-            if let subtitle {
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.leading, 8)
-    }
-}
-
-/// Compact settings groups with a consistent heading and bounded row spacing.
-///
-/// The heading sits above the card so hand-built pages match the `Section`
-/// headers that `Form(.grouped)` draws on the pages still using a `Form`.
-struct VocaSettingsGroup<Content: View>: View {
-    let title: String
-    var systemImage: String?
-    var subtitle: String?
-    @ViewBuilder let content: Content
-
-    init(
-        _ title: String,
-        systemImage: String? = nil,
-        subtitle: String? = nil,
-        @ViewBuilder content: () -> Content
-    ) {
-        self.title = title
-        self.systemImage = systemImage
-        self.subtitle = subtitle
-        self.content = content()
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            VocaSectionHeader(title: title, systemImage: systemImage, subtitle: subtitle)
-            VStack(alignment: .leading, spacing: 12) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .vocaCard()
-        }
-    }
-}
-
-/// Scroll container shared by the hand-built settings pages so their content
-/// insets match the `Form(.grouped)` pages either side of them in the sidebar.
-struct VocaSettingsPageContent<Content: View>: View {
-    var spacing: CGFloat = 20
-    @ViewBuilder let content: Content
-
-    init(spacing: CGFloat = 20, @ViewBuilder content: () -> Content) {
-        self.spacing = spacing
-        self.content = content()
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: spacing) {
-                content
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(20)
-        }
     }
 }
 
@@ -331,96 +193,6 @@ struct ActivationModeSelector: View {
     }
 }
 
-/// A card that hides secondary controls behind a labelled row.
-///
-/// `DisclosureGroup`'s bare label leaves a collapsed row reading as an empty
-/// box with a stray chevron; this gives it a title, a subtitle, and a status
-/// badge so the row says something while it is shut.
-struct VocaDisclosureCard<Content: View>: View {
-    let title: String
-    let subtitle: String
-    let systemImage: String
-    var badge: String?
-    @Binding var isExpanded: Bool
-    @ViewBuilder let content: Content
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
-                    isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(VocaDesign.accent)
-                        .frame(width: 30, height: 30)
-                        .background(VocaDesign.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.headline)
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    if let badge {
-                        Text(badge)
-                            .font(.caption.weight(.medium))
-                            .lineLimit(1)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Color.primary.opacity(0.07), in: Capsule())
-                            .foregroundStyle(.secondary)
-                    }
-                    VocaDisclosureChevron(isExpanded: isExpanded)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(VocaDisclosureHeaderButtonStyle())
-            .accessibilityLabel(title)
-            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
-            .accessibilityHint(subtitle)
-
-            if isExpanded {
-                Divider()
-                VStack(alignment: .leading, spacing: 12) {
-                    content
-                }
-                .padding(16)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(VocaDesign.surface, in: shape)
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(VocaDesign.line))
-    }
-}
-
-/// The trailing affordance for every expandable row: a chevron in a small
-/// round well, so the row reads as something that opens even while shut.
-struct VocaDisclosureChevron: View {
-    let isExpanded: Bool
-
-    var body: some View {
-        Image(systemName: "chevron.down")
-            .font(.system(size: 10, weight: .bold))
-            .foregroundStyle(.secondary)
-            .rotationEffect(.degrees(isExpanded ? 180 : 0))
-            .frame(width: 22, height: 22)
-            .background(Color.primary.opacity(0.07), in: Circle())
-            .accessibilityHidden(true)
-    }
-}
-
 /// Highlights a whole disclosure header on hover and press.
 struct VocaDisclosureHeaderButtonStyle: ButtonStyle {
     @State private var isHovered = false
@@ -430,45 +202,6 @@ struct VocaDisclosureHeaderButtonStyle: ButtonStyle {
             .background(Color.primary.opacity(configuration.isPressed ? 0.07 : isHovered ? 0.035 : 0))
             .onHover { isHovered = $0 }
             .animation(.easeOut(duration: 0.12), value: isHovered)
-    }
-}
-
-/// `DisclosureGroup` inside a card. The system style only responds to its
-/// tiny leading triangle; this makes the whole labelled row the control.
-struct VocaDisclosureGroupStyle: DisclosureGroupStyle {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.9)) {
-                    configuration.isExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    configuration.label
-                        .font(.callout.weight(.medium))
-                    Spacer(minLength: 8)
-                    VocaDisclosureChevron(isExpanded: configuration.isExpanded)
-                }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(VocaDisclosureHeaderButtonStyle())
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .padding(.horizontal, -10)
-            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
-
-            if configuration.isExpanded {
-                VStack(alignment: .leading, spacing: 12) {
-                    configuration.content
-                }
-                .padding(.top, 10)
-                .transition(.opacity)
-            }
-        }
     }
 }
 
@@ -493,36 +226,6 @@ struct VocaMenuChoice: View {
 }
 
 // MARK: - Key caps
-
-/// A key or key combination drawn as a keyboard key, so a shortcut reads as
-/// something to press rather than another button.
-struct VocaKeyCap: View {
-    let text: String
-    var isLarge = false
-    var isActive = false
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: isLarge ? 15 : 12.5, weight: .semibold, design: .rounded))
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-            .padding(.horizontal, isLarge ? 14 : 9)
-            .frame(minWidth: isLarge ? 48 : 30, minHeight: isLarge ? 36 : 26)
-            .background {
-                // A darker edge peeking out under the key gives it depth.
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.primary.opacity(0.16))
-                    .offset(y: 2)
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(VocaDesign.surface)
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(isActive ? VocaDesign.accent : Color.primary.opacity(0.16), lineWidth: isActive ? 1.5 : 1)
-            }
-            .padding(.bottom, 2)
-    }
-}
 
 /// A menu or button whose face is a key cap with a small chevron.
 struct VocaKeyCapButtonStyle: ButtonStyle {
@@ -554,41 +257,6 @@ struct VocaKeyCapButtonStyle: ButtonStyle {
             .opacity(isEnabled ? 1 : 0.5)
             .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .onHover { isHovered = $0 }
-    }
-}
-
-/// The placeholder for a list with nothing in it yet: what the list is for,
-/// and the one action that starts it.
-struct VocaEmptyState: View {
-    let title: String
-    let message: String
-    var systemImage: String
-    var actionTitle: String?
-    var action: (() -> Void)?
-
-    var body: some View {
-        VStack(spacing: 6) {
-            Image(systemName: systemImage)
-                .font(.system(size: 24, weight: .light))
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-                .padding(.bottom, 2)
-            Text(title).font(.headline)
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            if let actionTitle, let action {
-                Button(actionTitle, action: action)
-                    .buttonStyle(VocaPrimaryButtonStyle())
-                    .tint(VocaDesign.accentSolid)
-                    .padding(.top, 8)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .accessibilityElement(children: .contain)
     }
 }
 

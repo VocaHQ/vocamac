@@ -96,6 +96,8 @@ enum SettingsArchiveService {
         PreferenceKey.transcriptCleanupPrompt: .string, PreferenceKey.websiteStyleBindings: .string,
         PreferenceKey.writingIntent: .string, PreferenceKey.writingStyleBindings: .string,
         PreferenceKey.writingStyleDefault: .string,
+        // Which Styles tab each app rule sits in, and each tab's card.
+        CalmStyleGroupStore.defaultsKey: .string,
         // JSON stored as data
         "vocamac.snippets": .data, PreferenceKey.wordReplacements: .data,
     ]

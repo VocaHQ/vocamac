@@ -471,6 +471,7 @@ protocol TranscriptCleaning: TextTransforming {
     func cancelCleanup()
     func availabilityProblem(for kind: CleanupModelKind) -> String?
     func isDownloaded(_ kind: CleanupModelKind) -> Bool
+    func modelFileURL(for kind: CleanupModelKind) -> URL?
     func pruneUnknownModels()
     func download(_ kind: CleanupModelKind) async
     func cancelDownload()
@@ -487,6 +488,8 @@ protocol TranscriptCleaning: TextTransforming {
 }
 
 extension TranscriptCleaning {
+    /// The downloaded GGUF for `kind`, or nil when it isn't on this Mac.
+    func modelFileURL(for kind: CleanupModelKind) -> URL? { nil }
     func prime(prompt: String) async {}
     func memoryFallback(for kind: CleanupModelKind) -> CleanupModelKind? { nil }
     nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int {

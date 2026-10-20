@@ -1005,6 +1005,8 @@ final class AppState: ObservableObject {
     let statsManager: StatsManaging
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
+    /// When each downloaded model was last in use, for Settings › Models.
+    let modelUsageLog = ModelUsageLog()
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
@@ -3546,6 +3548,8 @@ final class AppState: ObservableObject {
             // Persist the resolved model as the user's preference
             selectedModelSize = targetSize.rawValue
 
+            // The outgoing model was in use until now.
+            stampModelsInUse()
             // Update model states — clear all, then mark the loaded one as active
             for i in availableModels.indices {
                 let matches = availableModels[i].size == targetSize
@@ -3558,6 +3562,7 @@ final class AppState: ObservableObject {
                 }
             }
 
+            stampModelsInUse()
             lastModelUnloadReason = nil
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
@@ -4054,6 +4059,7 @@ final class AppState: ObservableObject {
         do {
             try await modelManager.deleteModel(size)
             CompiledModelRecord().forget(size)
+            modelUsageLog.forget(.speech(size))
             refreshModelStatuses()
             VocaLogger.info(.appState, "Deleted model \(size.displayName)")
         } catch {
@@ -4473,6 +4479,8 @@ final class AppState: ObservableObject {
         }
         aiModelChoiceGeneration += 1
         let generation = aiModelChoiceGeneration
+        // The models this choice may replace were in use until now.
+        stampModelsInUse()
         if !transcriptCleanup.isDownloaded(kind) {
             await transcriptCleanup.download(kind)
             guard generation == aiModelChoiceGeneration,
@@ -4497,6 +4505,7 @@ final class AppState: ObservableObject {
             commandModeEngine = .local(kind)
         }
         syncCommandModelSlot()
+        stampModelsInUse()
         if role != .commandMode { await warmCleanupModel() }
     }
 
@@ -4579,6 +4588,7 @@ final class AppState: ObservableObject {
 
     func deleteCleanupModel(_ kind: CleanupModelKind) {
         transcriptCleanup.delete(kind)
+        modelUsageLog.forget(.writing(kind))
     }
 
     /// Transcribe a user-chosen media file without injecting it into another

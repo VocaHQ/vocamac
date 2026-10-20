@@ -70,6 +70,7 @@ struct CalmSpeechModelsTab: View {
                     navigator.select(.allModels)
                 }
             }
+            CalmModelsOnThisMac(tab: .speech(flow))
         }
         .calmSpeechPickDialogs(flow)
         .task { await appState.refreshAppleSpeechLanguages() }
@@ -155,6 +156,9 @@ struct CalmSpeechModelMenu: View {
             Button { flow.showsServer = true } label: { Label("Server settings…", systemImage: "server.rack") }
         }
         Button { flow.prompt = .details(size) } label: { Label("Show details", systemImage: "info.circle") }
+        if model?.isDownloaded == true, let folder = CalmModelFiles.location(of: .speech(size), appState: appState) {
+            Button { CalmModelFiles.reveal(folder) } label: { Label("Show in Finder", systemImage: "folder") }
+        }
         if model?.downloadProgress != nil {
             Button { CalmModelPicker.shared.cancelSpeechDownload(size, appState: appState) } label: {
                 Label("Cancel download", systemImage: "xmark")
@@ -239,6 +243,7 @@ struct CalmWritingModelsTab: View {
                 }
                 .settingsTarget("cleanup-provider")
             }
+            CalmModelsOnThisMac(tab: .writing(flow))
         }
         .calmWritingPickDialogs(flow)
     }
@@ -425,6 +430,9 @@ struct CalmWritingModelMenu: View {
             .disabled(isDownloading)
         }
         Button { flow.prompt = .details(kind) } label: { Label("Show details", systemImage: "info.circle") }
+        if let file = CalmModelFiles.location(of: .writing(kind), appState: appState) {
+            Button { CalmModelFiles.reveal(file) } label: { Label("Show in Finder", systemImage: "folder") }
+        }
         if case .downloading(let active, _) = appState.transcriptCleanup.modelState, active == kind {
             Button { CalmModelPicker.shared.cancelWritingDownload(appState: appState) } label: {
                 Label("Cancel download", systemImage: "xmark")
@@ -461,9 +469,10 @@ struct CalmAllSpeechModels: View {
     @Environment(\.settingsSearchTarget) private var searchTarget
     @State private var search = ""
     @State private var onlyMine = true
+    @State private var onlyDownloaded = false
     @State private var flow = CalmSpeechPickFlow()
     /// Measured off the main thread when the page opens.
-    @State private var modelsOnDisk: String?
+    @State private var storage: CalmModelStorage?
 
     private var picker: CalmModelPicker { .shared }
 
@@ -479,23 +488,19 @@ struct CalmAllSpeechModels: View {
             HStack(spacing: 16) {
                 CalmSearchField(text: $search, prompt: "Search models")
                 if !spoken.isEmpty {
-                    HStack(spacing: 10) {
-                        Text("Only for \(SpokenLanguages.list(spoken))")
-                            .font(CalmFont.description)
-                            .foregroundStyle(CalmColor.ink2)
-                            .lineLimit(1)
-                        CalmSwitch(isOn: $onlyMine).accessibilityLabel("Only models for my languages")
-                    }
-                    .fixedSize()
+                    CalmFilterSwitch(title: "Only for \(SpokenLanguages.list(spoken))", isOn: $onlyMine)
+                        .accessibilityLabel("Only models for my languages")
                 }
+                CalmFilterSwitch(title: "Downloaded", isOn: $onlyDownloaded)
+                    .accessibilityLabel("Only models on this Mac")
             }
             if groups.isEmpty {
-                CalmNoResults(message: "No models match “\(search)”.") { search = "" }
+                CalmNoResults(message: noResults) { search = ""; onlyDownloaded = false }
                     .calmPanelBackground()
             } else {
                 list(groups, spoken: spoken, selected: selected)
             }
-            Text("Models download from Hugging Face and stay on this Mac" + (modelsOnDisk.map { " · \($0) used" } ?? ""))
+            Text("Models download from Hugging Face and stay on this Mac" + (storage.map { " · \(CalmModelText.size(bytes: $0.totalBytes)) used" } ?? ""))
                 .font(CalmFont.note)
                 .foregroundStyle(CalmColor.muted)
         }
@@ -503,7 +508,7 @@ struct CalmAllSpeechModels: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .calmSpeechPickDialogs(flow)
         .task { await appState.refreshAppleSpeechLanguages() }
-        .task { modelsOnDisk = await appState.calmModelsDiskUsage() }
+        .task(id: appState.calmDownloadedSpeechModels) { storage = await appState.calmMeasureModelStorage() }
         .onChange(of: appState.requestedSpeechModelSearch, initial: true) { _, request in
             guard let request else { return }
             search = request
@@ -512,9 +517,16 @@ struct CalmAllSpeechModels: View {
         }
     }
 
+    private var noResults: String {
+        if search.isEmpty { return "No downloaded models match these filters." }
+        return "No models match “\(search)”."
+    }
+
     private func listed(spoken: [String], selected: ModelSize?) -> [ModelSize] {
-        appState.availableModels.map(\.size).filter { size in
+        let downloaded = Set(appState.calmDownloadedSpeechModels)
+        return appState.availableModels.map(\.size).filter { size in
             guard ModelPickerCatalog.matches(size, search: search, systemLanguages: appState.appleSpeechLanguages) else { return false }
+            guard !onlyDownloaded || downloaded.contains(size) || size == selected else { return false }
             guard onlyMine, size != selected else { return true }
             return ModelPickerCatalog.fit(of: size, for: spoken, systemLanguages: appState.appleSpeechLanguages).coversAll
         }
@@ -561,7 +573,8 @@ struct CalmAllSpeechModels: View {
                 name: CalmModelText.name(size),
                 variant: CalmModelText.variant(size, isBundled: appState.modelManager.bundledModelFolder(for: size) != nil),
                 meta: CalmModelText.meta(size, systemLanguages: appState.appleSpeechLanguages),
-                warning: CalmModelText.misfit(size, spoken: spoken, systemLanguages: appState.appleSpeechLanguages),
+                warning: CalmModelText.misfit(size, spoken: spoken, systemLanguages: appState.appleSpeechLanguages)
+                    ?? fitWarning(size, isDownloaded: model.isDownloaded),
                 tag: model.isSupported ? nil : "Experimental",
                 isSelected: isSelected,
                 trailing: Self.trailing(for: state, size: size),
@@ -575,6 +588,15 @@ struct CalmAllSpeechModels: View {
                 modelRow
             }
         }
+    }
+
+    /// Memory first (it can't be fixed), then room for a download.
+    private func fitWarning(_ size: ModelSize, isDownloaded: Bool) -> String? {
+        if let memory = appState.calmMemoryFit(size)?.warning(requiredGB: size.firstLoadRAMRequiredGB, memoryGB: appState.calmMemoryGB) {
+            return memory
+        }
+        guard !isDownloaded, let free = storage?.freeBytes else { return nil }
+        return CalmModelText.diskWarning(required: ModelManager.requiredDownloadBytes(for: size), free: free)
     }
 
     static func trailing(for state: CalmSpeechModelState, size: ModelSize) -> CalmModelRowTrailing {
@@ -595,18 +617,27 @@ struct CalmAllSpeechModels: View {
 struct CalmAllWritingModels: View {
     @EnvironmentObject private var appState: AppState
     @State private var search = ""
+    @State private var onlyDownloaded = false
     @State private var flow = CalmWritingPickFlow()
+    @State private var freeBytes: Int64?
 
     private var picker: CalmModelPicker { .shared }
 
     var body: some View {
-        let kinds = CleanupModelKind.cleanupChoices.filter(matches)
+        let kinds = CleanupModelKind.cleanupChoices.filter { matches($0) && (!onlyDownloaded || appState.transcriptCleanup.isDownloaded($0)) }
         let selected = picker.pendingWriting ?? appState.calmCleanupModelInUse
         VStack(alignment: .leading, spacing: CalmMetrics.sheetGap) {
             CalmSubPageHeader("All writing models")
-            CalmSearchField(text: $search, prompt: "Search models")
+            HStack(spacing: 16) {
+                CalmSearchField(text: $search, prompt: "Search models")
+                CalmFilterSwitch(title: "Downloaded", isOn: $onlyDownloaded)
+                    .accessibilityLabel("Only models on this Mac")
+            }
             if kinds.isEmpty {
-                CalmNoResults(message: "No models match “\(search)”.") { search = "" }
+                CalmNoResults(message: search.isEmpty ? "No writing models are downloaded yet." : "No models match “\(search)”.") {
+                    search = ""
+                    onlyDownloaded = false
+                }
                     .calmPanelBackground()
             } else {
                 CalmFittingScrollView { family(kinds, selected: selected) }
@@ -622,6 +653,7 @@ struct CalmAllWritingModels: View {
         .padding(CalmMetrics.sheetBodyPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .calmWritingPickDialogs(flow)
+        .task { freeBytes = await appState.calmMeasureModelStorage().freeBytes }
     }
 
     private func family(_ kinds: [CleanupModelKind], selected: CleanupModelKind?) -> some View {
@@ -651,15 +683,38 @@ struct CalmAllWritingModels: View {
         case .onThisMac: trailing = .text("On this Mac")
         case .needsDownload: trailing = .download(size: CalmModelText.downloadSize(kind))
         }
+        let downloadWarning = state == .needsDownload
+            ? freeBytes.flatMap { CalmModelText.diskWarning(required: kind.descriptor.expectedByteCount + 200_000_000, free: $0) }
+            : nil
         return CalmModelRow(
             name: CalmModelText.name(kind),
             variant: CalmModelText.variant(kind),
             meta: CalmModelText.meta(kind),
+            warning: appState.calmMemoryFit(kind).warning(requiredGB: kind.descriptor.ramRequiredGB, memoryGB: appState.calmMemoryGB)
+                ?? downloadWarning,
             isSelected: isSelected,
             trailing: trailing,
             onPick: { flow.pick(kind, appState: appState) },
             onCancel: { picker.cancelWritingDownload(appState: appState) },
             menu: { CalmWritingModelMenu(kind: kind, flow: flow) }
         )
+    }
+}
+
+/// A filter label and switch beside a search field.
+struct CalmFilterSwitch: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(CalmFont.description)
+                .foregroundStyle(CalmColor.ink2)
+                .lineLimit(1)
+            CalmSwitch(isOn: $isOn)
+        }
+        .fixedSize()
+        .accessibilityElement(children: .combine)
     }
 }

@@ -337,6 +337,13 @@ enum SettingsSearchIndex {
             keywords: ["whisper", "parakeet", "sherpa", "apple", "model", "download", "endpoint", "remote", "server", "speech models"]
         ),
         SettingsSearchEntry(
+            id: "models-storage",
+            page: .speechModel,
+            title: "Model storage",
+            subtitle: "Space downloaded models take, and removing unused ones",
+            keywords: ["storage", "disk", "space", "free up", "delete", "remove", "downloaded", "memory", "chip", "model storage"]
+        ),
+        SettingsSearchEntry(
             id: "custom-endpoint",
             page: .speechModel,
             title: "Your own server",

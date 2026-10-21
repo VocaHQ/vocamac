@@ -241,5 +241,24 @@ final class TarArchiveTests: XCTestCase {
     func testPaxRecordsStopAtAMalformedLength() {
         XCTAssertEqual(TarArchive.paxRecords(Data("99 path=x\n".utf8)), [:])
         XCTAssertEqual(TarArchive.paxRecords(Data("nonsense".utf8)), [:])
+        // A length near Int.max after a good record must not overflow.
+        XCTAssertEqual(
+            TarArchive.paxRecords(Data("11 size=12\n9223372036854775807 path=x\n".utf8)),
+            ["size": "12"]
+        )
+    }
+
+    func testPaxSizeBeyondTheFileThrowsTruncated() throws {
+        // "size=" and 19 digits, plus the length's two digits, a space and a newline.
+        let pax = Data("28 size=9223372036854775807\n".utf8)
+        let tar = directory.appendingPathComponent("huge.tar")
+        let data = header(name: "PaxHeader/weights.bin", size: pax.count, type: UInt8(ascii: "x")) + padded(pax)
+            + header(name: "model/weights.bin", size: 0)
+            + Data(count: 1024)
+        try data.write(to: tar)
+
+        XCTAssertThrowsError(try TarArchive.extract(at: tar, into: directory)) { error in
+            XCTAssertEqual(error as? TarArchiveError, .truncated)
+        }
     }
 }

@@ -114,6 +114,9 @@ enum TarArchive {
             let size = nextSize ?? header.size
             nextPath = nil
             nextSize = nil
+            // An entry can't be bigger than the file holding it. Checking here
+            // also keeps the size arithmetic below from overflowing.
+            guard size >= 0, UInt64(size) <= fileSize else { throw TarArchiveError.truncated }
             let target = try destination(for: path, in: directory)
 
             switch header.type {
@@ -158,7 +161,8 @@ enum TarArchive {
         while start < bytes.count {
             guard let space = bytes[start...].firstIndex(of: UInt8(ascii: " ")),
                   let length = Int(String(decoding: bytes[start..<space], as: UTF8.self)),
-                  length > space - start, start + length <= bytes.count else { break }
+                  // Compared without adding, so a huge length can't overflow.
+                  length > space - start, length <= bytes.count - start else { break }
             var bodyEnd = start + length
             if bodyEnd > space + 1, bytes[bodyEnd - 1] == UInt8(ascii: "\n") { bodyEnd -= 1 }
             let body = bytes[(space + 1)..<bodyEnd]

@@ -18,7 +18,8 @@ enum AppRelauncher {
     /// hold the hotkey for long.
     ///
     /// - Returns: `false` when the new instance couldn't be started; this one
-    ///   then keeps running.
+    ///   then keeps running. The App Store build only learns that later, so it
+    ///   returns `true` and reports a failure in an alert instead.
     @discardableResult
     static func relaunch() -> Bool {
 #if APP_STORE
@@ -31,6 +32,10 @@ enum AppRelauncher {
             Task { @MainActor in
                 if let error {
                     VocaLogger.error(.general, "Couldn't relaunch VocaMac: \(error.localizedDescription)")
+                    let alert = NSAlert()
+                    alert.messageText = "VocaMac couldn't reopen itself"
+                    alert.informativeText = "Quit it from the menu bar and open it again."
+                    alert.runModal()
                     return
                 }
                 VocaLogger.info(.general, "Relaunching VocaMac")

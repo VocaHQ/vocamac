@@ -21,6 +21,25 @@ enum AppRelauncher {
     ///   then keeps running.
     @discardableResult
     static func relaunch() -> Bool {
+#if APP_STORE
+        // The sandbox can't run /usr/bin/open; ask Launch Services instead.
+        // It answers later, so this one quits only once the new one started.
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--restarted"]
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
+            Task { @MainActor in
+                if let error {
+                    VocaLogger.error(.general, "Couldn't relaunch VocaMac: \(error.localizedDescription)")
+                    return
+                }
+                VocaLogger.info(.general, "Relaunching VocaMac")
+                try? await Task.sleep(for: .milliseconds(500))
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        return true
+#else
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["-n", Bundle.main.bundlePath, "--args", "--restarted"]
@@ -38,5 +57,6 @@ enum AppRelauncher {
             NSApplication.shared.terminate(nil)
         }
         return true
+#endif
     }
 }

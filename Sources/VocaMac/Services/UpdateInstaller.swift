@@ -52,6 +52,9 @@ struct StagedUpdate: Equatable {
     var version: String
 }
 
+// Not in the App Store build: it mounts the DMG and swaps the bundle with
+// programs from outside the app, and the App Store installs updates itself.
+#if !APP_STORE
 /// Replaces the running app with the one in a downloaded DMG.
 ///
 /// 1. Mount the DMG read-only and find `VocaMac.app`.
@@ -330,3 +333,4 @@ struct UpdateInstaller: Sendable {
         }
     }
 }
+#endif

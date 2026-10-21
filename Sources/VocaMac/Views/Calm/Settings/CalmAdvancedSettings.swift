@@ -50,8 +50,11 @@ struct CalmAdvancedSettings: View {
                                 .help("Quit and reopen. Can fix stuck permissions or audio devices.")
                         }
                     }
-                    CalmRow("Reset permissions", description: "Clears every grant. VocaMac quits and asks again when it opens.") {
-                        Button("Reset…") { confirmsResetPermissions = true }.calmButton(.quietDestructive)
+                    // Resetting runs tccutil, which the App Store build can't start.
+                    if AppDistribution.canResetPermissions {
+                        CalmRow("Reset permissions", description: "Clears every grant. VocaMac quits and asks again when it opens.") {
+                            Button("Reset…") { confirmsResetPermissions = true }.calmButton(.quietDestructive)
+                        }
                     }
                 }
             }
@@ -59,12 +62,14 @@ struct CalmAdvancedSettings: View {
 
             CalmGroup("More") {
                 CalmPanel {
-                    CalmRow(
-                        "Phone gateway",
-                        description: CalmAdvancedSummary.gatewayRow(status: gateway.status, isReady: gateway.isReady)
-                    ) {
-                        Button(gateway.isLive ? "Open" : "Set up") { navigator?.select(.gateway) }
-                            .calmButton(.secondary)
+                    if AppDistribution.hasPhoneGateway {
+                        CalmRow(
+                            "Phone gateway",
+                            description: CalmAdvancedSummary.gatewayRow(status: gateway.status, isReady: gateway.isReady)
+                        ) {
+                            Button(gateway.isLive ? "Open" : "Set up") { navigator?.select(.gateway) }
+                                .calmButton(.secondary)
+                        }
                     }
                     logsRow
                         .settingsTarget("logs")
@@ -209,7 +214,11 @@ struct CalmAdvancedSettings: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = "VocaMac-Debug-\(ISO8601DateFormatter().string(from: Date()).prefix(19)).log"
-        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        // In the sandbox the home folder is the app's container, so the App
+        // Store build lets the panel pick its usual starting folder.
+        if !AppDistribution.isAppStore {
+            panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        }
         panel.begin { response in
             guard response == .OK, let fileURL = panel.url else { return }
             do {

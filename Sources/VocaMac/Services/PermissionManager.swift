@@ -303,6 +303,10 @@ final class PermissionManager: ObservableObject {
     }
 
     nonisolated private static func runTCCUtilReset() -> Bool {
+#if APP_STORE
+        // The App Store build doesn't start programs from outside its bundle.
+        return false
+#else
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
         task.arguments = ["reset", "All", "com.vocamac.app"]
@@ -314,6 +318,7 @@ final class PermissionManager: ObservableObject {
         }
         task.waitUntilExit()
         return task.terminationReason == .exit && task.terminationStatus == 0
+#endif
     }
 
     /// Mark every permission as not yet asked for, after `tccutil` reset

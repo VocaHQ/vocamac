@@ -196,7 +196,8 @@ enum CalmNavigation {
         case .speechModel: return .settings(.models)
         case .cleanup: return .settings(.cleanup)
         case .advanced: return .settings(.advanced)
-        case .gateway: return .settings(.gateway)
+        // The App Store build has no phone gateway page.
+        case .gateway: return .settings(AppDistribution.hasPhoneGateway ? .gateway : .advanced)
         case .about: return .settings(.about)
         case .history: return .main(.home)
         case .stats: return .main(.insights)

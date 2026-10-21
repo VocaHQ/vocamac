@@ -46,7 +46,7 @@ struct SettingsSearchEntry: Hashable, Identifiable {
 enum SettingsSearchIndex {
 
     /// Full catalog of searchable settings rows.
-    static let entries: [SettingsSearchEntry] = [
+    private static let catalog: [SettingsSearchEntry] = [
         // Dictation
         SettingsSearchEntry(
             id: "activation-mode",
@@ -317,7 +317,9 @@ enum SettingsSearchIndex {
             id: "command-mode-actions",
             page: .commandMode,
             title: "Voice actions",
-            subtitle: "Open apps, search the web, add reminders, run Shortcuts",
+            subtitle: AppDistribution.hasAppleScriptControl
+                ? "Open apps, search the web, add reminders, run Shortcuts"
+                : "Open apps, search the web, run Shortcuts",
             keywords: ["command", "action", "open", "launch", "search", "reminder", "shortcuts", "automation", "run", "voice actions"]
         ),
         SettingsSearchEntry(
@@ -632,6 +634,13 @@ enum SettingsSearchIndex {
             keywords: ["email", "mail", "hello"]
         ),
     ]
+
+    /// Searchable settings rows, without the ones for controls this build
+    /// doesn't show (see `AppDistribution`).
+    static let entries: [SettingsSearchEntry] = {
+        let hidden = AppDistribution.hiddenSettingsTargets
+        return catalog.filter { !hidden.contains($0.id) }
+    }()
 
     /// Entries whose title, subtitle, or keywords contain `query` (case-insensitive).
     static func matches(query: String) -> [SettingsSearchEntry] {

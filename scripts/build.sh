@@ -237,9 +237,10 @@ if [ ! -d "$LLAMA_FRAMEWORK" ]; then
 fi
 # The App Store variant puts it in Contents/Frameworks instead: App Store
 # validation and the export's re-signing look for nested code only in the
-# standard places. That folder joins the binary's rpath.
+# standard places. That folder joins the binary's rpath. (grep reads all of
+# otool's output: quitting early could fail the pipeline under pipefail.)
 if [ "$FRAMEWORKS_SUBDIR" != "lib" ] && ! otool -l "${APP_DIR}/Contents/MacOS/${APP_NAME}" \
-    | grep -q "path @executable_path/../${FRAMEWORKS_SUBDIR} "; then
+    | grep "path @executable_path/../${FRAMEWORKS_SUBDIR} " >/dev/null; then
     install_name_tool -add_rpath "@executable_path/../${FRAMEWORKS_SUBDIR}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 fi
 mkdir -p "${APP_DIR}/Contents/${FRAMEWORKS_SUBDIR}"

@@ -39,7 +39,7 @@ VocaMac listens only while you hold (or toggle) the dictation shortcut. Audio is
 
 ## Crash reports
 
-If VocaMac crashes, it can offer to open a pre-filled bug report on GitHub the next time it starts. Nothing is sent unless you choose to post that report. Paths that contain your user name are removed from it, and you can review and edit it before posting.
+If VocaMac crashes, it can offer to open a pre-filled bug report on GitHub the next time it starts. Opening the report sends its contents to GitHub. Nothing is posted publicly unless you submit it. Paths that contain your user name are removed from it, and you can review and edit it before posting.
 
 ## Your data, your control
 

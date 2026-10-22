@@ -1,7 +1,7 @@
 # VocaMac — Makefile
 # Run `make help` for available commands.
 
-.PHONY: build install install-cli dmg release test smoke lint clean reset run help
+.PHONY: build install install-cli dmg appstore release test smoke lint clean reset run help
 
 .DEFAULT_GOAL := help
 
@@ -20,6 +20,10 @@ install-cli:
 ## Build DMG for distribution
 dmg:
 	@./scripts/dist.sh
+
+## Build, check and archive the Mac App Store variant (dist/appstore/; see docs/APP_STORE.md)
+appstore:
+	@./scripts/build-appstore.sh
 
 ## Release — tag and push to trigger GitHub Actions release workflow (usage: make release VERSION=0.4.0)
 release:
@@ -46,6 +50,7 @@ clean:
 	@rm -rf VocaMac.app
 	@rm -rf .build
 	@rm -rf .xcode-build
+	@rm -rf .xcode-build-appstore
 	@rm -rf dist
 	@echo "✅ Clean complete"
 
@@ -79,6 +84,7 @@ help:
 	@echo "  make install      Build + install to /Applications (recommended)"
 	@echo "  make install-cli  Install CLI commands to ~/.local/bin"
 	@echo "  make dmg          Build DMG for distribution (output in dist/)"
+	@echo "  make appstore     Build the Mac App Store variant (output in dist/appstore/)"
 	@echo "  make release VERSION=X.Y.Z  Tag and release (triggers CI signing + notarization)"
 	@echo "  make test         Run tests"
 	@echo "  make smoke        Launch the built .app and fail if it crashes"

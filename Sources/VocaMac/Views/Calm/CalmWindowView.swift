@@ -743,7 +743,9 @@ struct CalmSettingsMenu: View {
                     .fontWeight(.regular)
                     .accessibilityLabel("About VocaMac \(Self.appVersion)")
                 Spacer(minLength: 8)
-                updateButton
+                if AppDistribution.hasSelfUpdate {
+                    updateButton
+                }
             }
             .padding(.leading, 10)
             .padding(.trailing, 6)

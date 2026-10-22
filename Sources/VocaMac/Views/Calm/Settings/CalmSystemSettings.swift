@@ -54,12 +54,15 @@ struct CalmSystemSettings: View {
                         .settingsTarget("sound-effects")
                     CalmToggleRow("Mute other audio while dictating", isOn: $appState.duckOtherAudioEnabled)
                         .settingsTarget("other-audio")
-                    CalmToggleRow(
-                        "Pause Spotify while dictating",
-                        description: "Also reaches Spotify on other speakers. Asks permission the first time.",
-                        isOn: $appState.pauseSpotifyEnabled
-                    )
-                    .settingsTarget("spotify-pause")
+                    // Pausing Spotify takes AppleScript, which the App Store build leaves out.
+                    if AppDistribution.hasAppleScriptControl {
+                        CalmToggleRow(
+                            "Pause Spotify while dictating",
+                            description: "Also reaches Spotify on other speakers. Asks permission the first time.",
+                            isOn: $appState.pauseSpotifyEnabled
+                        )
+                        .settingsTarget("spotify-pause")
+                    }
                     CalmRow("Longest recording", description: "Stops on its own after this long") {
                         CalmDropdown(selection: $appState.maxRecordingDuration, options: Self.recordingLimits)
                     }

@@ -1,0 +1,150 @@
+name: App Store
+
+# Builds the Mac App Store variant and uploads it to App Store Connect with
+# scripts/build-appstore.sh --upload. See docs/APP_STORE.md. The Developer ID
+# DMG and Homebrew release (release.yml, v* tags) is separate and untouched.
+#
+# Tags: appstore/vMAJOR.MINOR.PATCH, e.g. appstore/v1.2.0, sets the version.
+# The build number is this workflow's run number, so each upload gets a
+# larger one. workflow_dispatch uploads the version in scripts/build.sh.
+#
+# The upload is skipped when the App Store Connect secrets are not all set,
+# as in VocaHQ/vocaphone's ios-release.yml; an appstore/v* tag then fails
+# instead of doing nothing. This workflow never submits for App Review: that
+# stays a decision in App Store Connect.
+on:
+  push:
+    tags:
+      - 'appstore/v*'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: appstore-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Check App Store Connect secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      upload: ${{ steps.check.outputs.upload }}
+    steps:
+      - name: Check secrets
+        id: check
+        env:
+          ASC_SECRETS_SET: ${{ secrets.APP_STORE_CONNECT_API_KEY != '' && secrets.APP_STORE_CONNECT_API_KEY_ID != '' && secrets.APP_STORE_CONNECT_ISSUER_ID != '' && secrets.APP_STORE_TEAM_ID != '' }}
+        run: |
+          set -euo pipefail
+          if [ "$ASC_SECRETS_SET" = true ]; then
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "upload=false" >> "$GITHUB_OUTPUT"
+          echo "APP_STORE_CONNECT_API_KEY, APP_STORE_CONNECT_API_KEY_ID,"
+          echo "APP_STORE_CONNECT_ISSUER_ID and APP_STORE_TEAM_ID are not all set."
+          echo "Skipping the App Store upload. Create an App Store Connect API key"
+          echo "with the Admin role (Users and Access → Integrations) and store the"
+          echo ".p8 body, Key ID and Issuer ID, plus the 10-character Team ID, as"
+          echo "those four secrets. See docs/APP_STORE.md."
+          if [[ "$GITHUB_REF" == refs/tags/appstore/* ]]; then
+            echo "::error::Refusing to no-op an appstore/v* tag without the App Store Connect secrets."
+            exit 1
+          fi
+
+  upload:
+    name: Build & Upload to App Store Connect
+    needs: gate
+    if: needs.gate.outputs.upload == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Determine version and build number
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/appstore/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#appstore/v}"
+          else
+            VERSION="$(grep '^APP_VERSION=' scripts/build.sh | sed 's/.*:-\(.*\)}.*/\1/' | head -1)"
+          fi
+          # build-appstore.sh rejects anything App Store Connect would.
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "build=$RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "📦 VocaMac ${VERSION} (${RUN_NUMBER})"
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
+
+      - name: Initialize Xcode tools
+        run: sudo xcodebuild -runFirstLaunch
+
+      # The same Whisper Tiny the DMG bundles (release.yml), at the same pinned
+      # revisions, so dictation works with no download from the first launch.
+      # Bump both workflows together.
+      - name: Fetch bundled tiny model from Hugging Face
+        id: model
+        env:
+          WHISPERKIT_COREML_REVISION: 0f63a7800b00dd0226abd051b906c246e1907482
+          WHISPER_TINY_REVISION: 169d4a4341b33bc18d8881c4b69c2e104e1cc0af
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/hf-venv"
+          source "$RUNNER_TEMP/hf-venv/bin/activate"
+          pip install --require-hashes -r .github/requirements/huggingface-cli.txt
+          MODEL_STAGE="$RUNNER_TEMP/whisperkit-coreml"
+          hf download argmaxinc/whisperkit-coreml \
+            --revision "$WHISPERKIT_COREML_REVISION" \
+            --include "openai_whisper-tiny/*" \
+            --local-dir "$MODEL_STAGE"
+          hf download openai/whisper-tiny \
+            --revision "$WHISPER_TINY_REVISION" \
+            tokenizer.json tokenizer_config.json \
+            --local-dir "$MODEL_STAGE/openai_whisper-tiny"
+          rm -rf "$MODEL_STAGE/.cache" "$MODEL_STAGE/openai_whisper-tiny/.cache"
+          test -d "$MODEL_STAGE/openai_whisper-tiny"
+          test -f "$MODEL_STAGE/openai_whisper-tiny/tokenizer.json"
+          test -f "$MODEL_STAGE/openai_whisper-tiny/tokenizer_config.json"
+          test -d "$MODEL_STAGE/openai_whisper-tiny/MelSpectrogram.mlmodelc"
+          test -d "$MODEL_STAGE/openai_whisper-tiny/AudioEncoder.mlmodelc"
+          test -d "$MODEL_STAGE/openai_whisper-tiny/TextDecoder.mlmodelc"
+          echo "path=$MODEL_STAGE" >> "$GITHUB_OUTPUT"
+
+      # Automatic signing with the API key: Xcode's cloud-managed Apple
+      # Distribution and Mac Installer Distribution certificates, and an App
+      # Store provisioning profile created on the fly. No certificate secrets.
+      - name: Build, archive and upload
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          APP_BUILD_NUMBER: ${{ steps.version.outputs.build }}
+          VOCAMAC_BUNDLED_MODEL_SOURCE: ${{ steps.model.outputs.path }}
+          APP_STORE_TEAM_ID: ${{ secrets.APP_STORE_TEAM_ID }}
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          # xcodebuild also looks here; the file name carries the Key ID.
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          export APP_STORE_CONNECT_KEY_PATH="$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          printf '%s\n' "$APP_STORE_CONNECT_API_KEY" > "$APP_STORE_CONNECT_KEY_PATH"
+          chmod 600 "$APP_STORE_CONNECT_KEY_PATH"
+          # The build runs package plugins; they don't need the key's contents.
+          unset APP_STORE_CONNECT_API_KEY
+          ./scripts/build-appstore.sh --upload
+
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$HOME/.appstoreconnect/private_keys"

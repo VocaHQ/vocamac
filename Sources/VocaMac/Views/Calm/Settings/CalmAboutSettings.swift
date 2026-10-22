@@ -98,13 +98,19 @@ struct CalmAboutSettings: View {
                     versionLine
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                updateButton
+                // The App Store build is updated by the App Store, and says
+                // nothing about the DMG or Homebrew.
+                if AppDistribution.hasSelfUpdate {
+                    updateButton
+                }
             }
-            if let problem = CalmAdvancedSummary.updateProblem(appState.updateChecker.updateState) {
-                CalmInlineNotice(problem)
-            }
-            if case .updateAvailableViaHomebrew(_, let install) = appState.updateChecker.updateState {
-                CalmInlineNotice("Updates come from Homebrew. Run: \(install.upgradeCommand)", tone: .info)
+            if AppDistribution.hasSelfUpdate {
+                if let problem = CalmAdvancedSummary.updateProblem(appState.updateChecker.updateState) {
+                    CalmInlineNotice(problem)
+                }
+                if case .updateAvailableViaHomebrew(_, let install) = appState.updateChecker.updateState {
+                    CalmInlineNotice("Updates come from Homebrew. Run: \(install.upgradeCommand)", tone: .info)
+                }
             }
         }
         .padding(.top, 6)
@@ -114,7 +120,7 @@ struct CalmAboutSettings: View {
     private var versionLine: some View {
         let version = CalmSettingsMenu.appVersion
         var line = Text(CalmAdvancedSummary.versionLine(version: version))
-        if let status = CalmAdvancedSummary.updateStatus(appState.updateChecker.updateState) {
+        if AppDistribution.hasSelfUpdate, let status = CalmAdvancedSummary.updateStatus(appState.updateChecker.updateState) {
             let color: Color
             switch status.tone {
             case .good: color = CalmColor.accent

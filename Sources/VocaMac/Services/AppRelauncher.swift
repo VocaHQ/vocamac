@@ -18,9 +18,33 @@ enum AppRelauncher {
     /// hold the hotkey for long.
     ///
     /// - Returns: `false` when the new instance couldn't be started; this one
-    ///   then keeps running.
+    ///   then keeps running. The App Store build only learns that later, so it
+    ///   returns `true` and reports a failure in an alert instead.
     @discardableResult
     static func relaunch() -> Bool {
+#if APP_STORE
+        // The sandbox can't run /usr/bin/open; ask Launch Services instead.
+        // It answers later, so this one quits only once the new one started.
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        configuration.arguments = ["--restarted"]
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { _, error in
+            Task { @MainActor in
+                if let error {
+                    VocaLogger.error(.general, "Couldn't relaunch VocaMac: \(error.localizedDescription)")
+                    let alert = NSAlert()
+                    alert.messageText = "VocaMac couldn't reopen itself"
+                    alert.informativeText = "Quit it from the menu bar and open it again."
+                    alert.runModal()
+                    return
+                }
+                VocaLogger.info(.general, "Relaunching VocaMac")
+                try? await Task.sleep(for: .milliseconds(500))
+                NSApplication.shared.terminate(nil)
+            }
+        }
+        return true
+#else
         let task = Process()
         task.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         task.arguments = ["-n", Bundle.main.bundlePath, "--args", "--restarted"]
@@ -38,5 +62,6 @@ enum AppRelauncher {
             NSApplication.shared.terminate(nil)
         }
         return true
+#endif
     }
 }

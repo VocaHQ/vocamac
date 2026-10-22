@@ -60,22 +60,23 @@ Rules:
 
 ```
 Sources/VocaMac/
-├── App/              # VocaMacApp, MenuBarIcon, BrandAssets, DockVisibilityCoordinator
+├── App/              # VocaMacApp, MenuBarIcon, BrandAssets, DockVisibilityCoordinator, AppDistribution
 ├── CLI/              # Headless --transcribe-file / --list-models (no AppState)
 ├── Models/           # AppState, engines, models, stats, overlay, updates
 ├── Services/         # Audio, hotkeys, engines, router, logger, overlay, sounds, stats, updates
 ├── Vendor/           # SherpaOnnxConfigBuilders (sherpa-onnx Swift config)
 ├── Views/            # Menu bar, settings, onboarding, stats, updates
 └── Resources/        # App icon, start/stop sounds, brand bitmaps
-Sources/VocaMacObjC/  # NSException catcher for AVFoundation taps
+Sources/VocaMacObjC/  # NSException catcher for AVFoundation taps; bzip2 via libbz2
 Tests/VocaMacTests/   # XCTest; Mocks/ for fakes
 web/                  # Hugo site — see web/AGENTS.md
 homebrew/             # Cask sources mirrored to the tap
-docs/                 # INSTALL, MODELS, CLI, TROUBLESHOOTING, ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW (no per-version notes)
-scripts/              # build, install, dist, release, uninstall, Xcode 26 select, DMG background
-Makefile              # make build / install / test / dmg / release / reset
+docs/                 # INSTALL, MODELS, CLI, TROUBLESHOOTING, ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW, APP_STORE (no per-version notes)
+scripts/              # build, build-appstore, install, dist, release, uninstall, Xcode 26 select, DMG background
+Makefile              # make build / install / test / dmg / appstore / release / reset
 Package.swift         # SPM: VocaMac + VocaMacObjC
-VocaMac.entitlements  # Microphone
+VocaMac.entitlements  # Microphone, Apple Events (direct download)
+VocaMac-AppStore.entitlements  # App Sandbox (Mac App Store build)
 ```
 
 ---
@@ -229,6 +230,7 @@ Keep dependencies minimal. Do not bump FluidAudio across a minor without checkin
 - **Signing:** release = Developer ID + notarization. Local builds fall back to ad-hoc if no Developer ID cert is in the Keychain.
 - **Permissions:** Developer ID persists TCC across updates. **Ad-hoc rebuilds reset Accessibility and Input Monitoring.**
 - **MenuBarExtra:** the label may only render `Image` or `Text`. Colored icons: `NSImage` with `sourceAtop` tint and `isTemplate = false`.
+- **Mac App Store build:** `scripts/build-appstore.sh` compiles with `APP_STORE` and signs with `VocaMac-AppStore.entitlements` (App Sandbox). Under `APP_STORE` there is no self-update, no `Process` launching programs outside the bundle, and no AppleScript; `AppDistribution` tells views what to hide. A new feature that starts a program, sends Apple events, reads outside the app's container, or points at the DMG / Homebrew needs an `APP_STORE` guard. See `docs/APP_STORE.md`; CI's **Verify App Store Bundle** job builds that variant.
 
 ---
 

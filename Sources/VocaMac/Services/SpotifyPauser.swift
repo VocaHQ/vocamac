@@ -54,7 +54,10 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
     /// `tell application "Spotify"` launches it when it is not running, so the
     /// process check is answered without an Apple event.
     func isSpotifyRunning() -> Bool {
-        NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID)
+        // The App Store build sends no Apple events, so to it Spotify is never
+        // running and nothing is paused.
+        guard AppDistribution.hasAppleScriptControl else { return false }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: Self.bundleID)
             .contains { !$0.isTerminated }
     }
 
@@ -87,6 +90,11 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
     /// Runs `command` inside `tell application "Spotify"` and returns the
     /// result, or `nil` on a compile or execution error.
     private func run(_ command: String) -> NSAppleEventDescriptor? {
+#if APP_STORE
+        // No AppleScript in the App Store build: it would need an Apple Events
+        // exception App Review rarely grants.
+        return nil
+#else
         guard let script = NSAppleScript(source: "tell application \"Spotify\" to \(command)") else {
             return nil
         }
@@ -98,6 +106,7 @@ final class AppleScriptSpotifyControl: SpotifyControlling {
             return nil
         }
         return result
+#endif
     }
 
     /// The four-character code `abcd` as an OSType, for AppleScript enum

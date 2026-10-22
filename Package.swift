@@ -56,7 +56,11 @@ let package = Package(
         .target(
             name: "VocaMacObjC",
             path: "Sources/VocaMacObjC",
-            publicHeadersPath: "include"
+            publicHeadersPath: "include",
+            linkerSettings: [
+                // The system bzip2 library, for unpacking model archives in-process.
+                .linkedLibrary("bz2")
+            ]
         ),
         // Main application target
         .executableTarget(

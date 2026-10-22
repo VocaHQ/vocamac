@@ -182,6 +182,8 @@ final class UpdateWindowManager: ObservableObject {
     private var presentedInfo: UpdateInfo?
 
     func open(appState: AppState, info: UpdateInfo) {
+        // The App Store build is updated by the App Store; this window offers the DMG.
+        guard AppDistribution.hasSelfUpdate else { return }
         if let window = updateWindow, window.isVisible {
             // Already showing this release — just bring it forward. If a
             // newer one arrived while the window was open, swap the contents
@@ -516,6 +518,9 @@ struct VocaMacApp: App {
             app.terminate()
         }
 
+        // Not in the App Store build: it always runs from its bundle, and the
+        // sandbox can't start `ps`.
+#if !APP_STORE
         // Also kill by process name for direct binary execution (no bundle ID).
         // Match the executable's own name, never a substring of the command
         // line: `tail -f ~/Library/Logs/VocaMac/…`, an editor with
@@ -548,6 +553,7 @@ struct VocaMacApp: App {
                 // ps not found or failed — not critical
             }
         }
+#endif
     }
 
     /// PIDs of other GUI VocaMac processes in `ps -axo pid=,ucomm=,args=`

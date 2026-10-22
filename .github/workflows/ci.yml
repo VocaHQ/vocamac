@@ -42,6 +42,7 @@ jobs:
               - 'scripts/**'
               - 'Makefile'
               - 'VocaMac.entitlements'
+              - 'VocaMac-AppStore.entitlements'
               - '.swiftlint.yml'
               # A change to this workflow must exercise the jobs it defines,
               # or a CI edit merges having proven nothing. Scoped to this file
@@ -55,6 +56,7 @@ jobs:
               - '.github/requirements/**'
               - '.github/workflows/release.yml'
               - '.github/workflows/nightly.yml'
+              - '.github/workflows/appstore.yml'
               - '.github/workflows/ci.yml'
 
   # ── App jobs ────────────────────────────────────────────────────────────────
@@ -239,6 +241,49 @@ jobs:
       - name: Launch the app
         run: ./scripts/smoke-test-app.sh VocaMac.app 20
 
+  # The Mac App Store variant (docs/APP_STORE.md): compiled with APP_STORE,
+  # sandboxed, checked and archived by the same script the App Store workflow
+  # uploads with, then launched under the sandbox. Signed ad hoc only: the
+  # upload re-signs it, so no Apple credentials are needed here.
+  app-store-bundle:
+    name: Verify App Store Bundle
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache Xcode build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .xcode-build-appstore/SourcePackages
+          key: xcode-appstore-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            xcode-appstore-deps-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        run: ./scripts/select-xcode-26.sh
+
+      - name: Initialize Xcode tools
+        run: sudo xcodebuild -runFirstLaunch
+
+      - name: Build, check and archive the App Store variant
+        run: |
+          set -o pipefail
+          ./scripts/build-appstore.sh 2>&1 | tee build-appstore.log
+
+      # The APP_STORE code paths compile only in this job.
+      - name: No compiler warnings in app sources
+        run: ./scripts/check-app-warnings.sh build-appstore.log
+
+      - name: Launch the sandboxed app
+        run: ./scripts/smoke-test-app.sh dist/appstore/VocaMac.app 20
+
   lint:
     name: SwiftLint
     needs: changes
@@ -322,7 +367,7 @@ jobs:
   # instead of tracking each job above.
   ci:
     name: CI
-    needs: [changes, test, release-build, app-bundle, lint, hf-cli, build-website]
+    needs: [changes, test, release-build, app-bundle, app-store-bundle, lint, hf-cli, build-website]
     if: always()
     runs-on: ubuntu-latest
     steps:

@@ -1171,7 +1171,9 @@ final class AppState: ObservableObject {
         self.transcriptCleanup = transcriptCleanup
         self.permissionManager = permissionManager ?? PermissionManager(audioEngine: audioEngine, hotKeyManager: hotKeyManager)
         self.skipSystemIntegration = skipSystemIntegration
-        self.crashReportFinder = crashReportFinder ?? (skipSystemIntegration ? nil : CrashReportFinder())
+        // The sandbox can't read the system's crash reports folder.
+        self.crashReportFinder = crashReportFinder
+            ?? (skipSystemIntegration || !AppDistribution.canReadCrashReports ? nil : CrashReportFinder())
         // Tests and other headless runs keep history in memory and never read
         // another app's text.
         // Launch reads, replays, and compacts history off the main thread.

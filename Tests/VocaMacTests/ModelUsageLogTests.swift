@@ -201,3 +201,18 @@ final class CalmModelStorageAppStateTests: XCTestCase {
         XCTAssertEqual(state.lastModelUsageStamp, start.addingTimeInterval(3700))
     }
 }
+
+final class CalmModelStorageUsageTests: XCTestCase {
+    func testFreshUsageDatesWinOverMeasuredOnes() {
+        let now = Date(timeIntervalSince1970: 10_000_000)
+        let old = ModelUsageLog.Entry(lastUsed: now.addingTimeInterval(-60 * 86_400), firstSeen: now.addingTimeInterval(-90 * 86_400))
+        let fresh = ModelUsageLog.Entry(lastUsed: now, firstSeen: old.firstSeen)
+        let measured = CalmModelStorage(writing: [
+            CalmDownloadedModel(id: .writing(.qwen25_7b_q4_k_m), location: nil, bytes: 1, usage: old),
+        ])
+        XCTAssertEqual(measured.idle(removable: { _ in true }, now: now).count, 1)
+
+        let current = measured.withUsage([DownloadedModelID.writing(.qwen25_7b_q4_k_m).storageKey: fresh])
+        XCTAssertTrue(current.idle(removable: { _ in true }, now: now).isEmpty)
+    }
+}

@@ -39,6 +39,14 @@ struct CalmModelStorage: Equatable, Sendable {
         }
     }
 
+    /// The same models with usage dates from `entries`.
+    func withUsage(_ entries: [String: ModelUsageLog.Entry]) -> CalmModelStorage {
+        func dated(_ models: [CalmDownloadedModel]) -> [CalmDownloadedModel] {
+            models.map { CalmDownloadedModel(id: $0.id, location: $0.location, bytes: $0.bytes, usage: entries[$0.id.storageKey]) }
+        }
+        return CalmModelStorage(speech: dated(speech), writing: dated(writing), freeBytes: freeBytes)
+    }
+
     /// The models Free up space offers: removable, and idle for
     /// `ModelUsageLog.idleDays`.
     func idle(removable: (DownloadedModelID) -> Bool, now: Date = Date()) -> [CalmDownloadedModel] {
@@ -159,11 +167,7 @@ extension AppState {
         }.value
         // The usage log lives on the main actor; attach it after measuring.
         modelUsageLog.noteSeen(found.all.map(\.id))
-        let usage = modelUsageLog.entries()
-        func withUsage(_ models: [CalmDownloadedModel]) -> [CalmDownloadedModel] {
-            models.map { CalmDownloadedModel(id: $0.id, location: $0.location, bytes: $0.bytes, usage: usage[$0.id.storageKey]) }
-        }
-        return CalmModelStorage(speech: withUsage(found.speech), writing: withUsage(found.writing), freeBytes: found.freeBytes)
+        return found.withUsage(modelUsageLog.entries())
     }
 
     /// The size of a model folder, or of a single model file (a GGUF).

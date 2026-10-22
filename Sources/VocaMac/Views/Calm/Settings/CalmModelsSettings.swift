@@ -156,7 +156,9 @@ struct CalmSpeechModelMenu: View {
             Button { flow.showsServer = true } label: { Label("Server settings…", systemImage: "server.rack") }
         }
         Button { flow.prompt = .details(size) } label: { Label("Show details", systemImage: "info.circle") }
-        if model?.isDownloaded == true, let folder = CalmModelFiles.location(of: .speech(size), appState: appState) {
+        // From the files, not the picker entry: an older download the
+        // picker no longer lists still has a folder to show.
+        if let folder = CalmModelFiles.location(of: .speech(size), appState: appState) {
             Button { CalmModelFiles.reveal(folder) } label: { Label("Show in Finder", systemImage: "folder") }
         }
         if model?.downloadProgress != nil {

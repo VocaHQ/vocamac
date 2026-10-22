@@ -38,15 +38,23 @@ struct CalmModelsOnThisMac: View {
 
     /// Changes whenever the list or its In use labels would.
     private var measureKey: String {
-        let speech = appState.calmDownloadedSpeechModels.map(\.rawValue)
-        let writing = appState.calmDownloadedWritingModels.map(\.rawValue)
-        let inUse = [appState.calmLoadedSpeechModel?.rawValue, appState.calmCleanupModelInUse?.rawValue]
-        let removals = String(appState.unlistedModelRemovals)
-        return (speech + ["|"] + writing + ["|"] + inUse.map { $0 ?? "-" } + [removals]).joined(separator: ",")
+        // Built in steps: as one expression it took the CI compiler too
+        // long to type-check.
+        var parts: [String] = appState.calmDownloadedSpeechModels.map(\.rawValue)
+        parts.append("|")
+        parts.append(contentsOf: appState.calmDownloadedWritingModels.map(\.rawValue))
+        parts.append("|")
+        parts.append(appState.calmLoadedSpeechModel?.rawValue ?? "-")
+        parts.append(appState.calmCleanupModelInUse?.rawValue ?? "-")
+        parts.append(String(appState.unlistedModelRemovals))
+        return parts.joined(separator: ",")
     }
 
+    /// Read with the usage log as it is now, not as it was when the sizes
+    /// were measured: picking a model (for Command Mode, say) stamps it
+    /// without changing what's on disk.
     private var idleModels: [CalmDownloadedModel] {
-        storage?.idle(removable: canRemove) ?? []
+        storage?.withUsage(appState.modelUsageLog.entries()).idle(removable: canRemove) ?? []
     }
 
     // MARK: On this Mac

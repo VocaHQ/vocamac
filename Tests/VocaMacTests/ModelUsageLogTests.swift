@@ -168,3 +168,36 @@ final class CalmModelStorageTests: XCTestCase {
         XCTAssertEqual(AppState.diskBytes(at: folder), 1300)
     }
 }
+
+@MainActor
+final class CalmModelStorageAppStateTests: XCTestCase {
+    func testStorageListsDownloadsThePickerNoLongerOffers() async {
+        let (state, mocks) = AppState.makeTestState()
+        mocks.modelManager.downloadedModels = [.medium]
+        state.availableModels.removeAll { $0.size == .medium }
+
+        let storage = await state.calmMeasureModelStorage()
+        XCTAssertTrue(storage.speech.contains { $0.id == .speech(.medium) })
+    }
+
+    func testDeletingAnUnlistedDownloadRemovesIt() async {
+        let (state, mocks) = AppState.makeTestState()
+        mocks.modelManager.downloadedModels = [.medium]
+        state.availableModels.removeAll { $0.size == .medium }
+
+        await state.deleteModel(.medium)
+        XCTAssertFalse(mocks.modelManager.downloadedModels.contains(.medium))
+        XCTAssertEqual(state.unlistedModelRemovals, 1)
+    }
+
+    func testDictationStampsAtMostHourly() {
+        let (state, _) = AppState.makeTestState()
+        let start = Date(timeIntervalSince1970: 2_000_000)
+        state.stampModelsInUseIfStale(now: start)
+        XCTAssertEqual(state.lastModelUsageStamp, start)
+        state.stampModelsInUseIfStale(now: start.addingTimeInterval(600))
+        XCTAssertEqual(state.lastModelUsageStamp, start)
+        state.stampModelsInUseIfStale(now: start.addingTimeInterval(3700))
+        XCTAssertEqual(state.lastModelUsageStamp, start.addingTimeInterval(3700))
+    }
+}

@@ -1007,6 +1007,12 @@ final class AppState: ObservableObject {
     let transcriptCleanup: TranscriptCleaning
     /// When each downloaded model was last in use, for Settings › Models.
     let modelUsageLog = ModelUsageLog()
+    /// When `stampModelsInUseIfStale()` last wrote, so a dictation writes
+    /// the usage log at most once an hour.
+    var lastModelUsageStamp: Date?
+    /// Bumped when a model the picker doesn't list is removed, so Settings ›
+    /// Models measures its downloads again.
+    @Published private(set) var unlistedModelRemovals = 0
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
@@ -3039,6 +3045,7 @@ final class AppState: ObservableObject {
                         )
                     }
                     statsManager.recordTranscription(result)
+                    stampModelsInUseIfStale()
                 }
                 if injectResult {
                     let current = frontmostAppResolver.currentFrontmostApp()
@@ -4046,7 +4053,12 @@ final class AppState: ObservableObject {
     /// and refuses a model that's mid-download or mid-load, so its files
     /// aren't yanked out from under an in-flight read.
     func deleteModel(_ size: ModelSize) async {
-        guard let index = availableModels.firstIndex(where: { $0.size == size }) else { return }
+        guard let index = availableModels.firstIndex(where: { $0.size == size }) else {
+            // On disk but no longer offered on this Mac (an older Whisper
+            // download): Settings › Models still lists it so it can go.
+            await deleteUnlistedModel(size)
+            return
+        }
         guard !availableModels[index].isActive else {
             errorMessage = "Can't delete the active model. Load a different model first."
             return
@@ -4062,6 +4074,22 @@ final class AppState: ObservableObject {
             modelUsageLog.forget(.speech(size))
             refreshModelStatuses()
             VocaLogger.info(.appState, "Deleted model \(size.displayName)")
+        } catch {
+            errorMessage = "Delete failed: \(error.localizedDescription)"
+            VocaLogger.error(.appState, "Delete failed for \(size.displayName): \(error.localizedDescription)")
+        }
+    }
+
+    /// Delete a downloaded model the picker doesn't list, unless it is the
+    /// one loaded.
+    private func deleteUnlistedModel(_ size: ModelSize) async {
+        guard calmLoadedSpeechModel != size, size != .tiny else { return }
+        do {
+            try await modelManager.deleteModel(size)
+            CompiledModelRecord().forget(size)
+            modelUsageLog.forget(.speech(size))
+            unlistedModelRemovals += 1
+            VocaLogger.info(.appState, "Deleted unlisted model \(size.displayName)")
         } catch {
             errorMessage = "Delete failed: \(error.localizedDescription)"
             VocaLogger.error(.appState, "Delete failed for \(size.displayName): \(error.localizedDescription)")
@@ -5461,6 +5489,8 @@ extension AppState {
         activeCommandTransformer = nil
         switch result {
         case .success(let answer):
+            // A model that only Command Mode uses is in use only here.
+            if case .local(let kind) = engine { modelUsageLog.markUsed([.writing(kind)]) }
             return (answer.output, answer.problem)
         case .failure(.cancelled):
             VocaLogger.info(.appState, "Command Mode cancelled; selection left unchanged")

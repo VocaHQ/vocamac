@@ -134,27 +134,36 @@ extension AppState {
     /// Measure the downloaded models and free space. Folder walks run off
     /// the main thread: a large Whisper model is thousands of files.
     func calmMeasureModelStorage() async -> CalmModelStorage {
-        let speech = calmDownloadedSpeechModels.map { (DownloadedModelID.speech($0), modelManager.modelFolder(for: $0)) }
+        let listed = calmDownloadedSpeechModels
         let writing = calmDownloadedWritingModels.map { (DownloadedModelID.writing($0), transcriptCleanup.modelFileURL(for: $0)) }
-        modelUsageLog.noteSeen((speech + writing).map(\.0))
-        let usage = modelUsageLog.entries()
+        let manager = modelManager
         let volume = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-        return await Task.detached(priority: .utility) {
+        let found = await Task.detached(priority: .utility) {
+            // Every model on disk, not just the ones the picker offers this
+            // Mac: an older download (Whisper Medium) stays on disk after
+            // WhisperKit stops listing it, and still takes space.
+            let onDisk = ModelSize.allCases.filter {
+                !$0.isSystemManaged && !$0.isRemotelyHosted && !listed.contains($0) && manager.isModelDownloaded($0)
+            }
             func measured(_ pairs: [(DownloadedModelID, URL?)]) -> [CalmDownloadedModel] {
                 pairs.map { id, url in
-                    CalmDownloadedModel(
-                        id: id, location: url,
-                        bytes: url.map(Self.diskBytes(at:)) ?? 0,
-                        usage: usage[id.storageKey]
-                    )
+                    CalmDownloadedModel(id: id, location: url, bytes: url.map(Self.diskBytes(at:)) ?? 0, usage: nil)
                 }
             }
+            let speech = (listed + onDisk).map { (DownloadedModelID.speech($0), manager.modelFolder(for: $0)) }
             return CalmModelStorage(
                 speech: measured(speech),
                 writing: measured(writing),
                 freeBytes: volume.flatMap(ModelManager.volumeAvailableCapacity(at:))
             )
         }.value
+        // The usage log lives on the main actor; attach it after measuring.
+        modelUsageLog.noteSeen(found.all.map(\.id))
+        let usage = modelUsageLog.entries()
+        func withUsage(_ models: [CalmDownloadedModel]) -> [CalmDownloadedModel] {
+            models.map { CalmDownloadedModel(id: $0.id, location: $0.location, bytes: $0.bytes, usage: usage[$0.id.storageKey]) }
+        }
+        return CalmModelStorage(speech: withUsage(found.speech), writing: withUsage(found.writing), freeBytes: found.freeBytes)
     }
 
     /// The size of a model folder, or of a single model file (a GGUF).
@@ -162,6 +171,17 @@ extension AppState {
         let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
         if values?.isDirectory == true { return ModelManager.directorySize(at: url) }
         return Int64(values?.fileSize ?? 0)
+    }
+
+    /// Stamp the models in use after a dictation, at most once an hour. A
+    /// model can stay loaded for weeks; without this its date would be its
+    /// load, and once replaced by a path that doesn't stamp (cleanup moved
+    /// to a server, Command Mode moved to Apple Intelligence) it would look
+    /// idle the day it stopped being used.
+    func stampModelsInUseIfStale(now: Date = Date()) {
+        if let last = lastModelUsageStamp, now.timeIntervalSince(last) < 3600 { return }
+        lastModelUsageStamp = now
+        stampModelsInUse()
     }
 
     /// Stamp the models working now as used. Called as a model loads and

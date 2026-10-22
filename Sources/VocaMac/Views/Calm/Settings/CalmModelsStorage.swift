@@ -41,7 +41,8 @@ struct CalmModelsOnThisMac: View {
         let speech = appState.calmDownloadedSpeechModels.map(\.rawValue)
         let writing = appState.calmDownloadedWritingModels.map(\.rawValue)
         let inUse = [appState.calmLoadedSpeechModel?.rawValue, appState.calmCleanupModelInUse?.rawValue]
-        return (speech + ["|"] + writing + ["|"] + inUse.map { $0 ?? "-" }).joined(separator: ",")
+        let removals = String(appState.unlistedModelRemovals)
+        return (speech + ["|"] + writing + ["|"] + inUse.map { $0 ?? "-" } + [removals]).joined(separator: ",")
     }
 
     private var idleModels: [CalmDownloadedModel] {
@@ -97,6 +98,7 @@ struct CalmModelsOnThisMac: View {
         } ?? .onThisMac
         let status: CalmDownloadedStatus
         switch state {
+        case _ where info == nil: status = .note("Not offered on this Mac")
         case .inUse: status = .inUse("In use")
         case .loading(let text): status = .busy(CalmSpeechModelsTab.loadingText(text))
         case .downloading(let progress): status = .busy("Downloading \(Int((progress * 100).rounded()))%")
@@ -108,7 +110,7 @@ struct CalmModelsOnThisMac: View {
             logo: CalmLogoName(engine: size.engine),
             meta: meta(model),
             status: status,
-            canRemove: info.map(CalmSpeechPickFlow.canRemove) ?? false,
+            canRemove: canRemove(.speech(size)),
             onUse: { flow.pick(size, appState: appState) },
             onRemove: { flow.prompt = .remove(size) },
             menu: { CalmSpeechModelMenu(size: size, flow: flow) }
@@ -173,7 +175,11 @@ struct CalmModelsOnThisMac: View {
     private func canRemove(_ id: DownloadedModelID) -> Bool {
         switch id {
         case .speech(let size):
-            return appState.availableModels.first { $0.size == size }.map(CalmSpeechPickFlow.canRemove) ?? false
+            guard let info = appState.availableModels.first(where: { $0.size == size }) else {
+                // Not offered here, so not loadable: removable unless loaded.
+                return appState.calmLoadedSpeechModel != size && size != .tiny
+            }
+            return CalmSpeechPickFlow.canRemove(info)
         case .writing(let kind):
             return CalmWritingPickFlow.canRemove(kind, appState: appState)
         }
@@ -198,6 +204,8 @@ enum CalmDownloadedStatus: Equatable {
     case inUse(String)
     /// Loading or downloading: no Use button meanwhile.
     case busy(String)
+    /// Nothing to do but read, like a model this Mac no longer offers.
+    case note(String)
     case idle
 }
 
@@ -253,6 +261,8 @@ struct CalmDownloadedRow<Menu: View>: View {
             .font(CalmFont.note)
             .foregroundStyle(CalmColor.ink2)
             .fixedSize()
+        case .note(let text):
+            Text(text).font(CalmFont.note).foregroundStyle(CalmColor.muted).fixedSize()
         case .idle:
             Button("Use", action: onUse)
                 .calmButton(.secondary, size: .small)

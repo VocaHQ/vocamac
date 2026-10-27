@@ -94,6 +94,10 @@ final class DictionaryCorrectorTests: XCTestCase {
         // Spoken in lowercase or all capitals, the entry's own casing wins.
         XCTAssertEqual(correct("run npm install", vocabulary: ["npm"]).text, "run npm install")
         XCTAssertEqual(correct("run NPM install", vocabulary: ["npm"]).text, "run npm install")
+        // Several words: each keeps the capital it was heard with.
+        XCTAssertEqual(correct("flying to New York tomorrow", vocabulary: ["new york"]).text, "flying to New York tomorrow")
+        XCTAssertEqual(correct("flying to new york tomorrow", vocabulary: ["new york"]).text, "flying to new york tomorrow")
+        XCTAssertTrue(correct("to New York", vocabulary: ["new york"]).protectedTerms.isEmpty)
         // An entry with its own capitals is written exactly as entered.
         XCTAssertEqual(correct("open Github", vocabulary: ["GitHub"]).text, "open GitHub")
     }

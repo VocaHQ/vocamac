@@ -331,13 +331,27 @@ enum DictionaryCorrector {
     /// they matched, and protected the result from sentence case too. An
     /// all-capitals or lowercase spoken word ("NPM", "npm") takes the entry's
     /// casing, so a tool entered as "npm" stays "npm".
+    ///
+    /// Word by word when the spoken words line up with the entry's ("New
+    /// York" over "new york"); otherwise by the first spoken word ("Voca
+    /// Mac" over "vocamac" stays "vocamac": joined, it isn't a name heard).
     static func casedLike(_ spoken: String, term: String) -> String {
-        guard term == term.lowercased(), term.allSatisfy({ $0.isLetter || $0 == " " || $0 == "'" || $0 == "’" }),
-              let first = spoken.first(where: \.isLetter), first.isUppercase,
-              spoken.filter(\.isLetter).dropFirst().allSatisfy(\.isLowercase) else { return term }
-        return term.split(separator: " ", omittingEmptySubsequences: false)
-            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
-            .joined(separator: " ")
+        guard term == term.lowercased(), term.allSatisfy({ $0.isLetter || $0 == " " || $0 == "'" || $0 == "’" })
+        else { return term }
+        func isCapitalized<S: StringProtocol>(_ word: S) -> Bool {
+            let letters = word.filter(\.isLetter)
+            return letters.first?.isUppercase == true && letters.dropFirst().allSatisfy(\.isLowercase)
+        }
+        func capitalized<S: StringProtocol>(_ word: S) -> String { word.prefix(1).uppercased() + word.dropFirst() }
+        let termWords = term.split(separator: " ", omittingEmptySubsequences: false)
+        let spokenWords = spoken.split(whereSeparator: \.isWhitespace)
+        if termWords.count > 1, spokenWords.count == termWords.count {
+            return zip(termWords, spokenWords)
+                .map { isCapitalized($1) ? capitalized($0) : String($0) }
+                .joined(separator: " ")
+        }
+        guard isCapitalized(spoken) else { return term }
+        return termWords.map(capitalized).joined(separator: " ")
     }
 
     static func needsProtection(_ term: String) -> Bool {

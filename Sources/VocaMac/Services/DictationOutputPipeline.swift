@@ -336,7 +336,13 @@ struct DictationOutputPipeline {
         } else if unchanged > 0 {
             summary += " · \(unchanged) of \(outcomes.count) parts kept as spoken"
         }
-        return result(finish(combined), plan.intent != .preserve && rewritten > 0 ? summary : noting(summary))
+        // A part rewritten whole keeps the plain summary, but a part refused
+        // beside it still says why.
+        if plan.intent != .preserve, rewritten > 0 {
+            if let refusal { summary += " · \(plan.intent.displayName) rewrite refused for a part — \(refusal)" }
+            return result(finish(combined), summary)
+        }
+        return result(finish(combined), noting(summary))
     }
 
     // MARK: - Stages

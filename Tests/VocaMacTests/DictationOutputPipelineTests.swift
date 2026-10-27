@@ -110,6 +110,17 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertTrue(named.summary.contains("rewrite refused — a name or protected term was lost"), named.summary)
     }
 
+    func testAPartRefusedBesideARewrittenOneStillSaysWhy() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { text in
+            text.hasPrefix("thanks") ? "Thanks for the very quick review." : "Proceed with merging the pull request."
+        }
+        let result = await process("thanks for the quick review\n\nI think we can merge the pull request now",
+                                   cleaner: cleaner, intent: .professional)
+        XCTAssertTrue(result.summary.hasPrefix("Formal wording applied"), result.summary)
+        XCTAssertTrue(result.summary.contains("rewrite refused for a part — pronouns changed"), result.summary)
+    }
+
     func testTheReadAheadIncludesTheUsersOwnTerms() async {
         let cleaner = MockTranscriptCleanup()
         cleaner.isLoaded = true

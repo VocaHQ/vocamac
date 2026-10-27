@@ -1452,10 +1452,12 @@ enum RewriteValidation {
         // Compared by stem, so "merge" survives as "merging".
         let stem = { (word: String) in String(word.prefix(4)) }
         // A sentence reworded entirely ("Sounds great." → "That works.")
-        // leaves a new sentence in its place that shares no word with
-        // anything spoken; a dropped one leaves none. So spoken sentences
-        // without a trace may only be as many as such new sentences, however
-        // the rest was split or joined.
+        // leaves a new sentence in its place that carries nothing else that
+        // was spoken: its words are new, or another rewritten sentence has
+        // them too ("…after work. That works."). A dropped one leaves none,
+        // and the pieces of a split sentence each carry their own part of it.
+        // So spoken sentences without a trace may only be as many as such
+        // new sentences, however the rest was split or joined.
         let kept = Set(after.map(stem))
         let spokenStems = Set(words(spoken).map(stem))
         func content(_ sentence: String) -> [String] {
@@ -1465,9 +1467,11 @@ enum RewriteValidation {
             let words = content(sentence)
             return words.count >= 2 && !words.contains(where: kept.contains)
         }
-        let unprompted = CleanupContext.sentences(candidate).filter { sentence in
-            let words = content(sentence)
-            return !words.isEmpty && !words.contains(where: spokenStems.contains)
+        let rewritten = CleanupContext.sentences(candidate).map { Set(content($0)) }
+        let unprompted = rewritten.filter { words in
+            // A sentence written twice doesn't vouch for its own copy.
+            let elsewhere = rewritten.filter { $0 != words }.reduce(into: Set<String>()) { $0.formUnion($1) }
+            return !words.isEmpty && words.allSatisfy { !spokenStems.contains($0) || elsewhere.contains($0) }
         }
         if untraced.count > unprompted.count, let first = untraced.first {
             return "sentence dropped (\(first.trimmingCharacters(in: .whitespacesAndNewlines).prefix(30)))"

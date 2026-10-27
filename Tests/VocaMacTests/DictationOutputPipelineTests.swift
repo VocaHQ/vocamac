@@ -166,6 +166,15 @@ final class DictationOutputPipelineTests: XCTestCase {
             "I will review your patch tomorrow. That works.",
             original: "I will review your patch tomorrow. Sounds great."
         ))
+        // …even when its words were said elsewhere ("work").
+        XCTAssertNil(RewriteValidation.rejectionReason(
+            "I will review your patch after work. That works.",
+            original: "I will review your patch after work. Sounds great."
+        ))
+        XCTAssertEqual(RewriteValidation.rejectionReason(
+            "Review the patch after work. Review the patch after work.",
+            original: "Review the patch after work. Thanks a lot."
+        ), "sentence dropped (Thanks a lot.)")
         XCTAssertEqual(RewriteValidation.rejectionReason(
             "Hi Linda, I reviewed your pull request and approved it. It will be merged soon.",
             original: "Hey Linda, I have reviewed your pull request and approved it. It will soon be merged. Thanks a lot."

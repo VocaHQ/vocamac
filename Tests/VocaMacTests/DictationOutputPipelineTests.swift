@@ -156,6 +156,11 @@ final class DictationOutputPipelineTests: XCTestCase {
             "I reviewed your patch and you said you should merge it.",
             original: "I reviewed your patch and you said I should merge it."
         ), "pronouns changed")
+        // Splitting one sentence doesn't hide another that was dropped.
+        XCTAssertEqual(RewriteValidation.rejectionReason(
+            "I reviewed your patch. It looks good to me.",
+            original: "I reviewed your patch and it looks good to me. Thanks a lot."
+        ), "sentence dropped (Thanks a lot.)")
         // A sentence reworded in place is still there.
         XCTAssertNil(RewriteValidation.rejectionReason(
             "I will review your patch tomorrow. That works.",

@@ -1451,16 +1451,26 @@ enum RewriteValidation {
         // drop "Thanks a lot." from the end of a message.
         // Compared by stem, so "merge" survives as "merging".
         let stem = { (word: String) in String(word.prefix(4)) }
-        // Only when the rewrite also has fewer sentences: one reworded in
-        // place ("Sounds great." → "That works.") is still there.
+        // A sentence reworded entirely ("Sounds great." → "That works.")
+        // leaves a new sentence in its place that shares no word with
+        // anything spoken; a dropped one leaves none. So spoken sentences
+        // without a trace may only be as many as such new sentences, however
+        // the rest was split or joined.
         let kept = Set(after.map(stem))
-        let spokenSentences = CleanupContext.sentences(spoken)
-        let isShorter = CleanupContext.sentences(candidate).count < spokenSentences.count
-        for sentence in spokenSentences where isShorter {
-            let content = words(sentence).filter { !expendable.contains($0) && !structureWords.contains($0) }
-            if content.count >= 2, !content.contains(where: { kept.contains(stem($0)) }) {
-                return "sentence dropped (\(sentence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(30)))"
-            }
+        let spokenStems = Set(words(spoken).map(stem))
+        func content(_ sentence: String) -> [String] {
+            words(sentence).filter { !expendable.contains($0) && !structureWords.contains($0) }.map(stem)
+        }
+        let untraced = CleanupContext.sentences(spoken).filter { sentence in
+            let words = content(sentence)
+            return words.count >= 2 && !words.contains(where: kept.contains)
+        }
+        let unprompted = CleanupContext.sentences(candidate).filter { sentence in
+            let words = content(sentence)
+            return !words.isEmpty && !words.contains(where: spokenStems.contains)
+        }
+        if untraced.count > unprompted.count, let first = untraced.first {
+            return "sentence dropped (\(first.trimmingCharacters(in: .whitespacesAndNewlines).prefix(30)))"
         }
         let overlap = meaningful.filter { after.contains($0) }.count
         guard meaningful.isEmpty || Double(overlap) / Double(meaningful.count) >= 0.6 else {

@@ -106,9 +106,15 @@ enum TranscriptCleanup {
         return "<TERMS>" + terms.joined(separator: ", ") + "</TERMS>\n" + fenced
     }
 
+    /// A glossary block the model copied into its answer, and any tag of one
+    /// left over. The prompt describes the `<TERMS>` line, and Ministral
+    /// wrote one back into 6 of 36 Formal rewrites, even with no glossary
+    /// sent. Nobody dictates the tag, so it is never the speaker's text.
+    private static let termsBlockExpression = try? NSRegularExpression(pattern: #"(?is)<TERMS>.*?</TERMS>|</?TERMS>"#)
+
     static func sanitize(_ text: String) -> String {
         var sanitized = text
-        if let expression = thinkBlockExpression {
+        for expression in [thinkBlockExpression, termsBlockExpression].compactMap({ $0 }) {
             let range = NSRange(sanitized.startIndex..., in: sanitized)
             sanitized = expression.stringByReplacingMatches(in: sanitized, range: range, withTemplate: "")
         }

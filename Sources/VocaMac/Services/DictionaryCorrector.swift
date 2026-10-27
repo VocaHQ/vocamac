@@ -155,11 +155,12 @@ enum DictionaryCorrector {
                 }
                 let range = span(of: window)
                 let spoken = source.substring(with: range)
-                if spoken != candidate.term {
-                    edits.append((range, candidate.term))
+                let term = candidate.isUserTerm ? casedLike(spoken, term: candidate.term) : candidate.term
+                if spoken != term {
+                    edits.append((range, term))
                 }
-                if needsProtection(candidate.term) {
-                    result.protectedTerms.append(candidate.term)
+                if needsProtection(term) {
+                    result.protectedTerms.append(term)
                 }
                 index += length
                 matched = true
@@ -173,6 +174,7 @@ enum DictionaryCorrector {
                 terms: fuzzyTerms, isKnownWord: isKnownWord
             ) {
                 let range = span(of: tokens[index..<(index + length)])
+                let term = casedLike(source.substring(with: range), term: term)
                 edits.append((range, term))
                 if needsProtection(term) {
                     result.protectedTerms.append(term)
@@ -322,6 +324,22 @@ enum DictionaryCorrector {
     /// Whether formatting could change the term's spelling: a lowercase start
     /// (sentence case would capitalize it), capitals after the first letter,
     /// or anything that isn't a letter.
+    /// `term` as it should be written over `spoken`. A Dictionary entry typed
+    /// all in lowercase ("sergey", "claude") says how a word is spelled, not
+    /// how it is cased: when the engine heard a capitalized word, a name, the
+    /// capital stays. Written as typed, those entries lowercased every name
+    /// they matched, and protected the result from sentence case too. An
+    /// all-capitals or lowercase spoken word ("NPM", "npm") takes the entry's
+    /// casing, so a tool entered as "npm" stays "npm".
+    static func casedLike(_ spoken: String, term: String) -> String {
+        guard term == term.lowercased(), term.allSatisfy({ $0.isLetter || $0 == " " || $0 == "'" || $0 == "’" }),
+              let first = spoken.first(where: \.isLetter), first.isUppercase,
+              spoken.filter(\.isLetter).dropFirst().allSatisfy(\.isLowercase) else { return term }
+        return term.split(separator: " ", omittingEmptySubsequences: false)
+            .map { $0.prefix(1).uppercased() + $0.dropFirst() }
+            .joined(separator: " ")
+    }
+
     static func needsProtection(_ term: String) -> Bool {
         let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let first = trimmed.first, trimmed.contains(where: \.isLetter) else { return false }

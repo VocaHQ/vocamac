@@ -55,6 +55,14 @@ final class TranscriptCleanupTests: XCTestCase {
         XCTAssertEqual(formatted.components(separatedBy: "<USER-INPUT>").count - 1, 1)
     }
 
+    func testAGlossaryBlockTheModelCopiedIsRemoved() {
+        XCTAssertEqual(TranscriptCleanup.sanitize("<TERMS>\n</TERMS>\n\nWhen will you be available?"),
+                       "When will you be available?")
+        XCTAssertEqual(TranscriptCleanup.sanitize("Linda, I’ve approved it.\n\n<TERMS>"), "Linda, I’ve approved it.")
+        XCTAssertEqual(TranscriptCleanup.sanitize("<TERMS>Voca = Voca AI</TERMS> Please share the numbers."),
+                       "Please share the numbers.")
+    }
+
     func testUnterminatedThinkBlockIsDiscarded() {
         // The model ran out of budget mid-reasoning; there is no answer to keep.
         XCTAssertEqual(TranscriptCleanup.sanitize("<think>still reasoning about"), "")

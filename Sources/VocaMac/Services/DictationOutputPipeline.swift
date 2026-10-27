@@ -139,8 +139,22 @@ struct DictationOutputPipeline {
             plan = value
         }
         onModelCleanup?()
+        // Why the model runs, beside what it then achieves ("Cleanup edits"),
+        // so passes that buy nothing can be traced to what triggered them.
+        let need = plan.intent != .preserve ? "\(plan.intent.displayName) rewrite"
+            : CleanupNeed.reason(
+                for: prepared.masked.text, level: prepared.effectiveLevel,
+                technical: plan.technical, isEnglish: prepared.isEnglishText
+            ) ?? (Self.usesBuiltInCleanupPrompt(options) ? "possible respelling or skip off" : "custom prompt")
+        VocaLogger.info(.transcriptCleanup, "Cleanup model asked — \(need)")
 
         let masked = prepared.masked
+        /// Whether one clean part of the text still needs the model.
+        func needsModel(_ text: String) -> Bool {
+            CleanupNeed.reason(
+                for: text, level: prepared.effectiveLevel, technical: plan.technical, isEnglish: prepared.isEnglishText
+            ) != nil || (!plan.glossary.isEmpty && Self.mayRespell(text, dictionary: options.dictionary))
+        }
         let slices = Self.splittingParagraphs(pieces.count >= 2
             ? Self.slices(of: masked.text, pieces: pieces) { text in
                 guard case .prepared(let piece) = prepare(text, options: options, isEnglishText: prepared.isEnglishText) else {
@@ -179,8 +193,12 @@ struct DictationOutputPipeline {
             }
             standIn = "\(model.descriptor.displayName) stood in — not enough memory for \(options.model.descriptor.displayName)"
         }
+        // Why a Formal or Casual rewrite was refused, so "Kept your wording"
+        // says what went wrong instead of leaving it to guesswork.
+        var refusal: String?
         func noting(_ summary: String) -> String {
-            let noted = prepared.noting(summary)
+            var noted = prepared.noting(summary)
+            if let refusal { noted += " · \(plan.intent.displayName) rewrite refused — \(refusal)" }
             return standIn.map { "\(noted) · \($0)" } ?? noted
         }
 
@@ -194,12 +212,7 @@ struct DictationOutputPipeline {
             // One clean part of a longer dictation needs the model no more
             // than a clean dictation does.
             if options.skipWhenClean, plan.intent == .preserve, protectedSlices.count > 1,
-               plan.technical || Self.usesBuiltInCleanupPrompt(options),
-               CleanupNeed.reason(
-                   for: sources[index], level: prepared.effectiveLevel,
-                   technical: plan.technical, isEnglish: prepared.isEnglishText
-               ) == nil,
-               plan.glossary.isEmpty || !Self.mayRespell(sources[index], dictionary: options.dictionary) {
+               plan.technical || Self.usesBuiltInCleanupPrompt(options), !needsModel(sources[index]) {
                 outcomes.append(.alreadyClean)
                 continue
             }
@@ -207,7 +220,7 @@ struct DictationOutputPipeline {
             guard !Task.isCancelled else { return result(plan.fallback, "Processing cancelled") }
             outcomes.append(outcome(
                 of: attempt, protected: protected, source: sources[index],
-                plan: plan, prepared: prepared, dictionary: options.dictionary
+                plan: plan, prepared: prepared, dictionary: options.dictionary, refusal: &refusal
             ))
         }
 
@@ -706,7 +719,14 @@ struct DictationOutputPipeline {
     func warmUp(options: DictationOutputOptions) async {
         guard let prompt = expectedPrompt(options: options),
               await loadedModel(for: options.model) != nil else { return }
-        await cleaner.prime(prompt: prompt)
+        // The user's own terms open every glossary (`cleanupGlossary`), so
+        // reading them ahead leaves only the screen's terms and the text.
+        let technical = !(options.profile.format.supportsWording)
+        let glossary = technical ? [] : Self.cleanupGlossary(options.dictionary.map {
+            DictionaryContext(vocabulary: $0.vocabulary, replacements: $0.replacements,
+                              contextTerms: [], isKnownWord: $0.isKnownWord)
+        })
+        await cleaner.prime(prompt: prompt, glossary: glossary)
     }
 
     /// The model to ask once it is loaded: the selected one, or a smaller
@@ -814,7 +834,8 @@ struct DictationOutputPipeline {
         source: String,
         plan: CleanupPlan,
         prepared: PreparedDictation,
-        dictionary: DictionaryContext?
+        dictionary: DictionaryContext?,
+        refusal: inout String?
     ) -> SliceOutcome {
         // The model's answer, including one the service's whole-answer check
         // refused: its safe edits are still worth having.
@@ -861,11 +882,17 @@ struct DictationOutputPipeline {
 
         // Formal and Casual exist to reword, so a rewrite that passes every
         // check is used whole.
-        if plan.intent != .preserve,
-           let candidate = protected.restoreValidated(modelText),
-           let formatting = protected.formattingMask(modelText),
-           RewriteValidation.accepts(candidate, original: source) {
-            return .rewritten(formatting, changed: candidate != source)
+        if plan.intent != .preserve {
+            if let candidate = protected.restoreValidated(modelText),
+               let formatting = protected.formattingMask(modelText) {
+                guard let reason = RewriteValidation.rejectionReason(candidate, original: source) else {
+                    return .rewritten(formatting, changed: candidate != source)
+                }
+                refusal = reason
+            } else {
+                refusal = "a name or protected term was lost"
+            }
+            VocaLogger.info(.transcriptCleanup, "\(plan.intent.displayName) rewrite refused — \(refusal ?? "")")
         }
 
         // Otherwise — and always for cleanup, whose job is only fillers,
@@ -885,6 +912,8 @@ struct DictationOutputPipeline {
         // corrections the High level is for.
         if protected.restoreValidated(merged.text, requiringNames: false) != nil,
            let formatting = protected.formattingMask(merged.text, requiringNames: false) {
+            // What the pass bought, so passes that change nothing can be found.
+            VocaLogger.info(.transcriptCleanup, "Cleanup edits: \(merged.applied) kept, \(merged.skipped) left as spoken")
             return .merged(formatting, applied: merged.applied, skipped: merged.skipped)
         }
         // Only if the merge itself lost a name or protected token, which it

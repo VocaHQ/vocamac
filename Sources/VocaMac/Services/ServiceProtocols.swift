@@ -502,6 +502,9 @@ protocol TranscriptCleaning: TextTransforming {
     /// on, so the next pass with it only has to read the text. Does nothing
     /// when no model is loaded or the prompt is already the one in place.
     func prime(prompt: String) async
+    /// `prime` with the glossary the next pass will most likely send first
+    /// (the user's own terms), so its tokens are read ahead too.
+    func prime(prompt: String, glossary: [String]) async
     /// A smaller downloaded model to use when `kind` was just refused for
     /// memory, or nil when `kind` wasn't refused or nothing smaller fits.
     func memoryFallback(for kind: CleanupModelKind) -> CleanupModelKind?
@@ -511,6 +514,7 @@ extension TranscriptCleaning {
     /// The downloaded GGUF for `kind`, or nil when it isn't on this Mac.
     func modelFileURL(for kind: CleanupModelKind) -> URL? { nil }
     func prime(prompt: String) async {}
+    func prime(prompt: String, glossary: [String]) async { await prime(prompt: prompt) }
     func memoryFallback(for kind: CleanupModelKind) -> CleanupModelKind? { nil }
     nonisolated func inputBudget(forPrompt prompt: String, model: CleanupModelKind) -> Int {
         inputBudget(forPrompt: prompt)

@@ -2673,8 +2673,17 @@ final class AppState: ObservableObject {
                 cachedProfile = self.nextWritingProfile
                     ?? self.resolveWritingStyle(for: target, documentURL: documentURL).profile
             }
-            if cachedTerms == nil {
-                cachedTerms = await Self.awaitContextTerms(contextTask)
+            // Cleanup ahead of time isn't on anyone's wait, so it can give the
+            // screen read longer than the stop path's 0.3 s. A read that
+            // still hasn't answered isn't remembered as "no terms": the
+            // final pass would then get the terms, its glossary would differ,
+            // and every answer worked out ahead would go unused.
+            if cachedTerms == nil, let contextTask {
+                let terms = await Self.value(
+                    of: Task { Optional(await contextTask.value) },
+                    within: Self.speculationContextTimeout, otherwise: nil
+                )
+                cachedTerms = terms
             }
             guard let profile = cachedProfile else { return nil }
             return self.dictationOptions(profile: profile, language: language, contextTerms: cachedTerms ?? [])
@@ -6182,6 +6191,8 @@ extension AppState {
     }
 
     static let screenContextTimeout: TimeInterval = 0.3
+    /// How long cleanup ahead of time waits for the screen's terms.
+    static let speculationContextTimeout: TimeInterval = 2
 
     /// A task's value if it arrives within `timeout`, otherwise `fallback`.
     ///

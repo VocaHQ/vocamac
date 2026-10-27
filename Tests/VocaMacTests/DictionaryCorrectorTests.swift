@@ -84,6 +84,20 @@ final class DictionaryCorrectorTests: XCTestCase {
                        "I love VocaMac and GitHub")
     }
 
+    /// Entries typed in lowercase ("claude", "sergey") lowercased every name
+    /// they matched: all 12 mentions in one user's History.
+    func testALowercaseEntryKeepsTheCapitalOfANameItMatches() {
+        XCTAssertEqual(correct("Ask Claude to review it", vocabulary: ["claude"]).text, "Ask Claude to review it")
+        XCTAssertEqual(correct("Hi Sergei, thanks", vocabulary: ["sergey"]).text, "Hi Sergey, thanks")
+        XCTAssertTrue(correct("Ask Claude", vocabulary: ["claude"]).protectedTerms.isEmpty,
+                      "A name may take sentence case")
+        // Spoken in lowercase or all capitals, the entry's own casing wins.
+        XCTAssertEqual(correct("run npm install", vocabulary: ["npm"]).text, "run npm install")
+        XCTAssertEqual(correct("run NPM install", vocabulary: ["npm"]).text, "run npm install")
+        // An entry with its own capitals is written exactly as entered.
+        XCTAssertEqual(correct("open Github", vocabulary: ["GitHub"]).text, "open GitHub")
+    }
+
     func testVocabularyDoesNotJoinAcrossPunctuation() {
         XCTAssertEqual(correct("try voca. mac", vocabulary: ["VocaMac"]).text, "try voca. mac")
     }

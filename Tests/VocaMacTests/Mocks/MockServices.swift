@@ -844,8 +844,13 @@ final class MockTranscriptCleanup: TranscriptCleaning, ObservableObject {
     }
 
     var primedPrompts: [String] = []
+    var primedGlossaries: [[String]] = []
     func prime(prompt: String) async {
         primedPrompts.append(prompt)
+    }
+    func prime(prompt: String, glossary: [String]) async {
+        primedGlossaries.append(glossary)
+        await prime(prompt: prompt)
     }
 
     /// Models whose load is refused for memory, leaving whatever is loaded.

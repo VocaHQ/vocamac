@@ -124,6 +124,16 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// tokens are already in place. llama.cpp keeps the tokens of the previous
     /// request and only reads what differs, and the prompt comes first.
     private var cachedPrompt: String?
+    /// The glossary the last read-ahead put in place.
+    private var primedGlossary: [String] = []
+    /// When the model last produced an answer or read a prompt ahead.
+    private var lastInferenceAt: Date?
+
+    /// Idle long enough for the model to need waking. In one user's logs a
+    /// pass after more than 10 idle minutes took 1.7–2.2 s against 0.58 s
+    /// warm, although the prompt was still in place, so the read-ahead
+    /// skipped. Waking it while the user speaks hides that.
+    static let coldAfterSeconds: TimeInterval = 120
     /// A prompt being read ahead of the text. A pass that arrives meanwhile
     /// waits for it: it would have had to read the same prompt itself.
     private var primeTask: Task<Void, Never>?
@@ -205,11 +215,16 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func prime(prompt: String) async {
+        await prime(prompt: prompt, glossary: [])
+    }
+
+    func prime(prompt: String, glossary: [String]) async {
         let activePrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? TranscriptCleanup.defaultPrompt
             : prompt
-        guard let llm = activeLLM, !attemptInProgress, primeTask == nil,
-              pendingGeneration == nil, cachedPrompt != activePrompt else { return }
+        let isCold = lastInferenceAt.map { Date().timeIntervalSince($0) > Self.coldAfterSeconds } ?? true
+        guard let llm = activeLLM, !attemptInProgress, primeTask == nil, pendingGeneration == nil,
+              cachedPrompt != activePrompt || primedGlossary != glossary || isCold else { return }
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             defer { self.primeTask = nil }
@@ -220,11 +235,12 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             do {
                 _ = try await self.runInference(
                     llm: llm, prompt: activePrompt,
-                    input: TranscriptCleanup.formatInput(Self.primingInput),
+                    input: TranscriptCleanup.formatInput(Self.primingInput, glossary: glossary),
                     timeout: Self.primeTimeoutSeconds, monitor: monitor
                 )
+                self.primedGlossary = glossary
                 let seconds = String(format: "%.2f", Date().timeIntervalSince(started))
-                VocaLogger.info(.transcriptCleanup, "Read the cleanup prompt ahead in \(seconds)s")
+                VocaLogger.info(.transcriptCleanup, "Read the cleanup prompt ahead in \(seconds)s\(isCold ? " (model was idle)" : "")")
             } catch {
                 self.cachedPrompt = nil
                 VocaLogger.warning(.transcriptCleanup, "Reading the cleanup prompt ahead did not finish")
@@ -887,6 +903,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             throw CleanupInferenceError.deadlineExceeded
         }
         pendingGeneration = nil
+        lastInferenceAt = Date()
         return output
     }
 

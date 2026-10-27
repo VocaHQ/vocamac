@@ -9,6 +9,7 @@ app:
       - 'Package.swift'
       - 'Package.resolved'
       - 'VocaMac.entitlements'
+      - 'VocaMac-AppStore.entitlements'
 
 web:
   - changed-files:

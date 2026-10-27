@@ -14,6 +14,10 @@
 #   CODE_SIGN_IDENTITY  — Signing identity to use. Defaults to auto-detect
 #                         Developer ID Application in the login keychain.
 #                         Set to "-" to force ad-hoc signing.
+#   VOCAMAC_APP_STORE   — Set to 1 for the Mac App Store variant; run it through
+#                         scripts/build-appstore.sh, which checks and archives it.
+#                         See docs/APP_STORE.md.
+#   APP_BUILD_NUMBER    — CFBundleVersion of the App Store variant. Defaults to 1.
 #
 # IMPORTANT: After the first build, grant Accessibility and Input Monitoring
 # permissions to VocaMac.app. With Developer ID signing, permissions persist
@@ -31,6 +35,29 @@ APP_NAME="VocaMac"
 APP_DIR="${APP_NAME}.app"
 ENTITLEMENTS="VocaMac.entitlements"
 APP_VERSION="${APP_VERSION:-1.2.0}"
+DERIVED_DATA=".xcode-build"
+# The llama.cpp framework's folder inside the bundle; see "Embed llama.cpp".
+FRAMEWORKS_SUBDIR="lib"
+# Extra build settings for xcodebuild (bash 3.2 has no safe empty "${a[@]}").
+XCODE_SETTINGS=()
+APP_SIGN_FLAGS=()
+
+# The Mac App Store variant: compiled with the APP_STORE condition, which
+# leaves out self-update, external programs and AppleScript; sandboxed; built
+# in its own folders so it never mixes with the direct download; and ad-hoc
+# signed, because the App Store export re-signs it for distribution.
+APP_STORE="${VOCAMAC_APP_STORE:-0}"
+if [ "$APP_STORE" = "1" ]; then
+    APP_DIR="dist/appstore/${APP_NAME}.app"
+    ENTITLEMENTS="VocaMac-AppStore.entitlements"
+    DERIVED_DATA=".xcode-build-appstore"
+    FRAMEWORKS_SUBDIR="Frameworks"
+    CODE_SIGN_IDENTITY="-"
+    VOCAMAC_KEEP_RUNNING=1
+    XCODE_SETTINGS=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) APP_STORE')
+    APP_SIGN_FLAGS=(--generate-entitlement-der)
+    echo "🛍  Building the Mac App Store variant (APP_STORE)"
+fi
 
 # Resolve signing identity:
 # 1. Use CODE_SIGN_IDENTITY env var if set
@@ -94,7 +121,6 @@ echo "🔨 Building VocaMac ($CONFIG)..."
 # swift build generates a simpler accessor that only checks bundleURL + a
 # hardcoded build-time path, which causes a fatalError crash on end-user machines.
 
-DERIVED_DATA=".xcode-build"
 XCODE_CONFIG="$(echo "${CONFIG}" | sed 's/release/Release/; s/debug/Debug/')"
 
 # LLM.swift builds a Swift macro plugin (LLMMacros). Without the two skip
@@ -116,6 +142,7 @@ xcodebuild build \
     -skipPackagePluginValidation \
     CLANG_COVERAGE_MAPPING=NO \
     ONLY_ACTIVE_ARCH=YES \
+    ${XCODE_SETTINGS[@]+"${XCODE_SETTINGS[@]}"} \
     -quiet
 
 # Find the built binary
@@ -208,9 +235,17 @@ if [ ! -d "$LLAMA_FRAMEWORK" ]; then
     echo "LLM.swift's binary target did not build; the app would crash on launch." >&2
     exit 1
 fi
-mkdir -p "${APP_DIR}/Contents/lib"
-rm -rf "${APP_DIR}/Contents/lib/llama.framework"
-cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/lib/llama.framework"
+# The App Store variant puts it in Contents/Frameworks instead: App Store
+# validation and the export's re-signing look for nested code only in the
+# standard places. That folder joins the binary's rpath. (grep reads all of
+# otool's output: quitting early could fail the pipeline under pipefail.)
+if [ "$FRAMEWORKS_SUBDIR" != "lib" ] && ! otool -l "${APP_DIR}/Contents/MacOS/${APP_NAME}" \
+    | grep "path @executable_path/../${FRAMEWORKS_SUBDIR} " >/dev/null; then
+    install_name_tool -add_rpath "@executable_path/../${FRAMEWORKS_SUBDIR}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+fi
+mkdir -p "${APP_DIR}/Contents/${FRAMEWORKS_SUBDIR}"
+rm -rf "${APP_DIR}/Contents/${FRAMEWORKS_SUBDIR}/llama.framework"
+cp -a "$LLAMA_FRAMEWORK" "${APP_DIR}/Contents/${FRAMEWORKS_SUBDIR}/llama.framework"
 
 # Update resource bundles — copy to Contents/Resources/
 # xcodebuild's Bundle.module accessor checks Bundle.main.resourceURL first,
@@ -227,6 +262,11 @@ find "${DERIVED_DATA}/Build/Products/${XCODE_CONFIG}" -maxdepth 1 -name "*.bundl
     cp -rf "$bundle" "${APP_DIR}/Contents/Resources/"
 
     # Add a minimal Info.plist if missing so codesign accepts the bundle.
+    # The App Store variant leaves a bundle that already has
+    # Contents/Info.plist as it is: App Store validation reads bundles there.
+    if [ "$APP_STORE" = "1" ] && [ -f "${APP_DIR}/Contents/Resources/${bundle_name}/Contents/Info.plist" ]; then
+        continue
+    fi
     if [ ! -f "${APP_DIR}/Contents/Resources/${bundle_name}/Info.plist" ]; then
         bundle_id="com.vocamac.resource.$(echo "${bundle_name%.bundle}" | tr '_ ' '-')"
         cat > "${APP_DIR}/Contents/Resources/${bundle_name}/Info.plist" << BPLIST
@@ -350,6 +390,38 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
 </plist>
 EOF
 
+if [ "$APP_STORE" = "1" ]; then
+    INFO_PLIST="${APP_DIR}/Contents/Info.plist"
+    # App Store Connect wants a build number that grows with every upload,
+    # a category and the export-compliance answer (HTTPS and hashing only).
+    plutil -replace CFBundleVersion -string "${APP_BUILD_NUMBER:-1}" "$INFO_PLIST"
+    plutil -insert LSApplicationCategoryType -string "public.app-category.productivity" "$INFO_PLIST"
+    plutil -insert ITSAppUsesNonExemptEncryption -bool NO "$INFO_PLIST"
+    plutil -insert NSSpeechRecognitionUsageDescription -string \
+        "VocaMac uses Apple's on-device speech recognition when you choose an Apple Speech model." "$INFO_PLIST"
+    # No AppleScript in this build, so nothing to ask Automation for.
+    plutil -remove NSAppleEventsUsageDescription "$INFO_PLIST"
+    # App Store Connect checks the SDK and Xcode an app was built with in the
+    # keys Xcode writes into every app it builds.
+    SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+    SDK_BUILD="$(xcrun --sdk macosx --show-sdk-build-version)"
+    XCODE_VERSION="$(xcodebuild -version | awk '/^Xcode/ {print $2}')"
+    XCODE_BUILD="$(xcodebuild -version | awk '/Build version/ {print $3}')"
+    plutil -insert CFBundleInfoDictionaryVersion -string "6.0" "$INFO_PLIST"
+    plutil -insert CFBundleSupportedPlatforms -xml "<array><string>MacOSX</string></array>" "$INFO_PLIST"
+    plutil -insert BuildMachineOSBuild -string "$(sw_vers -buildVersion)" "$INFO_PLIST"
+    plutil -insert DTCompiler -string "com.apple.compilers.llvm.clang.1_0" "$INFO_PLIST"
+    plutil -insert DTPlatformBuild -string "$SDK_BUILD" "$INFO_PLIST"
+    plutil -insert DTPlatformName -string "macosx" "$INFO_PLIST"
+    plutil -insert DTPlatformVersion -string "$SDK_VERSION" "$INFO_PLIST"
+    plutil -insert DTSDKBuild -string "$SDK_BUILD" "$INFO_PLIST"
+    plutil -insert DTSDKName -string "macosx${SDK_VERSION}" "$INFO_PLIST"
+    # Xcode 26.0.1 is "2601", Xcode 16.4 is "1640".
+    plutil -insert DTXcode -string "$(echo "$XCODE_VERSION" | awk -F. '{printf "%d%d%d", $1, $2, $3}')" "$INFO_PLIST"
+    plutil -insert DTXcodeBuild -string "$XCODE_BUILD" "$INFO_PLIST"
+    plutil -lint "$INFO_PLIST" >/dev/null
+fi
+
 echo "🔏 Code signing (${BUNDLE_ID})..."
 
 # Determine codesign options — enable hardened runtime for Developer ID (required for notarization)
@@ -387,13 +459,14 @@ done < <(find "${APP_DIR}/Contents/Resources" -maxdepth 1 -name "*.bundle")
 
 # Nested code must be signed before the app that contains it.
 codesign --force --sign "$CODE_SIGN_IDENTITY" $CODESIGN_OPTIONS \
-    "${APP_DIR}/Contents/lib/llama.framework"
+    "${APP_DIR}/Contents/${FRAMEWORKS_SUBDIR}/llama.framework"
 
 # Sign the main app
 codesign --force --sign "$CODE_SIGN_IDENTITY" \
     $CODESIGN_OPTIONS \
     --identifier "$BUNDLE_ID" \
     --entitlements "$ENTITLEMENTS" \
+    ${APP_SIGN_FLAGS[@]+"${APP_SIGN_FLAGS[@]}"} \
     "${APP_DIR}"
 
 echo "✅ Build complete!"

@@ -212,7 +212,7 @@ struct MenuBarView: View {
 
     private var supplementaryContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let info = appState.updateChecker.activeUpdateInfo {
+            if AppDistribution.hasSelfUpdate, let info = appState.updateChecker.activeUpdateInfo {
                 UpdateBannerView(info: info, updateWindowManager: updateWindowManager)
                     .menuPanelCard()
             }
@@ -1085,7 +1085,8 @@ struct MenuBarView: View {
             menuRow("Settings…", systemImage: "gearshape", shortcut: "⌘,", keyEquivalent: ",") {
                 settingsManager.open(appState: appState)
             }
-            if gateway.status.allowsPairing {
+            // The App Store build has no phone gateway.
+            if AppDistribution.hasPhoneGateway, gateway.status.allowsPairing {
                 menuRow("Pair phone…", systemImage: "qrcode", shortcut: nil) {
                     settingsManager.open(appState: appState, page: .gateway, showPairing: true)
                 }

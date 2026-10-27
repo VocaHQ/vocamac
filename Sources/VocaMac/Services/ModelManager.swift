@@ -819,9 +819,21 @@ final class ModelManager: @unchecked Sendable {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    /// Extract a .tar.bz2 archive using the system tar.
+    /// Extract a .tar.bz2 archive using the system tar. The App Store build
+    /// can't start programs from outside its bundle, so it unpacks in-process.
     static func extractTarArchive(at archive: URL, into directory: URL) throws {
         try Task.checkCancellation()
+#if APP_STORE
+        do {
+            try TarArchive.extractBZip2(at: archive, into: directory)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw ModelManagerError.downloadFailed(
+                reason: "Archive extraction failed (\(error.localizedDescription))"
+            )
+        }
+#else
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
         process.arguments = ["xjf", archive.path, "-C", directory.path]
@@ -833,6 +845,7 @@ final class ModelManager: @unchecked Sendable {
                 reason: "Archive extraction failed (tar exited with \(process.terminationStatus))"
             )
         }
+#endif
     }
 
     /// Download a Parakeet model through FluidAudio, which reports real

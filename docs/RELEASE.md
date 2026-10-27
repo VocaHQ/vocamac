@@ -192,6 +192,12 @@ swift build -c release --arch arm64 --arch x86_64
 - **Steps**: Build, test, create DMG + ZIP, generate checksums, attest build provenance, create draft release
 - **Output**: Draft GitHub Release with downloadable artifacts
 
+### `appstore.yml` - Mac App Store
+
+- **Triggers**: Push of `appstore/v*` tags, manual dispatch
+- **Steps**: Build the sandboxed `APP_STORE` variant with the bundled Whisper Tiny, archive it, upload it to App Store Connect
+- **Output**: A build in App Store Connect (no GitHub Release). Separate from `release.yml`; see [APP_STORE.md](APP_STORE.md)
+
 ### `deploy-website.yml` - Website
 
 - **Triggers**: Release published, manual dispatch

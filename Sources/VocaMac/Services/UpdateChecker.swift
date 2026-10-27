@@ -132,6 +132,8 @@ final class UpdateChecker: ObservableObject {
     private let cachedResponseKey = "vocamac.update.cachedResponse"
 
     func checkOnLaunchIfNeeded() async {
+        // The App Store build is updated by the App Store; it never asks GitHub.
+        guard AppDistribution.hasSelfUpdate else { return }
         let lastCheckTime = UserDefaults.standard.double(forKey: lastCheckKey)
         let shouldCheck = Date().timeIntervalSince1970 - lastCheckTime > checkInterval
         guard shouldCheck else { return }
@@ -143,7 +145,7 @@ final class UpdateChecker: ObservableObject {
     }
 
     func checkForUpdates(releaseProvider: () async throws -> GitHubRelease) async {
-        guard updateState != .checking, !isInstalling else { return }
+        guard AppDistribution.hasSelfUpdate, updateState != .checking, !isInstalling else { return }
         updateState = .checking
 
         do {
@@ -180,6 +182,7 @@ final class UpdateChecker: ObservableObject {
     }
 
     func downloadUpdate(_ info: UpdateInfo) async {
+        guard AppDistribution.hasSelfUpdate else { return }
         // Clean up any previously downloaded VocaMac DMGs in temp
         cleanupStaleDMGs()
         updateState = .downloading(progress: 0, bytesDownloaded: 0, totalBytes: Int64(info.dmgSize), estimatedSecondsRemaining: 0)
@@ -199,8 +202,10 @@ final class UpdateChecker: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
+#if !APP_STORE
     /// Replaces this app with the downloaded update and relaunches it.
     var installer = UpdateInstaller()
+#endif
 
     /// Verify and stage the update, then quit so the helper can swap it in
     /// and relaunch. On failure nothing has changed and the DMG can still be
@@ -218,6 +223,7 @@ final class UpdateChecker: ObservableObject {
     }
 
     func installAndRelaunch(dmgPath: URL) async {
+#if !APP_STORE
         // A second click while staging would start a second helper.
         guard !isInstalling else { return }
         updateState = .installing
@@ -243,10 +249,11 @@ final class UpdateChecker: ObservableObject {
             VocaLogger.warning(.updateChecker, "In-place install stopped: \(message)")
             updateState = .installFailed(dmgPath: dmgPath, message: message)
         }
+#endif
     }
 
     /// Report what the last in-place install's helper did, once.
-    func reportLastInstallResult(_ result: String? = UpdateInstaller.consumeResult()) {
+    func reportLastInstallResult(_ result: String? = UpdateChecker.consumeLastInstallResult()) {
         guard let result else { return }
         if result.hasPrefix("failed") {
             VocaLogger.error(.updateChecker, "Last update: \(result)")
@@ -255,6 +262,16 @@ final class UpdateChecker: ObservableObject {
         } else {
             VocaLogger.info(.updateChecker, "Last update: \(result)")
         }
+    }
+
+    /// The outcome the last in-place install's helper left for this launch.
+    /// The App Store build never installs in place, so it has none.
+    nonisolated static func consumeLastInstallResult() -> String? {
+#if APP_STORE
+        nil
+#else
+        UpdateInstaller.consumeResult()
+#endif
     }
 
     func skipVersion(_ version: String) {

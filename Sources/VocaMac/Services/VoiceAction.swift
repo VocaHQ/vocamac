@@ -293,6 +293,11 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
     }
 
     private static func addReminder(title: String, due: Date?) -> Result<Void, VoiceActionError> {
+#if APP_STORE
+        // Reminders is driven with AppleScript, which the App Store build
+        // leaves out (it would need an Apple Events exception).
+        return .failure(.failed("The App Store version of VocaMac can't add reminders."))
+#else
         let seconds = due.map { Int($0.timeIntervalSinceNow.rounded()) }
         guard let script = NSAppleScript(source: reminderScript(title: title, secondsFromNow: seconds)) else {
             return .failure(.failed("The reminder couldn't be created."))
@@ -308,5 +313,6 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
                 : "The reminder couldn't be created."))
         }
         return .success(())
+#endif
     }
 }

@@ -151,6 +151,16 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertEqual(RewriteValidation.rejectionReason(
             "You will send it to me.", original: "I will send it to you."
         ), "pronouns changed")
+        // One person standing in for another, with the same pronouns present.
+        XCTAssertEqual(RewriteValidation.rejectionReason(
+            "I reviewed your patch and you said you should merge it.",
+            original: "I reviewed your patch and you said I should merge it."
+        ), "pronouns changed")
+        // A sentence reworded in place is still there.
+        XCTAssertNil(RewriteValidation.rejectionReason(
+            "I will review your patch tomorrow. That works.",
+            original: "I will review your patch tomorrow. Sounds great."
+        ))
         XCTAssertEqual(RewriteValidation.rejectionReason(
             "Hi Linda, I reviewed your pull request and approved it. It will be merged soon.",
             original: "Hey Linda, I have reviewed your pull request and approved it. It will soon be merged. Thanks a lot."

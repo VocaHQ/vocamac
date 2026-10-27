@@ -1419,7 +1419,9 @@ enum RewriteValidation {
             return rewritten == measure(original) || rewritten == measure(spoken)
         }
         guard keeps(negations) else { return "negation changed" }
-        guard keeps(participants) else { return "pronouns changed" }
+        guard keepsParticipants(candidate, of: original) || keepsParticipants(candidate, of: spoken) else {
+            return "pronouns changed"
+        }
         let qualifiers = #"(?i)\b(?:might|may|must|perhaps|probably|possibly|always|sometimes|only|unless)\b"#
         guard keeps({ substrings(qualifiers, in: $0.lowercased()) }) else { return "qualifier changed" }
         // The small shipped models have no multilingual style qualification.
@@ -1449,8 +1451,12 @@ enum RewriteValidation {
         // drop "Thanks a lot." from the end of a message.
         // Compared by stem, so "merge" survives as "merging".
         let stem = { (word: String) in String(word.prefix(4)) }
+        // Only when the rewrite also has fewer sentences: one reworded in
+        // place ("Sounds great." → "That works.") is still there.
         let kept = Set(after.map(stem))
-        for sentence in CleanupContext.sentences(spoken) {
+        let spokenSentences = CleanupContext.sentences(spoken)
+        let isShorter = CleanupContext.sentences(candidate).count < spokenSentences.count
+        for sentence in spokenSentences where isShorter {
             let content = words(sentence).filter { !expendable.contains($0) && !structureWords.contains($0) }
             if content.count >= 2, !content.contains(where: { kept.contains(stem($0)) }) {
                 return "sentence dropped (\(sentence.trimmingCharacters(in: .whitespacesAndNewlines).prefix(30)))"
@@ -1531,14 +1537,21 @@ enum RewriteValidation {
     /// Reject a request turned into an answer or a change in speaker/recipient.
     /// Contractions expose the same pronoun (I'll → I), but me ≠ you and we ≠ I.
     ///
-    /// Which pronouns appear, not how often: the subject and object forms
-    /// tell who acts on whom ("I will send it to you" ≠ "you will send it to
-    /// me"), while a tone change may say "I" once where the speaker said it
-    /// twice. Counting them refused 14 of 36 real Formal rewrites that kept
-    /// every person in place.
-    private static func participants(_ text: String) -> Set<String> {
+    /// Every pronoun the speaker used is still there, and none is used more
+    /// often: a tone change may say "I" once where the speaker said it twice
+    /// ("I reviewed and approved it"), but "you said I should merge it"
+    /// may not become "you said you should merge it", where one person stands
+    /// in for another. Subject and object forms tell who acts on whom ("I
+    /// will send it to you" ≠ "you will send it to me"). Exact counts refused
+    /// 14 of 36 real Formal rewrites that kept every person in place.
+    private static func keepsParticipants(_ candidate: String, of original: String) -> Bool {
+        let before = participants(original), after = participants(candidate)
+        return Set(before.keys) == Set(after.keys) && after.allSatisfy { $0.value <= before[$0.key, default: 0] }
+    }
+
+    private static func participants(_ text: String) -> [String: Int] {
         let pattern = #"(?i)\b(?:i|me|my|mine|we|us|our|ours|you|your|yours|he|him|his|she|her|hers|they|them|their|theirs)\b"#
-        return Set(substrings(pattern, in: text.lowercased()))
+        return substrings(pattern, in: text.lowercased()).reduce(into: [:]) { $0[$1, default: 0] += 1 }
     }
 
     /// Words sentences are built from, which repeat by grammar rather than

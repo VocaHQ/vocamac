@@ -38,7 +38,7 @@ struct CalmPrivacyStatement: Equatable {
         case (false, true):
             return "Your words go to the AI server you set up for Smart Cleanup or Commands. Your audio stays here."
         case (false, false):
-            return "Your audio and text never leave it, unless you pick Your own server as your model."
+            return "Your audio and text never leave it, unless you send speech to your own server."
         }
     }
 

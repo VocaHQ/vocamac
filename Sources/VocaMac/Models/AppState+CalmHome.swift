@@ -139,3 +139,69 @@ final class CalmDerivedCache {
         return value
     }
 }
+
+// MARK: - Getting started
+
+/// One step of Home's Get started checklist.
+enum CalmGettingStartedStep: String, CaseIterable, Identifiable, Sendable {
+    case dictate, pickModel, addWord, smartCleanup
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dictate: return "Dictate something"
+        case .pickModel: return "Choose a speech model"
+        case .addWord: return "Add a word to your dictionary"
+        case .smartCleanup: return "Turn on Smart Cleanup"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .dictate: return "Hold your dictation key in any app and speak"
+        case .pickModel: return "Whisper Tiny works; a bigger model gets more right"
+        case .addWord: return "Names and jargon come out spelled your way"
+        case .smartCleanup: return "Drops “um”s and false starts before it types"
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .dictate: return "Try it"
+        case .pickModel: return "Choose"
+        case .addWord: return "Add a word"
+        case .smartCleanup: return "Set up"
+        }
+    }
+}
+
+extension AppState {
+    /// The Get started steps already done. A step counts as done from what
+    /// the settings show, so the list never asks for something set up
+    /// another way (onboarding, an imported backup).
+    var calmGettingStartedDone: Set<CalmGettingStartedStep> {
+        var done: Set<CalmGettingStartedStep> = []
+        if hasDictated { done.insert(.dictate) }
+        if selectedModelSize != ModelSize.tiny.rawValue { done.insert(.pickModel) }
+        if !vocabularyTerms.isEmpty || !wordReplacements.isEmpty { done.insert(.addWord) }
+        if transcriptCleanupEnabled { done.insert(.smartCleanup) }
+        return done
+    }
+
+    /// Home's title: no “back” for someone who hasn't dictated yet.
+    var calmHomeTitle: String {
+        hasDictated ? "Welcome back" : "Welcome"
+    }
+
+    /// Whether the person has dictated, as opposed to only transcribing a
+    /// file or a meeting (`hasStatistics` counts those too). Speaking time
+    /// and the longest dictation are recorded for dictations alone, and
+    /// history keeps only dictations and Command Mode edits.
+    var hasDictated: Bool {
+        let stats = statsManager.stats
+        return stats.longestDictationSeconds > 0
+            || !stats.dailyAudioSeconds.isEmpty
+            || !historyStore.entries.isEmpty
+    }
+}

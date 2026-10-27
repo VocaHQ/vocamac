@@ -180,6 +180,24 @@ final class CalmCommandsTests: XCTestCase {
         XCTAssertEqual(state.calmCommandsModelLine, "Qwen 3 4B Instruct · on this Mac")
     }
 
+    func testModelLinesNameTheOtherFeaturesModel() {
+        let (state, _) = AppState.makeTestState()
+        state.transcriptCleanupEnabled = true
+        state.transcriptCleanupModel = CleanupModelKind.qwen25_0_5b_q4_k_m.rawValue
+        state.commandModeEngineStorage = CleanupModelKind.qwen3_4b_instruct_2507_q4_k_m.rawValue
+
+        XCTAssertEqual(state.calmCommandsModelLine, "Qwen 3 4B Instruct · on this Mac · Smart Cleanup uses Qwen 2.5 0.5B")
+        XCTAssertEqual(state.calmCleanupModelLine, "Qwen 2.5 0.5B · on this Mac · Command Mode uses Qwen 3 4B Instruct")
+    }
+
+    func testCleanupModelLineWhenShared() {
+        let (state, _) = AppState.makeTestState()
+        state.transcriptCleanupModel = CleanupModelKind.ministral3_3b_q4_k_m.rawValue
+        state.commandModeEngineStorage = CleanupModelKind.ministral3_3b_q4_k_m.rawValue
+
+        XCTAssertEqual(state.calmCleanupModelLine, "Ministral 3 3B · on this Mac · shared with Command Mode")
+    }
+
     // MARK: Drafts
 
     func testNewDraftIsInvalidUntilItHasANameAndAnInstruction() {

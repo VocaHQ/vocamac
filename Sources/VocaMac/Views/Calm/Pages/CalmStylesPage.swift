@@ -66,6 +66,13 @@ struct CalmStylesPage: View {
             if target == "default-writing-style" { storedTab = CalmStyleGroup.everythingElse.rawValue }
         }
         .onChange(of: storedTab) { notice = nil }
+        // Try it starts on the style each tab uses, not a fixed Plain: on
+        // opening a tab (even one sharing the last tab's style, after Try it
+        // was pointed elsewhere) and when the tab's style changes.
+        .onChange(of: "\(group.rawValue)|\(appState.calmStyle(for: group).rawValue)", initial: true) {
+            appState.settingsPreviewBindingID = nil
+            appState.settingsPreviewStyle = appState.calmStyle(for: group)
+        }
         .onAppear { appState.calmPruneStyleGroups() }
         .calmDialog(item: $addingTo) { group in
             CalmStylesAddDialog(group: group) { message in notice = CalmStylesNotice(message, tone: .success) }
@@ -140,7 +147,7 @@ struct CalmStylesPage: View {
 
     private var optionsMenu: some View {
         Menu {
-            Button("Set Up My Apps") { Task { await addSuggestions() } }
+            Button("Set up my apps") { Task { await addSuggestions() } }
                 .disabled(isDiscoveringApps)
             Divider()
             Button("Export App List…") { exportRules() }
@@ -278,7 +285,7 @@ struct CalmStylesPage: View {
                         .buttonStyle(CalmStylesChipButtonStyle())
                         .focusEffectDisabled()
                     if appState.writingStyleBindings.isEmpty {
-                        Button("Set Up My Apps") { Task { await addSuggestions() } }
+                        Button("Set up my apps") { Task { await addSuggestions() } }
                             .buttonStyle(CalmStylesChipButtonStyle())
                             .focusEffectDisabled()
                             .disabled(isDiscoveringApps)

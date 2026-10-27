@@ -19,9 +19,14 @@ struct CalmCleanupSettings: View {
         let isOn = appState.transcriptCleanupEnabled
         CalmPage(.sheet) {
             CalmPageHeader("Smart Cleanup", description: headerDescription) {
-                CalmSwitch(isOn: enabled)
-                    .accessibilityLabel("Smart Cleanup")
-                    .padding(.trailing, 30)
+                // Labelled like the Commands switch, and level with the
+                // panels' right edge.
+                HStack(spacing: 10) {
+                    Text(isOn ? "On" : "Off").font(CalmFont.control).foregroundStyle(CalmColor.ink)
+                    CalmSwitch(isOn: enabled)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Smart Cleanup")
             }
             .settingsTarget("cleanup")
 
@@ -33,12 +38,15 @@ struct CalmCleanupSettings: View {
                     .settingsTarget("cleanup-model")
                 CalmToggleRow(
                     "Skip the model when there’s nothing to clean",
-                    description: "Types a dictation that’s already clean straight away",
+                    description: isOn
+                        ? "Types a dictation that’s already clean straight away"
+                        : "Applies once Smart Cleanup is on",
                     isOn: $appState.skipCleanDictations
                 )
+                // Off, a dimmed switch that still looked on read as active.
+                .disabled(!isOn)
                 .settingsTarget("cleanup-skip-clean")
             }
-            .opacity(isOn ? 1 : 0.5)
 
             CalmPanel {
                 CalmRow("Try it with your words", description: "See what VocaMac would type, before you dictate") {
@@ -116,7 +124,7 @@ struct CalmCleanupSettings: View {
     private var modelRow: some View {
         CalmRow("Model") {
             VStack(alignment: .leading, spacing: 6) {
-                CalmRowDescription(text: modelLine)
+                CalmRowDescription(text: appState.calmCleanupModelLine)
                 CalmCleanupModelStatus()
             }
         } trailing: {
@@ -128,17 +136,6 @@ struct CalmCleanupSettings: View {
         }
     }
 
-    private var modelLine: String {
-        let endpoint = appState.cleanupEndpoint
-        guard endpoint.isLocal else {
-            return "\(endpoint.provider.displayName) · \(endpoint.resolvedModel) · on your server"
-        }
-        let kind = appState.selectedCleanupModelKind
-        var line = "\(CalmModelText.name(kind)) · "
-        line += appState.transcriptCleanup.isDownloaded(kind) ? "on this Mac" : "not downloaded"
-        if appState.sharesAIModel { line += " · shared with Command Mode" }
-        return line
-    }
 }
 
 /// The status under the cleanup model's name: a download in progress,

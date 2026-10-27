@@ -29,11 +29,14 @@ struct CalmHomePage: View {
 
     var body: some View {
         CalmPage(.list) {
-            CalmPageHeader("Welcome back") { searchControl }
+            CalmHomeHeader { searchControl }
             HStack(alignment: .top, spacing: Self.sideLayout(for: columnWidth).gap) {
-                CalmHomeFeed(query: trimmedQuery, player: player) { query = "" }
-                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                    .settingsTarget("history")
+                VStack(alignment: .leading, spacing: 24) {
+                    if !isSearching { CalmHomeGettingStarted() }
+                    CalmHomeFeed(query: trimmedQuery, player: player) { query = "" }
+                        .settingsTarget("history")
+                }
+                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
                 CalmHomeSideColumn()
                     .frame(width: Self.sideLayout(for: columnWidth).width)
             }
@@ -72,6 +75,18 @@ struct CalmHomePage: View {
     private func closeSearch() {
         query = ""
         withAnimation(.easeOut(duration: 0.18)) { isSearching = false }
+    }
+}
+
+/// The header alone reads AppState for its title, so the page around it
+/// doesn't redraw with every change the app publishes.
+private struct CalmHomeHeader<Trailing: View>: View {
+    @ViewBuilder let trailing: () -> Trailing
+
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        CalmPageHeader(appState.calmHomeTitle, trailing: trailing)
     }
 }
 

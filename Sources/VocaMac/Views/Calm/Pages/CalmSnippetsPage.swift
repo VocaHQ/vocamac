@@ -12,6 +12,7 @@ struct CalmSnippetsPage: View {
     @EnvironmentObject private var appState: AppState
 
     @State private var isSearching = false
+    @AppStorage(CalmFeatureCard<EmptyView>.storageKey("snippets")) private var isHeroDismissed = false
     @State private var query = ""
     @FocusState private var isSearchFocused: Bool
     @State private var editor: CalmSnippetEditorRequest?
@@ -114,10 +115,13 @@ struct CalmSnippetsPage: View {
     private var list: some View {
         let snippets = filteredSnippets
         if appState.snippets.isEmpty {
-            CalmEmptyState(
-                icon: .snippets, title: "No snippets yet",
-                message: "Save an email address, a sign-off or a link, and say its name to type it."
-            )
+            // The feature card above says the same, with its own Add button.
+            if isHeroDismissed {
+                CalmEmptyState(
+                    icon: .snippets, title: "No snippets yet",
+                    message: "Save an email address, a sign-off or a link, and say its name to type it."
+                )
+            }
         } else if snippets.isEmpty {
             CalmNoResults(message: "No snippets match “\(trimmedQuery)”.") { query = "" }
         } else {

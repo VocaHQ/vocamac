@@ -28,6 +28,9 @@ enum CalmPickCardFooter: Equatable {
 struct CalmPickCard: View {
     let kind: String
     let name: String
+    /// The muted word the lists show after the name (“Multilingual”), so a
+    /// card and its row read the same.
+    var variant: String?
     let logo: CalmLogoName
     let reason: String
     let footer: CalmPickCardFooter
@@ -52,9 +55,8 @@ struct CalmPickCard: View {
                 .padding(.trailing, 26)
             HStack(spacing: 10) {
                 CalmLogo(logo, box: 32)
-                Text(name)
-                    .font(CalmFont.sf(15.5, weight: 600))
-                    .foregroundStyle(CalmColor.ink)
+                (Text(name).font(CalmFont.sf(15.5, weight: 600)).foregroundStyle(CalmColor.ink)
+                    + Text(variant.map { " \($0)" } ?? "").font(CalmFont.body).foregroundStyle(CalmColor.muted))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.top, 4)
@@ -90,7 +92,7 @@ struct CalmPickCard: View {
         .calmFocusRing((hasFocus || forced == .focus) && isEnabled, radius: CalmMetrics.Radius.panel)
         .animation(.easeOut(duration: 0.12), value: isHovered)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(kind): \(name)")
+        .accessibilityLabel("\(kind): \([name, variant].compactMap { $0 }.joined(separator: " "))")
         .accessibilityHint(reason)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { onPick() }
@@ -411,7 +413,7 @@ struct CalmModelRow<Menu: View>: View {
         }
         .menuStyle(.button)
         .menuIndicator(.hidden)
-        .buttonStyle(CalmIconButtonStyle(size: 26))
+        .buttonStyle(CalmIconButtonStyle(size: 28))
         .focusEffectDisabled()
         .fixedSize()
         .accessibilityLabel("More for \(name)")
@@ -439,7 +441,7 @@ struct CalmModelRow<Menu: View>: View {
                     .font(CalmFont.note)
                     .foregroundStyle(CalmColor.ink2)
                 Button(action: onCancel) { CalmIcon(.close, size: 12, weight: 2) }
-                    .calmIconButton(size: 26)
+                    .calmIconButton(size: 28)
                     .accessibilityLabel("Cancel downloading \(name)")
             }
             .fixedSize()

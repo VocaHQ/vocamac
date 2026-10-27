@@ -44,6 +44,9 @@ enum CalmColor {
     static let amberSoft = Color(nsColor: CalmNSColor.amberSoft)
     /// Switch track when off.
     static let off = Color(nsColor: CalmNSColor.off)
+    /// The off track's outline: 3:1 against the panel, as WCAG asks of a
+    /// control's edge. The pale track alone was about 1.4:1.
+    static let offBorder = Color(nsColor: CalmNSColor.offBorder)
     /// Feature (hero) card background.
     static let hero = Color(nsColor: CalmNSColor.hero)
     /// Text on the feature card, in both appearances.
@@ -99,6 +102,7 @@ enum CalmNSColor {
     static let amber = adaptive(0x8A4300, 0xFFB459)
     static let amberSoft = NSColor.calmAdaptive(light: rgb(0xBD5C00, 0.10), dark: rgb(0xFF9E0A, 0.12))
     static let off = adaptive(0xCBD3C9, 0x3A4943, contrastLight: 0xAEB8AC, contrastDark: 0x52645C)
+    static let offBorder = adaptive(0x828D87, 0x6F7D76, contrastLight: 0x5F6A65, contrastDark: 0x8E9C95)
     static let hero = adaptive(0x123F36, 0x0F2E27)
     static let heroText = adaptive(0xF3F6F1, 0xF3F6F1)
     static let scrim = NSColor.calmAdaptive(light: rgb(0x182023, 0.30), dark: rgb(0x000000, 0.55))

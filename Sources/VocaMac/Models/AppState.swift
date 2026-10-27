@@ -1005,6 +1005,14 @@ final class AppState: ObservableObject {
     let statsManager: StatsManaging
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
+    /// When each downloaded model was last in use, for Settings › Models.
+    let modelUsageLog = ModelUsageLog()
+    /// When `stampModelsInUseIfStale()` last wrote, so a dictation writes
+    /// the usage log at most once an hour.
+    var lastModelUsageStamp: Date?
+    /// Bumped when a model the picker doesn't list is removed, so Settings ›
+    /// Models measures its downloads again.
+    @Published private(set) var unlistedModelRemovals = 0
     let updateChecker = UpdateChecker()
     let permissionManager: any PermissionManaging
     /// Identifies the app that will receive injected text.
@@ -3039,6 +3047,7 @@ final class AppState: ObservableObject {
                         )
                     }
                     statsManager.recordTranscription(result)
+                    stampModelsInUseIfStale()
                 }
                 if injectResult {
                     let current = frontmostAppResolver.currentFrontmostApp()
@@ -3548,6 +3557,8 @@ final class AppState: ObservableObject {
             // Persist the resolved model as the user's preference
             selectedModelSize = targetSize.rawValue
 
+            // The outgoing model was in use until now.
+            stampModelsInUse()
             // Update model states — clear all, then mark the loaded one as active
             for i in availableModels.indices {
                 let matches = availableModels[i].size == targetSize
@@ -3560,6 +3571,7 @@ final class AppState: ObservableObject {
                 }
             }
 
+            stampModelsInUse()
             lastModelUnloadReason = nil
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
@@ -4043,7 +4055,12 @@ final class AppState: ObservableObject {
     /// and refuses a model that's mid-download or mid-load, so its files
     /// aren't yanked out from under an in-flight read.
     func deleteModel(_ size: ModelSize) async {
-        guard let index = availableModels.firstIndex(where: { $0.size == size }) else { return }
+        guard let index = availableModels.firstIndex(where: { $0.size == size }) else {
+            // On disk but no longer offered on this Mac (an older Whisper
+            // download): Settings › Models still lists it so it can go.
+            await deleteUnlistedModel(size)
+            return
+        }
         guard !availableModels[index].isActive else {
             errorMessage = "Can't delete the active model. Load a different model first."
             return
@@ -4056,8 +4073,25 @@ final class AppState: ObservableObject {
         do {
             try await modelManager.deleteModel(size)
             CompiledModelRecord().forget(size)
+            modelUsageLog.forget(.speech(size))
             refreshModelStatuses()
             VocaLogger.info(.appState, "Deleted model \(size.displayName)")
+        } catch {
+            errorMessage = "Delete failed: \(error.localizedDescription)"
+            VocaLogger.error(.appState, "Delete failed for \(size.displayName): \(error.localizedDescription)")
+        }
+    }
+
+    /// Delete a downloaded model the picker doesn't list, unless it is the
+    /// one loaded.
+    private func deleteUnlistedModel(_ size: ModelSize) async {
+        guard calmLoadedSpeechModel != size, size != .tiny else { return }
+        do {
+            try await modelManager.deleteModel(size)
+            CompiledModelRecord().forget(size)
+            modelUsageLog.forget(.speech(size))
+            unlistedModelRemovals += 1
+            VocaLogger.info(.appState, "Deleted unlisted model \(size.displayName)")
         } catch {
             errorMessage = "Delete failed: \(error.localizedDescription)"
             VocaLogger.error(.appState, "Delete failed for \(size.displayName): \(error.localizedDescription)")
@@ -4475,6 +4509,8 @@ final class AppState: ObservableObject {
         }
         aiModelChoiceGeneration += 1
         let generation = aiModelChoiceGeneration
+        // The models this choice may replace were in use until now.
+        stampModelsInUse()
         if !transcriptCleanup.isDownloaded(kind) {
             await transcriptCleanup.download(kind)
             guard generation == aiModelChoiceGeneration,
@@ -4499,6 +4535,7 @@ final class AppState: ObservableObject {
             commandModeEngine = .local(kind)
         }
         syncCommandModelSlot()
+        stampModelsInUse()
         if role != .commandMode { await warmCleanupModel() }
     }
 
@@ -4581,6 +4618,7 @@ final class AppState: ObservableObject {
 
     func deleteCleanupModel(_ kind: CleanupModelKind) {
         transcriptCleanup.delete(kind)
+        modelUsageLog.forget(.writing(kind))
     }
 
     /// Transcribe a user-chosen media file without injecting it into another
@@ -5453,6 +5491,8 @@ extension AppState {
         activeCommandTransformer = nil
         switch result {
         case .success(let answer):
+            // A model that only Command Mode uses is in use only here.
+            if case .local(let kind) = engine { modelUsageLog.markUsed([.writing(kind)]) }
             return (answer.output, answer.problem)
         case .failure(.cancelled):
             VocaLogger.info(.appState, "Command Mode cancelled; selection left unchanged")

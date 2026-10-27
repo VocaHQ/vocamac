@@ -91,7 +91,7 @@ enum CalmSettingsSummary {
         }
         switch spoken.count {
         case 0: return "Works out the language each time"
-        case 1: return "Works out the language each time, expecting \(SpokenLanguages.displayName(for: spoken[0]))"
+        case 1: return "Expects \(SpokenLanguages.displayName(for: spoken[0])), and notices if you switch"
         default: return "Works out which one you’re speaking each time"
         }
     }

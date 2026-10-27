@@ -439,8 +439,13 @@ private struct CalmSwitchTrack: View {
 
     var body: some View {
         let size = CalmMetrics.switchSize
+        // Off, a 1 pt outline drawn as a capsule behind an inset one: a
+        // stroked capsule left stray marks at its ends.
         Capsule()
-            .fill(isOn ? CalmColor.ink : CalmColor.off)
+            .fill(isOn ? CalmColor.ink : CalmColor.offBorder)
+            .overlay {
+                if !isOn { Capsule().fill(CalmColor.off).padding(1) }
+            }
             .frame(width: size.width, height: size.height)
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()

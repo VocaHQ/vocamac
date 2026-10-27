@@ -218,7 +218,12 @@ extension AppState {
             } else if !sharesAIModel {
                 parts.append("on this Mac")
             }
-            if sharesAIModel { parts.append("shared with Smart Cleanup") }
+            if sharesAIModel {
+                parts.append("shared with Smart Cleanup")
+            } else if transcriptCleanupEnabled, cleanupEndpoint.isLocal, selectedCleanupModelKind != kind {
+                // Both pages name both models, so neither reads as the only one.
+                parts.append("Smart Cleanup uses \(CalmModelText.name(selectedCleanupModelKind))")
+            }
             return parts.joined(separator: " · ")
         case .appleIntelligence:
             return "Apple Intelligence · built into macOS"
@@ -226,6 +231,31 @@ extension AppState {
             let endpoint = cleanupEndpoint
             return "\(endpoint.provider.displayName) · \(endpoint.resolvedModel) · same server as Smart Cleanup"
         }
+    }
+
+    /// The Model row on Smart Cleanup, written the way the Commands page
+    /// writes its own: “Qwen 2.5 0.5B · on this Mac · Command Mode uses
+    /// Qwen 3 4B Instruct”.
+    var calmCleanupModelLine: String {
+        let endpoint = cleanupEndpoint
+        guard endpoint.isLocal else {
+            return "\(endpoint.provider.displayName) · \(endpoint.resolvedModel) · on your server"
+        }
+        let kind = selectedCleanupModelKind
+        var parts = [CalmModelText.name(kind), transcriptCleanup.isDownloaded(kind) ? "on this Mac" : "not downloaded"]
+        if sharesAIModel {
+            parts.append("shared with Command Mode")
+        } else {
+            switch commandModeEngine {
+            case .local(let commandKind) where commandKind != kind:
+                parts.append("Command Mode uses \(CalmModelText.name(commandKind))")
+            case .appleIntelligence:
+                parts.append("Command Mode uses Apple Intelligence")
+            case .local, .endpoint:
+                break
+            }
+        }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: Saved commands

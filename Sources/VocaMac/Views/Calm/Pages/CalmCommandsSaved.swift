@@ -2,9 +2,9 @@
 // VocaMac
 //
 // The Commands page's Saved commands section: a serif title with Create
-// new, then a three-column grid of command cards (keys, name, instruction)
-// ending in the “Create your own” card. With none saved, a card offers the
-// starter set instead.
+// new, then a three-column grid of command cards (keys, name, instruction).
+// With none saved, a card offers the starter set instead. Create new is the
+// one way to start a command; a dashed “Create your own” card repeated it.
 
 import SwiftUI
 
@@ -31,8 +31,7 @@ struct CalmSavedCommandsSection: View {
 
     private var cells: [Cell] {
         let commands = appState.savedCommands
-        let saved = commands.isEmpty ? [Cell.starters] : commands.map(Cell.command)
-        return saved + [.create]
+        return commands.isEmpty ? [Cell.starters] : commands.map(Cell.command)
     }
 
     private var grid: some View {
@@ -62,21 +61,17 @@ struct CalmSavedCommandsSection: View {
             CalmSavedCommandCard(command: command) { onEdit(command) }
         case .starters:
             CalmStarterCommandsCard { appState.addStarterCommands() }
-        case .create:
-            CalmCreateCommandCard(action: onCreate)
         }
     }
 
     private enum Cell: Identifiable {
         case command(SavedCommand)
         case starters
-        case create
 
         var id: String {
             switch self {
             case .command(let command): return command.id.uuidString
             case .starters: return "starters"
-            case .create: return "create"
             }
         }
     }
@@ -148,40 +143,6 @@ private struct CalmSavedCommandCard: View {
         var text = CalmCommandsText.commandName(command)
         if let combo { text += ", shortcut \(KeyCodeReference.displayName(for: combo))" }
         return text + ". " + command.instruction
-    }
-}
-
-/// The dashed-outline card that starts a new command.
-private struct CalmCreateCommandCard: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                ZStack {
-                    Circle().fill(CalmColor.panel2)
-                    CalmIcon(.plus, size: 13, weight: 2).foregroundStyle(CalmColor.ink)
-                }
-                .frame(width: 26, height: 26)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Create your own")
-                        .font(CalmFont.sf(14.5, weight: 600))
-                        .foregroundStyle(CalmColor.ink)
-                    Text("Save an instruction you use often and give it a shortcut.")
-                        .calmType(.description)
-                        .foregroundStyle(CalmColor.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.top, 6)
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .calmCreateCard()
-            .contentShape(RoundedRectangle(cornerRadius: CalmMetrics.Radius.panel, style: .continuous))
-        }
-        .buttonStyle(CalmPlainFocusStyle(radius: CalmMetrics.Radius.panel))
-        .focusEffectDisabled()
-        .accessibilityLabel("Create your own command")
     }
 }
 

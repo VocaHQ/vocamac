@@ -67,7 +67,7 @@ final class SettingsSearchIndexTests: XCTestCase {
         XCTAssertEqual(SettingsSearchIndex.firstMatchingPage(query: "translation"), .language)
         XCTAssertEqual(CalmNavigation.destination(for: .language), .settings(.languages))
         XCTAssertEqual(CalmSettingsDestination.languages.parent, .general)
-        XCTAssertEqual(CalmNavigation.destination(for: .formatting), .main(.styles))
+        XCTAssertEqual(CalmNavigation.destination(for: .formatting), .settings(.general))
     }
 
     func testUnknownQueryIsEmpty() {

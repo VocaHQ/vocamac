@@ -491,6 +491,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         isPlausibleFile(modelPath(for: kind), descriptor: kind.descriptor)
     }
 
+    /// The downloaded GGUF for `kind`, or nil when it isn't on this Mac.
+    func modelFileURL(for kind: CleanupModelKind) -> URL? {
+        isDownloaded(kind) ? modelPath(for: kind) : nil
+    }
+
     func download(_ kind: CleanupModelKind) async {
         // Run the transfer in a retained task so `cancelDownload` can reach it;
         // FileDownloader turns the cancellation into a stopped URLSession task

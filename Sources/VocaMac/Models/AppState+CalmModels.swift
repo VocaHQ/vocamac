@@ -580,11 +580,10 @@ enum CalmCommandModeChoice: String, Hashable, Sendable {
 // MARK: - AppState
 
 extension AppState {
-    /// The speech models' disk use (“3.2 GB”), measured off the main
-    /// thread: the first measurement walks every file of every model.
+    /// The downloaded models' disk use, speech and writing (“3.2 GB”),
+    /// measured off the main thread.
     func calmModelsDiskUsage() async -> String {
-        let manager = modelManager
-        return await Task.detached(priority: .utility) { manager.diskUsageDescription() }.value
+        CalmModelText.size(bytes: await calmMeasureModelStorage().totalBytes)
     }
 }
 

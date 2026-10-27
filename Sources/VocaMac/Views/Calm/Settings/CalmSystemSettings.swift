@@ -70,22 +70,24 @@ struct CalmSystemSettings: View {
             }
 
             // Silence gets its own panel: a panel holds at most five rows.
-            CalmPanel {
-                CalmToggleRow(
-                    "Skip silence",
-                    description: "Cuts out pauses first, so it’s faster and quiet stretches don’t turn into made-up words",
-                    isOn: $appState.skipSilence
-                )
-                .settingsTarget("skip-silence")
-                CalmValueRow(
-                    "Silence",
-                    value: CalmSettingsSummary.silence(
-                        threshold: appState.silenceThreshold, duration: appState.silenceDuration
+            CalmGroup("Pauses") {
+                CalmPanel {
+                    CalmToggleRow(
+                        "Skip silence",
+                        description: "Cuts out pauses first, so it’s faster and quiet stretches don’t turn into made-up words",
+                        isOn: $appState.skipSilence
                     )
-                ) {
-                    showsSilence = true
+                    .settingsTarget("skip-silence")
+                    CalmValueRow(
+                        "Silence",
+                        value: CalmSettingsSummary.silence(
+                            threshold: appState.silenceThreshold, duration: appState.silenceDuration
+                        )
+                    ) {
+                        showsSilence = true
+                    }
+                    .settingsTarget("silence")
                 }
-                .settingsTarget("silence")
             }
 
             CalmGroup("Performance") {
@@ -94,7 +96,7 @@ struct CalmSystemSettings: View {
                         .settingsTarget("auto-pause")
                     CalmToggleRow(
                         "Unload models when idle",
-                        description: "Frees memory, the writing AI’s too. The next dictation starts a little later.",
+                        description: "Frees memory, Smart Cleanup’s model too. The next dictation starts a little later.",
                         isOn: $appState.modelKeepAliveEnabled
                     )
                     .settingsTarget("idle-unload")

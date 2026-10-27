@@ -49,7 +49,9 @@ struct CalmDictionaryPage: View {
                     CalmDictionarySuggestedStrip { showsSuggestions = true }
                 }
             }
-            CalmDictionaryList(filter: filter, query: trimmedQuery, onEdit: edit) { query = "" }
+            CalmDictionaryList(
+                filter: filter, query: trimmedQuery, heroIsShowing: !isSearching && !isHeroDismissed, onEdit: edit
+            ) { query = "" }
                 .settingsTarget("vocabulary", aliases: ["word-replacements"])
             if appState.showsVocabularyBoostOption {
                 CalmPanel { CalmVocabularyBoostRow() }
@@ -355,6 +357,9 @@ private struct CalmSuggestionChip: View {
 private struct CalmDictionaryList: View {
     let filter: DictionaryListFilter
     let query: String
+    /// The feature card already says what the dictionary is for, so an
+    /// empty “All” list under it says nothing more.
+    var heroIsShowing = false
     let onEdit: (DictionaryListItem) -> Void
     let onClearSearch: () -> Void
 
@@ -384,6 +389,8 @@ private struct CalmDictionaryList: View {
             CalmNoResults(message: "Nothing matches “\(query)”.", onClear: onClearSearch)
         } else {
             switch filter {
+            case .all where heroIsShowing:
+                EmptyView()
             case .all:
                 CalmEmptyState(
                     icon: .dictionary, title: "Your dictionary is empty",

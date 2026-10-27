@@ -74,8 +74,10 @@ struct CalmCommandsPage: View {
                     if !appState.setCommandModeOn(isOn) { dialog = .shortcut }
                 }
             ),
-            shortcut: caps,
-            shortcutCaption: isOn ? "to edit by voice" : "Set a shortcut",
+            // Off, the status panel below offers the shortcut; the pill only
+            // shows once there is one, so the page has one place to start.
+            shortcut: caps.isEmpty ? nil : caps,
+            shortcutCaption: isOn ? "to edit by voice" : nil,
             onShortcutTap: { dialog = .shortcut }
         )
     }
@@ -98,8 +100,11 @@ struct CalmCommandsPage: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Examples: " + CalmCommandsText.heroExamples.joined(separator: ", "))
                 HStack(spacing: 8) {
-                    Button("Try it out") { dialog = .tryIt }
-                        .calmButton(.heroPrimary)
+                    // Off, the status panel's shortcut is the next step.
+                    if appState.isCommandModeOn {
+                        Button("Try it out") { dialog = .tryIt }
+                            .calmButton(.heroPrimary)
+                    }
                     Button { dialog = .howItWorks } label: {
                         Text("How it works")
                             .font(CalmFont.button)

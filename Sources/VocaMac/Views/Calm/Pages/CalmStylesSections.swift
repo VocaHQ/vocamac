@@ -2,12 +2,12 @@
 // VocaMac
 //
 // The lower half of the Styles page: the switches for per-app styles and
-// tone, the Try it preview, and the typed-text rules for every app (the
-// old Formatting page).
+// tone, and the Try it preview. The typed-text rules for every app live in
+// Settings › General (`CalmTypedTextGroup`).
 
 import SwiftUI
 
-/// Styles and tone · Try it · Typed text in every app.
+/// Styles and tone · Try it.
 struct CalmStylesSettingsSections: View {
     @EnvironmentObject private var appState: AppState
 
@@ -15,7 +15,6 @@ struct CalmStylesSettingsSections: View {
         VStack(alignment: .leading, spacing: 26) {
             CalmStylesToneGroup()
             CalmStylesTryItGroup()
-            CalmStylesTypedTextGroup()
         }
     }
 }
@@ -130,6 +129,9 @@ private struct CalmStylesTryItGroup: View {
             .calmPanelBackground()
         }
         .settingsTarget("writing-style-preview")
+        // The full result belongs to the target it ran for, whichever way
+        // the target changed (the menu or opening another Styles tab).
+        .onChange(of: previewTarget) { result = nil }
     }
 
     /// The preview runs the formatting engine only; no model.
@@ -177,10 +179,18 @@ private struct CalmStylesTryItGroup: View {
 
     private func runFullPreview() {
         isRunning = true
+        let target = previewTarget
         Task { @MainActor in
-            result = await appState.previewWritingProfile(sample)
+            let preview = await appState.previewWritingProfile(sample)
+            // A run for a style the person has since moved off is stale.
+            if previewTarget == target { result = preview }
             isRunning = false
         }
+    }
+
+    /// What Try it previews: a style, or one app's binding.
+    private var previewTarget: String {
+        appState.settingsPreviewBindingID.map { "binding-\($0)" } ?? "style-\(appState.settingsPreviewStyle.rawValue)"
     }
 
     // MARK: Target
@@ -226,59 +236,6 @@ private struct CalmStylesTryItGroup: View {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-// MARK: - Typed text in every app
-
-/// The rules for typed text in every app (the old Formatting page).
-private struct CalmStylesTypedTextGroup: View {
-    @EnvironmentObject private var appState: AppState
-
-    var body: some View {
-        CalmGroup("Typed text in every app") {
-            CalmPanel {
-                CalmToggleRow(
-                    "Add a space after each dictation",
-                    description: "Keeps dictations from running together",
-                    isOn: $appState.appendTrailingSpace
-                )
-                .settingsTarget("trailing-space")
-                CalmToggleRow(
-                    "Capitalize sentences",
-                    description: "Starts each sentence with a capital letter",
-                    isOn: $appState.autoCapitalize
-                )
-                .settingsTarget("auto-capitalize")
-                CalmToggleRow(
-                    "Write numbers as digits",
-                    description: "“six pm” becomes “6 pm”. English only",
-                    isOn: $appState.numbersAsDigits
-                )
-                .settingsTarget("numbers-as-digits")
-                CalmToggleRow(
-                    "Use symbols and ordinals",
-                    description: appState.numbersAsDigits
-                        ? "“fifty percent” becomes “50%” and “June twenty second” “June 22”"
-                        : "Needs “Write numbers as digits”",
-                    isOn: $appState.numberSymbols
-                )
-                .calmDisabledByParent(!appState.numbersAsDigits)
-                .settingsTarget("number-symbols")
-                CalmToggleRow(
-                    "Spoken emoji",
-                    description: "Say “party emoji” to type 🎉",
-                    isOn: $appState.spokenEmoji
-                )
-                .settingsTarget("spoken-emoji")
-                CalmToggleRow(
-                    "Paragraph breaks",
-                    description: "A pause between sentences starts a new paragraph. Plain, Email and Notes only",
-                    isOn: $appState.pauseParagraphs
-                )
-                .settingsTarget("pause-paragraphs")
             }
         }
     }

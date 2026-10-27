@@ -23,7 +23,7 @@ final class CalmPrivacyStatementTests: XCTestCase {
         XCTAssertFalse(statement.isRemote)
         XCTAssertEqual(statement.title, "Everything stays on this Mac")
         XCTAssertEqual(
-            statement.message, "Your audio and text never leave it, unless you pick Your own server as your model."
+            statement.message, "Your audio and text never leave it, unless you send speech to your own server."
         )
     }
 

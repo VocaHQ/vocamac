@@ -68,6 +68,8 @@ final class CalmSettingsSummaryTests: XCTestCase {
                        "Works out which one you’re speaking each time")
         XCTAssertEqual(CalmSettingsSummary.recognitionDetail(selected: "auto", spoken: []),
                        "Works out the language each time")
+        XCTAssertEqual(CalmSettingsSummary.recognitionDetail(selected: "auto", spoken: ["en"]),
+                       "Expects English, and notices if you switch")
     }
 
     func testSuggestedLanguagesPreferTheMacThenCommonOnesAndSkipChosen() {

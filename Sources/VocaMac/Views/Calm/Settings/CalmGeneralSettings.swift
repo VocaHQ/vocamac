@@ -3,8 +3,8 @@
 //
 // Settings › General: how dictation starts (dictation key, hands-free,
 // Escape, paste last, mouse button), what it hears (microphone,
-// languages), what shows while you talk, and a test dictation that keeps
-// its result in the window.
+// languages), what shows while you talk, the rules for typed text in every
+// app, and a test dictation that keeps its result in the window.
 
 import SwiftUI
 
@@ -54,6 +54,8 @@ struct CalmGeneralSettings: View {
                 }
                 .settingsTarget("mouse-trigger")
             }
+
+            CalmTypedTextGroup()
 
             CalmPanel {
                 CalmTestDictationRow()

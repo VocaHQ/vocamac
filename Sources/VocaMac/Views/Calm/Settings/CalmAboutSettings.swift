@@ -349,7 +349,8 @@ struct CalmAboutFamily: View {
             }
             .calmButton(.secondary, fillsWidth: true)
             .help("vocahq.com")
-            ForEach(AboutFamilyProduct.all) { product in
+            // The rest of the family: this page is already about VocaMac.
+            ForEach(AboutFamilyProduct.all.filter { $0.title != "VocaMac" }) { product in
                 Button {
                     NSWorkspace.shared.open(product.url)
                 } label: {

@@ -203,7 +203,9 @@ enum CalmNavigation {
         case .stats: return .main(.insights)
         case .dictionary: return .main(.dictionary)
         case .snippets: return .main(.snippets)
-        case .formatting, .writingStyles: return .main(.styles)
+        // Typed-text rules apply in every app, whatever the style: General.
+        case .formatting: return .settings(.general)
+        case .writingStyles: return .main(.styles)
         case .commandMode: return .main(.commands)
         }
     }

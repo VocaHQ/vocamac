@@ -144,7 +144,7 @@ final class CalmNavigationMappingTests: XCTestCase {
             .speechModel: .settings(.models), .cleanup: .settings(.cleanup),
             .advanced: .settings(.advanced), .gateway: .settings(.gateway), .about: .settings(.about),
             .history: .main(.home), .stats: .main(.insights), .dictionary: .main(.dictionary),
-            .snippets: .main(.snippets), .formatting: .main(.styles), .writingStyles: .main(.styles),
+            .snippets: .main(.snippets), .formatting: .settings(.general), .writingStyles: .main(.styles),
             .commandMode: .main(.commands),
         ]
         XCTAssertEqual(Set(expected.keys), Set(SettingsPage.allCases))
@@ -173,7 +173,7 @@ final class CalmNavigationMappingTests: XCTestCase {
         XCTAssertEqual(try destination("settings-backup"), .settings(.privacy))
         XCTAssertEqual(try destination("model-status"), .settings(.advanced))
         XCTAssertEqual(try destination("history"), .main(.home))
-        XCTAssertEqual(try destination("trailing-space"), .main(.styles))
+        XCTAssertEqual(try destination("trailing-space"), .settings(.general))
     }
 
     func testSearchGroupsFollowTheMenuOrder() {

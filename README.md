@@ -74,11 +74,13 @@ The Tiny Whisper model is built in, so you can dictate right away. VocaMac sugge
 
 **Writing**
 - Writing styles per app or website: email, chat, notes, code, terminal.
+- Modes: dictate in a mode (Code, Formal, Exact, your own) with its own shortcut, or say its name first: "Formal, dear team…".
 - Smart Cleanup removes "um", false starts, and spoken corrections ("Tuesday, no, Wednesday" → "Wednesday") with a small on-device model.
 - Command Mode: select text and say what to change ("make this shorter", "translate to Spanish").
 
 **And more**
 - Transcribe audio and video files, or record system audio.
+- Test accuracy: read a passage once and see which downloaded model hears you best.
 - A [command-line transcriber](docs/CLI.md) for scripts.
 - Automation with the Shortcuts app and `vocamac://` links.
 - Installs its own updates and keeps your permissions.

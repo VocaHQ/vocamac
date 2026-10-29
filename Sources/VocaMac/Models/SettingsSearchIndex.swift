@@ -161,6 +161,20 @@ enum SettingsSearchIndex {
             keywords: ["default", "style", "plain", "fallback", "style everywhere else"]
         ),
         SettingsSearchEntry(
+            id: "test-accuracy",
+            page: .speechModel,
+            title: "Test accuracy on your voice",
+            subtitle: "Read a passage once and see which model hears you best",
+            keywords: ["accuracy", "calibrate", "calibration", "word error rate", "wer", "compare models", "best model", "test"]
+        ),
+        SettingsSearchEntry(
+            id: "dictation-modes",
+            page: .writingStyles,
+            title: "Modes",
+            subtitle: "Dictate in a mode with its own shortcut, or say its name first",
+            keywords: ["mode", "modes", "shortcut", "formal", "code", "exact", "spoken name", "prefix", "trigger word", "language"]
+        ),
+        SettingsSearchEntry(
             id: "coding-agents",
             page: .writingStyles,
             title: "Treat coding agents in terminals as prose",

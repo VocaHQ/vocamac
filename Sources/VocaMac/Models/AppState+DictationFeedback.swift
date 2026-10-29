@@ -117,7 +117,12 @@ extension AppState {
     /// Hands-free label. The hands-free shortcut (and the menu) keep
     /// recording until pressed again, whatever the activation mode.
     var overlayStopHint: OverlayStopHint {
-        OverlayStopHint.resolve(
+        // A mode's own shortcut: held, letting it go types; after a quick
+        // press, pressing it again does.
+        if commandModeSession == nil, let modeKeys = activeModeShortcutText {
+            return modePressStartedAt != nil ? .hold(key: modeKeys) : .press(key: modeKeys)
+        }
+        return OverlayStopHint.resolve(
             commandMode: commandModeSession == nil ? nil : (
                 isKeyHeld: isCommandModeKeyHeld,
                 shortcut: shortcut(for: .commandMode).map { CalmKeyCaps.compactText(for: $0) }

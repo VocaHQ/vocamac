@@ -58,6 +58,10 @@ struct CalmStylesPage: View {
 
             infoPanel
 
+            CalmModesSection()
+                .padding(.top, 16)
+                .settingsTarget("dictation-modes")
+
             CalmStylesSettingsSections()
                 .padding(.top, 16)
         }

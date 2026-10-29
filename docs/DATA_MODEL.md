@@ -369,6 +369,8 @@ vocamac.dictionary.screenContext = true
 vocamac.transcriptCleanup.skipCleanText = true
 vocamac.commandMode.review = "never"            // never | longSelections | always
 vocamac.commandMode.savedCommands = <JSON [SavedCommand]>
+vocamac.dictationModes = <JSON [DictationMode]>  // name, style, tone, cleanup, language, shortcut
+vocamac.calibration.lastResult = <JSON CalibrationResult>  // last accuracy test; never exported
 vocamac.commandMode.voiceActions = false        // never exported or imported
 vocamac.commandMode.voiceActionShortcuts = ""   // one Shortcut name per line; never exported or imported
 ...
@@ -422,6 +424,32 @@ LLM-only, and hybrid outputs over three repeated passes. Automated guards and
 unit tests do not establish semantic equivalence or style quality; inspect the
 report before changing the experimental status. Browser-tab and field identity
 are not inferred from a bundle ID.
+
+### Modes
+
+A `DictationMode` is a named writing profile for one dictation: style, tone
+(`WritingIntent`), cleanup policy and level, optional cleanup instructions, an
+optional transcription language, an optional shortcut, and whether saying its
+name first selects it. Missing fields decode to Plain, As spoken, Smart
+Cleanup's settings, no language, no shortcut, and listening for the name.
+
+The mode for a dictation is resolved in this order: the mode whose shortcut
+started it, then a mode named at the start of the transcript (`ModePrefix`),
+then the menu's next-dictation choice, then the app or website rule. A spoken
+name counts only when a pause mark (`,` `:` `.` `—` …) or the word "mode"
+follows it and something follows that, so a sentence that merely starts with
+the word is never switched. History keeps the raw transcript with the name and
+records the mode in its summary. A mode's language applies only when its
+shortcut starts the dictation, and not on models that bind their language at
+load time (sherpa-onnx).
+
+### Accuracy test
+
+`CalibrationResult` holds the last test: date, passage, the microphone's UID
+and name, and one `CalibrationRow` per model (word error rate, seconds to text,
+must-keep terms the model lost, its transcript, or why it could not run). The
+Speech Model page shows a measurement only while the same microphone is
+selected. The recording itself is never written to disk.
 
 ### Dictation history
 

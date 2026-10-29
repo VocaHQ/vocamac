@@ -509,6 +509,18 @@ final class AppState: ObservableObject {
     @UserDefault(PreferenceKey.commandModeReview) var commandModeReview: CommandReviewMode = .never
     /// JSON `[SavedCommand]`; read and written through `savedCommands`.
     @UserDefault(PreferenceKey.savedCommands) var savedCommandsJSON: String = ""
+    /// JSON `[DictationMode]`; read and written through `dictationModes`.
+    @UserDefault(PreferenceKey.dictationModes) var dictationModesJSON: String = ""
+    /// JSON `CalibrationResult`; read through `lastCalibration`.
+    @UserDefault(PreferenceKey.calibrationResult) var calibrationResultJSON: String = ""
+    /// The accuracy test that owns the microphone and the test models, by
+    /// token; dictation and another test wait until it ends. Set only by
+    /// `beginCalibration()` and `endCalibration(_:)`.
+    @Published private(set) var calibrationToken: UUID?
+    var isCalibrating: Bool { calibrationToken != nil }
+    /// The input a recording would use now, given the chosen one (nil for
+    /// the system default). Tests replace it.
+    var inputDeviceUIDResolver: (String?) -> String? = { AudioEngine.currentInputDeviceUID(preferredUID: $0) }
     /// Opt-in: let a spoken instruction open apps and pages, search the web,
     /// run allow-listed Shortcuts, and add reminders.
     @UserDefault(PreferenceKey.voiceActionsEnabled) var voiceActionsEnabled: Bool = false
@@ -672,9 +684,12 @@ final class AppState: ObservableObject {
     private struct QueuedRecordingStart {
         let injectResult: Bool
         let outputDestination: ScratchpadOutputDestination
-        let isHandsFree: Bool
+        /// Set later too, when a mode's shortcut was only tapped.
+        var isHandsFree: Bool
         let verifiesShortcut: Bool
         let trigger: DictationTrigger
+        /// The mode whose shortcut asked for this dictation.
+        var modeID: UUID?
     }
     private var queuedRecordingStart: QueuedRecordingStart?
 
@@ -912,6 +927,8 @@ final class AppState: ObservableObject {
 
     /// Whether the current recording was started with the hands-free
     /// shortcut, so silence ends it the way it ends a double-tap recording.
+    /// Set by the hands-free shortcut, and by a quick press of a mode's
+    /// shortcut once the recording is running.
     private(set) var isHandsFreeSession = false
 
     /// True from the end of a recording until its text is delivered. Escape
@@ -973,6 +990,20 @@ final class AppState: ObservableObject {
     /// A quick press toggles Command Mode; holding past this point stops on
     /// release. Internal so flow tests can exercise both gestures instantly.
     var commandModeHoldThreshold: TimeInterval = 0.35
+    /// The mode whose shortcut is starting the next recording. Set only
+    /// around that start (see `handleModeShortcut`).
+    var pendingModeID: UUID?
+    /// The mode the current recording was started in, by its shortcut.
+    /// Replaced by every new recording, so a stale one never carries over.
+    var recordingModeID: UUID?
+    /// When a mode's shortcut went down, to tell a hold from a quick press.
+    /// Non-nil while the keys are held.
+    var modePressStartedAt: Date?
+    /// A mode's shortcut was tapped before its recording began (the model
+    /// was still loading): the recording is hands-free once it starts.
+    var pendingModeHandsFree = false
+    /// Whether the microphone has sent only silence so far this recording.
+    var silentInputMonitor = SilentInputMonitor()
     private var recordingVerifiesShortcut = false
     private var nonInjectedOutputDestination: ScratchpadOutputDestination = .settingsTest
 
@@ -1395,6 +1426,7 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 self?.audioLevel = level
                 self?.cursorOverlay.updateAudioLevel(level)
+                self?.observeInputLevel(level)
             }
         }
 
@@ -1402,7 +1434,10 @@ final class AppState: ObservableObject {
         audioEngine.onSilenceDetected = { [weak self] in
             Task { @MainActor in
                 guard let self = self else { return }
-                if (self.activationMode == .doubleTapToggle || self.isHandsFreeSession) && self.isRecording {
+                // A mode's shortcut still held is push-to-talk, whatever the
+                // main shortcut does: letting go ends it, not a pause.
+                if (self.activationMode == .doubleTapToggle || self.isHandsFreeSession) && self.isRecording
+                    && self.modePressStartedAt == nil {
                     VocaLogger.info(.appState, "Silence detected — auto-stopping recording (toggle session)")
                     await self.stopRecordingAndTranscribe()
                 }
@@ -2230,6 +2265,12 @@ final class AppState: ObservableObject {
         let interval = PerformanceTrace.begin("RecordingStart")
         defer { PerformanceTrace.end(interval) }
         overlayPreview.stop()
+        if isCalibrating {
+            VocaLogger.info(.appState, "Dictation asked for during the accuracy test — not starting")
+            endHotKeyToggleSession()
+            showOverlayFailure("Finish the accuracy test first.")
+            return
+        }
         // If we're already recording, this is a recovery attempt — the user
         // pressed the hotkey again because a previous key-up was missed.
         // Stop the current recording and transcribe what we have.
@@ -2286,7 +2327,8 @@ final class AppState: ObservableObject {
                     outputDestination: outputDestination,
                     isHandsFree: isHandsFreeSession,
                     verifiesShortcut: verifiesShortcut,
-                    trigger: dictationTrigger
+                    trigger: dictationTrigger,
+                    modeID: pendingModeID
                 )
                 VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
                 // Push to talk speaks while the key is down; toggle-style
@@ -2359,6 +2401,7 @@ final class AppState: ObservableObject {
                     cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
                     cursorOverlay.show(style: overlayStyle, position: overlayPosition)
                     cursorOverlay.setStopHint(overlayStopHint)
+                    cursorOverlay.setModeName(pendingModeID.flatMap(dictationMode(withID:))?.trimmedName)
                     cursorOverlay.setLoadingSpeechModel(true)
                 }
             }
@@ -2410,6 +2453,10 @@ final class AppState: ObservableObject {
 
         recordingGeneration = UUID()
         let generation = recordingGeneration
+        // Only a dictation (not a Command Mode edit) takes a mode.
+        recordingModeID = activeCommandTarget == nil ? pendingModeID : nil
+        if recordingModeID != nil, pendingModeHandsFree { isHandsFreeSession = true }
+        pendingModeHandsFree = false
         recordingInjectsResult = injectResult
         recordingVerifiesShortcut = verifiesShortcut
         nonInjectedOutputDestination = outputDestination
@@ -2447,6 +2494,7 @@ final class AppState: ObservableObject {
             cursorOverlay.show(style: overlayStyle, position: overlayPosition)
             cursorOverlay.setStopHint(overlayStopHint)
             cursorOverlay.setCommandSession(commandModeSession)
+            cursorOverlay.setModeName(recordingMode?.trimmedName)
         }
 
         // Start recording immediately for instant responsiveness.
@@ -2473,7 +2521,7 @@ final class AppState: ObservableObject {
         let commit = adoptedCapture == nil
             ? commitOptionsForRecording(injectResult: injectResult, generation: generation) : nil
         let session = adoptedCapture == nil ? whisperService.startStreaming(
-            language: selectedLanguage == "auto" ? nil : selectedLanguage,
+            language: transcriptionLanguage(for: recordingMode),
             vocabulary: recognitionHintVocabulary,
             liveVocabulary: recordingVocabulary ?? sessionVocabulary(),
             onPartial: partialHandler,
@@ -2513,17 +2561,24 @@ final class AppState: ObservableObject {
 
         guard didStartRecording else {
             VocaLogger.warning(.appState, "Audio engine failed to start — resetting recording state")
-            showOverlayFailure("Couldn't start the microphone.")
+            let failure = audioEngine.lastStartFailure
+            showOverlayFailure(failure?.overlayMessage ?? "Couldn't start the microphone.")
             discardRecordingState()
             // Silently dropping back to idle looks like the hotkey did nothing.
             // Tell the user which microphone we tried and where to change it.
-            let deviceDescription = selectedAudioDeviceName.isEmpty
-                ? "the system default microphone"
-                : selectedAudioDeviceName
-            showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
+            if let failure {
+                showTemporaryError(failure.message)
+            } else {
+                let deviceDescription = selectedAudioDeviceName.isEmpty
+                    ? "the system default microphone"
+                    : selectedAudioDeviceName
+                showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
+            }
             return
         }
 
+        silentInputMonitor = SilentInputMonitor()
+        cursorOverlay.setInputSilent(false)
         cursorOverlay.transitionToRecording()
         // Announced now, not when the status changed: until the microphone is
         // live (seconds on Bluetooth) anything said is lost.
@@ -2703,8 +2758,13 @@ final class AppState: ObservableObject {
     ) -> CleanupSpeculator {
         var cachedProfile: WritingProfile?
         var cachedTerms: [String]?
+        // A mode's shortcut decides the profile before anything is said.
+        let modeProfile = recordingMode?.profile
         return CleanupSpeculator(pipeline: dictationOutputPipeline) { [weak self] language in
             guard let self else { return nil }
+            if cachedProfile == nil, let modeProfile {
+                cachedProfile = modeProfile
+            }
             if cachedProfile == nil {
                 let documentURL = await Self.awaitDocumentURL(documentURLTask)
                 let agentTerminal = await Self.value(of: codingAgentTask, within: Self.screenContextTimeout, otherwise: nil)
@@ -2830,6 +2890,8 @@ final class AppState: ObservableObject {
         guard !isStoppingAudio else { return }
         isStoppingAudio = true
         let generation = recordingGeneration
+        let shortcutMode = recordingMode
+        recordingModeID = nil
         var audioData = await stopAudioEngine()
         // Zero is a real limit: the key came up before the microphone
         // delivered anything, so nothing recorded since belongs to it.
@@ -2915,7 +2977,7 @@ final class AppState: ObservableObject {
             let captured = await documentURLRead.value
             return await self?.revalidatedDocumentURL(captured)
         }
-        let language = selectedLanguage == "auto" ? nil : selectedLanguage
+        let language = transcriptionLanguage(for: shortcutMode)
         let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
         // sherpa-onnx models take no screen terms (only Qwen3-ASR reads the
         // user's own words), so its batch decode starts now instead of after
@@ -3033,10 +3095,18 @@ final class AppState: ObservableObject {
                 let resolved = resolveWritingStyle(
                     for: target, documentURL: documentURL, codingAgentTerminal: await codingAgentRead.value
                 )
+                // A mode named at the start ("Formal, …") is taken off the
+                // text and used for this dictation, unless a mode's shortcut
+                // already chose one.
+                let spokenMode = injectResult && shortcutMode == nil
+                    ? ModePrefix.match(result.text, modes: dictationModes) : nil
+                let dictationMode = shortcutMode ?? spokenMode?.mode
                 // The scratchpad is plain notes: format it with the default
                 // style, not whichever app the Settings preview was left on.
                 let profile: WritingProfile
-                if injectResult {
+                if injectResult, let dictationMode {
+                    profile = dictationMode.profile
+                } else if injectResult {
                     profile = nextWritingProfile ?? resolved.profile
                 } else if nonInjectedOutputDestination == .scratchpad {
                     profile = resolveWritingStyle(for: nil).profile
@@ -3044,13 +3114,21 @@ final class AppState: ObservableObject {
                     profile = settingsPreviewProfile
                 }
                 if injectResult {
-                    nextWritingProfile = nil
+                    // A mode didn't use the menu's next-dictation choice,
+                    // so it is still there for the next one.
+                    if dictationMode == nil { nextWritingProfile = nil }
                     if activeWritingStyle != resolved { activeWritingStyle = resolved }
                 }
                 let laysOutParagraphs = Self.laysOutParagraphs(enabled: pauseParagraphs, profile: profile)
-                let spoken = laysOutParagraphs
+                var spoken = laysOutParagraphs
                     ? await Self.paragraphsAtPauses(result, audio: audioData)
                     : result.text
+                if let spokenMode {
+                    spoken = ModePrefix.match(spoken, modes: [spokenMode.mode])?.remainder ?? spokenMode.remainder
+                    VocaLogger.info(.appState, "Spoken mode name: \(spokenMode.mode.trimmedName)")
+                }
+                // Pieces cleaned while recording include the spoken name.
+                let usesPieces = speculator != nil && spokenMode == nil
                 var output = await dictationOutputPipeline.process(
                     spoken, profile: profile, snippetList: snippets,
                     cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
@@ -3063,9 +3141,14 @@ final class AppState: ObservableObject {
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
                     // Cleaning piece by piece only pays off with answers from
                     // while recording; an endpoint would get one call per piece.
-                    pieces: speculator == nil ? [] : result.pieces, speculator: speculator
+                    pieces: usesPieces ? result.pieces : [], speculator: usesPieces ? speculator : nil
                 )
-                if injectResult, resolved.codingAgent, profile == resolved.profile {
+                if injectResult, let dictationMode {
+                    output = DictationOutputResult(
+                        original: output.original, text: output.text,
+                        summary: "\(dictationMode.summaryLabel) · \(output.summary)"
+                    )
+                } else if injectResult, resolved.codingAgent, profile == resolved.profile {
                     output = DictationOutputResult(
                         original: output.original, text: output.text,
                         summary: "\(Self.codingAgentSummary) · \(output.summary)"
@@ -3473,6 +3556,40 @@ final class AppState: ObservableObject {
             self.spotifyPauser.resume()
             VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
         }
+    }
+
+    /// Claim the microphone and the test models for one accuracy test.
+    /// Nil while another test still holds them.
+    func beginCalibration() -> UUID? {
+        guard calibrationToken == nil else { return nil }
+        let token = UUID()
+        calibrationToken = token
+        return token
+    }
+
+    /// Give them back. Only the test that claimed them can.
+    func endCalibration(_ token: UUID) {
+        if calibrationToken == token { calibrationToken = nil }
+    }
+
+    /// Open the microphone for the accuracy test, with the same device and
+    /// channel choices as a dictation, and say which input actually opened.
+    /// Nothing is transcribed or typed. Nil when it didn't start.
+    func startCalibrationCapture() async -> CalibrationInput? {
+        guard !isCapturingAudio, !isTranscribing, micPermission == .granted else { return nil }
+        audioEngine.onAudioSamples = nil
+        guard await startConfiguredAudioEngine() else { return nil }
+        let preferred = selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID
+        let uid = audioEngine.activeInputDeviceUID ?? inputDeviceUIDResolver(preferred) ?? selectedAudioDeviceID
+        let name = availableInputDevices().first { $0.id == uid }?.name ?? calibrationDeviceName
+        return CalibrationInput(uid: uid, name: name)
+    }
+
+    /// Close the accuracy test's microphone and hand back what it heard.
+    func stopCalibrationCapture() async -> [Float] {
+        let samples = await stopAudioEngine()
+        audioLevel = 0
+        return samples
     }
 
     private func stopAudioEngine() async -> [Float] {
@@ -3931,7 +4048,11 @@ final class AppState: ObservableObject {
         VocaLogger.info(.appState, "Previous dictation delivered — starting the queued one")
         if queued.isHandsFree { isHandsFreeSession = true }
         dictationTrigger = queued.trigger
-        defer { dictationTrigger = .other }
+        pendingModeID = queued.modeID
+        defer {
+            dictationTrigger = .other
+            pendingModeID = nil
+        }
         await startRecording(
             injectResult: queued.injectResult, outputDestination: queued.outputDestination,
             verifiesShortcut: queued.verifiesShortcut
@@ -4928,11 +5049,17 @@ extension AppState {
             let text = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             var output: DictationOutputResult?
             if !text.isEmpty {
-                let profile = resolveWritingStyle(for: entry.targetApp).profile
+                // A mode named at the start is honoured again, as it was the
+                // first time.
+                let spokenMode = ModePrefix.match(result.text, modes: dictationModes)
+                let profile = spokenMode?.mode.profile ?? resolveWritingStyle(for: entry.targetApp).profile
                 let laysOutParagraphs = Self.laysOutParagraphs(enabled: pauseParagraphs, profile: profile)
-                let spoken = laysOutParagraphs
+                var spoken = laysOutParagraphs
                     ? await Self.paragraphsAtPauses(result, audio: samples)
                     : result.text
+                if let spokenMode {
+                    spoken = ModePrefix.match(spoken, modes: [spokenMode.mode])?.remainder ?? spokenMode.remainder
+                }
                 output = await outputPipeline.process(
                     spoken, profile: profile, snippetList: snippets,
                     cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
@@ -4944,6 +5071,12 @@ extension AppState {
                     numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs
                 )
+                if let spokenMode, let processed = output {
+                    output = DictationOutputResult(
+                        original: processed.original, text: processed.text,
+                        summary: "\(spokenMode.mode.summaryLabel) · \(processed.summary)"
+                    )
+                }
             }
             historyStore.recordRetry(
                 id, rawText: result.text, finalText: output?.text ?? "", summary: output?.summary,
@@ -5052,6 +5185,11 @@ extension AppState {
                 shortcuts[.savedCommand(command.id)] = combo
             }
         }
+        for mode in dictationModes where !mode.trimmedName.isEmpty {
+            if let combo = HotKeyCombo(storageString: mode.shortcut) {
+                shortcuts[.dictationMode(mode.id)] = combo
+            }
+        }
         monitor.updateShortcuts(shortcuts)
         monitor.updateMouseTrigger(button: MouseTriggerButton.resolved(stored: mouseTriggerButton).rawValue)
         refreshCancelKeyArming()
@@ -5061,13 +5199,21 @@ extension AppState {
     /// saved command.
     var shortcutActions: [HotKeyShortcutAction] {
         HotKeyShortcutAction.builtIn + savedCommands.map { .savedCommand($0.id) }
+            + dictationModes.map { .dictationMode($0.id) }
     }
 
     /// What `action` is called in a "that's already the … shortcut" message.
     func shortcutName(for action: HotKeyShortcutAction) -> String {
-        guard case .savedCommand(let id) = action else { return action.displayName.lowercased() }
-        let name = savedCommands.first { $0.id == id }?.name ?? ""
-        return name.isEmpty ? "saved command" : "“\(name)”"
+        switch action {
+        case .savedCommand(let id):
+            let name = savedCommands.first { $0.id == id }?.name ?? ""
+            return name.isEmpty ? "saved command" : "“\(name)”"
+        case .dictationMode(let id):
+            let name = dictationModes.first { $0.id == id }?.trimmedName ?? ""
+            return name.isEmpty ? "mode" : "“\(name)” mode"
+        default:
+            return action.displayName.lowercased()
+        }
     }
 
     func shortcut(for action: HotKeyShortcutAction) -> HotKeyCombo? {
@@ -5077,6 +5223,8 @@ extension AppState {
         case .commandMode: return HotKeyCombo(storageString: commandModeShortcut)
         case .savedCommand(let id):
             return savedCommands.first { $0.id == id }.flatMap { HotKeyCombo(storageString: $0.shortcut) }
+        case .dictationMode(let id):
+            return dictationModes.first { $0.id == id }.flatMap { HotKeyCombo(storageString: $0.shortcut) }
         }
     }
 
@@ -5092,6 +5240,12 @@ extension AppState {
             commands[index].shortcut = stored
             // The setter pushes the new shortcuts to the listener.
             savedCommands = commands
+            return
+        case .dictationMode(let id):
+            var modes = dictationModes
+            guard let index = modes.firstIndex(where: { $0.id == id }) else { return }
+            modes[index].shortcut = stored
+            dictationModes = modes
             return
         }
         syncShortcutConfiguration()
@@ -5124,10 +5278,16 @@ extension AppState {
             }
         case .savedCommand(let id):
             await runSavedCommand(id)
+        case .dictationMode(let id):
+            await handleModeShortcut(id)
         }
     }
 
     func handleShortcutReleased(_ action: HotKeyShortcutAction) async {
+        if case .dictationMode = action {
+            await handleModeShortcutReleased()
+            return
+        }
         guard action == .commandMode,
               let startedAt = commandModePressStartedAt else { return }
         commandModePressStartedAt = nil
@@ -5154,6 +5314,62 @@ extension AppState {
             VocaLogger.debug(.appState, "Command Mode released before recording began — cancelling")
             return
         }
+        await stopRecordingAndTranscribe()
+    }
+
+    // MARK: Modes
+
+    /// A mode's shortcut went down: start a dictation in that mode, or stop
+    /// one started with a quick press of it.
+    ///
+    /// Works like the Command Mode shortcut. Held past
+    /// `commandModeHoldThreshold`, letting go stops the dictation; a quick
+    /// press leaves it running until any mode shortcut is pressed again (or
+    /// silence ends it, as for hands-free dictation).
+    func handleModeShortcut(_ id: UUID) async {
+        guard let mode = dictationModes.first(where: { $0.id == id }) else { return }
+        // Command Mode owns the microphone while it runs.
+        guard activeCommandTarget == nil, pendingReviewEdit == nil else { return }
+        // A dictation already on its way (recording, opening the microphone,
+        // waiting for the model or for the previous one): this press stops
+        // it, keeping its mode, rather than starting another.
+        if isCapturingAudio || isStartingAudio || isLoadingModelForRecording || queuedRecordingStart != nil {
+            modePressStartedAt = nil
+            pendingModeHandsFree = false
+            await stopRecordingAndTranscribe()
+            return
+        }
+        VocaLogger.info(.appState, "Dictating in \(mode.summaryLabel)")
+        pendingModeHandsFree = false
+        modePressStartedAt = Date()
+        pendingModeID = mode.id
+        defer { pendingModeID = nil }
+        await startRecording()
+        if !isCapturingAudio, queuedRecordingStart == nil, earlyCapture == nil {
+            modePressStartedAt = nil
+        }
+    }
+
+    /// A mode's shortcut came up. A hold stops the dictation; a quick press
+    /// turns it into a hands-free one that the next press stops.
+    func handleModeShortcutReleased() async {
+        guard let startedAt = modePressStartedAt else { return }
+        modePressStartedAt = nil
+        guard Date().timeIntervalSince(startedAt) >= commandModeHoldThreshold else {
+            VocaLogger.debug(.appState, "Mode shortcut quick press — waiting for a second press")
+            // Keep the choice for a recording that hasn't begun yet.
+            if isCapturingAudio {
+                isHandsFreeSession = true
+            } else if queuedRecordingStart != nil {
+                queuedRecordingStart?.isHandsFree = true
+            } else {
+                pendingModeHandsFree = true
+            }
+            cursorOverlay.setStopHint(overlayStopHint)
+            return
+        }
+        // Covers a start still opening the microphone, or waiting for the
+        // model or the previous dictation: each keeps what was said.
         await stopRecordingAndTranscribe()
     }
 

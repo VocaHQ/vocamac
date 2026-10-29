@@ -240,7 +240,7 @@ private extension WritingCleanupPolicy {
     }
 }
 
-private enum CalmStylesOptions {
+enum CalmStylesOptions {
     static var styles: [CalmOption<WritingStyle>] { WritingStyle.allCases.map { CalmOption($0, $0.displayName) } }
     static var intents: [CalmOption<WritingIntent>] { WritingIntent.allCases.map { CalmOption($0, $0.displayName) } }
     static var cleanup: [CalmOption<WritingCleanupPolicy>] { WritingCleanupPolicy.allCases.map { CalmOption($0, $0.displayName) } }
@@ -250,7 +250,7 @@ private enum CalmStylesOptions {
 }
 
 /// The dialog body scrolls when Advanced makes it taller than the window allows.
-private struct CalmStylesDialogScroll<Content: View>: View {
+struct CalmStylesDialogScroll<Content: View>: View {
     let content: Content
 
     init(@ViewBuilder content: () -> Content) {

@@ -34,6 +34,10 @@ protocol AudioRecording: AnyObject {
     func forceReset()
     func checkPermissionStatus() -> PermissionStatus
     func requestPermission(completion: @escaping @Sendable (Bool) -> Void)
+    /// Why the most recent `startRecording` returned false, when it is known.
+    var lastStartFailure: AudioStartFailure? { get }
+    /// The UID of the input device the engine has open, or nil.
+    var activeInputDeviceUID: String? { get }
 }
 
 extension AudioRecording {
@@ -41,6 +45,43 @@ extension AudioRecording {
         get { nil }
         // swiftlint:disable:next unused_setter_value
         set { }
+    }
+
+    var lastStartFailure: AudioStartFailure? { nil }
+    var activeInputDeviceUID: String? { nil }
+}
+
+/// Why the microphone did not start, so the user is told what to do about it.
+enum AudioStartFailure: Equatable, Sendable {
+    /// The route opened but Core Audio never delivered a buffer.
+    case noAudio(device: String)
+    /// macOS refused the device's capture format.
+    case unsupportedFormat(device: String, sampleRate: Double, channels: Int)
+
+    /// The overlay's short version.
+    var overlayMessage: String {
+        switch self {
+        case .noAudio(let device): return "No sound from \(device)."
+        case .unsupportedFormat(let device, _, _): return "Couldn’t open \(device)."
+        }
+    }
+
+    /// What the menu bar says.
+    var message: String {
+        switch self {
+        case .noAudio(let device):
+            return "No sound came from \(device). Check that it is connected and not muted, or pick another microphone in Settings → Audio."
+        case let .unsupportedFormat(device, sampleRate, channels):
+            let rate = AudioStartFailure.kilohertz(sampleRate)
+            let layout = channels == 1 ? "mono" : "\(channels) channels"
+            return "macOS wouldn’t open \(device) (\(rate) kHz, \(layout)). Pick another microphone in Settings → Audio."
+        }
+    }
+
+    /// "16" for 16000, "44.1" for 44100.
+    static func kilohertz(_ sampleRate: Double) -> String {
+        let value = sampleRate / 1000
+        return value.rounded() == value ? String(Int(value)) : String(format: "%.1f", value)
     }
 }
 
@@ -202,9 +243,16 @@ protocol CursorOverlayManaging: AnyObject {
     /// How this dictation ends ("Let go of Right ⌥ to type"), and whether it
     /// carries on after the key is let go. `show` resets it.
     func setStopHint(_ hint: OverlayStopHint?)
+    /// The mode this dictation is in ("Code"), or nil. `show` resets it.
+    func setModeName(_ name: String?)
+    /// The microphone has sent only silence so far: say so while recording.
+    /// `show` resets it.
+    func setInputSilent(_ silent: Bool)
 }
 
 extension CursorOverlayManaging {
+    func setModeName(_ name: String?) {}
+    func setInputSilent(_ silent: Bool) {}
     func setCommandSession(_ session: CommandModeSession?) {}
     func setLiveWordsAvailable(_ available: Bool) {}
     func setLoadingSpeechModel(_ loading: Bool) {}

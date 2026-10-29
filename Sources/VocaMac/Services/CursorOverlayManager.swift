@@ -26,6 +26,9 @@ enum OverlayLayout {
     /// Room for the widest pill: a label, the timer, and the Stop and Cancel
     /// buttons that appear while the pointer is over it.
     static let pillSlotWidth: CGFloat = 340
+    /// A mode's name in the pill is cut short past this, so the timer and
+    /// the Stop and Cancel buttons still fit the slot.
+    static let pillModeNameMaxWidth: CGFloat = 96
     /// A failure message wraps at this width, up to `failureMaxLines` lines.
     static let failureMaxWidth: CGFloat = 440
     static let failureMaxLines = 3
@@ -483,6 +486,8 @@ final class CursorOverlayManager {
         viewModel.isLoadingSpeechModel = false
         viewModel.isCleaningUp = false
         viewModel.stopHint = nil
+        viewModel.modeName = nil
+        viewModel.isInputSilent = false
         viewModel.isPointerInside = false
         viewModel.isActive = true
         recordingStartedAt = nil
@@ -536,6 +541,16 @@ final class CursorOverlayManager {
 
     func setStopHint(_ hint: OverlayStopHint?) {
         if viewModel.stopHint != hint { viewModel.stopHint = hint }
+    }
+
+    func setModeName(_ name: String?) {
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (trimmed?.isEmpty ?? true) ? nil : trimmed
+        if viewModel.modeName != value { viewModel.modeName = value }
+    }
+
+    func setInputSilent(_ silent: Bool) {
+        if viewModel.isInputSilent != silent { viewModel.isInputSilent = silent }
     }
 
     /// Shows a short failure message for a few seconds, then hides. It appears
@@ -925,6 +940,10 @@ final class MicIndicatorViewModel: ObservableObject {
     @Published var showsEscapeHint = true
     /// How this dictation ends, for the hint and the Hands-free label.
     @Published var stopHint: OverlayStopHint?
+    /// The mode this dictation is in ("Code"), shown while recording.
+    @Published var modeName: String?
+    /// The microphone has sent only silence so far.
+    @Published var isInputSilent = false
     /// The pointer is over the card; its Stop and Cancel buttons show.
     @Published var isPointerInside = false
     /// The visible card's measured size (a pill is narrower than its slot).
@@ -1332,6 +1351,12 @@ enum OverlayCopy {
     @MainActor
     static func listeningHint(_ viewModel: MicIndicatorViewModel) -> String {
         var parts: [String] = []
+        if viewModel.phase == .recording, viewModel.isInputSilent {
+            parts.append("No sound from the microphone")
+        }
+        if viewModel.phase == .recording, let mode = viewModel.modeName, !viewModel.isCommandMode {
+            parts.append("\(mode) mode")
+        }
         if viewModel.phase == .connecting {
             parts.append(viewModel.isLoadingSpeechModel ? "Loading speech model…" : "Waiting for microphone…")
         } else if viewModel.isLoadingSpeechModel {
@@ -1393,6 +1418,12 @@ private struct OverlayPill: View {
             OverlayWaveform(viewModel: viewModel, color: tint)
             if let session = viewModel.commandSession {
                 Text(OverlayCopy.commandWord(session.kind)).foregroundStyle(OverlayPalette.violet)
+            } else if viewModel.isInputSilent {
+                Text("No sound").foregroundStyle(OverlayPalette.amber)
+            } else if let mode = viewModel.modeName {
+                Text(mode)
+                    .frame(maxWidth: OverlayLayout.pillModeNameMaxWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
             } else if viewModel.isLoadingSpeechModel {
                 Text("Loading model…").foregroundStyle(OverlayPalette.secondaryText)
             } else if viewModel.stopHint?.isHandsFree == true {
@@ -1423,7 +1454,9 @@ private struct OverlayPill: View {
         case .recording:
             if let seconds = viewModel.countdownSeconds { return "Recording stops in \(seconds) seconds" }
             if viewModel.isCommandMode { return "Command Mode, listening" }
-            return viewModel.stopHint?.isHandsFree == true ? "Recording, hands-free" : "Recording"
+            if viewModel.isInputSilent { return "Recording, no sound from the microphone" }
+            let mode = viewModel.modeName.map { ", \($0) mode" } ?? ""
+            return (viewModel.stopHint?.isHandsFree == true ? "Recording, hands-free" : "Recording") + mode
         case .processing, .idle: return OverlayCopy.workingTitle(viewModel)
         case .failure: return viewModel.notice.text
         }

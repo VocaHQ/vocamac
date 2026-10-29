@@ -42,6 +42,7 @@ struct CalmSpeechModelsTab: View {
     @EnvironmentObject private var appState: AppState
     @Environment(CalmNavigator.self) private var navigator
     @State private var flow = CalmSpeechPickFlow()
+    @State private var isTestingAccuracy = false
 
     private var picker: CalmModelPicker { .shared }
 
@@ -69,10 +70,13 @@ struct CalmSpeechModelsTab: View {
                 CalmLinkRow(title: "Browse all \(appState.availableModels.count) models") {
                     navigator.select(.allModels)
                 }
+                CalmLinkRow(title: accuracyRowTitle) { isTestingAccuracy = true }
+                    .settingsTarget("test-accuracy")
             }
             CalmModelsOnThisMac(tab: .speech(flow))
         }
         .calmSpeechPickDialogs(flow)
+        .calmDialog(isPresented: $isTestingAccuracy) { CalmCalibrationDialog() }
         .task { await appState.refreshAppleSpeechLanguages() }
     }
 
@@ -102,7 +106,10 @@ struct CalmSpeechModelsTab: View {
             name: CalmModelText.name(size),
             variant: CalmModelText.variant(size, isBundled: appState.modelManager.bundledModelFolder(for: size) != nil),
             logo: CalmLogoName(engine: size.engine),
-            reason: CalmModelPicks.reason(for: pick, among: picks, languages: appState.spokenLanguages),
+            reason: Self.reason(
+                CalmModelPicks.reason(for: pick, among: picks, languages: appState.spokenLanguages),
+                measured: appState.calibrationNote(for: size)
+            ),
             footer: Self.footer(for: state, size: size),
             isSelected: isSelected,
             onPick: { flow.pick(size, appState: appState) },
@@ -110,6 +117,21 @@ struct CalmSpeechModelsTab: View {
             onRetry: { flow.pick(size, appState: appState) }
         )
         .contextMenu { CalmSpeechModelMenu(size: size, flow: flow) }
+    }
+
+    /// The card's reason, with what the accuracy test measured when there is
+    /// a result for this microphone: a measurement beats a guess.
+    static func reason(_ reason: String, measured: String?) -> String {
+        guard let measured else { return reason }
+        return reason.isEmpty ? measured : "\(reason) · \(measured)"
+    }
+
+    /// "Test accuracy on your voice", or the last test's winner.
+    private var accuracyRowTitle: String {
+        guard let best = appState.currentCalibration?.best, let rate = best.errorRateText else {
+            return "Test accuracy on your voice"
+        }
+        return "Test accuracy again · last best: \(best.modelName), \(rate) word errors"
     }
 
     static func footer(for state: CalmSpeechModelState, size: ModelSize) -> CalmPickCardFooter {

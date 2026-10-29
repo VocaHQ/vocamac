@@ -87,6 +87,7 @@ enum SettingsArchiveService {
         PreferenceKey.autoPauseApps: .string, PreferenceKey.commandModeShortcut: .string,
         PreferenceKey.commandModeEngine: .string, PreferenceKey.commandModeReview: .string,
         PreferenceKey.savedCommands: .string, PreferenceKey.dictationTone: .string,
+        PreferenceKey.dictationModes: .string,
         PreferenceKey.handsFreeShortcut: .string, PreferenceKey.historyRetention: .string,
         PreferenceKey.historyExcludedApps: .string,
         PreferenceKey.learnCorrectionsMode: .string, PreferenceKey.pasteLastShortcut: .string,

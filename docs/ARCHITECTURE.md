@@ -96,6 +96,8 @@ VocaMacApp (entry point)
     │     ├── CleanupSpeculator (cleans finished pieces before stop)
     │     ├── PauseParagraphs (blank line at a long pause between sentences,
     │     │     found in the recording's loudness, placed by word timings)
+    │     ├── DictationMode / ModePrefix (a mode from its shortcut or a spoken
+    │     │     name first; overrides the app's style for one dictation)
     │     ├── DictationOutputPipeline
     │     │     ├── SnippetExpander / RewriteProtectedText
     │     │     ├── CleanupNeed (skips the model when the rules left it nothing to do)
@@ -110,6 +112,8 @@ VocaMacApp (entry point)
     │     │     ├── CommandModelRunner (prompt → answer → CommandOutputCheck → one retry)
     │     │     │     └── TextTransforming (local slot, Apple Intelligence, or endpoint)
     │     │     └── CommandReviewPanelController (diff to approve; answers)
+    │     ├── CalibrationRunner (accuracy test: one recording through each
+    │     │     downloaded model on its own TranscriptionRouter, scored by WordErrorRate)
     │     └── TextInjector
     │     └── SoundManager
     ├── MenuBarView

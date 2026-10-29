@@ -223,6 +223,8 @@ final class AudioEngine: @unchecked Sendable {
     /// thread, so it must use the same realtime-safe state as `capturePhase`.
     private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
     private var configuredInputDeviceID: AudioDeviceID?
+    /// Why the last start failed. Read and written on `lifecycleQueue`.
+    private var _lastStartFailure: AudioStartFailure?
     /// Zero-based input channel chosen by the user for multi-channel devices.
     /// Read by the input tap, so it lives in `captureSettings`.
     private var preferredInputChannel: Int {
@@ -282,6 +284,24 @@ final class AudioEngine: @unchecked Sendable {
 
     var isCurrentlyRecording: Bool {
         lifecycleQueue.sync { _isCurrentlyRecording }
+    }
+
+    var lastStartFailure: AudioStartFailure? {
+        lifecycleQueue.sync { _lastStartFailure }
+    }
+
+    /// The UID of the input the engine has open, or nil when it has none.
+    var activeInputDeviceUID: String? {
+        lifecycleQueue.sync { configuredInputDeviceID.flatMap(Self.audioDeviceUID(for:)) }
+    }
+
+    /// The input a recording would use now: `preferredUID` while that device
+    /// is connected, otherwise the system default. Nil when there is no input.
+    static func currentInputDeviceUID(preferredUID: String?) -> String? {
+        if let preferredUID, !preferredUID.isEmpty, inputAudioDeviceID(forUID: preferredUID) != nil {
+            return preferredUID
+        }
+        return defaultInputAudioDeviceID().flatMap(audioDeviceUID(for:))
     }
 
     var isEngineAllocatedForTesting: Bool {
@@ -596,7 +616,11 @@ final class AudioEngine: @unchecked Sendable {
         }
         self.configuredInputDeviceID = configuredInputDeviceID
 
-        let inputFormat = inputNode.outputFormat(forBus: 0)
+        let inputFormat = alignedInputFormat(
+            inputNode.outputFormat(forBus: 0),
+            inputNode: inputNode,
+            deviceID: configuredInputDeviceID
+        )
         guard isValidInputFormat(inputFormat) else {
             VocaLogger.error(
                 .audioEngine,
@@ -705,6 +729,7 @@ final class AudioEngine: @unchecked Sendable {
         lifecycleQueue.sync {
             guard !self._isCurrentlyRecording else { return true }
 
+            self._lastStartFailure = nil
             self.setIsPreparingRecording(true)
             // Cleared on both ends so a cancel can only ever apply to the start
             // it was meant for: on entry against one that landed with no start in
@@ -757,7 +782,11 @@ final class AudioEngine: @unchecked Sendable {
                     return abandonCancelledStart()
                 }
 
-                let inputFormat = inputNode.outputFormat(forBus: 0)
+                let inputFormat = alignedInputFormat(
+                    inputNode.outputFormat(forBus: 0),
+                    inputNode: inputNode,
+                    deviceID: configuredInputDeviceID
+                )
 
                 guard isValidInputFormat(inputFormat) else {
                     VocaLogger.error(
@@ -822,10 +851,18 @@ final class AudioEngine: @unchecked Sendable {
                         .audioEngine,
                         "Failed to start audio engine (attempt \(attempt)): \(Self.describeCoreAudioError(startError))"
                     )
+                    if Self.isFormatNotSupported(startError) {
+                        _lastStartFailure = Self.unsupportedFormatFailure(for: configuredInputDeviceID)
+                    }
+                    // Drops the engine, so a retry asks a fresh one for the
+                    // device's format instead of the stale one that failed.
                     recoverFromStartFailure(notifyAppState: false)
 
                     if Self.shouldRetryStart(after: startError, attempt: attempt) {
-                        VocaLogger.warning(.audioEngine, "Retrying audio engine start after hardware-not-running error")
+                        VocaLogger.warning(
+                            .audioEngine,
+                            "Retrying audio engine start on a fresh engine after \(Self.describeCoreAudioError(startError))"
+                        )
                         continue
                     }
                     return false
@@ -849,6 +886,7 @@ final class AudioEngine: @unchecked Sendable {
                         return abandonCancelledStart()
                     }
                     let deviceName = Self.audioDeviceName(for: configuredInputDeviceID) ?? "the input device"
+                    _lastStartFailure = .noAudio(device: deviceName)
                     VocaLogger.warning(
                         .audioEngine,
                         "No audio arrived from \(deviceName) within \(Self.firstInputBufferTimeout)s of starting (attempt \(attempt)); the route applied but Core Audio never opened an input stream"
@@ -866,6 +904,7 @@ final class AudioEngine: @unchecked Sendable {
                 // actually begins, not the start of Bluetooth route settling.
                 recordingStartTime = Date()
                 silenceDetector.withLock { $0.reset() }
+                _lastStartFailure = nil
                 setRecordingActive(true)
                 return true
             }
@@ -1145,7 +1184,98 @@ final class AudioEngine: @unchecked Sendable {
 
     static func shouldRetryStart(after error: Error, attempt: Int) -> Bool {
         guard attempt == 1 else { return false }
-        return OSStatus(truncatingIfNeeded: (error as NSError).code) == kAudioHardwareNotRunningError
+        let status = OSStatus(truncatingIfNeeded: (error as NSError).code)
+        return status == kAudioHardwareNotRunningError || status == kAudioUnitErr_FormatNotSupported
+    }
+
+    /// `kAudioUnitErr_FormatNotSupported` (-10868): the input unit was asked
+    /// for a format the device can't capture in.
+    static func isFormatNotSupported(_ error: Error) -> Bool {
+        OSStatus(truncatingIfNeeded: (error as NSError).code) == kAudioUnitErr_FormatNotSupported
+    }
+
+    private static func unsupportedFormatFailure(for deviceID: AudioDeviceID) -> AudioStartFailure {
+        .unsupportedFormat(
+            device: audioDeviceName(for: deviceID) ?? "the microphone",
+            sampleRate: audioDeviceSampleRate(for: deviceID),
+            channels: inputChannelCount(for: deviceID)
+        )
+    }
+
+    // MARK: - Device Format
+
+    /// The input node's format, corrected when it no longer describes the device.
+    ///
+    /// AVAudioEngine can keep the previous device's format after a pinned
+    /// microphone is applied: a Poly Sync 10, whose input is a separate 16 kHz
+    /// mono device, was reported as 48 kHz stereo, and the start then failed
+    /// with kAudioUnitErr_FormatNotSupported (#379). The input unit can't
+    /// resample, so its client side must run at the device's rate. When the
+    /// device disagrees with the node, set the unit's client format to the
+    /// device's own and read the node again.
+    /// Must be called on `lifecycleQueue`, before the tap is installed.
+    private func alignedInputFormat(
+        _ reported: AVAudioFormat,
+        inputNode: AVAudioInputNode,
+        deviceID configuredDeviceID: AudioDeviceID
+    ) -> AVAudioFormat {
+        // Ask the device the unit is really on: during a Bluetooth profile
+        // switch that can be Core Audio's transient aggregate, whose format is
+        // the right one and must be left alone.
+        let unitDeviceID = inputNode.audioUnit.flatMap(Self.currentInputDeviceID(for:))
+        if let unitDeviceID, Self.isTransientCoreAudioAggregate(deviceID: unitDeviceID) { return reported }
+        let deviceID = unitDeviceID ?? configuredDeviceID
+        let deviceRate = Self.audioDeviceSampleRate(for: deviceID)
+        let deviceChannels = Self.inputChannelCount(for: deviceID)
+        guard Self.isInputFormatStale(
+            reportedSampleRate: reported.sampleRate,
+            reportedChannels: Int(reported.channelCount),
+            deviceSampleRate: deviceRate,
+            deviceChannels: deviceChannels
+        ) else { return reported }
+
+        let deviceName = Self.audioDeviceName(for: deviceID) ?? "the input device"
+        VocaLogger.warning(
+            .audioEngine,
+            "Input node reported \(reported.sampleRate)Hz \(reported.channelCount)ch but \(deviceName) captures at \(deviceRate)Hz \(deviceChannels)ch; matching the device"
+        )
+        guard let audioUnit = inputNode.audioUnit,
+              let deviceFormat = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: deviceRate,
+                channels: AVAudioChannelCount(deviceChannels),
+                interleaved: false
+              ) else { return reported }
+
+        var description = deviceFormat.streamDescription.pointee
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Output,
+            1,
+            &description,
+            UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        )
+        guard status == noErr else {
+            VocaLogger.warning(.audioEngine, "Could not set the input format to the device's (status \(status))")
+            return reported
+        }
+        let refreshed = inputNode.outputFormat(forBus: 0)
+        return isValidInputFormat(refreshed) ? refreshed : deviceFormat
+    }
+
+    /// Whether the node's format can't be the device's: a different sample
+    /// rate, or more channels than the device has. Unknown device values
+    /// (0) never count as a mismatch.
+    static func isInputFormatStale(
+        reportedSampleRate: Double,
+        reportedChannels: Int,
+        deviceSampleRate: Double,
+        deviceChannels: Int
+    ) -> Bool {
+        guard deviceSampleRate > 0, deviceChannels > 0 else { return false }
+        if abs(reportedSampleRate - deviceSampleRate) >= 1 { return true }
+        return reportedChannels > deviceChannels
     }
 
     /// Starting dictation is an explicit request to use the microphone. Clear

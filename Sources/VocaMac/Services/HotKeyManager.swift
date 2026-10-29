@@ -899,6 +899,9 @@ enum HotKeyShortcutAction: Hashable, Identifiable {
     /// Apply one of the user's saved Command Mode instructions to the
     /// selection, without recording anything.
     case savedCommand(UUID)
+    /// Dictate in one of the user's modes: hold to talk, or press once to
+    /// start and again to stop.
+    case dictationMode(UUID)
 
     /// The shortcuts every install has. Saved commands come and go.
     static let builtIn: [HotKeyShortcutAction] = [.pasteLastDictation, .handsFreeToggle, .commandMode]
@@ -909,6 +912,7 @@ enum HotKeyShortcutAction: Hashable, Identifiable {
         case .handsFreeToggle: return "handsFreeToggle"
         case .commandMode: return "commandMode"
         case .savedCommand(let id): return "savedCommand-\(id.uuidString)"
+        case .dictationMode(let id): return "dictationMode-\(id.uuidString)"
         }
     }
 
@@ -918,11 +922,13 @@ enum HotKeyShortcutAction: Hashable, Identifiable {
         case .handsFreeToggle: return "Hands-free dictation"
         case .commandMode: return "Command Mode"
         case .savedCommand: return "Saved command"
+        case .dictationMode: return "Mode"
         }
     }
 
     /// A stable order for a set of actions: built-in ones first, then saved
-    /// commands by identifier. The Carbon fallback numbers its hot keys by it.
+    /// commands and modes by identifier. The Carbon fallback numbers its hot
+    /// keys by it.
     static func ordered<S: Sequence>(_ actions: S) -> [HotKeyShortcutAction] where S.Element == HotKeyShortcutAction {
         actions.sorted { lhs, rhs in
             let left = builtIn.firstIndex(of: lhs), right = builtIn.firstIndex(of: rhs)

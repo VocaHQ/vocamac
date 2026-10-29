@@ -30,6 +30,8 @@ final class MockAudioEngine: AudioRecording {
     var stopRecordingResult: [Float] = []
     var forceResetCallCount = 0
     var startRecordingResult = true
+    /// What `lastStartFailure` reports after a start that returned false.
+    var lastStartFailure: AudioStartFailure?
     var startRecordingDelay: TimeInterval = 0
     /// Holds the start (like a Bluetooth route settling) until opened.
     var startRecordingGate: StepGate?
@@ -381,9 +383,23 @@ final class MockCursorOverlay: CursorOverlayManaging {
         stopHint = hint
     }
 
+    var modeName: String?
+    func setModeName(_ name: String?) {
+        modeName = name
+    }
+
+    var isInputSilent = false
+    private(set) var inputSilentChanges: [Bool] = []
+    func setInputSilent(_ silent: Bool) {
+        isInputSilent = silent
+        inputSilentChanges.append(silent)
+    }
+
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
         commandSession = nil
+        modeName = nil
+        isInputSilent = false
         lastStyle = style
         lastPosition = position
     }
@@ -1039,6 +1055,7 @@ extension AppState {
             PreferenceKey.savedCommands, PreferenceKey.voiceActionsEnabled,
             PreferenceKey.voiceActionShortcuts, PreferenceKey.aiModelsKeptSeparate,
             PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
+            PreferenceKey.dictationModes, PreferenceKey.calibrationResult,
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }

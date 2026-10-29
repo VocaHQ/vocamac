@@ -65,6 +65,11 @@ enum PreferenceKey {
     /// Names of the Shortcuts Command Mode may run, one per line.
     static let voiceActionShortcuts = "vocamac.commandMode.voiceActionShortcuts"
     static let mouseTriggerButton = "vocamac.shortcuts.mouseButton"
+    /// JSON `[DictationMode]`.
+    static let dictationModes = "vocamac.dictationModes"
+    /// JSON `CalibrationResult`: the last accuracy test. Not exported with
+    /// settings: it describes this Mac's microphone and models.
+    static let calibrationResult = "vocamac.calibration.lastResult"
     static let wordReplacements = "vocamac.dictionary.replacements"
     static let dictionarySuggestions = "vocamac.dictionary.suggestions"
     static let dismissedDictionarySuggestions = "vocamac.dictionary.dismissedSuggestions"

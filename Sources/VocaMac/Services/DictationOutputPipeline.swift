@@ -466,14 +466,18 @@ struct DictationOutputPipeline {
             (input, removedRepeats) = WritingStyleEngine.removeRepeatedPhrases(input)
         }
 
-        // "let's do it tomorrow, oh, no, Wednesday" → "let's do it Wednesday".
-        // Rule-based, so like hesitation removal it runs without a model, at
-        // Medium and High, and in any language the resolver knows. Prose
-        // only: a correction replaces words, and Code and Terminal text is
-        // only ever trimmed of filler.
+        // "let's do it tomorrow, oh, no, Wednesday" → "let's do it Wednesday",
+        // then the corrections proved by the sentence's shape: "let's meet
+        // tomorrow, sorry, let's meet yesterday" → "let's meet yesterday",
+        // "…, scratch that, …". Rule-based, so like hesitation removal it runs
+        // without a model, at Medium and above, and in any language the
+        // resolvers know. Prose only: a correction replaces words, and Code
+        // and Terminal text is only ever trimmed of filler.
         var resolvedCorrections = 0
         if profile.cleanup == .inherit, effectiveLevel.removesHesitations, profile.format.supportsWording {
-            (input, resolvedCorrections) = SpokenCorrectionResolver.resolveCounting(input)
+            let typed = SpokenCorrectionResolver.resolveCounting(input)
+            let shaped = ChangeOfMindResolver.resolveCounting(typed.text, matchesWordClasses: isEnglishText)
+            (input, resolvedCorrections) = (shaped.text, typed.count + shaped.count)
         }
         var protectedTerms: [Snippet] = []
         if let dictionary = options.dictionary, !dictionary.isEmpty {

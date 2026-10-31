@@ -47,7 +47,7 @@ You can edit the prompt the model is given and try the edit immediately, before 
 
 ## Honest Limits
 
-These are very small models, chosen so cleanup finishes fast enough to sit in the middle of a dictation. They will not catch every filler, and neither of the shipped models reliably acts on a spoken "scratch that" — the prompt asks for it, but do not rely on it. Dictation in languages other than English is passed through untouched rather than mangled.
+These are very small models, chosen so cleanup finishes fast enough to sit in the middle of a dictation. They will not catch every filler, and neither of the shipped models reliably acts on a spoken "scratch that" by itself. VocaMac handles "scratch that" and spoken corrections ("tomorrow, sorry, let's meet Friday") with rules before the model sees the text, so they work at the Medium level even with Smart Cleanup off. Dictation in languages other than English is passed through untouched rather than mangled.
 
 ## Private by Design
 

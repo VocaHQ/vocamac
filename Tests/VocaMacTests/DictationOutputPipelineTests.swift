@@ -612,15 +612,24 @@ final class DictationOutputPipelineTests: XCTestCase {
         XCTAssertNil(protected.restoreValidated("Hi Sergei, how are you?"), "So does respelling it")
     }
 
-    /// "John" and "Mary" are both names the rewrite must keep, and the
-    /// correction's whole point is to drop one of them.
-    func testHighLevelCorrectionMayDropTheNameItCorrects() async {
+    /// One everyday "no" and a single shared word prove nothing to the
+    /// rules; only High lets the model resolve it.
+    func testHighLevelLetsTheModelResolveWhatTheRulesCannotProve() async {
         let cleaner = MockTranscriptCleanup()
-        cleaner.cleanHandler = { _ in "Send it to Mary." }
-        let high = await process("Send it to John, no wait, Mary.", cleaner: cleaner, level: .high)
-        XCTAssertEqual(high.text, "Send it to Mary.")
+        cleaner.cleanHandler = { _ in "Use staging cluster." }
+        let high = await process("Use staging server, no, staging cluster.", cleaner: cleaner, level: .high)
+        XCTAssertEqual(high.text, "Use staging cluster.")
+        let medium = await process("Use staging server, no, staging cluster.", cleaner: cleaner, level: .medium)
+        XCTAssertEqual(medium.text, "Use staging server, no, staging cluster.")
+    }
+
+    /// One name for another is proved by the sentence's shape, so Medium
+    /// resolves it without the model.
+    func testMediumResolvesANameSwapByRule() async {
+        let cleaner = MockTranscriptCleanup()
+        cleaner.cleanHandler = { $0 }
         let medium = await process("Send it to John, no wait, Mary.", cleaner: cleaner, level: .medium)
-        XCTAssertEqual(medium.text, "Send it to John, no wait, Mary.")
+        XCTAssertEqual(medium.text, "Send it to Mary.")
     }
 
     func testANameTheModelDropsOrRespellsIsKept() async {

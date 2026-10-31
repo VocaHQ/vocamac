@@ -74,7 +74,7 @@ The Tiny Whisper model is built in, so you can dictate right away. VocaMac sugge
 
 **Writing**
 - Writing styles per app or website: email, chat, notes, code, terminal.
-- Smart Cleanup removes "um", false starts, and spoken corrections ("Tuesday, no, Wednesday" → "Wednesday") with a small on-device model.
+- Cleanup removes "um", false starts, and changes of mind ("let's meet tomorrow, sorry, let's meet Friday" → "let's meet Friday", "scratch that") with on-device rules, and a small on-device model tidies the rest.
 - Command Mode: select text and say what to change ("make this shorter", "translate to Spanish").
 
 **And more**

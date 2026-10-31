@@ -117,7 +117,7 @@ struct CalmSilentModeSettings: View {
         CalmRow(
             "How you’ll speak",
             description: appState.silentModeReadsLips
-                ? "Mouth the words with no sound. The lip-reading model reads them."
+                ? "Mouth the words with no sound, as clearly as if you were speaking, facing the camera. The lip-reading model reads them."
                 : "Whisper. The speech model decodes it, and the camera keeps out other voices."
         ) {
             CalmSegmentedControl(

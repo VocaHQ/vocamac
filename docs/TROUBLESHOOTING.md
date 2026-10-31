@@ -51,7 +51,13 @@ make lip-reading-model   # needs uv; about 10 minutes and 3 GB of downloads
 
 It installs itself into `~/Library/Application Support/VocaMac/models/lip-reading/`. **Settings › Silent Mode** then shows the model as installed and "How you'll speak" set to **Mouth**. The first silent dictation after that loads the model for a few seconds.
 
-Lip reading is English only and works best with your face square to the camera, lit from the front, at 25–30 frames a second. Turn on **Start preview**: "What the lip reader sees" should show your mouth centred and level. Expect about one word in three to be wrong (greedy decoding on English TED talks gives 33.5% WER); Smart Cleanup tidies many of these.
+Lip reading is English only and works best with your face square to the camera, lit from the front, at 25–30 frames a second. Mouth the words as clearly as if you were speaking: silent mouthing tends to be smaller than speech, and the model learned from people speaking aloud. Turn on **Start preview**: "What the lip reader sees" should show your mouth centred and level. Expect about one word in four to be wrong (26% WER on English TED talks with the beam search; models built before the decoder was added read greedily, at 33%: run `make lip-reading-model` again). Dark or flat lighting is lifted automatically.
+
+To test on a recording of yourself, film a few seconds of mouthing a sentence (QuickTime Player › New Movie Recording) and run:
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac --read-lips ~/Movies/clip.mov --json
+```
 
 ## Silent Mode doesn't type anything
 

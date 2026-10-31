@@ -3043,9 +3043,13 @@ final class AppState: ObservableObject {
         // Silent Mode: decode only where the lips moved, run a mouthed
         // command, or, if the lips never moved, type nothing.
         var speechRanges: [Range<Int>]?
-        var lipReading: (crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>])?
+        var lipReading: (crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>], lowMotion: Bool)?
         if let silentFrames {
-            let decision = silentDecision(frames: silentFrames, audioEnd: stopRequested, sampleCount: audioData.count)
+            let crops = silentCapture?.crops ?? []
+            let decision = silentDecision(
+                frames: silentFrames, audioEnd: stopRequested, sampleCount: audioData.count,
+                readsLips: readsLips && !crops.isEmpty
+            )
             switch decision.outcome {
             case .command(let command):
                 resetCommandModeState()
@@ -3055,8 +3059,8 @@ final class AppState: ObservableObject {
                 return
             case .decode(let ranges):
                 speechRanges = ranges
-                if readsLips, let crops = silentCapture?.crops, !crops.isEmpty {
-                    lipReading = (crops, decision.speaking)
+                if readsLips, !crops.isEmpty {
+                    lipReading = (crops, decision.speaking, decision.lowMotion)
                 }
             case .nothingSaid:
                 resetCommandModeState()
@@ -3159,13 +3163,17 @@ final class AppState: ObservableObject {
             let pieceVocabularyMatches = liveVocabulary?.servedOnly(recognitionVocabulary) ?? false
             let contextNeedsWhisperBatch = selectedEngine == .whisperKit
                 && ((!contextTerms.isEmpty && !pieceVocabularyMatches) || translatesSpeech)
-            let lipText: String?
+            // Mouth mode types what the lips said, nothing included: decoding
+            // near-silent audio instead would invent text. Only a lip reader
+            // that couldn't run (nil) falls back to the audio.
+            var lipText: String?
             if let lipReading {
                 lipText = await readLips(lipReading.crops, speaking: lipReading.speaking)
-            } else {
-                lipText = nil
+                if lipReading.lowMotion, let text = lipText, text.split(separator: " ").count <= 1 {
+                    lipText = ""
+                }
             }
-            if let lipText, !lipText.isEmpty {
+            if let lipText {
                 session?.cancel()
                 result = VocaTranscription(
                     text: lipText, duration: 0, detectedLanguage: "en",

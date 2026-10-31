@@ -75,3 +75,18 @@ To check how "Process while speaking" would handle a recording, add `--pieces`. 
 ```
 
 One-shot CLI mode loads the selected model in a separate process for each request. This preserves isolation from the running menu bar app, but the first request has the normal model-loading cost.
+
+## Lip reading from a video
+
+Silent Mode's lip reader can read a video of a face mouthing English, with the same face tracking, mouth crops and model as the app:
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac --read-lips ~/Movies/clip.mov --json
+```
+
+```json
+{"duration_seconds": 2.9, "frames": 120, "frames_with_face": 120, "text": "hello how are you", "video_seconds": 4.0}
+```
+
+It needs the lip-reading model (`make lip-reading-model` in the source folder). `frames_with_face` counts frames where a face was close and square enough to read; when it is well below `frames`, move closer or face the camera.
+

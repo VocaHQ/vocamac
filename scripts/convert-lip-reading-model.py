@@ -9,12 +9,14 @@
 # ///
 """Build Silent Mode's English lip-reading model.
 
-Converts Auto-AVSR's visual speech recognition checkpoint LRS3_V_WER19.1
-(encoder and CTC head) to Core ML, with input lengths every 10 frames up to
-750 (30 s at 25 fps), and writes it with its token list where VocaMac looks:
+Converts Auto-AVSR's visual speech recognition checkpoint LRS3_V_WER19.1 to
+Core ML (the encoder with its CTC head, and the attention decoder VocaMac's
+beam search uses), for 122 input lengths from 8 to 750 frames (0.3 to 30 s at
+25 fps), and writes them with the token list where VocaMac looks:
 
     ~/Library/Application Support/VocaMac/models/lip-reading/
-        LipReader.mlpackage
+        LipReader.mlpackage     encoder + CTC head
+        LipDecoder.mlpackage    attention decoder
         tokens.json
 
 The weights are not VocaMac's to redistribute: they carry the terms of the
@@ -27,8 +29,9 @@ your own use on your Mac.
     uv run scripts/convert-lip-reading-model.py --out DIR  # somewhere else (then Import in Settings)
 
 Takes about 10 minutes and 3 GB of downloads (PyTorch and the 958 MB
-checkpoint). Measured on 60 LRS3 test clips with greedy decoding: 33.5% WER
-(FP32), 35.4% (FP16); PyTorch on unpadded clips 31.9%.
+checkpoint). Measured on 60 LRS3 test clips: 26.3% WER with VocaMac's beam
+search (beam 10, CTC weight 0.1), against 32.5% decoding greedily and 25.5%
+for Auto-AVSR's own beam search in PyTorch.
 """
 
 import argparse
@@ -50,8 +53,11 @@ FILES = {
 }
 TOKENS_SHA256 = "29001d967ad290e28f6f1d7d47e07e314354bf67d3b1f494e936fa2fed9a9122"
 DEFAULT_OUT = Path.home() / "Library/Application Support/VocaMac/models/lip-reading"
-MAX_FRAMES = 750
-STEP = 10
+# Must match LipReadingWindow.lengths: fine steps for short stretches,
+# coarser for long ones; Core ML allows 128 enumerated shapes at most.
+LENGTHS = list(range(8, 60, 2)) + list(range(60, 200, 4)) + list(range(200, 400, 8)) + list(range(400, 751, 10))
+BEAM = 10        # LipBeamSearch.Configuration.beamWidth
+MAX_TOKENS = 64  # LipBeamSearch.Configuration.maximumLength
 
 
 def sha256(path: Path) -> str:
@@ -124,41 +130,84 @@ def main() -> None:
 
         def forward(self, video):
             encoded, _ = self.encoder(video, None)
-            return torch.log_softmax(self.ctc_lo(encoded), dim=-1)
+            return torch.log_softmax(self.ctc_lo(encoded), dim=-1), encoded
 
+    class LipDecoder(torch.nn.Module):
+        """BEAM prefixes [BEAM, MAX_TOKENS] (padded), encoder output [1, T, 768] and the
+        position of the prefixes' last token → next-token log-probabilities [BEAM, vocabulary].
+        The causal mask makes the padding after `position` irrelevant."""
+
+        def __init__(self, model):
+            super().__init__()
+            self.decoder = model.decoder
+            self.register_buffer("mask", torch.tril(torch.ones(MAX_TOKENS, MAX_TOKENS, dtype=torch.bool)).unsqueeze(0))
+
+        def forward(self, tokens, memory, position):
+            x = self.decoder.embed(tokens.long())
+            memory = memory.expand(BEAM, -1, -1)
+            for layer in self.decoder.decoders:
+                x, _, _, _ = layer(x, self.mask, memory, None)
+            last = torch.index_select(x, 1, position.long()).squeeze(1)
+            return torch.log_softmax(self.decoder.output_layer(self.decoder.after_norm(last)), dim=-1)
+
+    precision = ct.precision.FLOAT16 if args.fp16 else ct.precision.FLOAT32
+    terms = "Weights: research and non-commercial use only (LRS3, LRS2, LRW terms). Code: Apache-2.0 (mpc001/auto_avsr)."
     model = LipReader(e2e).eval()
+    decoder = LipDecoder(e2e).eval()
     with torch.no_grad():
         traced = torch.jit.trace(model, torch.randn(1, 1, 80, 88, 88), check_trace=False)
+        traced_decoder = torch.jit.trace(decoder, (
+            torch.full((BEAM, MAX_TOKENS), len(tokens) - 1, dtype=torch.int32), torch.randn(1, 80, 768),
+            torch.tensor([0], dtype=torch.int32),
+        ), check_trace=False)
 
     print("Converting to Core ML…", flush=True)
-    shapes = [(1, 1, length, 88, 88) for length in range(STEP, MAX_FRAMES + 1, STEP)]
     mlmodel = ct.convert(
         traced,
-        inputs=[ct.TensorType(name="video", shape=ct.EnumeratedShapes(shapes=shapes, default=(1, 1, 80, 88, 88)), dtype=np.float32)],
-        outputs=[ct.TensorType(name="log_probs", dtype=np.float32)],
-        minimum_deployment_target=ct.target.macOS14,
-        compute_precision=ct.precision.FLOAT16 if args.fp16 else ct.precision.FLOAT32,
-        convert_to="mlprogram",
+        inputs=[ct.TensorType(name="video", shape=ct.EnumeratedShapes(
+            shapes=[(1, 1, length, 88, 88) for length in LENGTHS], default=(1, 1, 80, 88, 88)), dtype=np.float32)],
+        outputs=[ct.TensorType(name="log_probs", dtype=np.float32), ct.TensorType(name="encoder_out", dtype=np.float32)],
+        minimum_deployment_target=ct.target.macOS14, compute_precision=precision, convert_to="mlprogram",
     )
     mlmodel.short_description = "Auto-AVSR LRS3_V_WER19.1 visual-only encoder and CTC head: English lip reading."
-    mlmodel.license = "Weights: research and non-commercial use only (LRS3, LRS2, LRW terms). Code: Apache-2.0 (mpc001/auto_avsr)."
+    mlmodel.license = terms
+    mldecoder = ct.convert(
+        traced_decoder,
+        inputs=[
+            ct.TensorType(name="tokens", shape=(BEAM, MAX_TOKENS), dtype=np.int32),
+            ct.TensorType(name="memory", shape=ct.EnumeratedShapes(
+                shapes=[(1, length, 768) for length in LENGTHS], default=(1, 80, 768)), dtype=np.float32),
+            ct.TensorType(name="position", shape=(1,), dtype=np.int32),
+        ],
+        outputs=[ct.TensorType(name="log_probs", dtype=np.float32)],
+        minimum_deployment_target=ct.target.macOS14, compute_precision=precision, convert_to="mlprogram",
+    )
+    mldecoder.short_description = "Auto-AVSR LRS3_V_WER19.1 attention decoder, one step for a batch of prefixes."
+    mldecoder.license = terms
 
-    # Check against PyTorch before installing anything.
+    # Check both against PyTorch before installing anything.
     sample = np.random.default_rng(0).standard_normal((1, 1, 80, 88, 88)).astype(np.float32)
     with torch.no_grad():
-        reference = model(torch.from_numpy(sample)).numpy()
-    produced = mlmodel.predict({"video": sample})["log_probs"]
-    agreement = float((reference.argmax(-1) == produced.argmax(-1)).mean())
-    print(f"Agreement with PyTorch on a test input: {agreement:.3f}")
-    if agreement < 0.95:
+        reference, encoded = model(torch.from_numpy(sample))
+    produced = mlmodel.predict({"video": sample})
+    agreement = float((reference.numpy().argmax(-1) == produced["log_probs"].argmax(-1)).mean())
+    prefixes = np.full((BEAM, MAX_TOKENS), len(tokens) - 1, dtype=np.int32)
+    prefixes[:, 1] = np.arange(BEAM) + 7
+    with torch.no_grad():
+        decoder_reference = decoder(torch.from_numpy(prefixes), encoded, torch.tensor([1], dtype=torch.int32)).numpy()
+    decoder_produced = mldecoder.predict({"tokens": prefixes, "memory": produced["encoder_out"], "position": np.array([1], dtype=np.int32)})["log_probs"]
+    decoder_agreement = float((decoder_reference.argmax(-1) == decoder_produced.argmax(-1)).mean())
+    print(f"Agreement with PyTorch on a test input: encoder {agreement:.3f}, decoder {decoder_agreement:.3f}")
+    if agreement < 0.95 or decoder_agreement < 0.95:
         sys.exit("The converted model disagrees with PyTorch; not installing it.")
 
     args.out.mkdir(parents=True, exist_ok=True)
-    for stale in ("LipReader.mlpackage", "LipReader.mlmodelc"):
+    for stale in ("LipReader.mlpackage", "LipReader.mlmodelc", "LipDecoder.mlpackage", "LipDecoder.mlmodelc"):
         target = args.out / stale
         if target.exists():
             subprocess.run(["rm", "-rf", str(target)], check=True)
     mlmodel.save(str(args.out / "LipReader.mlpackage"))
+    mldecoder.save(str(args.out / "LipDecoder.mlpackage"))
     (args.out / "tokens.json").write_text(json.dumps(tokens, ensure_ascii=False))
     (args.out / "NOTICE.txt").write_text(
         "Auto-AVSR visual speech recognition model LRS3_V_WER19.1 (Ma et al., ICASSP 2023,\n"

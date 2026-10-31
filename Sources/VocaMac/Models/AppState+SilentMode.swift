@@ -20,10 +20,15 @@ enum SilentOutcome: Equatable {
     case asUsual
 }
 
-/// A silent recording's outcome, and where the lips moved (for lip reading).
+/// A silent recording's outcome, and what lip reading should read.
 struct SilentDecision: Equatable {
     var outcome: SilentOutcome
+    /// Where the lips moved; for lips the movement check found still, where
+    /// the face was in view.
     var speaking: [ClosedRange<TimeInterval>]
+    /// The movement check found no speech; a lone word read here is likely
+    /// the lip reader filling silence.
+    var lowMotion = false
 }
 
 extension AppState {
@@ -178,7 +183,11 @@ extension AppState {
     // MARK: Outcome
 
     /// Decide what a silent recording becomes, from its lip frames.
-    func silentDecision(frames: [LipFrame], audioEnd: TimeInterval, sampleCount: Int) -> SilentDecision {
+    ///
+    /// - Parameter readsLips: The recording has crops for the lip reader.
+    ///   Subtle mouthing can stay under the movement threshold, so then the
+    ///   lip reader reads what the camera saw rather than nothing being typed.
+    func silentDecision(frames: [LipFrame], audioEnd: TimeInterval, sampleCount: Int, readsLips: Bool = false) -> SilentDecision {
         let sensitivity = ArticulationSensitivity.clamped(silentModeSensitivity)
         let timeline = ArticulationDetector.timeline(for: frames, sensitivity: sensitivity)
         VocaLogger.info(.silentMode, String(
@@ -200,6 +209,10 @@ extension AppState {
             VocaLogger.info(.silentMode, "Decoding \(kept) of \(sampleCount) samples, where the lips moved or the camera couldn't see")
             return decision(.decode(ranges))
         case .noArticulation:
+            if readsLips, !timeline.covered.isEmpty {
+                VocaLogger.info(.silentMode, "Little lip movement; reading the lips anyway")
+                return SilentDecision(outcome: .decode([]), speaking: timeline.covered, lowMotion: true)
+            }
             VocaLogger.info(.silentMode, "No lip movement in a recording the camera watched; nothing decoded")
             return decision(.nothingSaid)
         case .notJudged(let reason):
@@ -225,6 +238,9 @@ extension AppState {
         objectWillChange.send()
     }
 
+    /// Extra seconds read before and after each stretch of movement.
+    static let lipReadingMargin: TimeInterval = 0.25
+
     /// How long the lip-reading model stays loaded after its last read.
     static let lipReaderIdleSeconds: UInt64 = 600
 
@@ -234,13 +250,21 @@ extension AppState {
         guard let first = crops.first?.time, let last = crops.last?.time, first < last else { return nil }
         let available = first...last
         let started = ProcessInfo.processInfo.systemUptime
+        // Loaded first (it usually is, from the start of the recording), so
+        // the windows use the lengths this model accepts.
+        await lipReader.prepare()
         var texts: [String] = []
         var frames = 0
         for chunk in LipReadingWindow.chunks(speaking) {
-            let lower = max(chunk.lowerBound, available.lowerBound), upper = min(chunk.upperBound, available.upperBound)
+            // A little more context either side: a first or last syllable
+            // mouthed gently can sit under the movement threshold.
+            let lower = max(chunk.lowerBound - Self.lipReadingMargin, available.lowerBound)
+            let upper = min(chunk.upperBound + Self.lipReadingMargin, available.upperBound)
             guard lower < upper else { continue }
+            let reader = lipReader
             let window = LipReadingWindow.crops(
-                at: LipReadingWindow.frameTimes(for: lower...upper, available: available), from: crops
+                at: LipReadingWindow.frameTimes(for: lower...upper, available: available) { reader.modelLength(for: $0) },
+                from: crops
             )
             frames += window.count
             do {

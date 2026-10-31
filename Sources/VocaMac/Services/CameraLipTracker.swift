@@ -99,16 +99,7 @@ final class VisionLipTracker: NSObject, CameraLipTracking, AVCaptureVideoDataOut
     private var currentCameraID: String?
 
     // `videoQueue` only.
-    private lazy var landmarksRequest: VNDetectFaceLandmarksRequest = {
-        let request = VNDetectFaceLandmarksRequest()
-        request.revision = VNDetectFaceLandmarksRequestRevision3
-        if VNDetectFaceLandmarksRequest.revision(
-            VNDetectFaceLandmarksRequestRevision3, supportsConstellation: .constellation76Points
-        ) {
-            request.constellation = .constellation76Points
-        }
-        return request
-    }()
+    private let processor = LipFrameProcessor()
     private var lastProcessed: TimeInterval = 0
 
     func setFrameHandler(_ handler: (@Sendable (LipFrame) -> Void)?) {
@@ -258,22 +249,43 @@ final class VisionLipTracker: NSObject, CameraLipTracking, AVCaptureVideoDataOut
         guard now - lastProcessed >= 0.9 / Self.maximumFrameRate,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastProcessed = now
+        let frame = processor.process(pixelBuffer, time: now, capturesMouth: lock.withLock { capturesMouth })
+        lock.withLock { handler }?(frame)
+    }
+}
+
+// MARK: - Per-frame processing
+
+/// Face landmarks for one picture: the lip outline and, when asked, the
+/// mouth patch lip reading needs. The camera and video files (the CLI's
+/// `--read-lips`) go through this same code. One queue at a time.
+final class LipFrameProcessor {
+    private let request: VNDetectFaceLandmarksRequest = {
+        let request = VNDetectFaceLandmarksRequest()
+        request.revision = VNDetectFaceLandmarksRequestRevision3
+        if VNDetectFaceLandmarksRequest.revision(
+            VNDetectFaceLandmarksRequestRevision3, supportsConstellation: .constellation76Points
+        ) {
+            request.constellation = .constellation76Points
+        }
+        return request
+    }()
+
+    func process(_ pixelBuffer: CVPixelBuffer, time: TimeInterval, capturesMouth: Bool) -> LipFrame {
         let size = CGSize(width: CVPixelBufferGetWidth(pixelBuffer), height: CVPixelBufferGetHeight(pixelBuffer))
-        let request = landmarksRequest
-        let imageHandler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+        let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
         do {
-            try imageHandler.perform([request])
+            try handler.perform([request])
         } catch {
             VocaLogger.debug(.silentMode, "Face landmarks failed: \(error.localizedDescription)")
         }
         let face = (request.results ?? []).max { $0.boundingBox.width < $1.boundingBox.width }
         let shape = face.flatMap(Self.lipShape)
-        var frame = LipFrame(time: now, shape: shape, imageSize: size)
-        if lock.withLock({ capturesMouth }), shape?.isUsable == true, let face,
-           let keypoints = Self.keypoints(face, imageSize: size) {
+        var frame = LipFrame(time: time, shape: shape, imageSize: size)
+        if capturesMouth, shape?.isUsable == true, let face, let keypoints = Self.keypoints(face, imageSize: size) {
             frame.mouth = Self.mouthPatch(pixelBuffer, keypoints: keypoints)
         }
-        lock.withLock { handler }?(frame)
+        return frame
     }
 
     // MARK: Lip-reading patch

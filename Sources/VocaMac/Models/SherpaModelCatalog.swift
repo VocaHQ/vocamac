@@ -47,6 +47,10 @@ struct SherpaModelSpec: Sendable {
     /// Token table file, relative to the model directory
     let tokensFile = "tokens.txt"
 
+    /// Where an imported model lives. Nil for catalog models, which live
+    /// under `SherpaService.storageRoot` in `directoryName`.
+    var installDirectory: URL?
+
     /// Whether the recognizer is built around a specific language, so a
     /// change to the transcription language only takes effect on reload.
     ///
@@ -181,7 +185,25 @@ enum SherpaModelCatalog {
     ]
 
     /// Look up the spec for a catalog entry, if it is a sherpa-onnx model.
+    /// The custom slot resolves to the active imported model.
     static func spec(for size: ModelSize) -> SherpaModelSpec? {
-        specs.first { $0.size == size }
+        if size == .customSherpaOnnx {
+            return CustomModelRegistry.shared.activeModel(for: .sherpaOnnx).flatMap(customSpec(for:))
+        }
+        return specs.first { $0.size == size }
+    }
+
+    /// The spec for an imported sherpa-onnx model, or nil when its manifest
+    /// doesn't describe a recognizer.
+    static func customSpec(for model: InstalledCustomModel) -> SherpaModelSpec? {
+        guard let kind = model.manifest.sherpa?.kind else { return nil }
+        return SherpaModelSpec(
+            size: .customSherpaOnnx,
+            archiveURL: model.directory,
+            directoryName: model.directory.lastPathComponent,
+            sha256: model.manifest.sha256 ?? "",
+            kind: kind,
+            installDirectory: model.directory
+        )
     }
 }

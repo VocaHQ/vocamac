@@ -130,10 +130,15 @@ final class AIConfigurationTests: XCTestCase {
         }
         // Every Command Mode model can also run cleanup, so one model can
         // serve both; the compact cleanup models cannot run edits.
-        XCTAssertEqual(CleanupModelKind.cleanupChoices, CleanupModelKind.allCases)
-        XCTAssertEqual(CleanupModelKind.allCases.filter(\.isShared), CleanupModelKind.commandModeChoices)
+        // The imported slot is listed only while it holds a model.
+        let shipped = CleanupModelKind.cleanupChoices.filter { $0 != .customGGUF }
+        XCTAssertEqual(shipped, CleanupModelKind.catalogKinds)
         XCTAssertEqual(
-            CleanupModelKind.allCases.filter(\.isSlowForCleanup),
+            CleanupModelKind.catalogKinds.filter(\.isShared),
+            CleanupModelKind.commandModeChoices.filter { $0 != .customGGUF }
+        )
+        XCTAssertEqual(
+            CleanupModelKind.catalogKinds.filter(\.isSlowForCleanup),
             [.ministral3_3b_q4_k_m, .qwen3_4b_instruct_2507_q4_k_m, .qwen25_7b_q4_k_m]
         )
     }

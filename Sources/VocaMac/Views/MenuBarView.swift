@@ -1050,8 +1050,8 @@ struct MenuBarView: View {
                            help: "Transcribe an audio or video file") {
                     fileTranscriptionManager.open(appState: appState)
                 }
-                toolButton("System Audio", systemImage: "speaker.wave.2.fill",
-                           help: "Transcribe what this Mac is playing") {
+                toolButton("New Note", systemImage: "note.text.badge.plus",
+                           help: "Record a meeting, a call or a memo into Notes") {
                     meetingCaptureManager.open(appState: appState)
                 }
             }
@@ -1071,6 +1071,10 @@ struct MenuBarView: View {
             }
             .disabled(appState.lastDictationText == nil || appState.isRecording || appState.appStatus == .processing)
             menuRow("History", systemImage: "clock.arrow.circlepath", shortcut: nil) { openHistory() }
+            menuRow("Notes", systemImage: "note.text", shortcut: nil) {
+                appState.requestSettingsPage(.notes)
+                settingsManager.open(appState: appState)
+            }
             // The same switch as "Save dictation history" in Settings, one
             // click away for a private moment.
             menuRow(

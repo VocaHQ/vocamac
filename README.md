@@ -77,8 +77,13 @@ The Tiny Whisper model is built in, so you can dictate right away. VocaMac sugge
 - Cleanup removes "um", false starts, and changes of mind ("let's meet tomorrow, sorry, no, let's meet Friday" → "let's meet Friday", "scratch that") with on-device rules, and a small on-device model tidies the rest.
 - Command Mode: select text and say what to change ("make this shorter", "translate to Spanish").
 
+**Notes**
+- Record a meeting, a call, or a memo. VocaMac transcribes it, tells the speakers apart, and summarizes it with decisions and action items, all on your Mac. Save notes as Markdown, or straight into an Obsidian vault.
+
 **And more**
-- Transcribe audio and video files, or record system audio.
+- Transcribe audio and video files.
+- Bring your own model: a Whisper fine-tune, a sherpa-onnx model, or a GGUF for Writing AI ([how](docs/CUSTOM_MODELS.md)).
+- Let Claude Code, Cursor, and other local coding agents use your dictations and Dictionary over [MCP](docs/CLI.md#mcp-server).
 - A [command-line transcriber](docs/CLI.md) for scripts.
 - Automation with the Shortcuts app and `vocamac://` links.
 - Installs its own updates and keeps your permissions.

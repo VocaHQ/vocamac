@@ -479,6 +479,34 @@ Storage limits:
 - Retention (1 day, 7 days, 30 days, or forever) is applied at launch, at each
   dictation, and whenever the setting changes.
 
+### Voice notes
+
+`VoiceNoteStore` keeps a `VoiceNote` per meeting, call, memo, saved
+Scratchpad text, or long dictation saved from History, newest first.
+
+- `index.json` holds every note: title, source, status, duration, the
+  transcript as `VoiceNoteSegment`s (start, end, text, speaker id), the plain
+  text, speaker names the user typed, the `VoiceNoteSummary` (overview,
+  decisions, action items, model), and the audio file name.
+- `<note-id>/audio.wav` is the 16 kHz mono recording.
+- A note is saved as `pending` before its audio is written. A pending note
+  found at launch becomes `interrupted`, and its audio can be transcribed
+  again. Audio that isn't on disk is forgotten, and folders no note owns are
+  removed.
+- Speaker ids are "1", "2", … in order of first appearance; names are never
+  guessed.
+- Retention is History's setting. At most 1,000 notes and 2 GB of audio are
+  kept; the oldest notes lose their audio first.
+- With an export folder set, each finished note is also written there as
+  Markdown (`NoteExportFolder`, a bookmark in `vocamac.notes.exportFolderBookmark`).
+
+### Imported models
+
+`CustomModelRegistry` keeps models the user imported, each in
+`models/custom/<id>/` with its `vocamodel.json` (`CustomModelManifest`). The
+model each slot runs is in `vocamac.customModel.active.<engine>`. See
+[CUSTOM_MODELS.md](CUSTOM_MODELS.md).
+
 ### Personal dictionary
 
 `DictionaryCorrector` runs inside `DictationOutputPipeline`, after the Raw
@@ -664,6 +692,8 @@ enum UpdateState: Equatable {
 | Model files | `~/Library/Application Support/VocaMac/models/` | Permanent (user can delete) |
 | Audio buffers | In-memory `[Float]` | Discarded after transcription |
 | Transcription results | `~/Library/Application Support/VocaMac/History/` (`index.json` + `audio/*.wav`) | Per the history retention setting; off when history is disabled |
+| Voice notes | `~/Library/Application Support/VocaMac/Notes/` (`index.json` + `<id>/audio.wav`) | Per the history retention setting |
+| Imported models | `~/Library/Application Support/VocaMac/models/custom/<id>/` | Until the user deletes them |
 | App state | In-memory `AppState` | Rebuilt on each launch |
 | System capabilities | Computed at launch | Rebuilt on each launch |
 | Update check cache | `UserDefaults` (`vocamac.update.*`) | Persisted across launches |
@@ -682,6 +712,9 @@ enum UpdateState: Equatable {
 │   ├── index.json             ← Dictation history snapshot
 │   ├── journal.jsonl          ← Changes since the snapshot (replayed at launch)
 │   └── audio/<entry-id>.wav   ← Recordings kept for playback and retry
+├── Notes/
+│   ├── index.json             ← Every note, transcript and summary
+│   └── <note-id>/audio.wav    ← The note's recording
 └── logs/                      ← Future: debug logging
 ```
 

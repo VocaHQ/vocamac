@@ -1042,6 +1042,8 @@ final class WhisperService: @unchecked Sendable {
 
     static func modelSize(fromName name: String) -> ModelSize {
         let lowered = name.lowercased()
+        // Imported models: their names say nothing about which Whisper they are.
+        if lowered.hasPrefix(ModelManager.customWhisperKitNamePrefix) { return .customWhisperKit }
         if lowered.contains("hinglish") { return .vocaHinglish }
         if lowered.contains("v20240930") && lowered.contains("turbo") { return .largeV3LatestTurbo }
         if lowered.contains("v20240930") { return .largeV3Latest }

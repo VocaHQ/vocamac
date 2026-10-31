@@ -335,7 +335,7 @@ struct VocaMacApp: App {
     @StateObject private var updateWindowManager = UpdateWindowManager()
     @StateObject private var fileTranscriptionManager = FileTranscriptionWindowManager.shared
     @StateObject private var scratchpadManager = ScratchpadWindowManager.shared
-    @StateObject private var meetingCaptureManager = MeetingCaptureWindowManager()
+    @StateObject private var meetingCaptureManager = MeetingCaptureWindowManager.shared
 
     var body: some Scene {
         // Menu bar presence — the primary UI for VocaMac

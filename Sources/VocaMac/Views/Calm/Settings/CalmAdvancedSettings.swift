@@ -19,6 +19,7 @@ struct CalmAdvancedSettings: View {
     @State private var confirmsResetPermissions = false
     @State private var confirmsClearLogs = false
     @State private var copiedLogs = false
+    @State private var copiedMCPCommand = false
 
     var body: some View {
         CalmPage(.sheet) {
@@ -70,6 +71,10 @@ struct CalmAdvancedSettings: View {
                             Button(gateway.isLive ? "Open" : "Set up") { navigator?.select(.gateway) }
                                 .calmButton(.secondary)
                         }
+                    }
+                    if AppDistribution.hasMCPServer {
+                        mcpRow
+                            .settingsTarget("mcp-server")
                     }
                     logsRow
                         .settingsTarget("logs")
@@ -128,6 +133,27 @@ struct CalmAdvancedSettings: View {
     }
 
     // MARK: Rows
+
+    /// Coding agents: copy the command that registers VocaMac's MCP server
+    /// with Claude Code, or open the guide for other clients.
+    private var mcpRow: some View {
+        CalmRow(
+            "Coding agents (MCP)",
+            description: "Claude Code, Cursor and other local agents can read your dictations and Dictionary, "
+                + "add terms, and transcribe files. Everything stays on this Mac."
+        ) {
+            HStack(spacing: 8) {
+                Button(copiedMCPCommand ? "Copied" : "Copy command") {
+                    appState.copyToClipboard(MCPSetup.claudeCodeCommand())
+                    copiedMCPCommand = true
+                }
+                .calmButton(.secondary)
+                .help(MCPSetup.claudeCodeCommand())
+                Button("Guide") { NSWorkspace.shared.open(MCPSetup.guideURL) }
+                    .calmButton(.secondary)
+            }
+        }
+    }
 
     @ViewBuilder
     private func permissionRow(

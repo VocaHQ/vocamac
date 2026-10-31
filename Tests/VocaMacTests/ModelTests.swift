@@ -139,7 +139,8 @@ final class SystemInfoTests: XCTestCase {
 final class ModelSizeTests: XCTestCase {
 
     func testModelSizesHavePositiveFileSizes() {
-        for size in ModelSize.allCases where !size.isSystemManaged {
+        // An import slot's size is its imported model's, if it has one.
+        for size in ModelSize.allCases where !size.isSystemManaged && !size.isCustom {
             XCTAssertGreaterThan(size.fileSizeBytes, 0)
         }
     }
@@ -184,7 +185,9 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 26)
+        // 26 built-in models and two import slots.
+        XCTAssertEqual(ModelSize.allCases.count, 28)
+        XCTAssertEqual(ModelSize.allCases.filter(\.isCustom), [.customWhisperKit, .customSherpaOnnx])
     }
 
     func testRawValues() {
@@ -265,7 +268,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.qwen3Asr06B.engine, .sherpaOnnx)
 
         // Everything else is a WhisperKit model.
-        let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit }
+        let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit && !$0.isCustom }
         XCTAssertEqual(whisperCases.count, 13)
     }
 
@@ -323,7 +326,7 @@ final class TranscriptionRouterTests: XCTestCase {
 final class SherpaModelCatalogTests: XCTestCase {
 
     func testEverySherpaModelHasASpec() {
-        for size in ModelSize.allCases where size.engine == .sherpaOnnx {
+        for size in ModelSize.allCases where size.engine == .sherpaOnnx && !size.isCustom {
             XCTAssertNotNil(SherpaModelCatalog.spec(for: size), "\(size.rawValue) is missing a catalog spec")
         }
     }

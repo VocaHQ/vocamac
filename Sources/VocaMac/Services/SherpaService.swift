@@ -62,7 +62,7 @@ final class SherpaService: @unchecked Sendable {
 
     /// Directory a spec's files live in once extracted.
     static func modelDirectory(for spec: SherpaModelSpec) -> URL {
-        storageRoot.appendingPathComponent(spec.directoryName, isDirectory: true)
+        spec.installDirectory ?? storageRoot.appendingPathComponent(spec.directoryName, isDirectory: true)
     }
 
     /// Marker written only after an archive has been fully extracted and

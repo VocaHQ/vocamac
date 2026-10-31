@@ -70,8 +70,13 @@ doesn't see the direct download's data.
 | `com.apple.security.device.audio-input` | The microphone |
 | `com.apple.security.network.client` | Model downloads, the Custom Endpoint engine, AI servers on the LAN |
 | `com.apple.security.files.user-selected.read-write` | Open and save panels: Transcribe File, export and import of settings, history and style rules, log export. Save panels need write access, so read-only isn't enough |
+| `com.apple.security.files.bookmarks.app-scope` | Remembering the Notes export folder (an Obsidian vault, say) across launches, as a security-scoped bookmark |
 
 No Apple Events entitlement and no temporary exceptions.
+
+The MCP server (`--mcp`) and the community model list are left out of this
+build, and imported models must be folders: unpacking a `.zip` needs
+`/usr/bin/ditto`, a program outside the bundle.
 `build-appstore.sh` fails if the signed app has either.
 
 ## Info.plist

@@ -504,6 +504,7 @@ struct CalmAllSpeechModels: View {
             } else {
                 list(groups, spoken: spoken, selected: selected)
             }
+            CalmImportedModels()
             Text("Models download from Hugging Face and stay on this Mac" + (storage.map { " · \(CalmModelText.size(bytes: $0.totalBytes)) used" } ?? ""))
                 .font(CalmFont.note)
                 .foregroundStyle(CalmColor.muted)

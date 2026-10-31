@@ -44,6 +44,12 @@ enum AppDistribution {
     /// terminal from a shell. The sandbox doesn't allow it.
     static var canReadOtherProcesses: Bool { !isAppStore }
 
+    /// Serving local coding agents with `VocaMac --mcp`. An agent starts the
+    /// app's binary from a terminal, which a sandboxed App Store copy can't
+    /// usefully serve: it can't read the history or preferences of the
+    /// container from outside it.
+    static var hasMCPServer: Bool { !isAppStore }
+
     /// Settings search entries for controls this build doesn't show.
     static var hiddenSettingsTargets: Set<String> {
         var hidden: Set<String> = []
@@ -51,6 +57,7 @@ enum AppDistribution {
         if !hasPhoneGateway { hidden.formUnion(["gateway", "gateway-pair", "gateway-docker"]) }
         if !hasAppleScriptControl { hidden.insert("spotify-pause") }
         if !canReadOtherProcesses { hidden.insert("coding-agents") }
+        if !hasMCPServer { hidden.insert("mcp-server") }
         return hidden
     }
 }

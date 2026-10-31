@@ -49,7 +49,7 @@ final class DictationHistoryStore: ObservableObject {
         Int64(44 + sampleCount * 2)
     }
 
-    static var defaultDirectory: URL? {
+    nonisolated static var defaultDirectory: URL? {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
             .appendingPathComponent("VocaMac", isDirectory: true)
             .appendingPathComponent("History", isDirectory: true)
@@ -691,6 +691,23 @@ final class DictationHistoryStore: ObservableObject {
         }
         entries = byID.values.sorted { $0.createdAt > $1.createdAt }
         return true
+    }
+
+    /// History as another process sees it: the index with the journal
+    /// replayed over it, newest first. Writes nothing — no compaction, no
+    /// clean-up of unreferenced audio, no setting aside of an unreadable
+    /// index — because the app may be writing the same files right now.
+    /// An unreadable index reads as no history.
+    nonisolated static func readOnlyEntries(in directory: URL) -> [DictationHistoryEntry] {
+        let indexURL = directory.appendingPathComponent("index.json")
+        var loaded: [DictationHistoryEntry] = []
+        if let data = try? Data(contentsOf: indexURL) {
+            loaded = (try? makeDecoder().decode([DictationHistoryEntry].self, from: data)) ?? []
+        }
+        if !replayJournal(at: directory.appendingPathComponent("journal.jsonl"), onto: &loaded) {
+            loaded.sort { $0.createdAt > $1.createdAt }
+        }
+        return loaded
     }
 
     /// Read the index, replay the journal, and fold the result back into the

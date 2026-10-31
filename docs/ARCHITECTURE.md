@@ -395,6 +395,27 @@ On launch (max once every 24h)
 
 ---
 
+#### 3.2.10 Voice notes, the MCP server, and imported models
+
+- **Voice notes.** `MeetingCaptureView` records this Mac's audio (a Core Audio
+  process tap), the microphone (`MicrophoneNoteRecorder`, its own
+  `AVAudioEngine`), or both mixed (`NoteAudioMixer`). `AppState+VoiceNotes`
+  saves the audio to `VoiceNoteStore`, transcribes it with the selected model,
+  tells speakers apart with FluidAudio's offline diarizer
+  (`FluidSpeakerDiarizer`, macOS 15+, models loaded per note and released),
+  labels the transcript (`SpeakerAssignment`), and summarizes it on the Command
+  Mode engine (`NoteSummarizer` through `AppState.runOnCommandEngine`). The
+  Notes page is a sidebar page (`CalmNotesPage`).
+- **MCP server.** `VocaMac --mcp` (`CLI/MCPServer.swift`) answers JSON-RPC on
+  stdio for local agents. Like the rest of the CLI it never builds `AppState`:
+  it reads History's files read-only, writes the Dictionary to preferences and
+  posts a distributed notification the app reloads on, and starts or stops
+  dictation through `vocamac://` links. Not in the App Store build.
+- **Imported models.** `CustomModelRegistry` validates and installs model
+  folders; the catalog's custom slots (`ModelSize.customWhisperKit`,
+  `.customSherpaOnnx`, `CleanupModelKind.customGGUF`) stand for the active
+  imported model, so loading, memory checks and pickers need no special path.
+
 ## 4. Data Flow
 
 ### 4.1 Complete Transcription Pipeline

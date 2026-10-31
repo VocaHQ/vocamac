@@ -578,7 +578,7 @@ final class CleanupModelTests: XCTestCase {
     }
 
     func testCatalogCoversEveryKind() {
-        for kind in CleanupModelKind.allCases {
+        for kind in CleanupModelKind.catalogKinds {
             let descriptor = kind.descriptor
             XCTAssertEqual(descriptor.kind, kind)
             XCTAssertFalse(descriptor.displayName.isEmpty)
@@ -586,7 +586,7 @@ final class CleanupModelTests: XCTestCase {
             XCTAssertGreaterThan(descriptor.expectedByteCount, 0)
             XCTAssertNotNil(descriptor.url.scheme)
         }
-        XCTAssertEqual(CleanupModelCatalog.all.count, CleanupModelKind.allCases.count)
+        XCTAssertEqual(CleanupModelCatalog.all.count, CleanupModelKind.catalogKinds.count)
     }
 }
 

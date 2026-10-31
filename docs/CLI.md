@@ -75,3 +75,42 @@ To check how "Process while speaking" would handle a recording, add `--pieces`. 
 ```
 
 One-shot CLI mode loads the selected model in a separate process for each request. This preserves isolation from the running menu bar app, but the first request has the normal model-loading cost.
+
+## MCP server
+
+`--mcp` runs VocaMac as a [Model Context Protocol](https://modelcontextprotocol.io) server on stdin and stdout, so a local coding agent can use your dictations, your Dictionary, and VocaMac's speech models. It opens no network port: the agent starts the binary and talks to it through a pipe, and nothing leaves the Mac. Settings → Advanced → Coding agents copies the setup command for your copy of the app.
+
+Claude Code:
+
+```bash
+claude mcp add vocamac -- /Applications/VocaMac.app/Contents/MacOS/VocaMac --mcp
+```
+
+Cursor (`~/.cursor/mcp.json`), and other clients that take the same JSON:
+
+```json
+{
+  "mcpServers": {
+    "vocamac": {
+      "command": "/Applications/VocaMac.app/Contents/MacOS/VocaMac",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+Tools:
+
+| Tool | What it does |
+|---|---|
+| `transcribe_file` | Transcribes an audio or video file with a downloaded model (`path`, optional `model` and `language`), the same as `--transcribe-file`. |
+| `list_models` | The `--list-models` catalog. |
+| `latest_dictation` | The most recent dictations (`count`, 1 to 50): the typed text, what was heard when cleanup changed it, the app, and when. |
+| `search_history` | Dictations containing every word of `query`, newest first (`limit`, 1 to 50). |
+| `dictionary_terms` | Vocabulary terms and replacements. |
+| `add_dictionary_term` | Adds a `term`, plus a replacement from `heard` when the engine writes it differently. A running VocaMac picks the change up at once. |
+| `start_dictation`, `stop_dictation` | Ask the running app to start recording, or to stop and type the transcript. VocaMac asks you to confirm the first time. |
+
+Each dictation is also a resource, `vocamac://history/<id>`, readable as Markdown; `resources/list` names the newest 100.
+
+What the server can see follows the app's own settings: dictations into apps you keep out of History were never saved, and turning History off stops new ones being saved. History is read from its files without changing them, so the server never interferes with a running VocaMac. The server is not in the Mac App Store build, whose sandbox keeps its files out of reach of a process started from a terminal.

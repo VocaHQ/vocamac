@@ -74,6 +74,12 @@ extension ModelSize {
         // Whatever the server runs — most Whisper deployments are multilingual.
         case .customEndpoint:
             return .broad
+        // What the manifest says; a Whisper fine-tune that says nothing is
+        // assumed as broad as its base, an ONNX model as narrow as English.
+        case .customWhisperKit, .customSherpaOnnx:
+            let languages = activeCustomModel?.manifest.languages ?? []
+            if languages.isEmpty { return self == .customWhisperKit ? .broad : .only(["en"]) }
+            return .only(Set(languages))
         }
     }
 
@@ -111,6 +117,8 @@ extension ModelSize {
         case "Legacy":    return 0.55
         // "Varies": a remote endpoint's accuracy is the server's to choose.
         case "Varies":    return 0.7
+        // An imported model hasn't been measured with VocaMac.
+        case "Imported":  return 0.7
         default:          return 0.85
         }
     }
@@ -156,6 +164,9 @@ extension ModelSize {
         case .canary180mFlash:           return "English, Spanish, German, and French in a compact model."
         case .qwen3Asr06B:               return "30 languages, including Hindi, Arabic, and Thai."
         case .customEndpoint:            return "Your Whisper-compatible server — dictation goes to it over the network."
+        case .customWhisperKit, .customSherpaOnnx:
+            guard let model = activeCustomModel else { return "A model you imported." }
+            return "Imported" + (model.manifest.source.map { " from \($0)" } ?? "") + "."
         }
     }
 }

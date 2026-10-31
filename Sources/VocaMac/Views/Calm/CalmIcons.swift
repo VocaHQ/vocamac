@@ -10,7 +10,7 @@ import SwiftUI
 
 /// Every icon on the Foundations board. The raw value is the board's asset name.
 enum CalmIconName: String, CaseIterable, Sendable {
-    case home, insights, dictionary, snippets, styles, commands, settings, help
+    case home, notes, insights, dictionary, snippets, styles, commands, settings, help
     case general, system, models, cleanup, privacy, advanced
     case search, copy, edit, trash, close, plus
     case chevRight = "chev-right"
@@ -24,6 +24,7 @@ enum CalmIconName: String, CaseIterable, Sendable {
     var pathData: String {
         switch self {
         case .home: return "M4.5 3H7A1.5 1.5 0 0 1 8.5 4.5V7A1.5 1.5 0 0 1 7 8.5H4.5A1.5 1.5 0 0 1 3 7V4.5A1.5 1.5 0 0 1 4.5 3ZM13 3H15.5A1.5 1.5 0 0 1 17 4.5V7A1.5 1.5 0 0 1 15.5 8.5H13A1.5 1.5 0 0 1 11.5 7V4.5A1.5 1.5 0 0 1 13 3ZM4.5 11.5H7A1.5 1.5 0 0 1 8.5 13V15.5A1.5 1.5 0 0 1 7 17H4.5A1.5 1.5 0 0 1 3 15.5V13A1.5 1.5 0 0 1 4.5 11.5ZM13 11.5H15.5A1.5 1.5 0 0 1 17 13V15.5A1.5 1.5 0 0 1 15.5 17H13A1.5 1.5 0 0 1 11.5 15.5V13A1.5 1.5 0 0 1 13 11.5Z"
+        case .notes: return "M5.5 3H14.5A1.5 1.5 0 0 1 16 4.5V15.5A1.5 1.5 0 0 1 14.5 17H5.5A1.5 1.5 0 0 1 4 15.5V4.5A1.5 1.5 0 0 1 5.5 3ZM7 7h6M7 10h6M7 13h3.5"
         case .insights: return "M4 16.5V10M8 16.5V4.5M12 16.5V8M16 16.5V12"
         case .dictionary: return "M4 4.8A1.8 1.8 0 0 1 5.8 3H16v11.5H5.8A1.8 1.8 0 0 0 4 16.3zM4 16.3A1.8 1.8 0 0 0 5.8 18H16M7.5 6.5h5"
         case .snippets: return "M4 5h12M4 9h12M4 13h5M12.5 12l2.5 2.5-2.5 2.5"

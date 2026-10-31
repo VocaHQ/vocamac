@@ -11,6 +11,8 @@ final class CLIEntrypoint {
     typealias DataSink = (Data) -> Void
 
     private let headlessTranscriber: HeadlessTranscriber
+    /// Builds the MCP server for `--mcp`; nil where serving isn't wanted (tests).
+    private let mcpServerFactory: (() -> MCPServer)?
     private let stdout: DataSink
     private let stderr: DataSink
     private let isolateOperationalStreams: Bool
@@ -18,11 +20,13 @@ final class CLIEntrypoint {
 
     init(
         headlessTranscriber: HeadlessTranscriber,
+        mcpServerFactory: (() -> MCPServer)? = nil,
         stdout: @escaping DataSink = { FileHandle.standardOutput.write($0) },
         stderr: @escaping DataSink = { FileHandle.standardError.write($0) },
         isolateOperationalStreams: Bool = false
     ) {
         self.headlessTranscriber = headlessTranscriber
+        self.mcpServerFactory = mcpServerFactory
         self.stdout = stdout
         self.stderr = stderr
         self.isolateOperationalStreams = isolateOperationalStreams
@@ -50,6 +54,16 @@ final class CLIEntrypoint {
         )
         return CLIEntrypoint(
             headlessTranscriber: transcriber,
+            mcpServerFactory: {
+                MCPServer(
+                    backend: MCPProductionBackend(
+                        transcriber: transcriber,
+                        defaults: AppCLIPreferencesReader.applicationDefaults(),
+                        historyDirectory: DictationHistoryStore.defaultDirectory
+                    ),
+                    serverVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
+                )
+            },
             isolateOperationalStreams: true
         )
     }
@@ -67,6 +81,11 @@ final class CLIEntrypoint {
         case .help:
             stdout(Data(Self.helpText.utf8))
             return 0
+        case .mcpServer:
+            guard let mcpServerFactory else {
+                return emit(error: CLIError(.invalidArguments, "The MCP server is not available here."))
+            }
+            return await MCPStdioTransport.run(server: mcpServerFactory())
         case .listModels:
             return await runJSONOperation {
                 self.headlessTranscriber.listModels()
@@ -210,6 +229,7 @@ final class CLIEntrypoint {
       VocaMac --transcribe-file <audio-path> --json --pieces [--cleanup <cleanup-model-id>]
           [--pause-seconds <s>] [--min-piece-seconds <s>] [--model <id>] [--language <code>]
       VocaMac --list-models --json
+      VocaMac --mcp
       VocaMac --help
 
     Omitting --model and --language follows the current VocaMac app preferences.
@@ -217,6 +237,7 @@ final class CLIEntrypoint {
     --pieces compares decoding the whole file with decoding it piece by piece at pauses, as
     "Process while speaking" does while recording, and reports both texts and timings.
     --cleanup also cleans both with a downloaded cleanup model.
+    --mcp serves the Model Context Protocol on stdin and stdout for local coding agents.
     """ + "\n"
 }
 

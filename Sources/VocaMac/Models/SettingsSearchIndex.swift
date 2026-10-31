@@ -581,6 +581,27 @@ enum SettingsSearchIndex {
             keywords: ["streak", "words", "history", "share", "social", "linkedin", "usage stats"]
         ),
         SettingsSearchEntry(
+            id: "notes-settings",
+            page: .notes,
+            title: "Notes",
+            subtitle: "Speakers, summaries, and a folder to save notes to",
+            keywords: ["notes", "meeting", "memo", "summary", "speakers", "diarization", "obsidian", "export", "transcript"]
+        ),
+        SettingsSearchEntry(
+            id: "imported-models",
+            page: .speechModel,
+            title: "Your own models",
+            subtitle: "Import a Whisper fine-tune, an ONNX model or a GGUF",
+            keywords: ["import", "custom model", "fine-tune", "finetune", "gguf", "onnx", "coreml", "community", "vocamodel"]
+        ),
+        SettingsSearchEntry(
+            id: "mcp-server",
+            page: .advanced,
+            title: "Coding agents (MCP)",
+            subtitle: "Let Claude Code, Cursor and other local agents use VocaMac",
+            keywords: ["mcp", "model context protocol", "claude code", "cursor", "codex", "agent", "server", "api"]
+        ),
+        SettingsSearchEntry(
             id: "logs",
             page: .advanced,
             title: "Logs",

@@ -19,13 +19,15 @@ enum CLICommand: Equatable {
     /// would while recording), optionally cleaning both, and report timings.
     case comparePieces(path: String, model: String?, language: String?, options: PieceComparisonOptions)
     case listModels
+    /// Serve the Model Context Protocol over stdin and stdout until stdin closes.
+    case mcpServer
 
     /// Flags that unambiguously request the headless CLI. Any other launch
     /// arguments (e.g. GUI-only `--restarted` from Settings → Debug → Restart)
     /// fall through to the normal SwiftUI app. Also used by
     /// `VocaMacApp.ensureSingleInstance()` to avoid killing an in-flight CLI job.
     static let cliFlags: Set<String> = [
-        "--transcribe-file", "--list-models", "--help", "-h",
+        "--transcribe-file", "--list-models", "--mcp", "--help", "-h",
     ]
 
     /// Only dispatch to the headless CLI when a recognized CLI flag is present.
@@ -39,6 +41,13 @@ enum CLICommand: Equatable {
     static func parse(arguments: [String]) throws -> CLICommand {
         if arguments.contains("--help") || arguments.contains("-h") {
             return .help
+        }
+        if arguments.contains("--mcp") {
+            // The server speaks JSON-RPC on stdio; nothing else applies to it.
+            guard arguments == ["--mcp"] else {
+                throw CLIError(.invalidArguments, "--mcp takes no other arguments.")
+            }
+            return .mcpServer
         }
 
         var audioPath: String?

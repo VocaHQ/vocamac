@@ -54,6 +54,7 @@ final class ScratchpadWindowManager: ObservableObject {
 
 struct ScratchpadView: View {
     @EnvironmentObject var appState: AppState
+    @State private var savedAsNote = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -69,7 +70,12 @@ struct ScratchpadView: View {
                     NSPasteboard.general.setString(appState.scratchpadText, forType: .string)
                 } label: { Label("Copy", systemImage: "doc.on.doc") }
                 .disabled(appState.scratchpadText.isEmpty)
-                Button("Clear", role: .destructive) { appState.scratchpadText = "" }
+                Button {
+                    if appState.saveScratchpadAsNote() != nil { savedAsNote = true }
+                } label: { Label(savedAsNote ? "Saved" : "Save as Note", systemImage: "note.text") }
+                .disabled(appState.scratchpadText.isEmpty)
+                .help("Keep this text in Notes")
+                Button("Clear", role: .destructive) { appState.scratchpadText = ""; savedAsNote = false }
                     .disabled(appState.scratchpadText.isEmpty)
             }
             TextEditor(text: $appState.scratchpadText)

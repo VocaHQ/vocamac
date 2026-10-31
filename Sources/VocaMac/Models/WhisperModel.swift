@@ -47,6 +47,11 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     // Remote endpoint (no on-device model)
     case customEndpoint               = "custom-endpoint"
 
+    // Models the user imported (CustomModelRegistry). Each slot stands for
+    // whichever imported model of its engine is active.
+    case customWhisperKit             = "custom-whisperkit"
+    case customSherpaOnnx             = "custom-sherpa-onnx"
+
     var id: String { rawValue }
 
     /// Which engine runs this model.
@@ -57,13 +62,30 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .appleSpeech:
             return .appleSpeech
         case .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B:
+             .qwen3Asr06B, .customSherpaOnnx:
             return .sherpaOnnx
         case .customEndpoint:
             return .customEndpoint
         default:
             return .whisperKit
         }
+    }
+
+    /// The import engine behind a custom slot; nil for built-in models.
+    var customEngine: CustomModelEngine? {
+        switch self {
+        case .customWhisperKit: return .whisperKit
+        case .customSherpaOnnx: return .sherpaOnnx
+        default: return nil
+        }
+    }
+
+    /// Whether this is a slot for a model the user imported.
+    var isCustom: Bool { customEngine != nil }
+
+    /// The imported model this slot runs now, if any.
+    var activeCustomModel: InstalledCustomModel? {
+        customEngine.flatMap { CustomModelRegistry.shared.activeModel(for: $0) }
     }
 
     /// Whether this model's engine can run on the current system at all
@@ -227,6 +249,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .canary180mFlash:           return "Canary 180M (EN/ES/DE/FR)"
         case .qwen3Asr06B:               return "Qwen3 ASR 0.6B (30 Languages)"
         case .customEndpoint:            return "Custom Endpoint"
+        case .customWhisperKit:          return activeCustomModel?.manifest.name ?? "Imported Whisper Model"
+        case .customSherpaOnnx:          return activeCustomModel?.manifest.name ?? "Imported ONNX Model"
         }
     }
 
@@ -270,6 +294,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .gigaamV3:                  return 225_266_401
         case .canary180mFlash:           return 207_476_042
         case .qwen3Asr06B:               return 1_000_089_677
+        case .customWhisperKit, .customSherpaOnnx:
+            return activeCustomModel?.manifest.fileSizeBytes ?? 0
         }
     }
 
@@ -361,6 +387,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .canary180mFlash:           return 4
         case .qwen3Asr06B:               return 4
         case .customEndpoint:            return 1
+        case .customWhisperKit:          return 5
+        case .customSherpaOnnx:          return 3
         }
     }
 
@@ -393,6 +421,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .canary180mFlash:           return "Great"
         case .qwen3Asr06B:               return "Excellent"
         case .customEndpoint:            return "Varies"
+        case .customWhisperKit, .customSherpaOnnx: return "Imported"
         }
     }
 }

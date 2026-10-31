@@ -225,7 +225,7 @@ final class SystemAudioCapture: ObservableObject {
 
     func stop() -> [Float] {
         cleanup()
-        didReachLimit = accumulator.reachedLimit()
+        didReachLimit = didReachLimit || accumulator.reachedLimit()
         let samples = accumulator.takeNormalizedSamples()
         VocaLogger.info(.audioEngine, "System-audio process tap stopped with \(samples.count) samples")
         return samples

@@ -534,6 +534,14 @@ private struct CalmFeedRow: View, Equatable {
                 }
                 .disabled(retryingID != nil)
                 .help("Transcribe again with the current model and copy the result")
+                if entry.audioSeconds >= AppState.noteWorthyDictationSeconds {
+                    Button {
+                        Task { await appState.saveHistoryEntryAsNote(entry.id) }
+                    } label: {
+                        Label("Save as note", systemImage: "note.text")
+                    }
+                    .help("Keep it in Notes with its audio, and summarize it")
+                }
             }
             Divider()
             Button(role: .destructive) {

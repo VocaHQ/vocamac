@@ -21,9 +21,12 @@ enum ModelManagerError: LocalizedError {
     case checksumMismatch(model: String, expected: String, actual: String)
     case insufficientDiskSpace(model: String, requiredBytes: Int64, availableBytes: Int64)
     case incompleteDownload(model: String, expectedBytes: Int64, actualBytes: Int64)
+    case importedModelNotDownloadable
 
     var errorDescription: String? {
         switch self {
+        case .importedModelNotDownloadable:
+            return "Imported models aren't downloaded. Import one in Settings → Models → All models."
         case .incompleteDownload(let model, let expectedBytes, let actualBytes):
             let formatter = ByteCountFormatter()
             formatter.countStyle = .file
@@ -93,8 +96,19 @@ final class ModelManager: @unchecked Sendable {
     /// Reads free space on the volume holding a URL. Injectable for tests.
     private let availableCapacity: @Sendable (URL) -> Int64?
 
-    init(availableCapacity: @escaping @Sendable (URL) -> Int64? = { ModelManager.volumeAvailableCapacity(at: $0) }) {
+    /// Models the user imported. The catalog's custom slots read the shared
+    /// registry; tests give the manager one of their own.
+    let customModels: CustomModelRegistry
+
+    /// Prefix of the WhisperKit model name an imported model loads under.
+    static let customWhisperKitNamePrefix = "custom-"
+
+    init(
+        availableCapacity: @escaping @Sendable (URL) -> Int64? = { ModelManager.volumeAvailableCapacity(at: $0) },
+        customModels: CustomModelRegistry = .shared
+    ) {
         self.availableCapacity = availableCapacity
+        self.customModels = customModels
     }
 
     private var bundledModelsBase: URL? {
@@ -102,7 +116,11 @@ final class ModelManager: @unchecked Sendable {
     }
 
     private func installedModelDirectory(for size: ModelSize) -> URL {
-        modelStorageBase(forRepo: whisperKitRepo(for: size))
+        if let engine = size.customEngine {
+            return customModels.activeModel(for: engine)?.directory
+                ?? customModels.root.appendingPathComponent("none", isDirectory: true)
+        }
+        return modelStorageBase(forRepo: whisperKitRepo(for: size))
             .appendingPathComponent(whisperKitModelName(for: size), isDirectory: true)
     }
 
@@ -326,9 +344,13 @@ final class ModelManager: @unchecked Sendable {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
+        case .customWhisperKit:
+            // Unique per imported model, so switching between two of them
+            // reloads, and recognisably custom (`WhisperService.modelSize(fromName:)`).
+            return Self.customWhisperKitNamePrefix + (customModels.activeModel(for: .whisperKit)?.id ?? "none")
         case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B, .customEndpoint:
+             .qwen3Asr06B, .customEndpoint, .customSherpaOnnx:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
         }
@@ -336,6 +358,11 @@ final class ModelManager: @unchecked Sendable {
 
     /// Check if a model is downloaded locally
     func isModelDownloaded(_ size: ModelSize) -> Bool {
+        if size == .customSherpaOnnx {
+            guard let model = customModels.activeModel(for: .sherpaOnnx),
+                  let spec = SherpaModelCatalog.customSpec(for: model) else { return false }
+            return SherpaService.modelFilesExist(for: spec)
+        }
         switch size.engine {
         case .whisperKit:
             guard let modelDir = modelFolder(for: size) else { return false }
@@ -356,6 +383,10 @@ final class ModelManager: @unchecked Sendable {
 
     /// Get the local folder path for a downloaded or installed model
     func modelFolder(for size: ModelSize) -> URL? {
+        if size == .customSherpaOnnx {
+            guard isModelDownloaded(size) else { return nil }
+            return customModels.activeModel(for: .sherpaOnnx)?.directory
+        }
         switch size.engine {
         case .whisperKit:
             let modelDir = installedModelDirectory(for: size)
@@ -385,6 +416,11 @@ final class ModelManager: @unchecked Sendable {
     /// WhisperKit models use exact variant matching against WhisperKit's
     /// per-device recommendation; other engines gate on system capability.
     func isModelSupported(_ size: ModelSize) -> Bool {
+        if size.isCustom {
+            // Imported models aren't in WhisperKit's device list; whoever
+            // imported one decided it runs here.
+            return size.isAvailableOnThisSystem
+        }
         switch size.engine {
         case .whisperKit:
             let rec = WhisperKit.recommendedModels()
@@ -504,6 +540,12 @@ final class ModelManager: @unchecked Sendable {
         guard !size.isSystemManaged else {
             // System-managed — nothing to download here. Asset installation
             // happens in AppleSpeechService.loadModel via AssetInventory.
+            onProgress(1.0)
+            return
+        }
+        guard !size.isCustom else {
+            // Imported, not downloaded: present already, or nothing to fetch.
+            guard isModelDownloaded(size) else { throw ModelManagerError.importedModelNotDownloadable }
             onProgress(1.0)
             return
         }
@@ -958,6 +1000,11 @@ final class ModelManager: @unchecked Sendable {
     /// removing a multi-gigabyte model directory — `ModelManager` carries no
     /// actor isolation of its own, so the removal runs off the main thread.
     func deleteModel(_ size: ModelSize) async throws {
+        if let engine = size.customEngine {
+            guard let model = customModels.activeModel(for: engine) else { return }
+            try await deleteCustomModel(id: model.id)
+            return
+        }
         let modelDir: URL
         switch size.engine {
         case .whisperKit:
@@ -992,6 +1039,7 @@ final class ModelManager: @unchecked Sendable {
             modelStorageBase(forRepo: Self.argmaxModelRepo),
             modelStorageBase(forRepo: Self.communityModelRepo),
             SherpaService.storageRoot,
+            customModels.root,
         ] + ParakeetService.modelDirectories
     }
 
@@ -1044,6 +1092,45 @@ final class ModelManager: @unchecked Sendable {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: totalDiskUsage())
+    }
+}
+
+// MARK: - Imported models
+
+extension ModelManager {
+    /// Every model the user imported.
+    func importedModels() -> [InstalledCustomModel] {
+        customModels.installedModels()
+    }
+
+    /// Check and copy in a model folder or .zip, off the calling thread
+    /// (it hashes every file).
+    @discardableResult
+    func importCustomModel(from source: URL) async throws -> InstalledCustomModel {
+        let registry = customModels
+        let installed = try await Task.detached(priority: .userInitiated) {
+            try registry.importModel(from: source)
+        }.value
+        invalidateDiskUsageCache()
+        return installed
+    }
+
+    /// Delete an imported model, off the calling thread.
+    func deleteCustomModel(id: String) async throws {
+        let registry = customModels
+        try await Task.detached(priority: .userInitiated) {
+            try registry.delete(id: id)
+        }.value
+        invalidateDiskUsageCache()
+    }
+
+    /// Run `id` in its slot, for this process only or from now on.
+    func activateCustomModel(id: String, persist: Bool) throws {
+        try customModels.setActive(id, persist: persist)
+    }
+
+    func clearCustomModelOverrides() {
+        customModels.clearProcessOverrides()
     }
 }
 

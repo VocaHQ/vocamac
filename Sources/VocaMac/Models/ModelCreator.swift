@@ -213,6 +213,12 @@ extension ModelSize {
             return .oriserve
         case .customEndpoint:
             return .customEndpoint
+        // An imported Whisper is a Whisper; other imports carry the mark of
+        // where community models are shared.
+        case .customWhisperKit:
+            return .openAI
+        case .customSherpaOnnx:
+            return .huggingFace
         }
     }
 }

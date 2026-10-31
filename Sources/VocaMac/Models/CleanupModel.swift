@@ -112,19 +112,38 @@ enum CleanupModelKind: String, CaseIterable, Identifiable, Codable {
     case ministral3_3b_q4_k_m
     case qwen3_4b_instruct_2507_q4_k_m
     case qwen25_7b_q4_k_m
+    /// A GGUF the user imported (`CustomModelRegistry`): whichever one is
+    /// active for Writing AI.
+    case customGGUF
 
     var id: String { rawValue }
+
+    /// The models VocaMac ships a catalog entry for: every kind but the
+    /// imported slot.
+    static var catalogKinds: [CleanupModelKind] {
+        allCases.filter { $0 != .customGGUF }
+    }
+
+    /// Whether an imported GGUF is installed to fill the custom slot.
+    static var hasImportedModel: Bool {
+        CustomModelRegistry.shared.activeModel(for: .cleanup) != nil
+    }
 
     /// Models listed as dictation cleanup choices: every model. Anything that
     /// can follow editing instructions can also tidy a transcript, so the
     /// Command Mode model can serve cleanup too and only one model has to be
     /// downloaded and kept in memory. The larger ones are slower per dictation.
-    static let cleanupChoices: [CleanupModelKind] = allCases
+    /// The imported slot is listed only while it holds a model.
+    static var cleanupChoices: [CleanupModelKind] {
+        allCases.filter { $0 != .customGGUF || hasImportedModel }
+    }
 
-    /// Models strong enough to follow spoken editing instructions.
-    static let commandModeChoices: [CleanupModelKind] = [
-        .qwen25_1_5b_q4_k_m, .ministral3_3b_q4_k_m, .qwen3_4b_instruct_2507_q4_k_m, .qwen25_7b_q4_k_m,
-    ]
+    /// Models strong enough to follow spoken editing instructions. An
+    /// imported model is the user's call.
+    static var commandModeChoices: [CleanupModelKind] {
+        [.qwen25_1_5b_q4_k_m, .ministral3_3b_q4_k_m, .qwen3_4b_instruct_2507_q4_k_m, .qwen25_7b_q4_k_m]
+            + (hasImportedModel ? [.customGGUF] : [])
+    }
 
     static let defaultKind: CleanupModelKind = .qwen25_0_5b_q4_k_m
 
@@ -322,8 +341,54 @@ enum CleanupModelCatalog {
     }
 
     static func descriptor(for kind: CleanupModelKind) -> CleanupModelDescriptor {
-        all.first { $0.kind == kind } ?? recommended
+        if kind == .customGGUF {
+            return CustomModelRegistry.shared.activeModel(for: .cleanup).flatMap(customDescriptor(for:))
+                ?? placeholderCustomDescriptor
+        }
+        return all.first { $0.kind == kind } ?? recommended
     }
+
+    /// The descriptor for an imported GGUF. Memory and speed are estimated
+    /// from its size on the lines the catalog's models fall on: about 1.2×
+    /// the file plus 0.6 GB of cache, and 50 / file GB tokens per second on
+    /// a base M1 (Qwen 2.5 0.5B: 100; Qwen 2.5 7B: 11).
+    static func customDescriptor(for model: InstalledCustomModel) -> CleanupModelDescriptor? {
+        guard let file = model.ggufURL else { return nil }
+        let bytes = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        let gigabytes = max(Double(bytes) / 1_000_000_000, 0.1)
+        return CleanupModelDescriptor(
+            kind: .customGGUF,
+            displayName: model.manifest.name,
+            summary: "Imported" + (model.manifest.source.map { " from \($0)" } ?? "")
+                + ". Not measured with VocaMac: read what it writes before relying on it.",
+            sizeDescription: "~" + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file),
+            fileName: file.lastPathComponent,
+            url: file,
+            expectedSHA256: model.manifest.sha256 ?? "",
+            expectedByteCount: bytes,
+            maxTokenCount: Int32(model.manifest.contextTokens ?? 4096),
+            ramRequiredGB: ((gigabytes * 1.2 + 0.6) * 10).rounded() / 10,
+            generationTokensPerSecond: max(5, 50 / gigabytes),
+            recommendation: .quality
+        )
+    }
+
+    /// Stands in for the imported slot when nothing is imported, so code
+    /// that asks every kind for its descriptor still gets one.
+    static let placeholderCustomDescriptor = CleanupModelDescriptor(
+        kind: .customGGUF,
+        displayName: "Imported model",
+        summary: "Import a GGUF in Settings → Models.",
+        sizeDescription: "—",
+        fileName: "imported-model.gguf",
+        url: URL(fileURLWithPath: "/"),
+        expectedSHA256: "",
+        expectedByteCount: -1,
+        maxTokenCount: 4096,
+        ramRequiredGB: 1,
+        generationTokensPerSecond: 20,
+        recommendation: .quality
+    )
 
     /// File names the catalog owns, so a model dropped from the catalog (or
     /// left behind by an older build) can be cleared off disk.

@@ -145,7 +145,7 @@ final class CalmNavigationMappingTests: XCTestCase {
             .advanced: .settings(.advanced), .gateway: .settings(.gateway), .about: .settings(.about),
             .history: .main(.home), .stats: .main(.insights), .dictionary: .main(.dictionary),
             .snippets: .main(.snippets), .formatting: .settings(.general), .writingStyles: .main(.styles),
-            .commandMode: .main(.commands),
+            .commandMode: .main(.commands), .notes: .main(.notes),
         ]
         XCTAssertEqual(Set(expected.keys), Set(SettingsPage.allCases))
         for (page, destination) in expected {
@@ -202,7 +202,7 @@ final class CalmNavigationMappingTests: XCTestCase {
     }
 
     func testSidebarOrder() {
-        XCTAssertEqual(CalmMainPage.allCases.map(\.title), ["Home", "Insights", "Dictionary", "Snippets", "Styles", "Commands"])
+        XCTAssertEqual(CalmMainPage.allCases.map(\.title), ["Home", "Notes", "Insights", "Dictionary", "Snippets", "Styles", "Commands"])
         XCTAssertEqual(CalmSettingsMenuGroup.data.items, [.privacy, .advanced])
     }
 }

@@ -562,6 +562,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     private func performDownload(_ kind: CleanupModelKind, generation: Int) async {
+        guard kind != .customGGUF else {
+            // Nothing to fetch: an imported model is on disk or not at all.
+            if !isDownloaded(kind) {
+                setDownloadState(.error(ModelManagerError.importedModelNotDownloadable.localizedDescription), generation: generation)
+            }
+            return
+        }
         let descriptor = kind.descriptor
         try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
 
@@ -812,7 +819,11 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     func delete(_ kind: CleanupModelKind) {
-        try? FileManager.default.removeItem(at: modelPath(for: kind))
+        // An imported model belongs to the import registry, which deletes
+        // its whole folder (`AppState.deleteImportedModel`).
+        if kind != .customGGUF {
+            try? FileManager.default.removeItem(at: modelPath(for: kind))
+        }
         // Mid-load, activeKind is nil — still invalidate so finishLoad cannot
         // install after the GGUF file is gone.
         if activeKind == kind || loadInFlight?.kind == kind {
@@ -862,7 +873,12 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     }
 
     private func modelPath(for kind: CleanupModelKind) -> URL {
-        modelsDirectory.appendingPathComponent(kind.descriptor.fileName)
+        // An imported GGUF stays where the import put it.
+        if kind == .customGGUF {
+            return CustomModelRegistry.shared.activeModel(for: .cleanup)?.ggufURL
+                ?? modelsDirectory.appendingPathComponent(kind.descriptor.fileName)
+        }
+        return modelsDirectory.appendingPathComponent(kind.descriptor.fileName)
     }
 
     private func fileSize(at url: URL) -> Int64 {

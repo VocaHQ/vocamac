@@ -162,6 +162,7 @@ struct CalmMainPageView: View {
     var body: some View {
         switch page {
         case .home: CalmHomePage()
+        case .notes: CalmNotesPage()
         case .insights: CalmInsightsPage()
         case .dictionary: CalmDictionaryPage()
         case .snippets: CalmSnippetsPage()

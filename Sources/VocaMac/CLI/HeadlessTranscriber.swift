@@ -17,15 +17,18 @@ struct AppCLIPreferencesReader: CLIPreferencesReading {
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults? = nil) {
-        if let defaults {
-            self.defaults = defaults
-        } else if Bundle.main.bundleIdentifier == Self.applicationDomain {
+        self.defaults = defaults ?? Self.applicationDefaults()
+    }
+
+    /// VocaMac's own preferences, from the app binary or from a separately
+    /// built CLI binary.
+    static func applicationDefaults() -> UserDefaults {
+        if Bundle.main.bundleIdentifier == applicationDomain {
             // Inside the app, .standard already is com.vocamac.app. Asking
             // UserDefaults for its own identifier as a suite emits a warning.
-            self.defaults = .standard
-        } else {
-            self.defaults = UserDefaults(suiteName: Self.applicationDomain) ?? .standard
+            return .standard
         }
+        return UserDefaults(suiteName: applicationDomain) ?? .standard
     }
 
     var selectedModelIdentifier: String? {
@@ -95,6 +98,8 @@ final class HeadlessTranscriber: @unchecked Sendable {
         modelOverride: String?,
         languageOverride: String?
     ) async throws -> CLITranscriptionResponse {
+        // A model named for this request is chosen for this request only.
+        defer { (modelManager as? CustomModelManaging)?.clearCustomModelOverrides() }
         let prepared = try await prepareTranscription(
             fileURL: fileURL, modelOverride: modelOverride, languageOverride: languageOverride
         )
@@ -162,7 +167,8 @@ final class HeadlessTranscriber: @unchecked Sendable {
     /// Return the complete known model catalog with current runtime state.
     func listModels() -> CLIModelListResponse {
         let selectedModel = try? resolveModel(identifier: preferences.selectedModelIdentifier)
-        let entries = ModelSize.allCases.map { model in
+        // Import slots are listed as the models they hold, below.
+        var entries = ModelSize.allCases.filter { !$0.isCustom }.map { model in
             CLIModelResponse(
                 id: model.rawValue,
                 name: model.displayName,
@@ -173,19 +179,45 @@ final class HeadlessTranscriber: @unchecked Sendable {
                 systemManaged: model.isSystemManaged
             )
         }
+        if let imports = modelManager as? CustomModelManaging {
+            for imported in imports.importedModels() {
+                guard let slot = imported.manifest.engine.modelSlot else { continue }
+                let isActive = slot.activeCustomModel?.id == imported.id
+                entries.append(CLIModelResponse(
+                    id: imported.id,
+                    name: imported.manifest.name,
+                    engine: slot.engine.cliIdentifier,
+                    selected: selectedModel == slot && isActive,
+                    downloaded: true,
+                    supported: slot.isAvailableOnThisSystem,
+                    systemManaged: false
+                ))
+            }
+        }
         return CLIModelListResponse(models: entries)
     }
 
     private func resolveModel(identifier: String?) throws -> ModelSize {
+        // Start from the app's saved choices: an earlier request's one-off
+        // model (MCP serves many requests in one process) must not linger.
+        (modelManager as? CustomModelManaging)?.clearCustomModelOverrides()
         guard let identifier, !identifier.isEmpty else {
             // Matches AppState's @AppStorage default, so a fresh install (or
             // prefs that never persisted the key) behaves the same headlessly.
             return .tiny
         }
-        guard let model = ModelSize(rawValue: identifier) ?? modelManager.modelSize(from: identifier) else {
-            throw CLIError(.modelNotFound, "Unknown model: \(identifier)")
+        if let model = ModelSize(rawValue: identifier) ?? modelManager.modelSize(from: identifier) {
+            return model
         }
-        return model
+        // An imported model, named by its manifest id: run it in its slot for
+        // this process only, leaving the app's choice alone.
+        if let imports = modelManager as? CustomModelManaging,
+           let imported = imports.importedModels().first(where: { $0.id == identifier }),
+           let slot = imported.manifest.engine.modelSlot {
+            try? imports.activateCustomModel(id: imported.id, persist: false)
+            return slot
+        }
+        throw CLIError(.modelNotFound, "Unknown model: \(identifier)")
     }
 
     private func validateAvailability(of model: ModelSize) throws {

@@ -15,6 +15,7 @@ import SwiftUI
 /// The everyday pages in the window's sidebar, top to bottom.
 enum CalmMainPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     case home
+    case notes
     case insights
     case dictionary
     case snippets
@@ -26,6 +27,7 @@ enum CalmMainPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var title: String {
         switch self {
         case .home: return "Home"
+        case .notes: return "Notes"
         case .insights: return "Insights"
         case .dictionary: return "Dictionary"
         case .snippets: return "Snippets"
@@ -37,6 +39,7 @@ enum CalmMainPage: String, CaseIterable, Identifiable, Hashable, Sendable {
     var icon: CalmIconName {
         switch self {
         case .home: return .home
+        case .notes: return .notes
         case .insights: return .insights
         case .dictionary: return .dictionary
         case .snippets: return .snippets
@@ -200,6 +203,7 @@ enum CalmNavigation {
         case .gateway: return .settings(AppDistribution.hasPhoneGateway ? .gateway : .advanced)
         case .about: return .settings(.about)
         case .history: return .main(.home)
+        case .notes: return .main(.notes)
         case .stats: return .main(.insights)
         case .dictionary: return .main(.dictionary)
         case .snippets: return .main(.snippets)
@@ -233,6 +237,8 @@ enum CalmNavigation {
         "command-mode-share": .settings(.models),
         // Your own server is a row in All models.
         "custom-endpoint": .settings(.allModels),
+        // Imported models sit under the list in All models.
+        "imported-models": .settings(.allModels),
     ]
 
     /// Entries that open Models on its Writing AI tab.

@@ -729,7 +729,8 @@ final class AppStateRecordingTests: XCTestCase {
         // The catalog leaves out models whose engine cannot run here at all,
         // so the expected count depends on the machine: Apple Speech needs
         // macOS 26, and Parakeet needs Apple Silicon.
-        let runnable = ModelSize.allCases.filter { $0.isAvailableOnThisSystem }
+        // Import slots are listed only while they hold an imported model.
+        let runnable = ModelSize.allCases.filter { $0.isAvailableOnThisSystem && !$0.isCustom }
         XCTAssertEqual(appState.availableModels.count, runnable.count,
                       "Should have one entry per model this system can run")
 

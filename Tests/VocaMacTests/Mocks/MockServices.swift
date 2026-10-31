@@ -521,7 +521,7 @@ final class MockModelManager: ModelManaging {
             return "vocahq_voca-hinglish_820MB"
         case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B, .customEndpoint:
+             .qwen3Asr06B, .customEndpoint, .customWhisperKit, .customSherpaOnnx:
             return size.rawValue
         }
     }
@@ -993,7 +993,8 @@ extension AppState {
         commandModelSlot: MockTranscriptCleanup? = nil,
         voiceActionPerformer: (any VoiceActionPerforming)? = nil,
         commandReviewPresenter: (any CommandReviewPresenting)? = nil,
-        crashReportFinder: CrashReportFinder? = nil
+        crashReportFinder: CrashReportFinder? = nil,
+        speakerDiarizer: (any SpeakerDiarizing)? = nil
     ) -> (appState: AppState, mocks: TestMocks) {
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
         UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
@@ -1086,6 +1087,7 @@ extension AppState {
             permissionManager: permissionManager,
             frontmostAppResolver: frontmostAppResolver,
             historyStore: historyStore,
+            speakerDiarizer: speakerDiarizer ?? FakeSpeakerDiarizer(),
             screenContextReader: screenContextReader,
             correctionObserver: correctionObserver,
             selectedTextService: selectedTextService,
@@ -1296,4 +1298,18 @@ final class MockCommandReviewPresenter: CommandReviewPresenting {
     func hide() {
         hideCallCount += 1
     }
+}
+
+/// Speaker turns to hand back, or a reason diarization can't run.
+final class FakeSpeakerDiarizer: SpeakerDiarizing, @unchecked Sendable {
+    // Unchecked: set up before the test runs, then only read.
+    var turns: [SpeakerTurn] = []
+    var unavailableReason: String?
+
+    init(turns: [SpeakerTurn] = [], unavailableReason: String? = nil) {
+        self.turns = turns
+        self.unavailableReason = unavailableReason
+    }
+
+    func turns(in samples: [Float]) async throws -> [SpeakerTurn] { turns }
 }

@@ -16,6 +16,7 @@ final class SettingsSearchTargetsTests: XCTestCase {
     /// from this table fails `testEveryViewWithTargetsIsOnAPage`.
     private static let pageOfView: [String: CalmDestination] = [
         "CalmHomePage": .main(.home),
+        "CalmNotesSettingsGroup": .main(.notes),
         "CalmInsightsPage": .main(.insights),
         "CalmDictionaryPage": .main(.dictionary),
         "CalmSnippetsPage": .main(.snippets),
@@ -30,6 +31,7 @@ final class SettingsSearchTargetsTests: XCTestCase {
         "CalmSpeechModelsTab": .settings(.models),
         "CalmWritingModelsTab": .settings(.models),
         "CalmAllSpeechModels": .settings(.allModels),
+        "CalmImportedModels": .settings(.allModels),
         "CalmModelsOnThisMac": .settings(.models),
         "CalmCleanupSettings": .settings(.cleanup),
         "CalmPrivacySettings": .settings(.privacy),

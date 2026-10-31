@@ -46,7 +46,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         switch self {
         case .dictation: return [.dictation, .speechModel, .language, .audio, .performance]
         case .writing: return [.formatting, .writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
-        case .activity: return [.history, .stats]
+        case .activity: return [.history, .notes, .stats]
         case .app: return [.application, .gateway, .advanced, .about]
         }
     }
@@ -58,6 +58,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case formatting
     case language
     case history
+    case notes
     case writingStyles
     case dictionary
     case snippets
@@ -80,6 +81,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .formatting: return "Formatting"
         case .language: return "Language"
         case .history: return "History"
+        case .notes: return "Notes"
         case .dictionary: return "Dictionary"
         case .writingStyles: return "Writing Styles"
         case .snippets: return "Snippets"
@@ -118,6 +120,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .formatting: return "textformat.abc"
         case .language: return "globe"
         case .history: return "clock.arrow.circlepath"
+        case .notes: return "note.text"
         case .dictionary: return "character.book.closed"
         case .writingStyles: return "textformat"
         case .snippets: return "text.quote"

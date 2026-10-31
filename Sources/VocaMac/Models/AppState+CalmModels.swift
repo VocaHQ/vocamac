@@ -40,6 +40,7 @@ enum CalmModelText {
         case .canary180mFlash: return "Canary 180M"
         case .qwen3Asr06B: return "Qwen3 ASR 0.6B"
         case .customEndpoint: return "Custom endpoint"
+        case .customWhisperKit, .customSherpaOnnx: return size.displayName
         }
     }
 
@@ -59,6 +60,7 @@ enum CalmModelText {
             return "English"
         case .gigaamV3: return "Russian"
         case .vocaHinglish: return "Hindi + English"
+        case .customWhisperKit, .customSherpaOnnx: return "Imported"
         default: return nil
         }
     }
@@ -469,6 +471,7 @@ enum CalmModelPicks {
                 ?? "Cleans up and edits by voice."
         case .qwen3_4b_instruct_2507_q4_k_m: return "Strongest edits. Needs more memory."
         case .qwen25_7b_q4_k_m: return "Largest. For long, careful rewrites. Slow."
+        case .customGGUF: return "Imported by you. Not measured with VocaMac."
         }
     }
 

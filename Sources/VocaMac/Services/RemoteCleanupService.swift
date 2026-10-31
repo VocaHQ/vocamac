@@ -136,6 +136,21 @@ final class RemoteCleanupService: TranscriptCleaning {
         await request(text, prompt: prompt, allowsTransform: false)
     }
 
+    /// With the speaker's own Dictionary terms as a `<TERMS>` line before
+    /// the text, as the on-device model gets them. The pipeline never puts
+    /// screen text in a remote glossary (`cleanupGlossary(_:onDevice:)`).
+    func attempt(_ text: String, prompt: String, glossary: [String]) async -> CleanupAttempt {
+        await request(text, prompt: prompt, allowsTransform: false, glossary: glossary)
+    }
+
+    func preview(_ text: String, prompt: String, glossary: [String]) async -> CleanupAttempt {
+        await request(text, prompt: prompt, allowsTransform: false, glossary: glossary)
+    }
+
+    func speculate(_ text: String, prompt: String, glossary: [String]) async -> CleanupAttempt {
+        await request(text, prompt: prompt, allowsTransform: false, glossary: glossary)
+    }
+
     func transform(_ text: String, prompt: String) async -> CleanupAttempt {
         let task = Task { await request(text, prompt: prompt, allowsTransform: true) }
         transformTask = task
@@ -151,7 +166,9 @@ final class RemoteCleanupService: TranscriptCleaning {
         configuration.validationProblem()
     }
 
-    private func request(_ text: String, prompt: String, allowsTransform: Bool) async -> CleanupAttempt {
+    private func request(
+        _ text: String, prompt: String, allowsTransform: Bool, glossary: [String] = []
+    ) async -> CleanupAttempt {
         let start = Date()
         func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
             CleanupAttempt(output: output, outcome: outcome, duration: Date().timeIntervalSince(start))
@@ -176,7 +193,7 @@ final class RemoteCleanupService: TranscriptCleaning {
             model: configuration.resolvedModel,
             messages: [
                 Message(role: "system", content: prompt),
-                Message(role: "user", content: TranscriptCleanup.formatInput(trimmed)),
+                Message(role: "user", content: TranscriptCleanup.formatInput(trimmed, glossary: glossary)),
             ],
             temperature: 0,
             stream: false

@@ -28,6 +28,7 @@ final class ModelRAMEstimateTests: XCTestCase {
         .senseVoiceSmall: 0.594,
         .canary180mFlash: 0.795,
         .qwen3Asr06B: 2.489,
+        .cohereTranscribe: 3.903,
     ]
 
     /// Later loads, from the compile cache: app footprint plus the rise in
@@ -40,6 +41,7 @@ final class ModelRAMEstimateTests: XCTestCase {
         .senseVoiceSmall: 0.594,
         .canary180mFlash: 0.795,
         .qwen3Asr06B: 2.489,
+        .cohereTranscribe: 3.903,
     ]
 
     // Hand-set estimates (`ModelRAMFit.handSetGB`) are chosen, not fitted,
@@ -113,6 +115,8 @@ final class ModelRAMEstimateTests: XCTestCase {
         XCTAssertEqual(ModelSize.vocaHinglish.ramRequiredGB, 1.5)
         XCTAssertEqual(ModelSize.vocaHinglish.firstLoadRAMRequiredGB, 1.5)
         XCTAssertEqual(ModelSize.qwen3Asr06B.ramRequiredGB, 2.0)
+        XCTAssertEqual(ModelSize.cohereTranscribe.ramRequiredGB, 4.5)
+        XCTAssertEqual(ModelSize.cohereTranscribe.firstLoadRAMRequiredGB, 4.5)
         XCTAssertEqual(ModelSize.moonshineTiny.ramRequiredGB, 0.5)
         XCTAssertEqual(ModelSize.appleSpeech.ramRequiredGB, 1.0)
     }

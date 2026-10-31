@@ -23,6 +23,9 @@ struct SherpaModelSpec: Sendable {
         case canary(encoder: String, decoder: String, supportedLanguages: Set<String>)
         /// Qwen3-ASR (audio frontend + encoder + autoregressive decoder)
         case qwen3Asr(convFrontend: String, encoder: String, decoder: String, tokenizer: String)
+        /// Cohere Transcribe (encoder with external weights + decoder). It
+        /// needs exactly one language: it has no language detection.
+        case cohereTranscribe(encoder: String, decoder: String, supportedLanguages: Set<String>)
     }
 
     /// The catalog entry this spec belongs to
@@ -50,13 +53,23 @@ struct SherpaModelSpec: Sendable {
     /// Whether the recognizer is built around a specific language, so a
     /// change to the transcription language only takes effect on reload.
     ///
-    /// SenseVoice takes a recognition language and Canary a source language,
-    /// both fixed when the recognizer is created. Moonshine is English-only
-    /// and GigaAM Russian-only, so neither has anything to rebind.
+    /// SenseVoice takes a recognition language, Canary a source language
+    /// and Cohere Transcribe a prompt language, all fixed when the recognizer
+    /// is created. Moonshine is English-only and GigaAM Russian-only, so
+    /// neither has anything to rebind.
     var bindsLanguageAtLoadTime: Bool {
         switch kind {
-        case .senseVoice, .canary: return true
+        case .senseVoice, .canary, .cohereTranscribe: return true
         case .moonshine, .nemoCtc, .qwen3Asr: return false
+        }
+    }
+
+    /// Whether the model has no language detection and decodes every
+    /// recording as the one language it was loaded with.
+    var needsOneLanguage: Bool {
+        switch kind {
+        case .canary, .cohereTranscribe: return true
+        case .moonshine, .senseVoice, .nemoCtc, .qwen3Asr: return false
         }
     }
 
@@ -73,7 +86,7 @@ struct SherpaModelSpec: Sendable {
         case .moonshine:  return 8
         case .senseVoice: return 8
         case .nemoCtc:    return 20
-        case .canary, .qwen3Asr: return 20
+        case .canary, .qwen3Asr, .cohereTranscribe: return 20
         }
     }
 
@@ -87,6 +100,9 @@ struct SherpaModelSpec: Sendable {
             return [tokensFile, model]
         case .canary(let encoder, let decoder, _):
             return [tokensFile, encoder, decoder]
+        case .cohereTranscribe(let encoder, let decoder, _):
+            // The encoder keeps its weights in a second file next to it.
+            return [tokensFile, encoder, encoder + ".data", decoder]
         case .qwen3Asr(let convFrontend, let encoder, let decoder, let tokenizer):
             return [
                 convFrontend,
@@ -176,6 +192,18 @@ enum SherpaModelCatalog {
                 encoder: "encoder.int8.onnx",
                 decoder: "decoder.int8.onnx",
                 tokenizer: "tokenizer"
+            )
+        ),
+        spec(
+            .cohereTranscribe,
+            directory: "sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01",
+            sha256: "bd582588d50685a795dcd2807ab77e11361b8312d96c53884682def45ab4206d",
+            kind: .cohereTranscribe(
+                encoder: "encoder.int8.onnx",
+                decoder: "decoder.int8.onnx",
+                supportedLanguages: [
+                    "ar", "de", "el", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "vi", "zh",
+                ]
             )
         ),
     ]

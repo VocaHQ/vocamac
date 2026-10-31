@@ -134,6 +134,51 @@ final class DictionaryCorrectorTests: XCTestCase {
         XCTAssertEqual(correct("call Kolmar tomorrow", vocabulary: ["Kaiser"]).text, "call Kolmar tomorrow")
     }
 
+    func testLongTermsThatSoundAlikeGetTwoMoreEdits() {
+        XCTAssertEqual(correct("ask Pachori about it", vocabulary: ["Pachauri"]).text, "ask Pachauri about it")
+        XCTAssertEqual(DictionaryCorrector.editBudget(heard: "pachori", term: "pachauri"), 3)
+        XCTAssertEqual(DictionaryCorrector.editBudget(heard: "kolmar", term: "kaiser"), 1)
+    }
+
+    private func correct(_ text: String, vocabulary: [String], unsure: Set<String>?) -> String {
+        DictionaryCorrector.correct(
+            text,
+            context: DictionaryContext(
+                vocabulary: vocabulary, replacements: [], contextTerms: [],
+                isKnownWord: { TestWords.common.contains($0.lowercased()) || ["cooper", "netties", "pie", "torch"].contains($0) },
+                lowConfidenceWords: unsure
+            ),
+            allowIdentifierJoins: false
+        ).text
+    }
+
+    func testRealWordsThatSoundLikeATermJoinOnlyWhenTheEngineWasUnsure() {
+        XCTAssertEqual(correct("deploy to cooper netties now", vocabulary: ["Kubernetes"], unsure: ["netties"]),
+                       "deploy to Kubernetes now")
+        XCTAssertEqual(correct("train it in pie torch", vocabulary: ["PyTorch"], unsure: ["pie", "torch"]),
+                       "train it in PyTorch")
+        // Sure of the words, or no confidence reported: left as heard.
+        XCTAssertEqual(correct("deploy to cooper netties now", vocabulary: ["Kubernetes"], unsure: []),
+                       "deploy to cooper netties now")
+        XCTAssertEqual(correct("deploy to cooper netties now", vocabulary: ["Kubernetes"], unsure: nil),
+                       "deploy to cooper netties now")
+    }
+
+    func testASingleUnsureWordIsNeverRespelledBySoundAlone() {
+        XCTAssertEqual(correct("ask the cloud", vocabulary: ["Claude"], unsure: ["cloud"]), "ask the cloud")
+    }
+
+    func testAnUnknownWordInTheRunIsEvidenceEnough() {
+        // "netteez" isn't a word, so no confidence is needed.
+        XCTAssertEqual(correct("deploy to cooper netteez now", vocabulary: ["Kubernetes"], unsure: nil),
+                       "deploy to Kubernetes now")
+    }
+
+    func testSoundAlikeJoinNeedsTheWholeKey() {
+        XCTAssertEqual(correct("buy cooper pans now", vocabulary: ["Kubernetes"], unsure: ["cooper", "pans"]),
+                       "buy cooper pans now")
+    }
+
     func testSoundAlikeStillSparesOrdinaryWords() {
         XCTAssertEqual(correct("the kaiser roll", vocabulary: ["Kayzer"]).text, "the kaiser roll")
     }

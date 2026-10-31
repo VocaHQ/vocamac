@@ -74,7 +74,7 @@ The Tiny Whisper model is built in, so you can dictate right away. VocaMac sugge
 
 **Writing**
 - Writing styles per app or website: email, chat, notes, code, terminal.
-- Smart Cleanup removes "um", false starts, and spoken corrections ("Tuesday, no, Wednesday" → "Wednesday") with a small on-device model.
+- Cleanup removes "um", false starts, and changes of mind ("let's meet tomorrow, sorry, no, let's meet Friday" → "let's meet Friday", "scratch that") with on-device rules, and a small on-device model tidies the rest.
 - Command Mode: select text and say what to change ("make this shorter", "translate to Spanish").
 
 **And more**
@@ -101,7 +101,7 @@ Two features can send data elsewhere, and both are off until you set them up:
 | **Parakeet** (recommended) | Fastest dictation, in English or 25 European languages | Neural Engine |
 | **Whisper** | The most languages, and translation to English | Neural Engine and GPU |
 | **Apple Speech** | Built into macOS 26 and later; language packs may download on first use | On device, managed by macOS |
-| **Specialized** (Moonshine, SenseVoice, GigaAM, Canary, Qwen3 ASR) | Low-memory Macs, and Chinese, Japanese, Korean, or Russian | CPU |
+| **Specialized** (Moonshine, SenseVoice, GigaAM, Canary, Qwen3 ASR, Cohere Transcribe) | Low-memory Macs; Chinese, Japanese, Korean, or Russian; or the highest accuracy in one of Cohere's 14 languages | CPU |
 
 Sizes, languages, and the full list are in [docs/MODELS.md](docs/MODELS.md).
 

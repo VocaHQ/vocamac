@@ -262,7 +262,7 @@ final class SherpaServiceTests: XCTestCase {
     }
 
     func testShortWordsWithInstalledEnglishModels() async throws {
-        let models: [ModelSize] = [.moonshineTiny, .moonshineBase, .senseVoiceSmall, .canary180mFlash]
+        let models: [ModelSize] = [.moonshineTiny, .moonshineBase, .senseVoiceSmall, .canary180mFlash, .cohereTranscribe]
         let installed = models.filter { size in
             SherpaModelCatalog.spec(for: size).map(SherpaService.modelFilesExist) ?? false
         }
@@ -367,7 +367,7 @@ final class SherpaLiveSessionTests: XCTestCase {
         RecordingTranscription(language: "en", bufferLimit: 10_000) { chunks in
             try await TranscriptionRouter.runSherpaLiveSession(
                 chunks: chunks, windowSamples: windowSamples, language: "en", model: .canary180mFlash,
-                speechOnly: speechOnly,
+                speechOnly: { await speechOnly($0).map { SpeechOnlyAudio(samples: $0) } },
                 decode: { samples, isPreview in await decoder.decode(samples, isPreview: isPreview) },
                 onPartial: { partials.append($0) }
             )

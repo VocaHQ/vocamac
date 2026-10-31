@@ -26,6 +26,40 @@ final class SpokenFormsPipelineTests: XCTestCase {
         )
     }
 
+    // MARK: - Automatic numbers
+
+    private func automaticNumbers(_ input: String, format: WritingStyle) async -> String {
+        await DictationOutputPipeline(cleaner: MockTranscriptCleanup(), snippets: SnippetExpander()).process(
+            input,
+            profile: WritingProfile(format: format, rules: format.defaultRules),
+            snippetList: [], cleanupEnabled: false, rewritingEnabled: false,
+            model: .defaultKind, customPrompt: "", language: "en",
+            autoCapitalize: true, trailingSpace: false, numbers: .automatic
+        ).text
+    }
+
+    func testAutomaticNumbersFollowTheStyle() async {
+        let spoken = "two ideas for twenty three people"
+        let prose = await automaticNumbers(spoken, format: .plain)
+        XCTAssertEqual(prose, "Two ideas for 23 people")
+        let email = await automaticNumbers(spoken, format: .email)
+        XCTAssertEqual(email, "Two ideas for 23 people.")
+        let chat = await automaticNumbers(spoken, format: .chat)
+        XCTAssertEqual(chat, "2 ideas for 23 people")
+        let code = await automaticNumbers("retry three times", format: .code)
+        XCTAssertEqual(code, "retry 3 times")
+    }
+
+    func testAnExplicitChoiceBeatsTheStyle() async {
+        let result = await DictationOutputPipeline(cleaner: MockTranscriptCleanup(), snippets: SnippetExpander()).process(
+            "two ideas", profile: WritingProfile(format: .chat, rules: WritingStyle.chat.defaultRules),
+            snippetList: [], cleanupEnabled: false, rewritingEnabled: false,
+            model: .defaultKind, customPrompt: "", language: "en",
+            autoCapitalize: true, trailingSpace: false, numbers: .words
+        )
+        XCTAssertEqual(result.text, "Two ideas")
+    }
+
     // MARK: - Off, Raw, and formatting only
 
     func testThePipelineConvertsNothingUnlessAsked() async {

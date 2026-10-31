@@ -58,6 +58,8 @@ struct CalmStylesPage: View {
 
             infoPanel
 
+            CalmLearnedCasingGroup()
+
             CalmStylesSettingsSections()
                 .padding(.top, 16)
         }
@@ -131,13 +133,21 @@ struct CalmStylesPage: View {
         .calmDialog(isPresented: $isConfirmingRemoveAll) {
             CalmDialog(
                 "Remove all apps?",
-                description: "All \(appState.writingStyleBindings.count) apps go back to "
-                    + "\(appState.writingStyleDefault.displayName), the style for everything else. Websites stay. You can undo this."
+                description: appState.automaticWritingStyles
+                    ? "All \(appState.writingStyleBindings.count) apps go back to their kind’s style, or to "
+                        + "\(appState.writingStyleDefault.displayName) for apps VocaMac doesn’t know. Websites stay. You can undo this."
+                    : "All \(appState.writingStyleBindings.count) apps go back to "
+                        + "\(appState.writingStyleDefault.displayName), the style for everything else. Websites stay. You can undo this."
             ) {
                 CalmDialogFooter(primaryTitle: "Remove all", primaryKind: .destructive) {
                     let style = appState.writingStyleDefault.displayName
                     appState.removeAllAppStyleBindingsWithUndo { notice = nil }
-                    notice = CalmStylesNotice("Removed every app. All apps now use \(style).", tone: .info)
+                    notice = CalmStylesNotice(
+                        appState.automaticWritingStyles
+                            ? "Removed every app. Known apps match their kind; the rest use \(style)."
+                            : "Removed every app. All apps now use \(style).",
+                        tone: .info
+                    )
                 }
             }
         }
@@ -268,13 +278,17 @@ struct CalmStylesPage: View {
                     if group == .everythingElse {
                         CalmStylesStaticChip(title: "All other apps")
                     }
+                    if appState.automaticWritingStyles, let kind = group.automaticAppsTitle {
+                        CalmStylesStaticChip(title: "\(kind) · Automatic")
+                            .help("Apps VocaMac recognizes get this kind’s style until you add them here with a style of your own.")
+                    }
                     ForEach(apps) { binding in
                         appChip(binding, groupStyle: selected)
                     }
                     ForEach(websites) { rule in
                         websiteChip(rule, groupStyle: selected)
                     }
-                    if apps.isEmpty, websites.isEmpty, group != .everythingElse {
+                    if apps.isEmpty, websites.isEmpty, group != .everythingElse, !appState.automaticWritingStyles {
                         Text("No apps yet.")
                             .font(CalmFont.description)
                             .foregroundStyle(CalmColor.muted)

@@ -73,7 +73,13 @@ enum CorrectionLearner {
         }
 
         let oldWords = words(in: String(old[oldChanged]))
-        let newWords = words(in: String(new[newChanged]))
+        // Which corrected words open a sentence: there a capital is only
+        // sentence case, not evidence of a name.
+        let opensSentence = new[..<newChanged.lowerBound]
+            .last { !$0.isWhitespace || $0.isNewline }
+            .map { $0.isNewline || ".!?…".contains($0) } ?? true
+        let newTokens = wordsMarkingSentenceStarts(in: String(new[newChanged]), startsSentence: opensSentence)
+        let newWords = newTokens.map(\.word)
         guard !oldWords.isEmpty, !newWords.isEmpty,
               oldWords.count <= maximumEditedWords, newWords.count <= maximumEditedWords else {
             return []
@@ -84,7 +90,10 @@ enum CorrectionLearner {
         where (1...3).contains(block.old.count) && (1...2).contains(block.new.count) {
             let heard = block.old.joined(separator: " ")
             let corrected = block.new.joined(separator: " ")
-            if isLikelyCorrection(heard: heard, corrected: corrected, isKnownWord: isKnownWord) {
+            let atSentenceStart = newTokens.indices.contains(block.newStart) && newTokens[block.newStart].startsSentence
+            if isLikelyCorrection(
+                heard: heard, corrected: corrected, atSentenceStart: atSentenceStart, isKnownWord: isKnownWord
+            ) {
                 found.append(Correction(heard: heard, corrected: corrected))
             }
         }
@@ -93,7 +102,13 @@ enum CorrectionLearner {
 
     /// Whether changing `heard` to `corrected` looks like fixing a
     /// transcription (spelling, casing, joining) rather than rewording.
-    static func isLikelyCorrection(heard: String, corrected: String, isKnownWord: (String) -> Bool) -> Bool {
+    ///
+    /// - Parameter atSentenceStart: `corrected` opens a sentence, so its
+    ///   first capital is sentence case: "Whether is nice" → "Weather is
+    ///   nice" swaps two ordinary words, it doesn't name anything.
+    static func isLikelyCorrection(
+        heard: String, corrected: String, atSentenceStart: Bool = false, isKnownWord: (String) -> Bool
+    ) -> Bool {
         guard heard != corrected,
               corrected.count <= 40,
               corrected.contains(where: \.isLetter) else { return false }
@@ -116,6 +131,13 @@ enum CorrectionLearner {
         if correctedIsPlainLowercase, corrected.split(separator: " ").allSatisfy({ isKnownWord(String($0)) }) {
             return false
         }
+        // The same at a sentence start, where the first capital is the
+        // sentence's: "Their" → "There", "Whether" → "Weather".
+        let correctedIsSentenceCase = corrected == corrected.prefix(1).uppercased() + corrected.dropFirst().lowercased()
+        if atSentenceStart, correctedIsSentenceCase,
+           corrected.split(separator: " ").allSatisfy({ isKnownWord(String($0).lowercased()) }) {
+            return false
+        }
 
         guard DictionaryCorrector.firstSound(heardKey) == DictionaryCorrector.firstSound(correctedKey) else {
             return false
@@ -129,7 +151,7 @@ enum CorrectionLearner {
 
     /// Where `needle` sits in `haystack`, preferring the copy ending nearest
     /// the caret (the one just typed).
-    private static func locate(_ needle: [Character], in haystack: [Character], caretLocation: Int?) -> Range<Int>? {
+    static func locate(_ needle: [Character], in haystack: [Character], caretLocation: Int?) -> Range<Int>? {
         guard needle.count <= haystack.count else { return nil }
         var ranges: [Range<Int>] = []
         var start = 0
@@ -147,14 +169,50 @@ enum CorrectionLearner {
 
     private static func words(in text: String) -> [String] {
         text.components(separatedBy: .whitespacesAndNewlines)
-            .map { $0.trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "'’-_."))) }
-            .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
+            .map(trimmedWord)
             .filter { !$0.isEmpty }
+    }
+
+    private static func trimmedWord(_ token: String) -> String {
+        token.trimmingCharacters(in: CharacterSet.punctuationCharacters.subtracting(CharacterSet(charactersIn: "'’-_.")))
+            .trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+
+    /// `words(in:)`, each marked with whether it opens a sentence: it comes
+    /// first and `startsSentence`, or follows a line break or a token ending
+    /// in `.` `!` `?` `…`.
+    static func wordsMarkingSentenceStarts(
+        in text: String, startsSentence: Bool
+    ) -> [(word: String, startsSentence: Bool)] {
+        var result: [(word: String, startsSentence: Bool)] = []
+        var opens = startsSentence
+        var token = ""
+        func finish() {
+            guard !token.isEmpty else { return }
+            let word = trimmedWord(token)
+            if !word.isEmpty { result.append((word, opens)) }
+            let end = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'”’)]"))
+            if let last = end.last { opens = ".!?…".contains(last) } else if !word.isEmpty { opens = false }
+            token = ""
+        }
+        for character in text {
+            if character.isWhitespace {
+                finish()
+                if character.isNewline { opens = true }
+            } else {
+                token.append(character)
+            }
+        }
+        finish()
+        return result
     }
 
     /// Runs of words that were replaced, from a longest-common-subsequence
     /// alignment of the two word lists.
-    private static func substitutions(from old: [String], to new: [String]) -> [(old: [String], new: [String])] {
+    /// `newStart`: where the block's words begin in `new`.
+    private static func substitutions(
+        from old: [String], to new: [String]
+    ) -> [(old: [String], new: [String], newStart: Int)] {
         var table = [[Int]](repeating: [Int](repeating: 0, count: new.count + 1), count: old.count + 1)
         for i in stride(from: old.count - 1, through: 0, by: -1) {
             for j in stride(from: new.count - 1, through: 0, by: -1) {
@@ -162,19 +220,19 @@ enum CorrectionLearner {
             }
         }
 
-        var blocks: [(old: [String], new: [String])] = []
+        var blocks: [(old: [String], new: [String], newStart: Int)] = []
         var pendingOld: [String] = []
         var pendingNew: [String] = []
+        var j = 0
         func flush() {
             if !pendingOld.isEmpty && !pendingNew.isEmpty {
-                blocks.append((pendingOld, pendingNew))
+                blocks.append((pendingOld, pendingNew, j - pendingNew.count))
             }
             pendingOld = []
             pendingNew = []
         }
 
         var i = 0
-        var j = 0
         while i < old.count || j < new.count {
             if i < old.count, j < new.count, old[i] == new[j] {
                 flush()

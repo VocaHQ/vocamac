@@ -20,7 +20,7 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
     /// off: the rule-based steps run without the model.
     var withoutSmartCleanup: String {
         removesHesitations
-            ? "Smart Cleanup is off: no model runs. “Um”, “uh”, and spoken corrections of days, numbers, and times are still handled at this level, and your Styles still apply."
+            ? "Smart Cleanup is off: no model runs. “Um”, “uh”, spoken corrections (“tomorrow, sorry, no, let’s meet Friday”), and “scratch that” are still handled at this level, and your Styles still apply."
             : "Smart Cleanup is off: no model runs. Your words are kept as spoken; your Styles still apply."
     }
 
@@ -38,9 +38,9 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .none: return "Keep spoken words; formatting settings still apply."
         case .light: return "Tidy punctuation and capitalization. Keep fillers."
-        case .medium: return "Remove fillers, repeated starts, and explicit corrections."
+        case .medium: return "Remove fillers, repeated starts, spoken corrections, and “scratch that”."
         case .grammar: return "Medium cleanup plus minimal English grammar repairs."
-        case .high: return "Medium cleanup plus broader corrections and “scratch that”."
+        case .high: return "Medium cleanup plus corrections only a model can spot."
         }
     }
 
@@ -48,9 +48,9 @@ enum CleanupLevel: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .none: return "Keep the engine transcript unchanged, “um” and “uh” included."
         case .light: return "Tidy punctuation and capitalization only. Keeps “um” and “uh”."
-        case .medium: return "Also remove fillers and repeated starts, and keep only the fix when you correct a day, month, number, or time (“tomorrow, no, Wednesday” → “Wednesday”). “Um”, “uh”, and these corrections are handled in every app, even with Smart Cleanup off. In Code and Terminal the model only removes filler, never rewords."
+        case .medium: return "Also remove fillers and repeated starts, and keep only what you meant when you change your mind: “let’s meet tomorrow, sorry, no, let’s meet Friday” → “let’s meet Friday”, “the blue one, I mean, the red one” → “the red one”, and “scratch that” drops the sentence before it. A correction needs a cue such as “no”, “sorry”, or “I mean” and words that show what it replaces, so ordinary sentences stay as spoken. These are handled in every app, even with Smart Cleanup off. In Code and Terminal the model only removes filler, never rewords."
         case .grammar: return "Medium cleanup plus minimal English grammar repairs: subject–verb agreement and missing articles. Keeps meaning, tense, uncertainty, and your choice of words. Ambiguous edits stay as spoken. Code and Terminal only remove filler."
-        case .high: return "Medium cleanup plus looser corrections (“send it to John, no, Mary” → “Mary”) and dropping what you cancel with “scratch that”. For English grammar repairs, choose Grammar."
+        case .high: return "Medium cleanup, plus the cleanup model resolves corrections the rules leave alone (“the one by the window, I mean, the corner table”) and acts on “never mind”. For English grammar repairs, choose Grammar."
         }
     }
 

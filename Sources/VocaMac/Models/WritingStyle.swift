@@ -18,14 +18,19 @@ enum CapitalizationPolicy: String, Codable, CaseIterable, Identifiable {
     case off
     /// Capitalize the first letter and letters after `.` `!` `?`.
     case sentences
+    /// Like `inherit`, but start in lowercase: the first word loses its
+    /// capital when it is an ordinary word. Learned from a user who keeps
+    /// lowercasing what VocaMac types in an app (`LearnedCasing`).
+    case lowercaseStart
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .inherit:   return "Use global setting"
-        case .off:       return "Leave case alone"
-        case .sentences: return "Capitalize sentences"
+        case .inherit:        return "Use global setting"
+        case .off:            return "Leave case alone"
+        case .sentences:      return "Capitalize sentences"
+        case .lowercaseStart: return "Start in lowercase"
         }
     }
 }

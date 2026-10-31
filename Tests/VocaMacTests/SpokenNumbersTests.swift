@@ -252,4 +252,43 @@ final class SpokenNumbersTests: XCTestCase {
         XCTAssertEqual(converted("twenty \u{E000} three"), "20 \u{E000} 3")
         XCTAssertEqual(converted("\u{E001}five copies"), "\u{E001}5 copies")
     }
+
+    // MARK: - Newspaper style
+
+    private func prose(_ text: String, symbols: Bool = false) -> String {
+        SpokenNumbers.digits(in: text, symbols: symbols, smallNumbersAsWords: true)
+    }
+
+    func testOneToNineStayWordsInProse() {
+        XCTAssertEqual(prose("I have two ideas and three questions"), "I have two ideas and three questions")
+        XCTAssertEqual(prose("we need twenty three chairs"), "we need 23 chairs")
+        XCTAssertEqual(prose("about ten people"), "about 10 people")
+        XCTAssertEqual(prose("two hundred guests"), "200 guests")
+    }
+
+    func testAUnitOrSymbolMakesASmallNumberAFigure() {
+        XCTAssertEqual(prose("see you at five pm"), "see you at 5 pm")
+        XCTAssertEqual(prose("it takes three minutes"), "it takes 3 minutes")
+        XCTAssertEqual(prose("about five percent"), "about 5 percent")
+        XCTAssertEqual(prose("about five percent", symbols: true), "about 5%")
+        XCTAssertEqual(prose("it costs five dollars", symbols: true), "it costs $5")
+        XCTAssertEqual(prose("two and a half hours"), "2.5 hours")
+    }
+
+    func testANumberingWordMakesASmallNumberAFigure() {
+        XCTAssertEqual(prose("upgrade to version two"), "upgrade to version 2")
+        XCTAssertEqual(prose("see page four"), "see page 4")
+        XCTAssertEqual(prose("go back to step three"), "go back to step 3")
+    }
+
+    func testARangeWithALargeNumberIsWrittenInFigures() {
+        XCTAssertEqual(prose("between five and twelve people"), "between 5 and 12 people")
+        XCTAssertEqual(prose("twelve to five"), "12 to 5")
+        XCTAssertEqual(prose("one or two people"), "one or two people")
+    }
+
+    func testTimesYearsAndCodesStillConvert() {
+        XCTAssertEqual(prose("at seven thirty pm"), "at 7:30 pm")
+        XCTAssertEqual(prose("back in nineteen ninety nine"), "back in 1999")
+    }
 }

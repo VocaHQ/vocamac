@@ -33,6 +33,14 @@ private struct CalmStylesToneGroup: View {
                     description: "When off, every app gets the same text.",
                     isOn: $appState.writingStyleEnabled
                 )
+                CalmToggleRow(
+                    "Match apps automatically",
+                    description: "Apps VocaMac knows, like Slack, Mail and code editors, get their kind’s style until you pick one. "
+                        + "When off, they use your style for everything else.",
+                    isOn: $appState.automaticWritingStyles
+                )
+                .calmDisabledByParent(!appState.writingStyleEnabled)
+                .settingsTarget("automatic-styles")
                 if AppDistribution.canReadOtherProcesses {
                     CalmToggleRow(
                         "Treat coding agents in terminals as prose",

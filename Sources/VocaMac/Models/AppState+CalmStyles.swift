@@ -84,6 +84,17 @@ enum CalmStyleGroup: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
+    /// The chip that stands for the apps VocaMac styles automatically in
+    /// this group (`WritingStyleResolver.automaticStyle`).
+    var automaticAppsTitle: String? {
+        switch self {
+        case .messages: return "Chat apps"
+        case .email: return "Mail apps"
+        case .code: return "Editors and terminals"
+        case .everythingElse: return "Note apps"
+        }
+    }
+
     /// The group a style belongs to when nothing else says where an app goes.
     static func family(of style: WritingStyle) -> CalmStyleGroup {
         switch style {

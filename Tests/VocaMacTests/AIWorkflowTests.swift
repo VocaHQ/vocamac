@@ -1295,6 +1295,46 @@ final class RemoteCleanupServiceTests: XCTestCase {
         XCTAssertEqual(attempt.outcome, .cleaned)
     }
 
+    func testTheEndpointGetsTheDictionaryGlossary() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubCleanupURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        StubCleanupURLProtocol.install { request in
+            let body = try XCTUnwrap(StubCleanupURLProtocol.bodyData(from: request))
+            let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let messages = try XCTUnwrap(json["messages"] as? [[String: String]])
+            let user = try XCTUnwrap(messages.last?["content"])
+            XCTAssertTrue(user.hasPrefix("<TERMS>Claude, Priya</TERMS>\n<USER-INPUT>"), user)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: try XCTUnwrap(request.url), statusCode: 200, httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            ))
+            let data = try JSONSerialization.data(withJSONObject: [
+                "choices": [["message": ["content": "Ask Claude."]]]
+            ])
+            return (response, data)
+        }
+        let service = RemoteCleanupService(
+            configuration: CleanupEndpointConfiguration(
+                provider: .openAICompatible, baseURL: "https://cleanup.example/v1", model: "cleanup-model"
+            ),
+            credentials: StubCleanupCredentials(apiKey: "test-key"),
+            session: session
+        )
+
+        let attempt = await service.attempt("ask cloud", prompt: "Clean this", glossary: ["Claude", "Priya"])
+
+        XCTAssertEqual(attempt.output, "Ask Claude.")
+    }
+
+    func testARemoteGlossaryHoldsNoScreenText() {
+        let dictionary = DictionaryContext(
+            vocabulary: ["Claude"], replacements: [], contextTerms: ["SecretProjectName"], isKnownWord: { _ in true }
+        )
+        XCTAssertEqual(DictationOutputPipeline.cleanupGlossary(dictionary, onDevice: false), ["Claude"])
+        XCTAssertEqual(DictationOutputPipeline.cleanupGlossary(dictionary), ["Claude", "SecretProjectName"])
+    }
+
     func testUnreachableEndpointIsSkippedForAWhileButCommandsStillTry() async {
         RemoteCleanupService.resetReachabilityForTesting()
         defer { RemoteCleanupService.resetReachabilityForTesting() }

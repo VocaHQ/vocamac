@@ -31,6 +31,10 @@ enum OverlayLayout {
     static let failureMaxLines = 3
     /// Text width inside a failure pill: padding 14 + 16, icon 15, gap 10.
     static let failureTextWidth: CGFloat = failureMaxWidth - 14 - 16 - 15 - 10
+    /// Room an Undo button takes beside a "Learned" message: gap 10 plus the button.
+    static let learnedUndoWidth: CGFloat = 62
+    /// How long a "Learned" message with its Undo button stays up.
+    static let learnedDisplayDuration: TimeInterval = 6
     static let failureLineHeight: CGFloat = 17
 
     // MARK: Live panel
@@ -369,11 +373,13 @@ extension CalmKeyCaps {
 
 // MARK: - Overlay Notice
 
-/// What a failure message is: a real error (amber, warning icon) or the
-/// text landing on the clipboard instead of in a field (copy icon, neutral).
+/// What a failure message is: a real error (amber, warning icon), the
+/// text landing on the clipboard instead of in a field (copy icon, neutral),
+/// or something VocaMac learned from the user's edits (with Undo).
 enum OverlayNotice: Equatable {
     case error(String)
     case copied(String)
+    case learned(String)
 
     static func from(message: String) -> OverlayNotice {
         if message == TextInjector.accessibilityOffMessage {
@@ -384,7 +390,7 @@ enum OverlayNotice: Equatable {
 
     var text: String {
         switch self {
-        case .error(let text), .copied(let text): return text
+        case .error(let text), .copied(let text), .learned(let text): return text
         }
     }
 }
@@ -443,6 +449,13 @@ final class CursorOverlayManager {
 
     /// Dismisses a failure message; replaced by any later show or failure.
     private var failureDismissal: DispatchWorkItem?
+    /// A "Learned" notice that arrived while a dictation was under way,
+    /// shown once the overlay is free.
+    private var pendingLearned: (message: String, undo: @MainActor () -> Void)?
+    /// From the start of a dictation (or Command Mode session) to its
+    /// `hide()` or failure, whatever the overlay style: with the overlay Off
+    /// nothing is on screen, but a "Learned" notice must still wait.
+    private var isDictationUnderway = false
 
     /// Pointer-move monitors, installed while the overlay takes clicks, so
     /// the panel only stops ignoring the mouse while the pointer is over
@@ -468,6 +481,8 @@ final class CursorOverlayManager {
             return
         }
 
+        isDictationUnderway = true
+        parkLearnedNotice()
         cancelFailureDismissal()
         positionGeneration = UUID()
         viewModel.style = style
@@ -478,6 +493,7 @@ final class CursorOverlayManager {
         viewModel.elapsedSeconds = 0
         viewModel.setTranscript("")
         viewModel.failureMessage = ""
+        viewModel.learnedUndo = nil
         viewModel.commandSession = nil
         viewModel.liveWordsAvailable = false
         viewModel.isLoadingSpeechModel = false
@@ -498,6 +514,13 @@ final class CursorOverlayManager {
 
     /// The input route is live and the microphone is actually capturing.
     func transitionToRecording() {
+        isDictationUnderway = true
+        // With the overlay Off, `show` isn't called: a "Learned" notice still
+        // up waits for this dictation to finish.
+        if viewModel.phase == .failure, viewModel.learnedUndo != nil {
+            parkLearnedNotice()
+            hideNow()
+        }
         guard viewModel.isActive, viewModel.phase == .connecting else { return }
         viewModel.phase = .recording
         viewModel.audioLevel = 0
@@ -510,6 +533,7 @@ final class CursorOverlayManager {
 
     /// Transitions the overlay from recording to batch transcription.
     func transitionToProcessing() {
+        isDictationUnderway = true
         guard isShowingRecordingSession, let overlayPanel else { return }
         viewModel.phase = .processing
         updateMouseHandling(overlayPanel)
@@ -544,7 +568,34 @@ final class CursorOverlayManager {
     func showFailure(message: String) {
         let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
+        // A failure ends the dictation. A "Learned" notice it covers comes
+        // back after it, with its Undo.
+        isDictationUnderway = false
+        parkLearnedNotice()
+        viewModel.learnedUndo = nil
+        presentNotice(trimmed, duration: OverlayInteraction.failureDisplayDuration(for: trimmed))
+        VocaLogger.debug(.cursorOverlay, "Overlay showing failure")
+    }
 
+    /// Say what VocaMac learned from the user's edits, with an Undo button,
+    /// for a few seconds. While a dictation is under way, or a failure is
+    /// up, it waits until the overlay is free; a newer one replaces it.
+    func showLearned(message: String, undo: @escaping @MainActor () -> Void) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let isShowingFailure = viewModel.isActive && viewModel.phase == .failure && viewModel.learnedUndo == nil
+        guard !isDictationUnderway, !isShowingFailure else {
+            pendingLearned = (trimmed, undo)
+            return
+        }
+        viewModel.learnedUndo = undo
+        viewModel.onNoticeFinished = { [weak self] in self?.hideNow() }
+        presentNotice(trimmed, duration: OverlayLayout.learnedDisplayDuration)
+        VocaLogger.debug(.cursorOverlay, "Overlay showing what was learned")
+    }
+
+    /// Show a one-line notice in the failure pill for `duration`, then hide.
+    private func presentNotice(_ trimmed: String, duration: TimeInterval) {
         let panel = preparedPanel()
         let wasVisible = panel.isVisible && viewModel.isActive
         stopTimers()
@@ -586,21 +637,31 @@ final class CursorOverlayManager {
             }
         }
         failureDismissal = dismissal
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + OverlayInteraction.failureDisplayDuration(for: trimmed),
-            execute: dismissal
-        )
-        VocaLogger.debug(.cursorOverlay, "Overlay showing failure")
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: dismissal)
     }
 
     /// Hides the recording overlay and resets its transient state. A failure
     /// message stays up until its own dismissal, so an error path that hides
     /// the recording overlay after reporting the failure doesn't erase it.
     func hide() {
+        isDictationUnderway = false
         if viewModel.phase == .failure, failureDismissal != nil {
             return
         }
         hideNow()
+    }
+
+    /// A "Learned" notice is on screen with its Undo.
+    var isShowingLearnedNotice: Bool { viewModel.phase == .failure && viewModel.learnedUndo != nil }
+
+    /// A "Learned" notice is waiting for the overlay to be free.
+    var hasPendingLearnedNotice: Bool { pendingLearned != nil }
+
+    /// Keep a "Learned" notice that is on screen for later, when something
+    /// else is about to take the overlay.
+    private func parkLearnedNotice() {
+        guard viewModel.phase == .failure, let undo = viewModel.learnedUndo else { return }
+        pendingLearned = (viewModel.failureMessage, undo)
     }
 
     private func hideNow() {
@@ -611,6 +672,7 @@ final class CursorOverlayManager {
 
         viewModel.isActive = false
         viewModel.phase = .idle
+        viewModel.learnedUndo = nil
         viewModel.audioLevel = 0
         viewModel.waveformTick = 0
         viewModel.elapsedSeconds = 0
@@ -622,6 +684,15 @@ final class CursorOverlayManager {
         // on the hotkey path costs main-thread time on every dictation.
         overlayPanel?.orderOut(nil)
         VocaLogger.debug(.cursorOverlay, "Overlay hidden")
+
+        if let pending = pendingLearned {
+            pendingLearned = nil
+            // After the caller's own work on this turn (a failure shown
+            // straight after hiding takes the overlay, and this waits again).
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated { self?.showLearned(message: pending.message, undo: pending.undo) }
+            }
+        }
     }
 
     /// Updates the current audio level used to animate the waveform.
@@ -711,7 +782,9 @@ final class CursorOverlayManager {
     /// same rectangle. The transparent slot and shadow room never take the
     /// pointer from the app underneath.
     private func updateMouseHandling(_ panel: NSPanel) {
-        let acceptsClicks = viewModel.isActive && OverlayInteraction.acceptsClicks(in: viewModel.phase)
+        // A "Learned" notice takes clicks too: its Undo button.
+        let acceptsClicks = viewModel.isActive
+            && (OverlayInteraction.acceptsClicks(in: viewModel.phase) || viewModel.learnedUndo != nil)
         let card = visibleCardFrame(of: panel)
         let isOverCard = acceptsClicks && card.contains(NSEvent.mouseLocation)
         if panel.ignoresMouseEvents == isOverCard { panel.ignoresMouseEvents = !isOverCard }
@@ -918,6 +991,10 @@ final class MicIndicatorViewModel: ObservableObject {
     /// The speech model is still loading while the microphone records.
     @Published var isLoadingSpeechModel = false
     @Published var failureMessage: String = ""
+    /// Takes back what a "Learned" notice reports; nil for other notices.
+    @Published var learnedUndo: (@MainActor () -> Void)?
+    /// Hides the overlay once a notice's button has done its work.
+    var onNoticeFinished: (@MainActor () -> Void)?
     @Published var recordingLimit: TimeInterval?
     /// Processing has moved from transcription to Smart Cleanup.
     @Published var isCleaningUp = false
@@ -946,7 +1023,17 @@ final class MicIndicatorViewModel: ObservableObject {
         return RecordingCountdown.secondsRemaining(elapsed: TimeInterval(elapsedSeconds), limit: recordingLimit)
     }
 
-    var notice: OverlayNotice { OverlayNotice.from(message: failureMessage) }
+    var notice: OverlayNotice {
+        learnedUndo == nil ? OverlayNotice.from(message: failureMessage) : .learned(failureMessage)
+    }
+
+    /// The Undo button on a "Learned" notice.
+    func undoLearned() {
+        let undo = learnedUndo
+        learnedUndo = nil
+        undo?()
+        onNoticeFinished?()
+    }
 
     /// Replace the live words, keeping what the previous update already had
     /// as settled.
@@ -1005,13 +1092,15 @@ final class MicIndicatorViewModel: ObservableObject {
     /// The failure message's wrap width and line count.
     var failureTextLayout: (width: CGFloat, lines: Int) {
         let text = notice.text
+        let available = learnedUndo == nil
+            ? OverlayLayout.failureTextWidth : OverlayLayout.failureTextWidth - OverlayLayout.learnedUndoWidth
         let natural = OverlayTextMeasure.width(text, font: OverlayTextMeasure.pillFont)
-        guard natural > OverlayLayout.failureTextWidth else { return (natural, 1) }
+        guard natural > available else { return (natural, 1) }
         let lines = OverlayTextMeasure.lineCount(
             text, font: OverlayTextMeasure.pillFont,
-            width: OverlayLayout.failureTextWidth - 4, lineHeight: OverlayLayout.failureLineHeight
+            width: available - 4, lineHeight: OverlayLayout.failureLineHeight
         )
-        return (OverlayLayout.failureTextWidth, min(lines, OverlayLayout.failureMaxLines))
+        return (available, min(lines, OverlayLayout.failureMaxLines))
     }
 
     /// The card slot for the current state.
@@ -1441,9 +1530,15 @@ private struct OverlayFailurePill: View {
             if case .copied = notice { return true }
             return false
         }()
+        let isLearned: Bool = {
+            if case .learned = notice { return true }
+            return false
+        }()
         HStack(alignment: layout.lines > 1 ? .top : .center, spacing: 10) {
             Group {
-                if isCopied {
+                if isLearned {
+                    CalmIcon(.check, size: 14, weight: 2).foregroundStyle(OverlayPalette.mint)
+                } else if isCopied {
                     CalmIcon(.copy, size: 14, weight: 1.8).foregroundStyle(OverlayPalette.text)
                 } else {
                     CalmIcon(.warning, size: 15, weight: 2).foregroundStyle(OverlayPalette.amber)
@@ -1452,12 +1547,19 @@ private struct OverlayFailurePill: View {
             .frame(width: 15, height: layout.lines > 1 ? OverlayLayout.failureLineHeight : 15)
             Text(notice.text)
                 .font(CalmFont.sf(13, weight: 550))
-                .foregroundStyle(isCopied ? OverlayPalette.text : OverlayPalette.amber)
+                .foregroundStyle(isCopied || isLearned ? OverlayPalette.text : OverlayPalette.amber)
                 .lineLimit(OverlayLayout.failureMaxLines)
                 .lineSpacing(1)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: layout.width + 2, alignment: .leading)
+            if isLearned {
+                Button("Undo") { viewModel.undoLearned() }
+                    .buttonStyle(.plain)
+                    .font(CalmFont.sf(13, weight: 650))
+                    .foregroundStyle(OverlayPalette.mint)
+                    .accessibilityHint("Takes back what VocaMac just learned")
+            }
         }
         .padding(.leading, 14)
         .padding(.trailing, 16)
@@ -1466,7 +1568,10 @@ private struct OverlayFailurePill: View {
         .fixedSize()
         .overlayGlass(cornerRadius: OverlayLayout.pillCornerRadius)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(isCopied ? "Copied: \(viewModel.failureMessage)" : "Didn’t work: \(viewModel.failureMessage)")
+        .accessibilityLabel(
+            isLearned ? viewModel.failureMessage
+                : isCopied ? "Copied: \(viewModel.failureMessage)" : "Didn’t work: \(viewModel.failureMessage)"
+        )
     }
 }
 

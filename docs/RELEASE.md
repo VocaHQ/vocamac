@@ -27,6 +27,7 @@ Pre-release versions use suffixes: `v0.1.0-alpha`, `v0.1.0-beta.1`
 3. **Update version number** in all locations:
    - `scripts/build.sh` — both `CFBundleVersion` and `CFBundleShortVersionString` in the Info.plist template
    - `web/data/product.toml` — the whole `[stable]` block: `version`, `tag`, `status`, `released`, `releaseURL`, and the `Verified:` comment at the top. Hugo renders the JSON-LD `softwareVersion` and the hero badge from these, so nothing in `web/layouts/` needs editing.
+   - `web/data/product.toml` — `[[releaseModels]]`: add the speech models new in this release, and only those. The homepage lists them as available in the stable version, so a model merged after the last tag waits for the release that ships it.
    - `README.md` — the platform table row for macOS (status and version)
    - _(No Swift change needed — Settings › About reads the version from `Info.plist` via `CalmSettingsMenu.appVersion` in `CalmWindowView.swift`.)_
    - `homebrew/Casks/vocamac.rb` — version and sha256 (if doing a manual tap update)

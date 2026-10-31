@@ -329,7 +329,9 @@ struct UserSettings {
     var customVocabulary: String = ""          // terms, newline-separated; also the recognition hint (Whisper, Parakeet, Apple Speech)
     var wordReplacements: [WordReplacement] = []          // JSON in UserDefaults
     var dictionarySuggestions: [CorrectionSuggestion] = [] // JSON in UserDefaults
-    var learnCorrectionsMode: LearnCorrectionsMode = .suggest
+    var learnCorrectionsMode: LearnCorrectionsMode = .automatic // installs that already used the Dictionary keep .suggest
+    var personalFillers: [String] = []          // JSON; fillers the user always deletes, learned from edits
+    var learnedLowercaseApps: [LearnedLowercaseApp] = [] // JSON; apps where dictation starts in lowercase
     var useScreenContext: Bool = true
 
     // App Behavior
@@ -364,7 +366,14 @@ vocamac.shortcuts.mouseButton = 0
 vocamac.dictionary.replacements = <JSON [WordReplacement]>
 vocamac.dictionary.suggestions = <JSON [CorrectionSuggestion]>
 vocamac.dictionary.dismissedSuggestions = ["heard→Corrected", ...]
-vocamac.dictionary.learnMode = "suggest"
+vocamac.dictionary.learnMode = "automatic"
+vocamac.dictionary.learnModeDefaultSettled = true  // the default above is settled once per install
+vocamac.dictionary.personalFillers = <JSON [String]>
+vocamac.dictionary.personalFillerCounts = {"basically": 2}   // deletions until learned at 3
+vocamac.dictionary.rejectedPersonalFillers = ["actually"]    // taken back; never learned again
+vocamac.writingStyle.learnedLowercaseApps = <JSON [LearnedLowercaseApp]>
+vocamac.writingStyle.lowercaseStartCounts = {"com.apple.MobileSMS": [1, 1793430000]}  // [count, last seen]; newest 100 apps kept
+vocamac.writingStyle.rejectedLowercaseApps = ["com.tinyspeck.slackmacgap"]
 vocamac.dictionary.screenContext = true
 vocamac.transcriptCleanup.skipCleanText = true
 vocamac.commandMode.review = "never"            // never | longSelections | always
@@ -430,6 +439,8 @@ first. Each entry holds:
 
 - the engine's raw text and the text that was typed, plus the pipeline summary
 - the target app, model, language, and timings
+- `editedText`: the dictation as it read in the field once the user was done
+  with it (see below), when VocaMac could read it back; deleted with the entry
 - a status: `pending`, `completed`, `empty`, `failed`, `interrupted`, or `cancelled`
 - the name of its WAV file (16-bit mono 16 kHz), when audio is kept
 
@@ -556,10 +567,36 @@ re-spell them. A full stop the model adds after an emoji that ends the
 utterance is removed.
 
 `CorrectionObserver` reads the focused field about 0.8 s after injection. It
-reads it again when the next dictation starts, or after 20 s. The text itself
-is never stored. `CorrectionLearner` reduces the two readings to spelling-level
-substitutions inside the dictated span. Depending on
-`vocamac.dictionary.learnMode`, those become suggestions or are added directly.
+reads it again when the next dictation starts, or after 20 s. Nothing is read
+when `vocamac.dictionary.learnMode` is `off`. The field's text is never stored;
+the dictated span as it reads after the second reading
+(`DictationEditReader`) goes into that dictation's History entry as
+`editedText`, only when History keeps the dictation. Insights shows the share
+of read-back dictations the user didn't change ("Sent without edits").
+
+`CorrectionLearner` reduces the two readings to spelling-level substitutions
+inside the dictated span. In `automatic` mode, the user's own fix of a name or
+term (a capital, or a word the spell checker doesn't know) is added to the
+Dictionary at once and the overlay offers Undo; Undo removes what was added
+and dismisses the fix for good. Every other fix, and terms found on screen or
+in History, become suggestions, as in `suggest` mode.
+
+Two more things are learned from the same readings, each after it happens in
+three separate dictations:
+
+- **Fillers** (`PersonalFillers`): a discourse marker from a closed list
+  ("basically", "actually", "like", "you know", …) that the user deleted and
+  nothing else. It is then removed like "um", at Medium and above, in prose
+  styles only; words that are also real words ("like", "right", "so") only
+  where they open a sentence and a comma follows them ("So, we…"). Listed in Settings › General with "Keep it".
+- **Lowercase starts** (`LearnedCasing`): the user lowercased only the first
+  letter of a dictation that started a message (not one following a word or
+  comma). That app's resolved style then uses `CapitalizationPolicy.lowercaseStart`:
+  the first word loses its capital when it is an ordinary word, so "I", names
+  and acronyms keep theirs. Listed on Styles with "Use capitals".
+
+Taking either back (the overlay's Undo, or the Settings buttons) records it in
+the matching `rejected…` key so it isn't learned again.
 
 ### 3.8 `SystemCapabilities` — Hardware Detection Result
 

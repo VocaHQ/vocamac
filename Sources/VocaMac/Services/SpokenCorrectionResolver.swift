@@ -66,14 +66,21 @@ enum SpokenCorrectionResolver {
         let replacement = text.substring(with: match.range(withName: "replacement"))
         guard let firstKind = kind(of: first), firstKind == kind(of: replacement),
               first.lowercased() != replacement.lowercased() else { return false }
-        // A correction stays inside one sentence: "We need 2. Sorry, 3 of us
-        // can't make it." is an apology, then a new sentence.
+        // A full stop between the values is a pause the engine wrote as a
+        // sentence end ("Let's meet tomorrow. Sorry, actually yesterday.")
+        // only when the replacement is a fragment that ends its own sentence:
+        // "We need 2. Sorry, 3 of us can't make it." is an apology, then a
+        // new sentence.
         let firstEnd = match.range(withName: "first").upperBound
         let gap = text.substring(with: NSRange(
             location: firstEnd,
             length: match.range(withName: "replacement").location - firstEnd
         ))
-        guard !endsASentence(gap) else { return false }
+        if endsASentence(gap) {
+            let after = text.substring(from: match.range(withName: "replacement").upperBound)
+                .drop { $0 == " " || $0 == "\t" }
+            guard after.isEmpty || after.first.map({ ".!\n".contains($0) }) == true else { return false }
+        }
         // Only the clause the first value sits in: from the last sentence end.
         let before = text.substring(to: match.range(withName: "correction").location)
         let clause = before.components(separatedBy: CharacterSet(charactersIn: ".!?\n")).last ?? before
@@ -186,6 +193,10 @@ enum SpokenCorrectionResolver {
         "nahi nahi", "nahi", "nahin", "mera matlab", "matlab",
     ]
 
+    /// Cues that count only beside another cue: "sorry, sorry, not actually,
+    /// yesterday". Alone, "Monday not actually Tuesday" says Tuesday is wrong.
+    static let chainOnlyCues: [String] = ["not actually"]
+
     /// Cues that are also everyday words: "wait 5 minutes", "no Sunday
     /// hours", "the word matlab". They only count when set off by punctuation
     /// on both sides ("tomorrow, no, Wednesday"), which is how a speaker
@@ -235,8 +246,14 @@ enum SpokenCorrectionResolver {
         let interjection = "(?:oh[," + space + "]+)?"
         let plain = separators + "*" + interjection + "(?:" + plainCue + ")(?![\\p{L}])" + separators + "+"
         let punctuated = punctuation + interjection + "(?:" + punctuatedCue + ")(?![\\p{L}])" + punctuation
+        // Two or more cues in a row ("sorry, actually", "sorry sorry not
+        // actually"): a run of cues is never everyday speech, so any cue may
+        // join one, without punctuation.
+        let anyCue = "(?:" + cuePattern(cues + chainOnlyCues) + ")(?![\\p{L}])"
+        let chain = separators + "*" + interjection + anyCue
+            + "(?:" + separators + "+" + interjection + anyCue + ")+" + separators + "+"
         let pattern = "(?i)(?<![\\p{L}\\p{N}])(?<correction>" + value("first")
-            + "(?:" + plain + "|" + punctuated + ")"
+            + "(?:" + plain + "|" + punctuated + "|" + chain + ")"
             + value("replacement") + ")(?![\\p{L}\\p{N}])"
         return try? NSRegularExpression(pattern: pattern)
     }()

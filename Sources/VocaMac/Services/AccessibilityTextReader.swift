@@ -201,6 +201,19 @@ enum AccessibilityTextReader {
         )
     }
 
+    /// The kind of field focused in `processID` and the text around its
+    /// caret, for fitting a dictation to it (`InsertionFit`). Nil when no
+    /// readable text field has focus; a password field is never read.
+    static func insertionContext(processID: pid_t) -> InsertionContext? {
+        guard let element = focusedTextElement(processID: processID) else { return nil }
+        let field = InsertionContext.field(forRole: copyString(element, kAXRoleAttribute) ?? "")
+        let range = selectedTextRange(of: element)
+        return InsertionContext(
+            field: field, value: value(of: element), location: range?.location, length: range?.length ?? 0,
+            frame: frame(of: element)
+        )
+    }
+
     /// What marks the field `element` is, around a selection at `range`.
     static func fieldAnchor(of element: AXUIElement, range: CFRange?) -> FieldAnchor {
         FieldAnchor(frame: frame(of: element), value: value(of: element), range: range)
@@ -495,11 +508,14 @@ protocol ScreenContextReading: AnyObject {
     func captureFrontmostDocumentURL() async -> URL?
     /// The page address in `app`'s focused field, whether or not it is in front.
     func captureDocumentURL(of app: RunningAppSnapshot) async -> URL?
+    /// The frontmost app's focused field and the text around its caret.
+    func captureInsertionContext() async -> InsertionContext?
 }
 
 extension ScreenContextReading {
     func captureFrontmostDocumentURL() async -> URL? { nil }
     func captureDocumentURL(of app: RunningAppSnapshot) async -> URL? { nil }
+    func captureInsertionContext() async -> InsertionContext? { nil }
 }
 
 @MainActor
@@ -509,6 +525,15 @@ final class ScreenContextReader: ScreenContextReading {
         return await withCheckedContinuation { continuation in
             AccessibilityTextReader.queue.async {
                 continuation.resume(returning: AccessibilityTextReader.visibleContext(processID: processID))
+            }
+        }
+    }
+
+    func captureInsertionContext() async -> InsertionContext? {
+        guard let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return nil }
+        return await withCheckedContinuation { continuation in
+            AccessibilityTextReader.queue.async {
+                continuation.resume(returning: AccessibilityTextReader.insertionContext(processID: processID))
             }
         }
     }

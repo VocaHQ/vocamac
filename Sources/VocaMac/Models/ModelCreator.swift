@@ -19,6 +19,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
     case apple
     case alibaba
     case qwen
+    case cohere
     case mistral
     case usefulSensors
     case sber
@@ -35,6 +36,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .apple: return "Apple"
         case .alibaba: return "Alibaba"
         case .qwen: return "Qwen"
+        case .cohere: return "Cohere"
         case .mistral: return "Mistral AI"
         case .usefulSensors: return "Useful Sensors"
         case .sber: return "SberDevices"
@@ -52,6 +54,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .apple: return "Apple Speech and Apple Intelligence"
         case .alibaba: return "SenseVoice"
         case .qwen: return "Qwen 2.5 and Qwen 3"
+        case .cohere: return "Cohere Transcribe"
         case .mistral: return "Ministral 3"
         case .usefulSensors: return "Moonshine"
         case .sber: return "GigaAM"
@@ -69,6 +72,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .apple: return URL(string: "https://developer.apple.com/documentation/speech")!
         case .alibaba: return URL(string: "https://github.com/FunAudioLLM/SenseVoice")!
         case .qwen: return URL(string: "https://huggingface.co/Qwen")!
+        case .cohere: return URL(string: "https://huggingface.co/CohereLabs")!
         case .mistral: return URL(string: "https://huggingface.co/mistralai")!
         case .usefulSensors: return URL(string: "https://github.com/usefulsensors/moonshine")!
         case .sber: return URL(string: "https://github.com/salute-developers/GigaAM")!
@@ -87,7 +91,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .alibaba: return "alibaba"
         case .qwen: return "qwen"
         case .mistral: return "mistral"
-        case .usefulSensors, .sber, .oriserve, .customEndpoint: return nil
+        case .usefulSensors, .sber, .oriserve, .cohere, .customEndpoint: return nil
         }
     }
 
@@ -110,7 +114,7 @@ enum ModelCreator: String, CaseIterable, Identifiable {
         case .alibaba: return "9ecd942970e4616933c9e1c014f58ad31ea4c1775efefc4f41b55ea166f443ee"
         case .qwen: return "dcb3ba2f2b55ccbacbade0ca0bf98921fbaf8a07848972974b4a9bf8077376cf"
         case .mistral: return "a06cfa54e7deff7f7544175b006b7f8a03fbc5624c44f7d553a44d07ea96e629"
-        case .usefulSensors, .sber, .oriserve, .customEndpoint: return nil
+        case .usefulSensors, .sber, .oriserve, .cohere, .customEndpoint: return nil
         }
     }
 
@@ -207,6 +211,8 @@ extension ModelSize {
             return .alibaba
         case .qwen3Asr06B:
             return .qwen
+        case .cohereTranscribe:
+            return .cohere
         case .gigaamV3:
             return .sber
         case .vocaHinglish:

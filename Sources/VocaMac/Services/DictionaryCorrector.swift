@@ -10,7 +10,9 @@
 // 1. Replacements: exact spoken forms → the user's text ("get hub" → "GitHub").
 // 2. Vocabulary: spoken words whose letters match a term, ignoring case,
 //    spaces, and punctuation ("voca mac" → "VocaMac"), plus a conservative
-//    fuzzy match for near-misses of longer terms ("Namratha" → "Namrata").
+//    fuzzy match for near-misses of longer terms ("Namratha" → "Namrata"),
+//    and, only where the engine was unsure of the words, a run of ordinary
+//    words that sounds exactly like a term ("cooper netties" → Kubernetes).
 // 3. Screen context: the same letter match against names and identifiers
 //    read from the screen, never fuzzy.
 //
@@ -51,6 +53,7 @@ enum DictionaryCorrector {
             contextTerms: context.contextTerms,
             allowIdentifierJoins: allowIdentifierJoins,
             isKnownWord: context.isKnownWord,
+            lowConfidenceWords: context.lowConfidenceWords,
             to: &result
         )
 
@@ -110,6 +113,7 @@ enum DictionaryCorrector {
         contextTerms: [String],
         allowIdentifierJoins: Bool,
         isKnownWord: (String) -> Bool,
+        lowConfidenceWords: Set<String>?,
         to result: inout DictionaryCorrection
     ) {
         var exact: [String: Candidate] = [:]
@@ -172,6 +176,9 @@ enum DictionaryCorrector {
             if let (length, term) = fuzzyMatch(
                 at: index, tokens: tokens, joinable: joinable,
                 terms: fuzzyTerms, isKnownWord: isKnownWord
+            ) ?? soundAlikeJoin(
+                at: index, tokens: tokens, joinable: joinable, terms: fuzzyTerms,
+                isKnownWord: isKnownWord, lowConfidenceWords: lowConfidenceWords
             ) {
                 let range = span(of: tokens[index..<(index + length)])
                 let term = casedLike(source.substring(with: range), term: term)
@@ -217,9 +224,10 @@ enum DictionaryCorrector {
             for term in terms {
                 let target = normalized(term)
                 // One more edit for a word that sounds the same ("Kayzer" →
-                // Kaiser), still within the same first sound and length.
-                let soundsAlike = soundex(key) != nil && soundex(key) == soundex(target)
-                let limit = (target.count >= 9 ? 2 : 1) + (soundsAlike ? 1 : 0)
+                // Kaiser), still within the same first sound and length; two
+                // more for a term of eight letters or more ("Pachori" →
+                // Pachauri, "Shwarzeneger" → Schwarzenegger).
+                let limit = editBudget(heard: key, term: target)
                 guard abs(target.count - key.count) <= limit,
                       firstSound(target) == firstSound(key) else { continue }
                 let distance = levenshtein(key, target, limit: limit)
@@ -230,6 +238,62 @@ enum DictionaryCorrector {
             }
         }
         return best.map { ($0.length, $0.term) }
+    }
+
+    /// Most edits a heard spelling may be from `term`: one, two for a term
+    /// of nine letters or more, and more when the two sound alike — one
+    /// more, or two more for a term of eight letters or more.
+    static func editBudget(heard: String, term: String) -> Int {
+        let base = term.count >= 9 ? 2 : 1
+        guard soundsAlike(heard, term) else { return base }
+        return term.count >= 8 ? max(base + 1, 3) : base + 1
+    }
+
+    /// Whether two letter keys sound alike: their Double Metaphone keys
+    /// meet, or, for what Metaphone can't key, their Soundex codes agree.
+    static func soundsAlike(_ heard: String, _ term: String) -> Bool {
+        if let heardKey = DoubleMetaphone.encode(heard), let termKey = DoubleMetaphone.encode(term) {
+            return heardKey.matches(termKey)
+        }
+        return soundex(heard) != nil && soundex(heard) == soundex(term)
+    }
+
+    /// Two or three ordinary words heard for one longer term that sounds
+    /// exactly like them: "cooper netties" for Kubernetes, "pie torch" for
+    /// PyTorch. Real words are never respelled on spelling alone, so this
+    /// needs evidence the engine misheard them: one of the words isn't a
+    /// word at all, or was decoded with low confidence. With an engine that
+    /// reports no confidence (`lowConfidenceWords` nil), a run of real words
+    /// is left alone, and a single word never takes this path ("cloud"
+    /// stays "cloud" with Claude listed).
+    private static func soundAlikeJoin(
+        at index: Int,
+        tokens: [Token],
+        joinable: Int,
+        terms: [String],
+        isKnownWord: (String) -> Bool,
+        lowConfidenceWords: Set<String>?
+    ) -> (length: Int, term: String)? {
+        guard joinable >= 2, !terms.isEmpty else { return nil }
+        for length in stride(from: min(3, joinable), through: 2, by: -1) {
+            let window = tokens[index..<(index + length)]
+            let keys = window.map { normalized($0.text) }
+            let misheard = keys.contains { !isKnownWord($0) }
+                || keys.contains { lowConfidenceWords?.contains($0) == true }
+            guard misheard else { continue }
+            let joined = keys.joined()
+            guard let heardKey = DoubleMetaphone.encode(joined), heardKey.primary.count >= 3 else { continue }
+            for term in terms {
+                let target = normalized(term)
+                guard target.count >= 6, !isKnownWord(target),
+                      abs(target.count - joined.count) <= max(2, target.count / 3),
+                      firstSound(target) == firstSound(joined),
+                      let termKey = DoubleMetaphone.encode(target),
+                      termKey.primary == heardKey.primary else { continue }
+                return (length, term)
+            }
+        }
+        return nil
     }
 
     // MARK: - Tokens

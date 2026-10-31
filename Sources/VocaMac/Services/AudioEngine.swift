@@ -908,6 +908,24 @@ final class AudioEngine: @unchecked Sendable {
     /// Longest a stop waits for the tap's next buffer.
     static let stopTailWait: TimeInterval = 0.1
 
+    /// Longest a stop keeps listening, in all, when the user let go while
+    /// still speaking: the end of the last word ("…and that's final") is
+    /// often still sounding when the key comes up.
+    static let stopTailExtension: TimeInterval = 0.3
+
+    /// Audio a released key's tail is judged on: its last 100 ms.
+    static let stopTailWindow = 1_600
+
+    /// Whether the end of `samples` is still voiced: the RMS energy of the
+    /// last `stopTailWindow` samples is above twice `threshold`, the
+    /// silence threshold, so room noise alone doesn't hold the stop.
+    static func endsInSpeech(_ samples: ArraySlice<Float>, threshold: Float) -> Bool {
+        let tail = samples.suffix(stopTailWindow)
+        guard tail.count >= stopTailWindow / 2 else { return false }
+        let energy = (tail.reduce(Float(0)) { $0 + $1 * $1 } / Float(tail.count)).squareRoot()
+        return energy > max(threshold, 0.005) * 2
+    }
+
     /// Wait for the buffer Core Audio is filling when the user stops.
     ///
     /// The tap delivers a buffer every ~85 ms (4,096 frames at 48 kHz).
@@ -921,10 +939,29 @@ final class AudioEngine: @unchecked Sendable {
         guard engine?.isRunning == true,
               capturePhase.withLock({ $0 == .recording }) else { return }
         capturePhase.withLock { $0 = .preparing }
-        let delivered = deliveredBufferCount.withLock { $0 }
-        let deadline = Date().addingTimeInterval(Self.stopTailWait)
+        let start = Date()
+        var delivered = deliveredBufferCount.withLock { $0 }
+        var deadline = start.addingTimeInterval(Self.stopTailWait)
         while Date() < deadline, deliveredBufferCount.withLock({ $0 }) == delivered {
             Thread.sleep(forTimeInterval: 0.005)
+        }
+        // Released mid-word: keep taking buffers while the end of what was
+        // captured is still voiced, up to `stopTailExtension` in all. Silent
+        // at release, which is most stops, costs nothing more.
+        let threshold = silenceThreshold
+        let limit = start.addingTimeInterval(Self.stopTailExtension)
+        while Date() < limit,
+              capturedAudio.withLock({ Self.endsInSpeech($0[...], threshold: threshold) }) {
+            delivered = deliveredBufferCount.withLock { $0 }
+            deadline = min(limit, Date().addingTimeInterval(Self.stopTailWait))
+            while Date() < deadline, deliveredBufferCount.withLock({ $0 }) == delivered {
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+            guard deliveredBufferCount.withLock({ $0 }) != delivered else { break }
+        }
+        let held = Date().timeIntervalSince(start)
+        if held > Self.stopTailWait + 0.02 {
+            VocaLogger.debug(.audioEngine, "Kept listening \(Int(held * 1000)) ms after stop: speech was still going")
         }
     }
 

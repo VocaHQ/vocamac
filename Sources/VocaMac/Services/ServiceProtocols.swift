@@ -189,6 +189,10 @@ protocol CursorOverlayManaging: AnyObject {
     /// whatever the overlay style, Off included: a failure the user can't
     /// see looks like the hotkey did nothing.
     func showFailure(message: String)
+    /// Say what VocaMac learned from the user's edits ("Learned “Priya”"),
+    /// with an Undo button, for a few seconds. Waits for a dictation under
+    /// way to finish first.
+    func showLearned(message: String, undo: @escaping @MainActor () -> Void)
     /// Maximum recording length, for the countdown in the last seconds.
     /// Nil shows no countdown.
     var recordingLimit: TimeInterval? { get set }
@@ -205,6 +209,7 @@ protocol CursorOverlayManaging: AnyObject {
 }
 
 extension CursorOverlayManaging {
+    func showLearned(message: String, undo: @escaping @MainActor () -> Void) {}
     func setCommandSession(_ session: CommandModeSession?) {}
     func setLiveWordsAvailable(_ available: Bool) {}
     func setLoadingSpeechModel(_ loading: Bool) {}

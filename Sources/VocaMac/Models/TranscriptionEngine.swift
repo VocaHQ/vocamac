@@ -31,6 +31,9 @@ enum PreferenceKey {
     static let writingStyleEnabled = "vocamac.writingStyle.enabled"
     static let writingStyleDefault = "vocamac.writingStyle.defaultStyle"
     static let writingStyleBindings = "vocamac.writingStyle.bindings"
+    /// Bool: apps VocaMac knows get their kind's style until the user gives
+    /// them one (`WritingStyleResolver.automaticStyle`).
+    static let automaticWritingStyles = "vocamac.writingStyle.automatic"
     static let writingIntent = "vocamac.writingStyle.intent"
     static let writingRewriteEnabled = "vocamac.writingStyle.experimentalRewrite"
     static let duckOtherAudioEnabled = "vocamac.duckOtherAudio.enabled"
@@ -69,6 +72,22 @@ enum PreferenceKey {
     static let dictionarySuggestions = "vocamac.dictionary.suggestions"
     static let dismissedDictionarySuggestions = "vocamac.dictionary.dismissedSuggestions"
     static let learnCorrectionsMode = "vocamac.dictionary.learnMode"
+    /// Bool: the learning mode's default has been settled for this install
+    /// (see `AppState.settleLearnModeDefault`).
+    static let learnModeDefaultSettled = "vocamac.dictionary.learnModeDefaultSettled"
+    /// JSON `[String]`: fillers the user always deletes, removed for them.
+    static let personalFillers = "vocamac.dictionary.personalFillers"
+    /// [String: Int]: dictations each filler was deleted from, until learned.
+    static let personalFillerCounts = "vocamac.dictionary.personalFillerCounts"
+    /// [String]: fillers the user took back; never learned again.
+    static let rejectedPersonalFillers = "vocamac.dictionary.rejectedPersonalFillers"
+    /// JSON `[LearnedLowercaseApp]`: apps where dictation starts in lowercase.
+    static let learnedLowercaseApps = "vocamac.writingStyle.learnedLowercaseApps"
+    /// [String: [Double]]: per app ID, [lowercased starts, last seen as
+    /// seconds since 1970], until learned.
+    static let lowercaseStartCounts = "vocamac.writingStyle.lowercaseStartCounts"
+    /// [String]: app IDs the user took a learned lowercase start back for.
+    static let rejectedLowercaseApps = "vocamac.writingStyle.rejectedLowercaseApps"
     /// [String: Int]: screen respellings seen, by suggestion key.
     static let screenRespellingCounts = "vocamac.dictionary.screenRespellingCounts"
     /// Date of the last look through History for names said again and again.

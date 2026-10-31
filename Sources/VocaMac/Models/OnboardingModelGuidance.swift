@@ -53,8 +53,12 @@ enum OnboardingModelGuidance {
         memoryGB: Int? = nil
     ) -> OnboardingModelRecommendation? {
         let codes = languages.filter { $0 != "auto" }
+        // A model without language detection only suits someone who speaks
+        // exactly one of its languages; otherwise every recording would be
+        // decoded as one language.
         let covering = availableModels.filter {
             $0.isSupported && !$0.size.isRemotelyHosted
+                && ($0.size.needsOneLanguage ? codes.count == 1 : true)
                 && ModelPickerCatalog.fit(of: $0.size, for: codes, systemLanguages: systemLanguages).coversAll
         }
         let fitting = covering.filter { model in
@@ -118,36 +122,59 @@ enum OnboardingModelGuidance {
             explanation: "Already included, with the smallest memory footprint. You can choose another model later."
         )
 
-        let specialist: OnboardingModelRecommendation?
+        // English: Parakeet Unified had the fewest errors of the Parakeet
+        // models on a 45-sentence, 5-voice synthetic English set (1.6 %,
+        // against v3 2.2 %, Ultra 2.8 % and 110M 4.7 % after number
+        // formatting is normalized) and writes punctuation and digits. 110M
+        // stays next for Macs where Unified does not fit.
+        let compactEnglish = OnboardingModelRecommendation(
+            model: .parakeetTdtCtc110m,
+            title: "Fast English dictation",
+            explanation: "Optimized for English, with a smaller download and low memory use."
+        )
+        var specialists: [OnboardingModelRecommendation] = []
         switch languageCode {
         case "en":
-            specialist = OnboardingModelRecommendation(
-                model: .parakeetTdtCtc110m,
-                title: "Fast English dictation",
-                explanation: "Optimized for English, with a smaller download and low memory use."
-            )
+            specialists = [
+                OnboardingModelRecommendation(
+                    model: .parakeetUnified,
+                    title: "Accurate English dictation",
+                    explanation: "The most accurate English Parakeet, with punctuation and numbers written as digits. Very fast on the Neural Engine."
+                ),
+                compactEnglish,
+            ]
         case "ru":
-            specialist = OnboardingModelRecommendation(
+            specialists = [OnboardingModelRecommendation(
                 model: .gigaamV3,
                 title: "Russian specialist",
                 explanation: "A compact speech model built specifically for Russian dictation."
-            )
+            )]
         case "zh", "ja", "ko":
-            specialist = OnboardingModelRecommendation(
+            specialists = [OnboardingModelRecommendation(
                 model: .senseVoiceSmall,
                 title: "East Asian language specialist",
                 explanation: "A compact model with explicit Chinese, Japanese, Korean, and English support."
-            )
+            )]
         case "es", "de", "fr":
-            specialist = OnboardingModelRecommendation(
+            specialists = [OnboardingModelRecommendation(
                 model: .canary180mFlash,
                 title: "Focused multilingual dictation",
                 explanation: "A compact model with explicit English, Spanish, German, and French support."
-            )
+            )]
         default:
-            specialist = nil
+            // The rest of Parakeet's European languages: far faster than
+            // Whisper Small on the Neural Engine. v3 rather than Ultra: on
+            // synthetic Italian and Swedish speech Ultra was no better
+            // (Swedish 17 % against v3's 10 %).
+            if ModelSize.parakeetV3Languages.contains(languageCode) {
+                specialists = [OnboardingModelRecommendation(
+                    model: .parakeetV3,
+                    title: "Fast multilingual dictation",
+                    explanation: "Very fast on the Neural Engine, with 25 European languages."
+                )]
+            }
         }
 
-        return [specialist, broad, bundled].compactMap { $0 }
+        return specialists + [broad, bundled]
     }
 }

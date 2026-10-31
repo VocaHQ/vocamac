@@ -448,15 +448,30 @@ final class AppState: ObservableObject {
     @UserDefault("vocamac.showCursorIndicator") var showCursorIndicator: Bool = true
     @UserDefault("vocamac.translationEnabled") var translationEnabled: Bool = false
     @UserDefault("vocamac.customVocabulary") var customVocabulary: String = ""
+    /// Set when the user removes Parakeet's vocabulary boost model, so it
+    /// isn't fetched again behind their back; cleared when they download it.
+    @UserDefault("vocamac.vocabularyBoostRemovedByUser") var vocabularyBoostRemovedByUser: Bool = false
     @UserDefault("vocamac.logLevel") var logLevel: String = "info"
     @UserDefault(PreferenceKey.appendTrailingSpace) var appendTrailingSpace: Bool = true
     @UserDefault(PreferenceKey.autoCapitalize) var autoCapitalize: Bool = true
-    /// "twenty three" → "23". Off by default: talking about numbers in prose
-    /// often wants the words.
-    @UserDefault(PreferenceKey.numbersAsDigits) var numbersAsDigits: Bool = false
-    /// "fifty percent" → "50%", "June twenty second" → "June 22". Only applies
-    /// with `numbersAsDigits`; off by default, because "$5" and "21st" are a
-    /// house style, not a transcription.
+    /// "twenty three" → "23" (true) or kept as words (false). Nil, what a
+    /// new install has, writes numbers by style (`NumberWriting.automatic`).
+    /// A stored value is a choice the user made, and stays.
+    @UserDefault(PreferenceKey.numbersAsDigits) var numbersAsDigitsChoice: Bool?
+    /// How dictated numbers are written; see `numbersAsDigitsChoice`.
+    var numberWriting: NumberWriting {
+        get { numbersAsDigitsChoice.map { $0 ? .digits : .words } ?? .automatic }
+        set {
+            switch newValue {
+            case .automatic: numbersAsDigitsChoice = nil
+            case .digits: numbersAsDigitsChoice = true
+            case .words: numbersAsDigitsChoice = false
+            }
+        }
+    }
+    /// "fifty percent" → "50%", "June twenty second" → "June 22". Applies
+    /// whenever numbers are written as digits; off by default, because "$5"
+    /// and "21st" are a house style, not a transcription.
     @UserDefault(PreferenceKey.numberSymbols) var numberSymbols: Bool = false
     /// "crying emoji" → 😭. Off by default, so talking *about* an emoji never
     /// rewrites the sentence until the user opts in.
@@ -475,6 +490,11 @@ final class AppState: ObservableObject {
     /// whose sandbox can't read another app's processes.
     @UserDefault(PreferenceKey.codingAgentsAsProse) var codingAgentsAsProse: Bool = true
     @UserDefault(PreferenceKey.writingStyleDefault) var writingStyleDefault: WritingStyle = .plain
+    /// Apps VocaMac knows (Slack, Mail, code editors, terminals, note apps)
+    /// get their kind's style until the user gives them a rule. On for new
+    /// installs; an install that already set up styles keeps its old
+    /// behaviour (`SettingsConsistency.normalizeAutomaticStyles`).
+    @UserDefault(PreferenceKey.automaticWritingStyles) var automaticWritingStyles: Bool = true
     @UserDefault(PreferenceKey.writingIntent) var writingIntent: WritingIntent = .preserve
     @UserDefault(PreferenceKey.writingRewriteEnabled) var writingRewriteEnabled: Bool = false
     @UserDefault(PreferenceKey.transcriptCleanupEnabled) var transcriptCleanupEnabled: Bool = false
@@ -803,7 +823,7 @@ final class AppState: ObservableObject {
             cleanupLevel: transcriptCleanupLevel,
             language: RewriteValidation.detectedLanguage(text), autoCapitalize: autoCapitalize,
             trailingSpace: appendTrailingSpace, preview: true,
-            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
+            numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
             laysOutParagraphs: pauseParagraphs
         )
     }
@@ -890,6 +910,14 @@ final class AppState: ObservableObject {
     /// Corrections noticed in dictated text, waiting for the user to accept.
     @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
 
+    /// Fillers the user always deletes ("basically"), removed from their
+    /// dictations like "um". Learned from their edits; listed in Formatting.
+    @Published var personalFillers: [String] = []
+
+    /// Apps where the user starts in lowercase, learned from their edits;
+    /// listed on Styles.
+    @Published var learnedLowercaseApps: [LearnedLowercaseApp] = []
+
     /// Parakeet's optional vocabulary boost model.
     @Published private(set) var vocabularyBoostStatus: VocabularyBoostStatus =
         TranscriptionRouter.isVocabularyBoostDownloaded ? .ready : .notDownloaded
@@ -928,6 +956,9 @@ final class AppState: ObservableObject {
     /// Names and identifiers read from the screen when recording started.
     private var screenContextTask: Task<[String], Never>?
     private var screenDocumentURLTask: Task<URL?, Never>?
+    /// The focused field and the text around its caret when recording
+    /// started, to fit the dictation to it (`InsertionFit`).
+    private var insertionContextTask: Task<InsertionContext?, Never>?
     /// The terminal found running a coding agent when recording started, or
     /// nil (see `startCodingAgentDetection`).
     private var codingAgentTask: Task<RunningAppSnapshot?, Never>?
@@ -1215,6 +1246,7 @@ final class AppState: ObservableObject {
         }
         loadSnippets()
         loadDictionary()
+        settleLearnModeDefault()
         if !skipSystemIntegration {
             syncLaunchAtLogin()
         }
@@ -1513,6 +1545,9 @@ final class AppState: ObservableObject {
 
         correctionObserver?.onCorrections = { [weak self] corrections in
             self?.receiveCorrections(corrections)
+        }
+        correctionObserver?.onEdit = { [weak self] observation in
+            self?.receiveEdit(observation)
         }
 
         // Start the hotkey listener when permissions are granted, and rebuild
@@ -1940,12 +1975,28 @@ final class AppState: ObservableObject {
     func resolveWritingStyle(
         for target: RunningAppSnapshot?, documentURL: URL? = nil, codingAgentTerminal: RunningAppSnapshot? = nil
     ) -> ResolvedWritingStyle {
+        applyingLearnedCasing(
+            resolveConfiguredWritingStyle(for: target, documentURL: documentURL, codingAgentTerminal: codingAgentTerminal),
+            for: target
+        )
+    }
+
+    /// The style the user's rules and the presets give, before anything
+    /// learned from their edits.
+    private func resolveConfiguredWritingStyle(
+        for target: RunningAppSnapshot?, documentURL: URL?, codingAgentTerminal: RunningAppSnapshot?
+    ) -> ResolvedWritingStyle {
         let appRule = WritingStyleResolver.resolve(
             target: target,
             bindings: writingStyleBindings,
             defaultStyle: writingStyleDefault,
             isEnabled: writingStyleEnabled,
-            defaultIntent: writingIntent
+            defaultIntent: writingIntent,
+            automatic: automaticWritingStyles ? { [self] app in
+                WritingStyleResolver.automaticStyle(for: app) { group in
+                    group == .everythingElse ? writingStyleDefault : calmStyleGroupStore.style(for: group)
+                }
+            } : nil
         )
         let resolved = WritingStyleResolver.applyingWebsiteRule(
             appRule, url: documentURL, bindings: websiteStyleBindings
@@ -2037,6 +2088,18 @@ final class AppState: ObservableObject {
             VocaLogger.warning(.appState, "Cannot clear writing style: no target app")
             showTemporaryError("No app to clear — switch to the app you want to reset, then try again.")
             return nil
+        }
+        // A known app without a rule follows its kind (automatic styles), so
+        // removing the rule wouldn't give it the default style: save a fresh
+        // rule with the default style instead — nothing of the old rule, so
+        // a Formal tone or custom prompt doesn't survive the reset.
+        if automaticWritingStyles, WritingStyleCatalog.suggestion(matching: target) != nil {
+            var bindings = writingStyleBindings
+            bindings.removeAll { $0.matches(target) }
+            bindings.append(AppStyleBinding.from(snapshot: target, style: writingStyleDefault))
+            writingStyleBindings = bindings
+            VocaLogger.info(.appState, "Reset \(target.displayName) to the default style")
+            return target.displayName
         }
         let bindings = writingStyleBindings
         let remaining = bindings.filter { !$0.matches(target) }
@@ -2206,6 +2269,8 @@ final class AppState: ObservableObject {
         screenContextTask = nil
         screenDocumentURLTask?.cancel()
         screenDocumentURLTask = nil
+        insertionContextTask?.cancel()
+        insertionContextTask = nil
         if let id = activeHistoryEntryID {
             historyStore.markCancelled(id)
             activeHistoryEntryID = nil
@@ -2901,6 +2966,11 @@ final class AppState: ObservableObject {
         screenContextTask = nil
         let documentURLTask = screenDocumentURLTask
         screenDocumentURLTask = nil
+        let insertionTask = insertionContextTask
+        insertionContextTask = nil
+        let insertionContextRead = Task {
+            await Self.value(of: insertionTask, within: Self.screenContextTimeout, otherwise: nil)
+        }
         let agentTask = codingAgentTask
         codingAgentTask = nil
         let codingAgentRead = Task { await Self.value(of: agentTask, within: Self.screenContextTimeout, otherwise: nil) }
@@ -3058,8 +3128,10 @@ final class AppState: ObservableObject {
                     cleanupLevel: transcriptCleanupLevel,
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
-                    dictionary: dictionaryContext(contextTerms: contextTerms, language: result.detectedLanguage),
-                    numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
+                    dictionary: dictionaryContext(
+                        contextTerms: contextTerms, language: result.detectedLanguage, segments: result.segments
+                    ),
+                    numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
                     // Cleaning piece by piece only pays off with answers from
                     // while recording; an endpoint would get one call per piece.
@@ -3070,6 +3142,31 @@ final class AppState: ObservableObject {
                         original: output.original, text: output.text,
                         summary: "\(Self.codingAgentSummary) · \(output.summary)"
                     )
+                }
+                // Fit the text to the field: one line, the sentence already
+                // there, the draft's register. Prose only; a terminal's
+                // buffer or an editor's code is not a sentence to join.
+                // The field is read again here: the user may have moved to
+                // another one while speaking, and then nothing is fitted.
+                var leadingSpace = false
+                if injectResult, writingStyleEnabled, profile.cleanup != .raw, profile.format.supportsWording,
+                   !resolved.codingAgent, let start = await insertionContextRead.value,
+                   let reader = screenContextReader,
+                   let context = InsertionFit.deliveryContext(start: start, now: await Self.value(
+                       of: Task { @MainActor in await reader.captureInsertionContext() },
+                       within: Self.screenContextTimeout, otherwise: nil
+                   )) {
+                    let fit = InsertionFit.fit(
+                        output.text, into: context,
+                        capitalizes: Self.capitalizes(profile.rules, autoCapitalize: autoCapitalize),
+                        mirrorsRegister: profile.format == .chat || profile.format == .slack,
+                        protecting: snippets.map(\.expansion) + vocabularyTerms
+                            + wordReplacements.map(\.replacement) + contextTerms
+                    )
+                    if fit.text != output.text {
+                        output = DictationOutputResult(original: output.original, text: fit.text, summary: output.summary)
+                    }
+                    leadingSpace = fit.leadingSpace
                 }
                 if !result.pieces.isEmpty {
                     Self.logPieceSummary(
@@ -3134,7 +3231,7 @@ final class AppState: ObservableObject {
                         showTemporaryError("The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want.")
                         return
                     }
-                    textInjector.inject(text: output.text, preserveClipboard: preserveClipboard)
+                    textInjector.inject(text: (leadingSpace ? " " : "") + output.text, preserveClipboard: preserveClipboard)
                     saveResult()
                     if onboardingVerification.mode == .insertion,
                        !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3146,7 +3243,9 @@ final class AppState: ObservableObject {
                         processedWhileSpeaking: processedWhileSpeaking
                     ))
                     let dictationLanguage = DictationOutputPipeline.knownLanguage(result.detectedLanguage) ?? spellingLanguage
-                    observeCorrections(to: output.text, language: dictationLanguage)
+                    observeCorrections(
+                        to: output.text, language: dictationLanguage, historyID: completedHistoryID, app: target
+                    )
                     noteScreenRespellings(raw: result.text, final: output.text, screenTerms: contextTerms,
                                           language: dictationLanguage)
                     suggestFrequentNamesIfDue()
@@ -3309,6 +3408,8 @@ final class AppState: ObservableObject {
         screenContextTask = nil
         screenDocumentURLTask?.cancel()
         screenDocumentURLTask = nil
+        insertionContextTask?.cancel()
+        insertionContextTask = nil
         codingAgentTask?.cancel()
         codingAgentTask = nil
         resetCommandModeState()
@@ -3654,6 +3755,7 @@ final class AppState: ObservableObject {
             processMemoryBeforeUnloadMB = nil
             processMemoryAfterUnloadMB = nil
             VocaLogger.info(.appState, "Model ready: \(targetSize.displayName)")
+            downloadVocabularyBoostIfUseful()
         } catch {
             // A newer load superseded this one; do not restore over it.
             guard generation == loadGeneration else {
@@ -4485,7 +4587,7 @@ final class AppState: ObservableObject {
             // Like an engine that reports no language: the pipeline judges it.
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
             trailingSpace: false, preview: true,
-            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
+            numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
             skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs
         )
         return CleanupTryResult(
@@ -4940,8 +5042,10 @@ extension AppState {
                     cleanupLevel: transcriptCleanupLevel,
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace,
-                    dictionary: dictionaryContext(contextTerms: [], language: result.detectedLanguage),
-                    numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
+                    dictionary: dictionaryContext(
+                        contextTerms: [], language: result.detectedLanguage, segments: result.segments
+                    ),
+                    numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs
                 )
             }
@@ -5950,7 +6054,7 @@ extension AppState {
             autoCapitalize: autoCapitalize, trailingSpace: appendTrailingSpace,
             preview: preview,
             dictionary: dictionaryContext(contextTerms: contextTerms, language: language),
-            numbersAsDigits: numbersAsDigits, numberSymbols: numberSymbols,
+            numbers: numberWriting, numberSymbols: numberSymbols,
             spokenEmoji: spokenEmoji, skipWhenClean: skipCleanDictations
         )
     }
@@ -6033,9 +6137,25 @@ extension AppState {
 
     // MARK: - Vocabulary Boost
 
+    /// Fetch Parakeet's vocabulary boost model once it would help: Parakeet
+    /// is selected and the Dictionary has a word to listen for. It is about
+    /// 98 MB and loads in the background, so nothing waits on it. Never in a
+    /// test run, which must not touch the network.
+    func downloadVocabularyBoostIfUseful() {
+        guard NSClassFromString("XCTestCase") == nil,
+              VocabularyBoostStatus.downloadsAutomatically(
+                  engine: ModelSize(rawValue: selectedModelSize)?.engine,
+                  vocabulary: recognitionHintVocabulary, status: vocabularyBoostStatus,
+                  removedByUser: vocabularyBoostRemovedByUser
+              ) else { return }
+        VocaLogger.info(.appState, "Fetching Parakeet's vocabulary boost: the Dictionary has words to listen for")
+        downloadVocabularyBoost()
+    }
+
     /// Download Parakeet's vocabulary boost model.
     func downloadVocabularyBoost() {
         guard vocabularyBoostStatus != .downloading else { return }
+        vocabularyBoostRemovedByUser = false
         vocabularyBoostStatus = .downloading
         Task { @MainActor [weak self] in
             do {
@@ -6054,6 +6174,7 @@ extension AppState {
         do {
             try TranscriptionRouter.removeVocabularyBoost()
             vocabularyBoostStatus = .notDownloaded
+            vocabularyBoostRemovedByUser = true
         } catch {
             VocaLogger.error(.appState, "Could not remove vocabulary boost: \(error.localizedDescription)")
             vocabularyBoostStatus = .failed(error.localizedDescription)
@@ -6075,6 +6196,7 @@ extension AppState {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         customVocabulary = cleaned.joined(separator: "\n")
+        downloadVocabularyBoostIfUseful()
     }
 
     /// Add a term, replacing a differently-cased copy of it.
@@ -6116,7 +6238,12 @@ extension AppState {
         }
     }
 
-    func dictionaryContext(contextTerms: [String], language: String?) -> DictionaryContext {
+    /// - Parameter segments: The decode's timings; the words the engine was
+    ///   unsure of let the Dictionary respell real words that sound like a
+    ///   term (`RecognitionConfidence`).
+    func dictionaryContext(
+        contextTerms: [String], language: String?, segments: [TimedSegment] = []
+    ) -> DictionaryContext {
         let isKnownWord = self.isKnownWord
         // "auto" from Parakeet or Apple Speech isn't a language; passed on, it
         // made every word count as known and switched off name fixes.
@@ -6125,7 +6252,9 @@ extension AppState {
             vocabulary: vocabularyTerms,
             replacements: wordReplacements,
             contextTerms: contextTerms,
-            isKnownWord: { isKnownWord($0, language) }
+            isKnownWord: { isKnownWord($0, language) },
+            removedWords: personalFillers,
+            lowConfidenceWords: RecognitionConfidence.lowConfidenceWords(in: segments)
         )
     }
 
@@ -6178,11 +6307,17 @@ extension AppState {
         let mode = learnCorrectionsMode
         guard mode != .off else { return }
         let known = Set(vocabularyTerms)
+        var learned: [LearnedCorrection] = []
         for correction in corrections where !known.contains(correction.corrected) {
             let key = CorrectionSuggestion.key(heard: correction.heard, corrected: correction.corrected)
             guard !dismissedSuggestionKeys.contains(key) else { continue }
-            if mode == .automatic {
-                learn(heard: correction.heard, corrected: correction.corrected, language: correction.language)
+            // Only the user's own fix of a name or term is added unasked;
+            // screen and History finds, and anything else, are suggested.
+            if mode == .automatic, correction.source == nil,
+               Self.learnsWithoutAsking(correction.corrected, isKnownWord: {
+                   self.isKnownWord($0, correction.language ?? self.spellingLanguage)
+               }) {
+                learned.append(learnUndoably(correction))
                 continue
             }
             if let index = dictionarySuggestions.firstIndex(where: { $0.id == key }) {
@@ -6200,6 +6335,55 @@ extension AppState {
         }
         dictionarySuggestions = Array(dictionarySuggestions.prefix(50))
         saveSuggestions()
+        offerUndo(for: learned)
+    }
+
+    /// What one automatic learn added, so Undo takes back exactly that.
+    struct LearnedCorrection {
+        let heard: String
+        let corrected: String
+        let addedTerm: Bool
+        let addedReplacement: Bool
+    }
+
+    private func learnUndoably(_ correction: CorrectionLearner.Correction) -> LearnedCorrection {
+        let hadTerm = vocabularyTerms.contains(correction.corrected)
+        let replacementsBefore = wordReplacements
+        learn(heard: correction.heard, corrected: correction.corrected, language: correction.language)
+        return LearnedCorrection(
+            heard: correction.heard, corrected: correction.corrected,
+            addedTerm: !hadTerm && vocabularyTerms.contains(correction.corrected),
+            addedReplacement: wordReplacements != replacementsBefore
+        )
+    }
+
+    /// "Learned “Priya”" on the overlay, with Undo.
+    private func offerUndo(for learned: [LearnedCorrection]) {
+        guard !learned.isEmpty else { return }
+        let names = learned.map { "“\(Self.shortened($0.corrected))”" }
+        let message = "Learned " + (names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + (names.last ?? ""))
+        cursorOverlay.showLearned(message: message) { [weak self] in
+            self?.unlearn(learned)
+        }
+    }
+
+    /// Take back automatic learns, and don't learn the same fixes again.
+    func unlearn(_ learned: [LearnedCorrection]) {
+        for item in learned {
+            if item.addedTerm { removeVocabularyTerm(item.corrected) }
+            if item.addedReplacement,
+               let index = wordReplacements.firstIndex(where: { $0.replacement == item.corrected }) {
+                let forms = wordReplacements[index].heardForms.filter { $0.lowercased() != item.heard.lowercased() }
+                if forms.isEmpty {
+                    wordReplacements.remove(at: index)
+                } else {
+                    wordReplacements[index].heard = forms.joined(separator: ", ")
+                }
+            }
+            dismissedSuggestionKeys.insert(CorrectionSuggestion.key(heard: item.heard, corrected: item.corrected))
+        }
+        saveSuggestions()
+        VocaLogger.info(.dictionary, "Took back \(learned.count) learned spelling(s)")
     }
 
     // MARK: - Suggested terms
@@ -6273,12 +6457,25 @@ extension AppState {
         receiveCorrections(corrections)
     }
 
-    fileprivate func observeCorrections(to text: String, language: String) {
+    fileprivate func observeCorrections(
+        to text: String, language: String, historyID: UUID?, app: RunningAppSnapshot?
+    ) {
         guard learnCorrectionsMode != .off, let correctionObserver,
               let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
         let isKnownWord = self.isKnownWord
-        correctionObserver.observe(insertedText: text, processID: processID, language: language) {
+        correctionObserver.observe(
+            insertedText: text, processID: processID, language: language, historyID: historyID, app: app
+        ) {
             isKnownWord($0, language)
+        }
+    }
+
+    /// Whether `rules` start sentences with a capital.
+    static func capitalizes(_ rules: WritingStyleRules, autoCapitalize: Bool) -> Bool {
+        switch rules.capitalization {
+        case .inherit, .lowercaseStart: return autoCapitalize
+        case .sentences: return true
+        case .off: return false
         }
     }
 
@@ -6312,6 +6509,8 @@ extension AppState {
         screenContextTask = nil
         screenDocumentURLTask?.cancel()
         screenDocumentURLTask = nil
+        insertionContextTask?.cancel()
+        insertionContextTask = nil
         guard injectResult, let reader = screenContextReader else { return }
         if useScreenContext {
             let isKnownWord = self.isKnownWord
@@ -6324,6 +6523,11 @@ extension AppState {
         if !websiteStyleBindings.isEmpty {
             screenDocumentURLTask = Task { @MainActor in
                 await reader.captureFrontmostDocumentURL()
+            }
+        }
+        if writingStyleEnabled {
+            insertionContextTask = Task { @MainActor in
+                await reader.captureInsertionContext()
             }
         }
     }
@@ -6435,6 +6639,8 @@ extension AppState {
 
     fileprivate func loadDictionary() {
         wordReplacements = Self.loadJSON([WordReplacement].self, forKey: PreferenceKey.wordReplacements) ?? []
+        personalFillers = Self.loadJSON([String].self, forKey: PreferenceKey.personalFillers) ?? []
+        learnedLowercaseApps = Self.loadJSON([LearnedLowercaseApp].self, forKey: PreferenceKey.learnedLowercaseApps) ?? []
         dictionarySuggestions = Self.loadJSON([CorrectionSuggestion].self, forKey: PreferenceKey.dictionarySuggestions) ?? []
         dismissedSuggestionKeys = Set(
             UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
@@ -6454,6 +6660,14 @@ extension AppState {
             VocaLogger.error(.dictionary, "Could not read \(key): \(error)")
             return nil
         }
+    }
+
+    func savePersonalFillers() {
+        Self.saveJSON(personalFillers, forKey: PreferenceKey.personalFillers)
+    }
+
+    func saveLearnedLowercaseApps() {
+        Self.saveJSON(learnedLowercaseApps, forKey: PreferenceKey.learnedLowercaseApps)
     }
 
     fileprivate static func saveJSON<T: Encodable>(_ value: T, forKey key: String) {

@@ -336,6 +336,34 @@ struct CalmAppShare: Hashable, Identifiable {
     }
 }
 
+// MARK: - Sent without edits
+
+/// The share of dictations the user left as typed: the measure of accuracy
+/// they actually feel. Counts only dictations VocaMac read back afterwards
+/// (`DictationHistoryEntry.editedText`), so it needs History and learning
+/// from corrections on.
+struct CalmEditFreeRate: Equatable {
+    let unedited: Int
+    let observed: Int
+
+    /// Fewer read-backs than this make a percentage that means nothing.
+    static let minimumObserved = 5
+
+    var percent: Int { Int((Double(unedited) / Double(max(observed, 1)) * 100).rounded()) }
+
+    static func from(_ entries: [DictationHistoryEntry]) -> CalmEditFreeRate? {
+        var observed = 0
+        var unedited = 0
+        for entry in entries where entry.status == .completed && !entry.isCommandEdit {
+            guard let edited = entry.wasEditedAfterTyping else { continue }
+            observed += 1
+            if !edited { unedited += 1 }
+        }
+        guard observed >= minimumObserved else { return nil }
+        return CalmEditFreeRate(unedited: unedited, observed: observed)
+    }
+}
+
 // MARK: - Home feed
 
 /// The Home feed's dictations for one day.

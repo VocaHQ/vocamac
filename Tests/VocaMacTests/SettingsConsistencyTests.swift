@@ -66,6 +66,62 @@ final class SettingsConsistencyTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: Automatic styles
+
+    func testAFreshInstallGetsAutomaticStylesAndKeepsThemOnceStylesAreSetUp() {
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKey.automaticWritingStyles) as? Bool, true)
+
+        // Setting up an app later must not read as an older install.
+        defaults.set("{}", forKey: PreferenceKey.writingStyleBindings)
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKey.automaticWritingStyles) as? Bool, true)
+    }
+
+    func testAnInstallThatAlreadySetUpStylesKeepsItsBehaviour() {
+        for key in [
+            PreferenceKey.writingStyleBindings, PreferenceKey.writingStyleDefault,
+            PreferenceKey.websiteStyleBindings, CalmStyleGroupStore.defaultsKey,
+        ] {
+            defaults.removeObject(forKey: PreferenceKey.automaticWritingStyles)
+            defaults.set("x", forKey: key)
+            SettingsConsistency.normalize(defaults: defaults)
+            XCTAssertEqual(defaults.object(forKey: PreferenceKey.automaticWritingStyles) as? Bool, false, key)
+            defaults.removeObject(forKey: key)
+        }
+    }
+
+    func testAnExplicitAutomaticChoiceIsNeverChanged() {
+        defaults.set(false, forKey: PreferenceKey.automaticWritingStyles)
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKey.automaticWritingStyles) as? Bool, false)
+    }
+
+    // MARK: Number writing
+
+    func testAFreshInstallWritesNumbersByStyle() {
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: PreferenceKey.numbersAsDigits))
+
+        // Finishing onboarding later must not read as an older install.
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertNil(defaults.object(forKey: PreferenceKey.numbersAsDigits))
+    }
+
+    func testAnOlderInstallKeepsWordsItHadByDefault() {
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKey.numbersAsDigits) as? Bool, false)
+    }
+
+    func testAnOlderInstallsDigitsChoiceStays() {
+        defaults.set(true, forKey: PreferenceKey.onboardingCompleted)
+        defaults.set(true, forKey: PreferenceKey.numbersAsDigits)
+        SettingsConsistency.normalize(defaults: defaults)
+        XCTAssertEqual(defaults.object(forKey: PreferenceKey.numbersAsDigits) as? Bool, true)
+    }
+
     func testAPinnedLanguageIsAddedToTheStoredList() {
         defaults.set("en,hi", forKey: PreferenceKey.spokenLanguages)
         defaults.set("de", forKey: PreferenceKey.selectedLanguage)

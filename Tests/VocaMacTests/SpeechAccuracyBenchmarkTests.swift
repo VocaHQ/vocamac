@@ -20,7 +20,12 @@ import XCTest
 /// `VOCAMAC_ACCURACY_VOCABULARY` (comma-separated Dictionary terms),
 /// `VOCAMAC_ACCURACY_MAX_WER` (fail when a model's corpus WER is above it,
 /// e.g. `0.15`), `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` (fetch missing models;
-/// otherwise they are skipped).
+/// otherwise they are skipped), `VOCAMAC_ACCURACY_FINAL=1` (also run each
+/// transcript through the output rules a Plain app gets at Medium, with no
+/// model, and score it against `<name>.intended.txt` when present, else
+/// `<name>.txt`). Recognition and the rules are then reported side by side:
+/// a recording of "tomorrow, sorry, let's meet Friday" has the verbatim words
+/// in `.txt` and "let's meet Friday" in `.intended.txt`.
 final class SpeechAccuracyBenchmarkTests: XCTestCase {
 
     struct FileResult: Codable {
@@ -31,6 +36,11 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         let werRate: Double
         let audioSeconds: Double
         let decodeSeconds: Double
+        /// With `VOCAMAC_ACCURACY_FINAL=1`: the text after the output rules,
+        /// and its error rate against the intended text.
+        var finalText: String?
+        var intended: String?
+        var finalWER: WordErrorRate?
     }
 
     struct ModelResult: Codable {
@@ -45,6 +55,8 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         /// Median of the decodes after the first.
         let medianWarmDecodeSeconds: Double
         let files: [FileResult]
+        var finalCorpus: WordErrorRate?
+        var finalCorpusWER: Double?
     }
 
     struct Report: Codable {
@@ -60,6 +72,8 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         let name: String
         let audio: URL
         let reference: String
+        /// What the speaker meant, when it differs from what they said.
+        var intended: String?
     }
 
     func testCorpusWordErrorRate() async throws {
@@ -79,6 +93,7 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         let vocabulary = environment["VOCAMAC_ACCURACY_VOCABULARY"] ?? ""
         let allowDownload = environment["VOCAMAC_ACCURACY_ALLOW_DOWNLOAD"] == "1"
         let maxWER = environment["VOCAMAC_ACCURACY_MAX_WER"].flatMap(Double.init)
+        let scoresFinalText = environment["VOCAMAC_ACCURACY_FINAL"] == "1"
 
         let loader = AudioFileLoader()
         let audio = try entries.map { try loader.loadAudio(at: $0.audio).samples }
@@ -98,10 +113,14 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                 }
                 try await modelManager.downloadModel(size: model) { _ in }
             }
-            results.append(try await measure(
+            var result = try await measure(
                 model: model, entries: entries, audio: audio,
                 language: language, vocabulary: vocabulary, modelManager: modelManager
-            ))
+            )
+            if scoresFinalText {
+                result = await Self.scoringFinalText(result, entries: entries, language: language)
+            }
+            results.append(result)
         }
 
         let report = Report(
@@ -175,6 +194,40 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         )
     }
 
+    // MARK: - Final text
+
+    /// Runs each transcript through the rules a Plain app gets at the
+    /// default Medium level with Smart Cleanup off, and scores the result
+    /// against what the speaker meant.
+    @MainActor
+    static func scoringFinalText(_ result: ModelResult, entries: [CorpusEntry], language: String?) async -> ModelResult {
+        let pipeline = DictationOutputPipeline(cleaner: MockTranscriptCleanup(), snippets: SnippetExpander())
+        var files: [FileResult] = []
+        for (file, entry) in zip(result.files, entries) {
+            let output = await pipeline.process(
+                file.hypothesis,
+                options: DictationOutputOptions(
+                    profile: WritingProfile(format: .plain, rules: WritingStyle.plain.defaultRules), snippetList: [],
+                    cleanupEnabled: false, rewritingEnabled: false, model: .defaultKind, customPrompt: "",
+                    cleanupLevel: .medium, language: language, autoCapitalize: true, trailingSpace: false
+                )
+            )
+            let intended = entry.intended ?? entry.reference
+            var updated = file
+            updated.finalText = output.text
+            updated.intended = intended
+            updated.finalWER = WordErrorRate.measure(reference: intended, hypothesis: output.text)
+            files.append(updated)
+        }
+        let corpus = files.compactMap(\.finalWER).reduce(.zero, +)
+        return ModelResult(
+            model: result.model, corpus: result.corpus, corpusWER: result.corpusWER,
+            emptyHypotheses: result.emptyHypotheses, loadSeconds: result.loadSeconds,
+            firstDecodeSeconds: result.firstDecodeSeconds, medianWarmDecodeSeconds: result.medianWarmDecodeSeconds,
+            files: files, finalCorpus: corpus, finalCorpusWER: corpus.rate
+        )
+    }
+
     // MARK: - Corpus and report
 
     static func corpusEntries(in directory: URL) throws -> [CorpusEntry] {
@@ -188,7 +241,11 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                 guard FileManager.default.fileExists(atPath: referenceURL.path) else { return nil }
                 let reference = try String(contentsOf: referenceURL, encoding: .utf8)
                     .trimmingCharacters(in: .whitespacesAndNewlines)
-                return CorpusEntry(name: base, audio: directory.appendingPathComponent(file), reference: reference)
+                let intendedURL = directory.appendingPathComponent(base + ".intended.txt")
+                let intended = try? String(contentsOf: intendedURL, encoding: .utf8)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return CorpusEntry(name: base, audio: directory.appendingPathComponent(file),
+                                   reference: reference, intended: intended)
             }
     }
 
@@ -214,6 +271,11 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                 model.corpusWER * 100, model.corpus.errors, model.corpus.referenceWords,
                 model.emptyHypotheses, model.firstDecodeSeconds, model.medianWarmDecodeSeconds
             ))
+            if let finalCorpus = model.finalCorpus {
+                lines.append("  after the output rules, against the intended text: " + String(
+                    format: "%6.2f%%  %5d/%-6d", finalCorpus.rate * 100, finalCorpus.errors, finalCorpus.referenceWords
+                ))
+            }
         }
         if !report.skippedModels.isEmpty {
             lines.append("skipped (not downloaded): \(report.skippedModels.joined(separator: ", "))")

@@ -50,6 +50,10 @@ struct ModelRAMFit: Equatable {
         case .customEndpoint: return 0.5
         case .vocaHinglish:   return 1.5
         case .qwen3Asr06B:    return 2.0
+        // Measured on the M1 Pro with scripts/measure-model-ram.sh (warm,
+        // the debug CLI): 3.90 GB resident, 3.52 GB footprint. The sherpa
+        // fit, made from much smaller models, would say 9.5 GB.
+        case .cohereTranscribe: return 4.5
         case .moonshineTiny:  return 0.5
         default:              return nil
         }

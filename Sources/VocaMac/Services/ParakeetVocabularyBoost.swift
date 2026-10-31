@@ -9,9 +9,10 @@
 // acoustic evidence supports it. This fixes terms Parakeet heard far off
 // ("in video" → NVIDIA), which the text-only `DictionaryCorrector` cannot.
 //
-// The CTC model is an explicit ~98 MB download from the Dictionary page. It
-// loads lazily, only while Parakeet is the engine and the Dictionary has
-// terms, and unloads with Parakeet.
+// The CTC model is a ~98 MB download, fetched on its own once Parakeet is
+// the engine and the Dictionary has a word to listen for (unless the user
+// removed it from the Dictionary page). It loads lazily, only while Parakeet
+// is the engine and the Dictionary has terms, and unloads with Parakeet.
 
 import Foundation
 import FluidAudio

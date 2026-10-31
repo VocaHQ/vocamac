@@ -302,6 +302,7 @@ final class AppStateHistoryTests: XCTestCase {
 
     func testSuggestionsCanBeAcceptedOrDismissed() {
         let (appState, _) = AppState.makeTestState()
+        appState.learnCorrectionsMode = .suggest
         appState._receiveCorrectionsForTesting([
             .init(heard: "Namratha", corrected: "Namrata"),
             .init(heard: "github", corrected: "GitHub"),

@@ -184,7 +184,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 26)
+        XCTAssertEqual(ModelSize.allCases.count, 27)
     }
 
     func testRawValues() {
@@ -362,6 +362,27 @@ final class SherpaModelCatalogTests: XCTestCase {
         XCTAssertTrue(spec.requiredFiles.contains("tokenizer/tokenizer_config.json"))
         XCTAssertTrue(spec.requiredFiles.contains("tokenizer/merges.txt"))
         XCTAssertTrue(spec.requiredFiles.contains("tokenizer/vocab.json"))
+    }
+
+    func testCohereTranscribeIsPinnedAndNeedsItsEncoderWeights() throws {
+        let spec = try XCTUnwrap(SherpaModelCatalog.spec(for: .cohereTranscribe))
+        XCTAssertEqual(
+            spec.archiveURL.lastPathComponent,
+            "sherpa-onnx-cohere-transcribe-14-lang-int8-2026-04-01.tar.bz2"
+        )
+        XCTAssertEqual(spec.sha256, "bd582588d50685a795dcd2807ab77e11361b8312d96c53884682def45ab4206d")
+        // The encoder's weights live in a second file; without it the model
+        // fails to load after a partial extract.
+        XCTAssertTrue(spec.requiredFiles.contains("encoder.int8.onnx.data"))
+        XCTAssertTrue(spec.bindsLanguageAtLoadTime)
+        XCTAssertTrue(ModelSize.cohereTranscribe.needsOneLanguage)
+        XCTAssertTrue(ModelSize.canary180mFlash.needsOneLanguage)
+        XCTAssertFalse(ModelSize.qwen3Asr06B.needsOneLanguage)
+        XCTAssertFalse(ModelSize.parakeetV3.needsOneLanguage)
+        XCTAssertEqual(ModelSize.cohereTranscribe.languageCoverage,
+                       .only(["ar", "de", "el", "en", "es", "fr", "it", "ja", "ko", "nl", "pl", "pt", "vi", "zh"]))
+        XCTAssertEqual(ModelSize.cohereTranscribe.creator, .cohere)
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.cohereTranscribe))
     }
 }
 

@@ -125,6 +125,13 @@ struct CalmInsightsPage: View {
 
     private func bestRows(_ summary: CalmInsightsSummary) -> [CalmPersonalBests.Row] {
         var rows: [CalmPersonalBests.Row] = []
+        if let rate = appState.calmEditFreeRate() {
+            rows.append(.init(
+                title: "Sent without edits", value: "\(rate.percent)%",
+                help: "Of the last \(CalmFormat.count(rate.observed, "dictation")) VocaMac read back after typing, "
+                    + "the share you didn’t change. Needs History and learning from your corrections."
+            ))
+        }
         if let words = summary.biggestDayWords {
             rows.append(.init(title: "Biggest day", value: CalmFormat.count(words, "word")))
         }

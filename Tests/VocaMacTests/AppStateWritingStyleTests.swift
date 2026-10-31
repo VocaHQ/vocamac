@@ -24,7 +24,8 @@ final class AppStateWritingStyleTests: XCTestCase {
             PreferenceKey.appendTrailingSpace,
             PreferenceKey.autoCapitalize,
             PreferenceKey.numbersAsDigits,
-            PreferenceKey.spokenEmoji
+            PreferenceKey.spokenEmoji,
+            PreferenceKey.automaticWritingStyles
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -121,20 +122,27 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "Readme.md was updated")
     }
 
-    /// Spoken emoji and digits are opt-in, and once on they reach what a real
-    /// dictation types.
+    /// Numbers are written by style unless the user chose; spoken emoji is
+    /// opt-in. Both reach what a real dictation types.
     func testSpokenEmojiAndDigitsAreOptInAndReachTheInjectedText() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.appendTrailingSpace = false
+        appState.automaticWritingStyles = false
         mocks.frontmostAppResolver.frontmostApp = cursor
-        XCTAssertFalse(appState.numbersAsDigits)
+        XCTAssertEqual(appState.numberWriting, .automatic)
         XCTAssertFalse(appState.spokenEmoji)
 
         let transcript = "we need twenty three chairs, party emoji"
         await dictate(transcript, on: appState, mocks: mocks)
+        // Automatic numbers write 23 as digits in prose; emoji stays opt-in.
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "We need 23 chairs, party emoji")
+
+        appState.numberWriting = .words
+        XCTAssertEqual(appState.numbersAsDigitsChoice, false)
+        await dictate(transcript, on: appState, mocks: mocks)
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "We need twenty three chairs, party emoji")
 
-        appState.numbersAsDigits = true
+        appState.numberWriting = .digits
         appState.spokenEmoji = true
         await dictate(transcript, on: appState, mocks: mocks)
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "We need 23 chairs, 🎉")
@@ -145,6 +153,7 @@ final class AppStateWritingStyleTests: XCTestCase {
         let (appState, mocks) = AppState.makeTestState()
         appState.writingStyleEnabled = true
         appState.writingStyleDefault = .plain
+        appState.automaticWritingStyles = false
         appState.autoCapitalize = true
         appState.appendTrailingSpace = false
         mocks.frontmostAppResolver.frontmostApp = cursor
@@ -152,6 +161,90 @@ final class AppStateWritingStyleTests: XCTestCase {
         await dictate("readme.md was updated", on: appState, mocks: mocks)
 
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "Readme.md was updated")
+    }
+
+    // MARK: - Automatic styles
+
+    /// A new install formats a known app for its kind with no rule at all.
+    func testAKnownAppWithoutARuleGetsItsKindsStyle() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.appendTrailingSpace = false
+        XCTAssertTrue(appState.automaticWritingStyles)
+        XCTAssertTrue(appState.writingStyleBindings.isEmpty)
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        await dictate("open config dot json", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "open config.json")
+        XCTAssertTrue(appState.activeWritingStyle.isAutomatic)
+        XCTAssertEqual(appState.activeWritingStyle.displayName, "Code · automatic")
+    }
+
+    // MARK: - Fitting the field
+
+    func testADictationJoinsTheSentenceAtTheCaret() async {
+        let reader = MockScreenContextReader()
+        reader.insertionContext = InsertionContext(field: .multiLine, before: "I think", after: "")
+        let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
+        appState.automaticWritingStyles = false
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = RunningAppSnapshot(displayName: "Pages", bundleIdentifier: "com.apple.iWork.Pages")
+
+        await dictateFromStart("that we should ship", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, " that we should ship")
+        XCTAssertEqual(appState.lastOutput?.text, "that we should ship", "History and Paste Last never get the space")
+    }
+
+    /// The user moved to an empty field while speaking: the first reading
+    /// describes another field, so nothing is fitted to it.
+    func testAFieldChangedWhileSpeakingIsNotFitted() async {
+        let reader = MockScreenContextReader()
+        reader.insertionContext = InsertionContext(field: .multiLine, before: "I think", after: "")
+        reader.laterInsertionContext = InsertionContext(field: .multiLine, before: "", after: "")
+        let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
+        appState.automaticWritingStyles = false
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = RunningAppSnapshot(displayName: "Pages", bundleIdentifier: "com.apple.iWork.Pages")
+
+        await dictateFromStart("that we should ship", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "That we should ship")
+    }
+
+    func testCodeIsNeverJoinedLikeProse() async {
+        let reader = MockScreenContextReader()
+        reader.insertionContext = InsertionContext(field: .multiLine, before: "let value", after: "")
+        let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
+        appState.appendTrailingSpace = false
+        mocks.frontmostAppResolver.frontmostApp = cursor
+
+        await dictateFromStart("open config dot json", on: appState, mocks: mocks)
+
+        XCTAssertEqual(mocks.textInjector.lastInjectedText, "open config.json")
+    }
+
+    /// A dictation started the way the hotkey starts one, so the field is
+    /// read when recording begins.
+    private func dictateFromStart(_ transcript: String, on appState: AppState, mocks: TestMocks) async {
+        mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: transcript, duration: 1.0, detectedLanguage: "en", audioLengthSeconds: 1.0, modelUsed: .tiny
+        )
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+    }
+
+    func testUseMyDefaultStyleOnAnAutomaticAppSavesTheDefaultForIt() {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        appState.writingStyleDefault = .plain
+
+        XCTAssertEqual(appState.unbindFrontmostApp(), "Cursor")
+        XCTAssertEqual(appState.writingStyleBindings.map(\.style), [.plain])
+        appState.refreshActiveWritingStyle()
+        XCTAssertEqual(appState.activeWritingStyle.style, .plain)
+        XCTAssertFalse(appState.activeWritingStyle.isAutomatic)
     }
 
     // MARK: - Resolution drives injection
@@ -483,6 +576,7 @@ final class AppStateWritingStyleTests: XCTestCase {
         // style too, and follows the user to the next app.
         let (appState, mocks) = AppState.makeTestState()
         appState.writingStyleEnabled = true
+        appState.automaticWritingStyles = false
         let discord = RunningAppSnapshot(displayName: "Discord", bundleIdentifier: "com.hnc.Discord", processName: "Discord")
         mocks.frontmostAppResolver.frontmostApp = discord
 
@@ -535,6 +629,7 @@ final class AppStateWritingStyleTests: XCTestCase {
 
     func testUnbindFrontmostAppRemovesTheRule() {
         let (appState, mocks) = AppState.makeTestState()
+        appState.automaticWritingStyles = false
         mocks.frontmostAppResolver.frontmostApp = cursor
         appState.writingStyleBindings = [AppStyleBinding.from(snapshot: cursor, style: .code)]
 
@@ -542,8 +637,25 @@ final class AppStateWritingStyleTests: XCTestCase {
         XCTAssertTrue(appState.writingStyleBindings.isEmpty)
     }
 
+    func testUnbindingAnAutomaticAppDropsTheOldRulesToneAndPrompt() {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.automaticWritingStyles = true
+        mocks.frontmostAppResolver.frontmostApp = cursor
+        var rule = AppStyleBinding.from(snapshot: cursor, style: appState.writingStyleDefault)
+        rule.intent = .professional
+        rule.cleanupPrompt = "Write like a lawyer."
+        appState.writingStyleBindings = [rule]
+
+        XCTAssertEqual(appState.unbindFrontmostApp(), "Cursor")
+        XCTAssertEqual(appState.writingStyleBindings.count, 1)
+        XCTAssertEqual(appState.writingStyleBindings.first?.style, appState.writingStyleDefault)
+        XCTAssertEqual(appState.writingStyleBindings.first?.intent, .preserve)
+        XCTAssertNil(appState.writingStyleBindings.first?.cleanupPrompt)
+    }
+
     func testUnbindWithNoRuleIsHarmless() {
         let (appState, mocks) = AppState.makeTestState()
+        appState.automaticWritingStyles = false
         mocks.frontmostAppResolver.frontmostApp = cursor
 
         XCTAssertEqual(appState.unbindFrontmostApp(), "Cursor")

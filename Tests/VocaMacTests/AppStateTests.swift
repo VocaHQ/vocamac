@@ -837,15 +837,15 @@ final class AppStateModelLoadingTests: XCTestCase {
         for _ in 0..<100 where modelManager.downloadRequests.isEmpty {
             try await Task.sleep(nanoseconds: 1_000_000)
         }
-        XCTAssertEqual(modelManager.downloadRequests.first, .parakeetTdtCtc110m)
+        XCTAssertEqual(modelManager.downloadRequests.first, .parakeetUnified)
 
         appState.setOnboardingSpokenLanguages(["ru"])
         XCTAssertEqual(appState.selectedLanguage, "ru")
         await appState.languageDidChange()
         await englishPreparation.value
 
-        XCTAssertEqual(modelManager.downloadRequests, [.parakeetTdtCtc110m, .gigaamV3])
-        XCTAssertEqual(modelManager.cancelledDownloads, [.parakeetTdtCtc110m])
+        XCTAssertEqual(modelManager.downloadRequests, [.parakeetUnified, .gigaamV3])
+        XCTAssertEqual(modelManager.cancelledDownloads, [.parakeetUnified])
         XCTAssertEqual(mocks.whisperService.loadRequests.map(\.name), ["gigaam-v3-russian"])
         XCTAssertEqual(appState.currentModel?.size, .gigaamV3)
     }

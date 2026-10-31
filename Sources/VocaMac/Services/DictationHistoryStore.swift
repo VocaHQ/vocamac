@@ -331,6 +331,13 @@ final class DictationHistoryStore: ObservableObject {
         }
     }
 
+    /// Store what the dictation read once the user was done with it.
+    func recordEdit(_ id: UUID, editedText: String) {
+        guard let entry = entries.first(where: { $0.id == id }), entry.status == .completed,
+              !entry.isCommandEdit, entry.editedText != editedText else { return }
+        update(id) { $0.editedText = editedText }
+    }
+
     func markFailed(_ id: UUID, message: String) {
         update(id) { entry in
             entry.status = .failed
@@ -365,6 +372,8 @@ final class DictationHistoryStore: ObservableObject {
             entry.transcriptionSeconds = transcriptionSeconds
             entry.segments = segments?.isEmpty == false ? segments : nil
             entry.errorMessage = nil
+            // The edits were to the text this retry replaces.
+            entry.editedText = nil
             entry.retryCount += 1
             entry.status = entry.displayText.isEmpty ? .empty : .completed
         }

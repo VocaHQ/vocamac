@@ -112,6 +112,12 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
     /// dictation had none (a failed or cancelled decode, an engine without
     /// timings, or an entry saved by a build before them).
     var segments: [TimedSegment]?
+    /// The dictation as it read in the field once the user was done with it
+    /// (`CorrectionObserver`'s second reading): `finalText` when they left
+    /// it alone. Nil when it couldn't be read back (learning off, the field
+    /// unreadable, an edit reaching past it) and in entries from builds
+    /// before it. Local, and deleted with the entry.
+    var editedText: String?
 
     init(
         id: UUID = UUID(),
@@ -132,7 +138,8 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         errorMessage: String? = nil,
         retryCount: Int = 0,
         commandOriginal: String? = nil,
-        segments: [TimedSegment]? = nil
+        segments: [TimedSegment]? = nil,
+        editedText: String? = nil
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -153,6 +160,7 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
         self.retryCount = retryCount
         self.commandOriginal = commandOriginal
         self.segments = segments
+        self.editedText = editedText
     }
 
     /// A Command Mode edit rather than a dictation.
@@ -183,6 +191,13 @@ struct DictationHistoryEntry: Codable, Identifiable, Equatable {
     }
 
     var hasAudio: Bool { audioFileName != nil }
+
+    /// Whether the user changed the typed text afterwards; nil when unknown.
+    var wasEditedAfterTyping: Bool? {
+        guard let editedText else { return nil }
+        return editedText.trimmingCharacters(in: .whitespacesAndNewlines)
+            != finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     /// The target app as a snapshot, for re-running its writing style on retry.
     var targetApp: RunningAppSnapshot? {

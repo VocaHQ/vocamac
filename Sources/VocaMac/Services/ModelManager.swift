@@ -328,7 +328,7 @@ final class ModelManager: @unchecked Sendable {
             return "vocahq_voca-hinglish_820MB"
         case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B, .customEndpoint:
+             .qwen3Asr06B, .cohereTranscribe, .customEndpoint:
             // Not WhisperKit models — identified by their raw value.
             return size.rawValue
         }

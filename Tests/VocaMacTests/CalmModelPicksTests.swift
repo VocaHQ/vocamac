@@ -77,6 +77,23 @@ final class CalmModelPicksTests: XCTestCase {
         XCTAssertEqual(accurate?.accuracyScore, eligible.map(\.accuracyScore).max())
     }
 
+    /// Canary and Cohere decode everything in the language they load with,
+    /// so they are never suggested to someone who speaks two.
+    func testSingleLanguageModelsAreOnlySuggestedForOneLanguage() {
+        let both = CalmModelPicks.eligibleSpeechModels(
+            languages: ["en", "fr"], models: catalog(), systemLanguages: nil, memoryGB: 16
+        )
+        XCTAssertFalse(both.contains(.cohereTranscribe))
+        XCTAssertFalse(both.contains(.canary180mFlash))
+        let picks = CalmModelPicks.speech(languages: ["en", "fr"], models: catalog(), systemLanguages: nil, memoryGB: 16)
+        XCTAssertFalse(picks.contains { $0.model.needsOneLanguage })
+
+        let french = CalmModelPicks.eligibleSpeechModels(
+            languages: ["fr"], models: catalog(), systemLanguages: nil, memoryGB: 16
+        )
+        XCTAssertTrue(french.contains(.cohereTranscribe))
+    }
+
     func testPicksNeverOfferTheServerOrUnsupportedModels() {
         let models = catalog().map { info -> WhisperModelInfo in
             var info = info

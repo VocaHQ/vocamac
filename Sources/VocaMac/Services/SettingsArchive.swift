@@ -71,6 +71,7 @@ enum SettingsArchiveService {
         PreferenceKey.transcriptCleanupEnabled: .bool, PreferenceKey.useScreenContext: .bool,
         PreferenceKey.aiModelsKeptSeparate: .bool, PreferenceKey.cleanupSkipsCleanText: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,
+        PreferenceKey.automaticWritingStyles: .bool,
         // Whole numbers
         "vocamac.hotKeyCode": .integer, "vocamac.hotKeyModifiers": .integer,
         "vocamac.maxRecordingDuration": .integer, "vocamac.selectedAudioChannel": .integer,
@@ -100,6 +101,8 @@ enum SettingsArchiveService {
         CalmStyleGroupStore.defaultsKey: .string,
         // JSON stored as data
         "vocamac.snippets": .data, PreferenceKey.wordReplacements: .data,
+        // Learned from the user's edits, and removable in Settings.
+        PreferenceKey.personalFillers: .data, PreferenceKey.learnedLowercaseApps: .data,
     ]
 
     static var keys: Set<String> { Set(kinds.keys) }

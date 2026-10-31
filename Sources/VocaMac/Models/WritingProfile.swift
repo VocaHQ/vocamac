@@ -49,6 +49,10 @@ struct WritingProfile: Equatable {
     var cleanupLevel: CleanupLevel?
     /// Nil or blank inherits the global cleanup prompt.
     var cleanupPrompt: String?
+    /// The user keeps lowercasing what VocaMac types in this app, so the
+    /// first word starts in lowercase on top of the style's own
+    /// capitalization (`LearnedCasing`).
+    var startsInLowercase = false
 
     var allowsRewrite: Bool {
         cleanup == .inherit && format.supportsWording

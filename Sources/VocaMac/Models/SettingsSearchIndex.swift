@@ -107,8 +107,8 @@ enum SettingsSearchIndex {
         SettingsSearchEntry(
             id: "numbers-as-digits",
             page: .formatting,
-            title: "Write numbers as digits",
-            subtitle: "“twenty three” becomes “23”",
+            title: "Numbers",
+            subtitle: "Write “twenty three” as “23”, by app or always",
             keywords: ["numbers", "digits", "numerals", "output", "write numbers as digits"]
         ),
         SettingsSearchEntry(
@@ -159,6 +159,13 @@ enum SettingsSearchIndex {
             title: "Style for everything else",
             subtitle: "Used for apps you haven't set up",
             keywords: ["default", "style", "plain", "fallback", "style everywhere else"]
+        ),
+        SettingsSearchEntry(
+            id: "automatic-styles",
+            page: .writingStyles,
+            title: "Match apps automatically",
+            subtitle: "Known apps get their kind's style until you pick one",
+            keywords: ["automatic", "auto", "slack", "mail", "editor", "terminal", "notes", "known apps", "plain everywhere"]
         ),
         SettingsSearchEntry(
             id: "coding-agents",
@@ -398,7 +405,7 @@ enum SettingsSearchIndex {
             id: "learn-corrections",
             page: .dictionary,
             title: "Learn from my corrections",
-            subtitle: "Suggest words you fixed after dictating",
+            subtitle: "Add or suggest words you fixed after dictating",
             keywords: ["learn", "auto", "suggest", "correction", "edit", "learn from my corrections"]
         ),
         SettingsSearchEntry(

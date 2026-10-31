@@ -16,9 +16,20 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 | **Parakeet v2** | ~464 MB | ⚡⚡⚡⚡⚡ | English only, highest recall |
 | **Parakeet 110M** | ~227 MB | ⚡⚡⚡⚡⚡ | English only, smaller download and faster first load |
 
+Onboarding suggests **Parakeet Unified** for English (110M where Unified doesn't fit), and **Parakeet v3** for Parakeet's other European languages that have no specialist below. On a 45-sentence English set spoken by five macOS voices, scored after normalizing how numbers are written, the Parakeet models made these errors:
+
+| Model | Word error rate | Decode per sentence (warm, M1 Pro) |
+|-------|-----------------|------------------------------------|
+| Parakeet Unified | 1.6 % | 0.18 s |
+| Parakeet v3 | 2.2 % | 0.10 s |
+| Parakeet Ultra | 2.8 % | 0.10 s |
+| Parakeet 110M | 4.7 % | 0.05 s |
+
+Synthetic speech is a weak stand-in for real voices. FluidAudio's published numbers on real speech put Ultra ahead of v3 (LibriSpeech test-clean 2.13 vs 2.27 %, FLEURS 11.67 vs 14.81 %), so Ultra stays in the catalog. The suggestion changes only when a measurement on recorded speech favours it.
+
 ## Whisper — widest language coverage
 
-OpenAI Whisper models via WhisperKit's CoreML format. The only engine that supports **translation to English**. Dictionary vocabulary is a recognition hint for Whisper, Apple Speech, and (with the optional vocabulary boost download) Parakeet; every engine gets the spelling fixes after transcription. The app auto-detects your hardware and recommends a variant.
+OpenAI Whisper models via WhisperKit's CoreML format. The only engine that supports **translation to English**. Dictionary vocabulary is a recognition hint for Whisper, Apple Speech, Qwen3 ASR, and Parakeet (through a ~98 MB vocabulary boost model, fetched on its own once the Dictionary has words); every engine gets the spelling fixes after transcription. The app auto-detects your hardware and recommends a variant.
 
 | Model | Parameters | Size | Speed | Quality | Best For |
 |-------|-----------|------|-------|---------|----------|
@@ -47,10 +58,17 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 | **GigaAM v3** | ~270 MB | Russian, with punctuation |
 | **Canary 180M Flash** | ~320 MB | English, Spanish, German, French |
 | **Qwen3 ASR 0.6B** | ~973 MB | Accurate transcription across 30 languages and Chinese dialects |
+| **Cohere Transcribe** | ~2.9 GB | The most accurate model on the set above (1.2 % word error rate, 0.40 s per sentence), in 14 languages: Arabic, Chinese, Dutch, English, French, German, Greek, Italian, Japanese, Korean, Polish, Portuguese, Spanish, Vietnamese. Needs about 4.5 GB of memory and takes about 5 s to load. |
+
+Cohere Transcribe has no language detection: it transcribes in the language chosen in Settings, or English when that is Automatic or a language it doesn't know. It is only suggested to someone who speaks exactly one of its languages.
+
+Not offered yet: Qwen3 ASR 1.7B and Moonshine v2 Small and Medium have no sherpa-onnx release export (only community uploads, which VocaMac does not pin to). Moonshine Tiny and Base above are already the v2 builds.
 
 Recordings longer than a model's single-pass limit are split at natural pauses and decoded segment by segment, since these models — unlike Whisper and Parakeet — do not chunk internally.
 
-> **Note:** SenseVoice and Canary fix their language when the model loads, so changing the transcription language reloads the active model. Whisper and Parakeet take the language per transcription.
+> **Note:** SenseVoice, Canary and Cohere Transcribe fix their language when the model loads, so changing the transcription language reloads the active model. Whisper and Parakeet take the language per transcription.
+
+> **Note:** Of these, only Qwen3 ASR takes Dictionary words as a recognition hint. Moonshine, SenseVoice, GigaAM, and Canary have no way to listen for a word, so for them the Dictionary only fixes spellings after transcription: a near-miss of a listed term, or a run of words that sounds exactly like one.
 
 ## Custom Endpoint (optional, remote)
 

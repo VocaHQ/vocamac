@@ -381,6 +381,13 @@ final class MockCursorOverlay: CursorOverlayManaging {
         stopHint = hint
     }
 
+    var learnedMessages: [String] = []
+    var learnedUndo: (@MainActor () -> Void)?
+    func showLearned(message: String, undo: @escaping @MainActor () -> Void) {
+        learnedMessages.append(message)
+        learnedUndo = undo
+    }
+
     func show(style: OverlayStyle, position: OverlayPosition) {
         showCallCount += 1
         commandSession = nil
@@ -521,7 +528,7 @@ final class MockModelManager: ModelManaging {
             return "vocahq_voca-hinglish_820MB"
         case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
-             .qwen3Asr06B, .customEndpoint:
+             .qwen3Asr06B, .cohereTranscribe, .customEndpoint:
             return size.rawValue
         }
     }
@@ -1016,6 +1023,8 @@ extension AppState {
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.automaticWritingStyles)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.numbersAsDigits)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingIntent)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.writingRewriteEnabled)
         UserDefaults.standard.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
@@ -1029,6 +1038,10 @@ extension AppState {
             PreferenceKey.escapeCancelsDictation, PreferenceKey.pasteLastShortcut, PreferenceKey.handsFreeShortcut,
             PreferenceKey.mouseTriggerButton, PreferenceKey.wordReplacements, PreferenceKey.dictionarySuggestions,
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
+            PreferenceKey.learnModeDefaultSettled, PreferenceKey.personalFillers,
+            PreferenceKey.personalFillerCounts, PreferenceKey.rejectedPersonalFillers,
+            PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
+            PreferenceKey.rejectedLowercaseApps,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
             PreferenceKey.speechEndpoint,
@@ -1166,6 +1179,19 @@ final class MockScreenContextReader: ScreenContextReading {
     func captureDocumentURL(of app: RunningAppSnapshot) async -> URL? {
         targetAppDocumentURL
     }
+
+    /// The focused field when recording starts; nil reads as unreadable.
+    var insertionContext: InsertionContext?
+    /// What later reads return (the check at delivery); nil repeats
+    /// `insertionContext`.
+    var laterInsertionContext: InsertionContext?
+    private(set) var insertionContextReads = 0
+
+    func captureInsertionContext() async -> InsertionContext? {
+        insertionContextReads += 1
+        if insertionContextReads > 1, let laterInsertionContext { return laterInsertionContext }
+        return insertionContext
+    }
 }
 
 @MainActor
@@ -1241,16 +1267,22 @@ final class MockSelectedTextService: SelectedTextAccessing {
 @MainActor
 final class MockCorrectionObserver: CorrectionObserving {
     var onCorrections: (([CorrectionLearner.Correction]) -> Void)?
+    var onEdit: ((DictationEditObservation) -> Void)?
     var observedTexts: [String] = []
     var flushCallCount = 0
 
     var observedLanguages: [String?] = []
+    var observedHistoryIDs: [UUID?] = []
+    var observedApps: [RunningAppSnapshot?] = []
     func observe(
         insertedText text: String, processID: pid_t, language: String?,
+        historyID: UUID?, app: RunningAppSnapshot?,
         isKnownWord: @escaping @MainActor @Sendable (String) -> Bool
     ) {
         observedTexts.append(text)
         observedLanguages.append(language)
+        observedHistoryIDs.append(historyID)
+        observedApps.append(app)
     }
 
     func flush() {

@@ -21,12 +21,18 @@ struct ResolvedWritingStyle: Equatable {
     /// (see `WritingStyleResolver.applyingCodingAgent`). `style` stays
     /// Terminal, which is what the menu shows and binds.
     var codingAgent = false
+    /// No rule of the user's matched: the app is one VocaMac knows, and it
+    /// gets its kind's style (`WritingStyleResolver.automaticStyle`).
+    var isAutomatic = false
+    /// Learned from the user's edits: the first word starts in lowercase,
+    /// whatever the style's capitalization (`AppState.applyingLearnedCasing`).
+    var startsInLowercase = false
 
     var profile: WritingProfile {
         guard codingAgent else {
             return WritingProfile(
                 format: style, rules: rules, intent: intent, cleanup: cleanup,
-                cleanupLevel: cleanupLevel, cleanupPrompt: cleanupPrompt
+                cleanupLevel: cleanupLevel, cleanupPrompt: cleanupPrompt, startsInLowercase: startsInLowercase
             )
         }
         // Prose for the agent, in the speaker's own words: no Formal or
@@ -39,7 +45,8 @@ struct ResolvedWritingStyle: Equatable {
 
     /// The style's name as the menu shows it.
     var displayName: String {
-        codingAgent ? "\(style.displayName) · coding agent" : style.displayName
+        if codingAgent { return "\(style.displayName) · coding agent" }
+        return isAutomatic ? "\(style.displayName) · automatic" : style.displayName
     }
 
     /// The unshaped result: global preferences only.
@@ -59,6 +66,13 @@ struct ResolvedWritingStyle: Equatable {
     )
 }
 
+/// The style an app VocaMac knows gets when the user has no rule for it.
+struct AutomaticWritingStyle: Equatable {
+    let style: WritingStyle
+    let rules: WritingStyleRules
+    let appName: String
+}
+
 enum WritingStyleResolver {
 
     /// Resolve the style for the app that is about to receive text.
@@ -69,12 +83,16 @@ enum WritingStyleResolver {
     ///   - bindings: The user's configured per-app rules.
     ///   - defaultStyle: Used when no binding matches.
     ///   - isEnabled: The master toggle. When off, nothing is shaped at all.
+    ///   - automatic: The style for an app with no rule, when VocaMac knows
+    ///     what kind of app it is (`automaticStyle`). Nil leaves every app
+    ///     without a rule on the default style.
     static func resolve(
         target: RunningAppSnapshot?,
         bindings: [AppStyleBinding],
         defaultStyle: WritingStyle,
         isEnabled: Bool,
-        defaultIntent: WritingIntent = .preserve
+        defaultIntent: WritingIntent = .preserve,
+        automatic: ((RunningAppSnapshot) -> AutomaticWritingStyle?)? = nil
     ) -> ResolvedWritingStyle {
         guard isEnabled else { return .disabled }
 
@@ -92,6 +110,16 @@ enum WritingStyleResolver {
                     cleanupPrompt: match.cleanupPrompt
                 )
             }
+            // Only the format is automatic. Tone stays the user's own:
+            // Formal and Casual change words, so they never switch on by
+            // themselves.
+            if let known = automatic?(target) {
+                var resolved = ResolvedWritingStyle(
+                    style: known.style, rules: known.rules, matchedAppName: known.appName, intent: defaultIntent
+                )
+                resolved.isAutomatic = true
+                return resolved
+            }
         }
 
         return ResolvedWritingStyle(
@@ -100,6 +128,30 @@ enum WritingStyleResolver {
             matchedAppName: nil,
             intent: defaultIntent
         )
+    }
+
+    /// The style for an app the catalog knows, when the user has no rule
+    /// for it: the catalog's style (Slack for Slack, Terminal for a
+    /// terminal), unless the user picked another style for that kind of
+    /// app on the Styles page, which then wins.
+    ///
+    /// - Parameter pickedStyle: The style the user chose for a group, or nil
+    ///   when they never chose one. A pick equal to the group's own default
+    ///   is no choice at all: it keeps Slack on Slack and terminals on
+    ///   Terminal inside groups whose card shows Chat or Code.
+    static func automaticStyle(
+        for target: RunningAppSnapshot,
+        pickedStyle: (CalmStyleGroup) -> WritingStyle?
+    ) -> AutomaticWritingStyle? {
+        guard let suggestion = WritingStyleCatalog.suggestion(matching: target) else { return nil }
+        let group = CalmStyleGroup.catalogGroup(
+            bundleIdentifier: suggestion.bundleIdentifier, processName: suggestion.processName, id: suggestion.id
+        ) ?? CalmStyleGroup.family(of: suggestion.style)
+        let name = target.displayName.isEmpty ? suggestion.displayName : target.displayName
+        if let picked = pickedStyle(group), picked != group.defaultStyle, picked != suggestion.style {
+            return AutomaticWritingStyle(style: picked, rules: picked.defaultRules, appName: name)
+        }
+        return AutomaticWritingStyle(style: suggestion.style, rules: suggestion.binding.effectiveRules, appName: name)
     }
 
     /// Dictation into a terminal whose tab in front runs a coding agent

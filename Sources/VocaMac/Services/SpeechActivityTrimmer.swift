@@ -17,6 +17,17 @@ import FluidAudio
 
 // MARK: - Plan (pure)
 
+/// What a decode is given after silence is trimmed.
+struct SpeechOnlyAudio: Sendable {
+    var samples: [Float]
+    /// The source stretches `samples` was built from, to map timings back
+    /// to the recording; empty when nothing was trimmed.
+    var trimPieces: [SpeechActivityTrimmer.CopiedPiece] = []
+    /// The detector found speech-like frames but no stretch of speech
+    /// (`SpeechActivityTrimmer.Decision.unsure`).
+    var speechUnconfirmed = false
+}
+
 enum SpeechActivityTrimmer {
 
     static let sampleRate = 16_000
@@ -41,6 +52,11 @@ enum SpeechActivityTrimmer {
         case trim([Range<Int>])
         /// Decode the recording as recorded.
         case keep
+        /// Decode the recording as recorded, though the detector found no
+        /// stretch of speech in it, only speech-like frames: quiet or
+        /// whispered speech, or noise. What comes back may be the model
+        /// talking to itself (`HallucinationGuard`).
+        case unsure
         /// Nothing was said; skip the decode.
         case noSpeech
     }
@@ -58,7 +74,7 @@ enum SpeechActivityTrimmer {
             .filter { !$0.isEmpty }
         guard !ranges.isEmpty else {
             // Unsure (quiet or whispered speech): let the model decide.
-            return peakProbability < noSpeechProbability ? .noSpeech : .keep
+            return peakProbability < noSpeechProbability ? .noSpeech : .unsure
         }
         let kept = assembledLength(ranges)
         guard Double(totalSamples - kept) >= Double(totalSamples) * minimumSavings else { return .keep }

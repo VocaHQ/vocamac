@@ -85,6 +85,14 @@ extension AppState {
         }
     }
 
+    /// How many dictations went out without the user editing them, from
+    /// history (nil while it's off or has too few read-backs).
+    func calmEditFreeRate() -> CalmEditFreeRate? {
+        calmDerived.value(\.editFree, for: insightsInputs) {
+            historyEnabled ? CalmEditFreeRate.from(historyStore.entries) : nil
+        }
+    }
+
     /// What `insightsSummary()` depends on, for pages that cache it.
     var insightsInputs: CalmInsightsInputs {
         CalmInsightsInputs(
@@ -119,6 +127,7 @@ final class CalmDerivedCache {
     var week: Entry<[CalmStreakDay]>?
     var heatmap: Entry<[CalmActivityDay]>?
     var apps: Entry<[CalmAppShare]>?
+    var editFree: Entry<CalmEditFreeRate?>?
     /// Last decode of the Styles page's group store and of the website
     /// rules, keyed by the JSON they came from: the Styles page and its
     /// Add dialog read them once per rule and row, and decoding JSON each

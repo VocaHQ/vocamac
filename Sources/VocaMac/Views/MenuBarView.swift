@@ -385,7 +385,15 @@ struct MenuBarView: View {
                     }
                 }
 
-                if appState.activeWritingStyle.matchedAppName != nil {
+                if appState.activeWritingStyle.isAutomatic {
+                    // No rule to remove: the app follows its kind. Saving the
+                    // default style for it is the way out.
+                    let fallback = appState.writingStyleDefault
+                    Button("Use My Default Style (\(fallback.displayName))") {
+                        bindNotice = appState.bindFrontmostApp(to: fallback)
+                            .map { "\(fallback.displayName) style saved for \($0)" }
+                    }
+                } else if appState.activeWritingStyle.matchedAppName != nil {
                     Button("Use My Default Style (\(appState.writingStyleDefault.displayName))") {
                         bindNotice = appState.unbindFrontmostApp()
                             .map { "\($0) now uses your default style" }

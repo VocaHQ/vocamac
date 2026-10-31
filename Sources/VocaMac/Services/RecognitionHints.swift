@@ -86,4 +86,16 @@ enum VocabularyBoostStatus: Equatable {
     case downloading
     case ready
     case failed(String)
+
+    /// Whether to fetch the boost model without being asked: Parakeet is
+    /// the engine, the Dictionary holds a term the boost can listen for,
+    /// the model isn't on this Mac, and the user never removed it. A failed
+    /// download waits for the user's "Try again" rather than retrying on
+    /// every change.
+    static func downloadsAutomatically(
+        engine: TranscriptionEngine?, vocabulary: String, status: VocabularyBoostStatus, removedByUser: Bool
+    ) -> Bool {
+        engine == .parakeet && status == .notDownloaded && !removedByUser
+            && !RecognitionHints.boostTerms(from: vocabulary).isEmpty
+    }
 }

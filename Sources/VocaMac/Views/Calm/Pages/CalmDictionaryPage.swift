@@ -119,7 +119,9 @@ struct CalmDictionaryPage: View {
             dismissKey: Self.heroKey,
             title: Text("VocaMac spells the way ") + Text("you").italic() + Text(" do."),
             message: "Add names, product words and jargon so they come out right every time. "
-                + "Words you correct after dictating show up here as suggestions.",
+                + (appState.learnCorrectionsMode == .automatic
+                    ? "Names you correct after dictating are added for you."
+                    : "Words you correct after dictating show up here as suggestions."),
             waveHeights: [40, 86, 130, 64, 150, 96, 52, 110, 30]
         ) {
             // Wraps: suggested words can be long and the window narrow.
@@ -496,7 +498,7 @@ struct CalmVocabularyBoostRow: View {
     private var detail: some View {
         switch appState.vocabularyBoostStatus {
         case .notDownloaded:
-            CalmRowDescription(text: "Helps Parakeet hear your words, not just spell them.")
+            CalmRowDescription(text: "Helps Parakeet hear your words, not just spell them. Downloads on its own once your Dictionary has words, unless you removed it.")
         case .downloading:
             CalmRowDescription(text: "Downloading 98 MB…")
         case .ready:

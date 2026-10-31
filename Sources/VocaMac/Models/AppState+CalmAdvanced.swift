@@ -32,11 +32,11 @@ struct CalmPrivacyStatement: Equatable {
     var message: String {
         switch (audioLeaves, textLeaves) {
         case (true, true):
-            return "Your recordings go to your own server, and your words to the AI server you set up."
+            return "Your recordings go to your own server, and your words and Dictionary terms to the AI server you set up."
         case (true, false):
             return "Your recordings go to your own server to be turned into text. Everything else stays here."
         case (false, true):
-            return "Your words go to the AI server you set up for Smart Cleanup or Commands. Your audio stays here."
+            return "Your words and Dictionary terms go to the AI server you set up for Smart Cleanup or Commands. Your audio stays here."
         case (false, false):
             return "Your audio and text never leave it, unless you send speech to your own server."
         }

@@ -272,6 +272,119 @@ final class WritingStyleResolverTests: XCTestCase {
         let resolved = WritingStyleResolver.resolve(target: cursor, bindings: custom, defaultStyle: .plain, isEnabled: true)
         XCTAssertEqual(resolved.rules.spokenSymbols, .tierA)
     }
+
+    // MARK: Automatic styles
+
+    private func automatic(picked: [CalmStyleGroup: WritingStyle] = [:]) -> (RunningAppSnapshot) -> AutomaticWritingStyle? {
+        { WritingStyleResolver.automaticStyle(for: $0) { picked[$0] } }
+    }
+
+    func testKnownAppsWithoutARuleGetTheirKindsStyle() {
+        let cases: [(RunningAppSnapshot, WritingStyle)] = [
+            (slack, .slack),
+            (cursor, .code),
+            (RunningAppSnapshot(displayName: "Terminal", bundleIdentifier: "com.apple.Terminal"), .terminal),
+            (RunningAppSnapshot(displayName: "Mail", bundleIdentifier: "com.apple.mail"), .email),
+            (RunningAppSnapshot(displayName: "Messages", bundleIdentifier: "com.apple.MobileSMS"), .chat),
+            (RunningAppSnapshot(displayName: "Obsidian", bundleIdentifier: "md.obsidian"), .notes),
+        ]
+        for (app, style) in cases {
+            let resolved = WritingStyleResolver.resolve(
+                target: app, bindings: [], defaultStyle: .plain, isEnabled: true, automatic: automatic()
+            )
+            XCTAssertEqual(resolved.style, style, app.displayName)
+            XCTAssertTrue(resolved.isAutomatic, app.displayName)
+            XCTAssertEqual(resolved.matchedAppName, app.displayName)
+        }
+    }
+
+    /// Formal and Casual change words, so the catalog's suggested tone never
+    /// switches on by itself: the user's own tone applies.
+    func testAutomaticStylesNeverApplyTheCatalogsTone() {
+        let mail = RunningAppSnapshot(displayName: "Mail", bundleIdentifier: "com.apple.mail")
+        let messages = RunningAppSnapshot(displayName: "Messages", bundleIdentifier: "com.apple.MobileSMS")
+        for app in [mail, messages] {
+            let resolved = WritingStyleResolver.resolve(
+                target: app, bindings: [], defaultStyle: .plain, isEnabled: true,
+                defaultIntent: .preserve, automatic: automatic()
+            )
+            XCTAssertEqual(resolved.intent, .preserve, app.displayName)
+        }
+    }
+
+    func testTheUsersRuleBeatsTheAutomaticStyle() {
+        let plainSlack = [AppStyleBinding(id: "s", displayName: "Slack", bundleIdentifier: "com.tinyspeck.slackmacgap", style: .plain)]
+        let resolved = WritingStyleResolver.resolve(
+            target: slack, bindings: plainSlack, defaultStyle: .plain, isEnabled: true, automatic: automatic()
+        )
+        XCTAssertEqual(resolved.style, .plain)
+        XCTAssertFalse(resolved.isAutomatic)
+    }
+
+    func testAPausedRuleFallsBackToTheAutomaticStyle() {
+        var paused = bindings
+        paused[1].isEnabled = false
+        let resolved = WritingStyleResolver.resolve(
+            target: slack, bindings: paused, defaultStyle: .plain, isEnabled: true, automatic: automatic()
+        )
+        XCTAssertEqual(resolved.style, .slack)
+        XCTAssertTrue(resolved.isAutomatic)
+    }
+
+    func testUnknownAppsAndNoTargetUseTheDefaultStyle() {
+        let other = RunningAppSnapshot(displayName: "Other", bundleIdentifier: "com.other.app")
+        for target in [other, nil] as [RunningAppSnapshot?] {
+            let resolved = WritingStyleResolver.resolve(
+                target: target, bindings: [], defaultStyle: .email, isEnabled: true, automatic: automatic()
+            )
+            XCTAssertEqual(resolved.style, .email)
+            XCTAssertFalse(resolved.isAutomatic)
+        }
+    }
+
+    func testAStylePickedForTheGroupWins() {
+        let resolved = WritingStyleResolver.resolve(
+            target: slack, bindings: [], defaultStyle: .plain, isEnabled: true,
+            automatic: automatic(picked: [.messages: .plain])
+        )
+        XCTAssertEqual(resolved.style, .plain)
+        XCTAssertEqual(resolved.rules, WritingStyle.plain.defaultRules)
+    }
+
+    /// A group's card showing its own default is no choice: Slack keeps
+    /// Slack and a terminal keeps Terminal.
+    func testPickingTheGroupsDefaultKeepsEachAppsOwnStyle() {
+        let terminal = RunningAppSnapshot(displayName: "Terminal", bundleIdentifier: "com.apple.Terminal")
+        let picked: [CalmStyleGroup: WritingStyle] = [.messages: .chat, .code: .code, .everythingElse: .plain]
+        XCTAssertEqual(WritingStyleResolver.automaticStyle(for: slack) { picked[$0] }?.style, .slack)
+        XCTAssertEqual(WritingStyleResolver.automaticStyle(for: terminal) { picked[$0] }?.style, .terminal)
+        let obsidian = RunningAppSnapshot(displayName: "Obsidian", bundleIdentifier: "md.obsidian")
+        XCTAssertEqual(WritingStyleResolver.automaticStyle(for: obsidian) { picked[$0] }?.style, .notes)
+    }
+
+    func testAutomaticNotesKeepsTheCatalogsRulesForPlainPasteApps() {
+        let notes = RunningAppSnapshot(displayName: "Notes", bundleIdentifier: "com.apple.Notes")
+        let style = WritingStyleResolver.automaticStyle(for: notes) { _ in nil }
+        XCTAssertEqual(style?.style, .notes)
+        XCTAssertEqual(style?.rules.emphasisDialect, EmphasisDialect.none)
+    }
+
+    func testDisabledStylesIgnoreAutomaticStyles() {
+        let resolved = WritingStyleResolver.resolve(
+            target: slack, bindings: [], defaultStyle: .plain, isEnabled: false, automatic: automatic()
+        )
+        XCTAssertEqual(resolved, .disabled)
+    }
+
+    func testAutomaticTerminalStillBecomesProseForACodingAgent() {
+        let terminal = RunningAppSnapshot(displayName: "Terminal", bundleIdentifier: "com.apple.Terminal")
+        let resolved = WritingStyleResolver.resolve(
+            target: terminal, bindings: [], defaultStyle: .plain, isEnabled: true, automatic: automatic()
+        )
+        let prose = WritingStyleResolver.applyingCodingAgent(resolved, detected: true)
+        XCTAssertTrue(prose.codingAgent)
+        XCTAssertEqual(prose.profile.format, .plain)
+    }
 }
 
 // MARK: - Catalog

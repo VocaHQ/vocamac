@@ -22,7 +22,7 @@ final class SpeechActivityTrimmerTests: XCTestCase {
         // Some speech-like frames, but no segment: whispered speech the model
         // should still get a chance at.
         XCTAssertEqual(SpeechActivityTrimmer.decide(speech: [], peakProbability: 0.4, totalSamples: 3 * second),
-                       .keep)
+                       .unsure)
     }
 
     func testMostlySpeechIsNotWorthTrimming() {
@@ -94,7 +94,7 @@ final class SpeechActivityTrimmerTests: XCTestCase {
         var decision = SpeechActivityTrimmer.Decision.keep
         for _ in 0..<50 {
             decision = await detector.decision(for: recording)
-            if decision != .keep { break }
+            if decision != .keep, decision != .unsure { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         guard case .trim(let ranges) = decision else {

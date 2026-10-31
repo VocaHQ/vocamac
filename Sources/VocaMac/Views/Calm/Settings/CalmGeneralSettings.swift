@@ -57,6 +57,8 @@ struct CalmGeneralSettings: View {
 
             CalmTypedTextGroup()
 
+            CalmLearnedFillersGroup()
+
             CalmPanel {
                 CalmTestDictationRow()
             }

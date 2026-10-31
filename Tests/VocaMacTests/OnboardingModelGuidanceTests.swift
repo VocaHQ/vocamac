@@ -14,6 +14,70 @@ final class OnboardingModelGuidanceTests: XCTestCase {
         XCTAssertEqual(recommendation?.model, .parakeetTdtCtc110m)
     }
 
+    /// Parakeet Unified had the fewest errors of the Parakeet models on
+    /// English; 110M is next when Unified isn't available.
+    func testEnglishPrefersParakeetUnifiedThenCompact() {
+        XCTAssertEqual(
+            OnboardingModelGuidance.recommendation(
+                for: "en", availableModels: models([.tiny, .small, .parakeetTdtCtc110m, .parakeetUnified, .parakeetUltra])
+            )?.model,
+            .parakeetUnified
+        )
+        XCTAssertEqual(
+            OnboardingModelGuidance.recommendation(
+                for: ["en"], availableModels: models([.tiny, .small, .parakeetTdtCtc110m, .parakeetUnified]),
+                memoryGB: 16
+            )?.model,
+            .parakeetUnified
+        )
+    }
+
+    func testOtherParakeetLanguagesUseParakeetV3BeforeWhisper() {
+        let available = models([.tiny, .small, .parakeetV3, .parakeetUltra])
+        for language in ["it", "nl", "pl", "sv", "uk"] {
+            XCTAssertEqual(
+                OnboardingModelGuidance.recommendation(for: language, availableModels: available)?.model,
+                .parakeetV3, language
+            )
+        }
+        // A language Parakeet doesn't know still gets Whisper.
+        XCTAssertEqual(OnboardingModelGuidance.recommendation(for: "hi", availableModels: available)?.model, .small)
+        // Specialists keep their languages.
+        XCTAssertEqual(
+            OnboardingModelGuidance.recommendation(
+                for: "fr", availableModels: models([.small, .parakeetV3, .canary180mFlash])
+            )?.model,
+            .canary180mFlash
+        )
+    }
+
+    /// Cohere Transcribe can't detect the language, so it is only suggested
+    /// to someone who speaks exactly one of its languages.
+    func testModelsWithoutLanguageDetectionNeedExactlyOneLanguage() {
+        let available = models([.tiny, .small, .largeV3LatestCompact, .cohereTranscribe])
+        XCTAssertEqual(
+            OnboardingModelGuidance.recommendation(
+                for: ["en"], availableModels: available, priority: .accuracy, memoryGB: 16
+            )?.model,
+            .cohereTranscribe
+        )
+        for languages in [["en", "fr"], []] {
+            XCTAssertNotEqual(
+                OnboardingModelGuidance.recommendation(
+                    for: languages, availableModels: available, priority: .accuracy, memoryGB: 16
+                )?.model,
+                .cohereTranscribe, "\(languages)"
+            )
+        }
+        // 4.5 GB doesn't fit half of an 8 GB Mac.
+        XCTAssertNotEqual(
+            OnboardingModelGuidance.recommendation(
+                for: ["en"], availableModels: available, priority: .accuracy, memoryGB: 8
+            )?.model,
+            .cohereTranscribe
+        )
+    }
+
     func testLanguageSpecialistsFollowExplicitCoverage() {
         let available = models([.small, .senseVoiceSmall, .gigaamV3, .canary180mFlash])
 

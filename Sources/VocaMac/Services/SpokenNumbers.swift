@@ -93,10 +93,15 @@ enum SpokenNumbers {
 
     /// Rewrites every number phrase in `text` as digits.
     ///
-    /// - Parameter symbols: Also write "%", currency signs, a minus sign,
-    ///   ordinal suffixes and dates: "fifty percent" becomes "50%", "June
-    ///   twenty second" becomes "June 22".
-    static func digits(in text: String, symbols: Bool = false) -> String {
+    /// - Parameters:
+    ///   - symbols: Also write "%", currency signs, a minus sign, ordinal
+    ///     suffixes and dates: "fifty percent" becomes "50%", "June twenty
+    ///     second" becomes "June 22".
+    ///   - smallNumbersAsWords: Newspaper style for prose: one to nine stay
+    ///     words ("two ideas"), unless a unit, a symbol or a numbering word
+    ///     makes them a figure ("5 pm", "version 2"), or they pair with a
+    ///     larger number ("between five and 12" reads as "between 5 and 12").
+    static func digits(in text: String, symbols: Bool = false, smallNumbersAsWords: Bool = false) -> String {
         guard !text.isEmpty, let words = Words(text), !words.isEmpty else { return text }
         let protected = idiomWords(in: words)
 
@@ -109,7 +114,10 @@ enum SpokenNumbers {
                 ?? digitString(at: index, in: words)
                 ?? year(at: index, in: words, protected: protected)
                 ?? (symbols ? dayOfMonth(at: index, in: words) : nil)
-                ?? number(at: index, in: words, protected: protected, symbols: symbols)
+                ?? number(
+                    at: index, in: words, protected: protected, symbols: symbols,
+                    smallNumbersAsWords: smallNumbersAsWords
+                )
             guard let match else {
                 index += 1
                 continue
@@ -142,7 +150,7 @@ enum SpokenNumbers {
     /// A run of number words starting at `index`: "twenty three", "two
     /// hundred and fifty", "three point five", "a thousand".
     private static func number(
-        at index: Int, in words: Words, protected: Set<Int>, symbols: Bool
+        at index: Int, in words: Words, protected: Set<Int>, symbols: Bool, smallNumbersAsWords: Bool = false
     ) -> Match? {
         guard !protected.contains(index) else { return nil }
         // "oh seven" is "oh, seven" as often as it is 07; "four oh four" is
@@ -242,6 +250,10 @@ enum SpokenNumbers {
         } else if tokens == [.unit(1)], !isQuantity(one: index, in: words) {
             return nil
         }
+        if smallNumbersAsWords, phrase.decimals.isEmpty, phrase.scaleWord == nil, phrase.value < 10,
+           !writesSmallNumberAsFigure(first: index, last: last, in: words, symbols: symbols) {
+            return skip
+        }
 
         var first = index
         var formatted = phrase.formatted
@@ -289,6 +301,39 @@ enum SpokenNumbers {
         }
         return false
     }
+
+    /// Whether a number from one to nine is a figure even in prose: a unit
+    /// follows it ("5 pm", "3 km"), a symbol will be written for it ("5%",
+    /// "$5", "-5"), a numbering word comes before it ("version 2", "step
+    /// 3"), or it pairs with a number of 10 or more ("5 to 12").
+    private static func writesSmallNumberAsFigure(first: Int, last: Int, in words: Words, symbols: Bool) -> Bool {
+        if isFollowedByQuantifyingUnit(last, in: words) { return true }
+        if symbols, percentSign(after: last, in: words) != nil || currency(after: last, in: words) != nil
+            || negativeSign(before: first, in: words) != nil {
+            return true
+        }
+        if first > 0, words.gap(after: first - 1) == " ", numberingWords.contains(words.lower[first - 1]) {
+            return true
+        }
+        let isLarge = { (word: String) in teens[word] != nil || tens[word] != nil }
+        if last + 2 < words.count, words.gap(after: last) == " ", words.gap(after: last + 1) == " ",
+           pairingWords.contains(words.lower[last + 1]), isLarge(words.lower[last + 2]) {
+            return true
+        }
+        if first >= 2, words.gap(after: first - 1) == " ", words.gap(after: first - 2) == " ",
+           pairingWords.contains(words.lower[first - 1]), isLarge(words.lower[first - 2]) {
+            return true
+        }
+        return false
+    }
+
+    /// Words that number the thing after them: "version two" is "version 2".
+    private static let numberingWords: Set<String> = [
+        "version", "number", "page", "pages", "chapter", "step", "steps", "room", "gate", "floor",
+        "level", "section", "part", "line", "channel", "size", "grade", "round", "phase", "season",
+        "episode", "volume", "seat", "platform", "exit", "route", "verse", "figure", "tier", "stage",
+        "option", "item", "issue", "ticket", "build", "release", "iphone", "ios", "macos",
+    ]
 
     /// Words that join two numbers into a pair or a range.
     private static let pairingWords: Set<String> = ["or", "to", "and"]

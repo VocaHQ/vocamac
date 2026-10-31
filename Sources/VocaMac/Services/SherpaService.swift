@@ -609,6 +609,19 @@ final class SherpaService: @unchecked Sendable {
                     maxNewTokens: 256
                 )
             )
+        case .cohereTranscribe(let encoder, let decoder, let supportedLanguages):
+            // No language detection: an unsupported or "auto" language
+            // decodes as English, like Canary.
+            let cohereLanguage = supportedLanguages.contains(language) ? language : "en"
+            modelConfig = sherpaOnnxOfflineModelConfig(
+                tokens: path(spec.tokensFile),
+                numThreads: numThreads,
+                cohereTranscribe: sherpaOnnxOfflineCohereTranscribeModelConfig(
+                    encoder: path(encoder),
+                    decoder: path(decoder),
+                    language: cohereLanguage
+                )
+            )
         }
 
         return sherpaOnnxOfflineRecognizerConfig(

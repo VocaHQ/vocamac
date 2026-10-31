@@ -164,6 +164,19 @@ final class CleanupModelEvaluationTests: XCTestCase {
         Probe(id: "phrase-correction", raw: "Use the staging server, no wait, the production server.", editedReference: "Use the production server.", language: "en", mustPreserve: ["the production server"]),
         Probe(id: "number-correction", raw: "We sold twenty five, no, thirty units last week.", editedReference: "We sold thirty units last week.", language: "en", mustPreserve: ["thirty units"]),
         Probe(id: "apology", raw: "Sorry, Daniel can't make it on Tuesday.", editedReference: "Sorry, Daniel can't make it on Tuesday.", language: "en", mustPreserve: ["Sorry", "Daniel", "can't"]),
+        // Changes of mind. The rules resolve most before the model sees them;
+        // these measure what reaches the model and that look-alikes survive.
+        Probe(id: "restart-chain", raw: "let's meet tomorrow, sorry sorry not actually, let's meet yesterday", editedReference: "Let's meet yesterday.", language: "en", mustPreserve: ["yesterday"]),
+        Probe(id: "restart-full-stop", raw: "I'll send the invoice Friday. No wait, I'll send it Monday.", editedReference: "I'll send it Monday.", language: "en", mustPreserve: ["Monday"]),
+        Probe(id: "restart-clause", raw: "Book the flight to Paris, no no, book the train to Paris.", editedReference: "Book the train to Paris.", language: "en", mustPreserve: ["train to Paris"]),
+        Probe(id: "frame-noun", raw: "I'll have the salad, no, soup.", editedReference: "I'll have the soup.", language: "en", mustPreserve: ["soup"]),
+        Probe(id: "scratch-mid", raw: "Ping the design channel, scratch that, ping Lena directly.", editedReference: "Ping Lena directly.", language: "en", mustPreserve: ["Lena directly"]),
+        Probe(id: "loose-correction", raw: "Put it by the window, I mean, the corner table.", editedReference: "Put it by the corner table.", language: "en", mustPreserve: ["corner table"]),
+        Probe(id: "apology-news", raw: "I'll be late today. Sorry, I'll be there by ten.", editedReference: "I'll be late today. Sorry, I'll be there by ten.", language: "en", mustPreserve: ["late today", "Sorry", "by ten"]),
+        Probe(id: "elaboration", raw: "That's great, I mean, that's really great.", editedReference: "That's great, I mean, that's really great.", language: "en", mustPreserve: ["that's really great"]),
+        Probe(id: "additive", raw: "We could go to Paris, actually, we could go to Rome too.", editedReference: "We could go to Paris. Actually, we could go to Rome too.", language: "en", mustPreserve: ["Paris", "Rome too"]),
+        Probe(id: "never-mind-message", raw: "Never mind, I found the file.", editedReference: "Never mind, I found the file.", language: "en", mustPreserve: ["Never mind", "found the file"]),
+        Probe(id: "noun-phrase", raw: "Send it to the old team lead, no wait, Priya.", editedReference: "Send it to Priya.", language: "en", mustPreserve: ["Priya"]),
         Probe(id: "names", raw: "Invite Rachel, Daniel, and Priya to the review.", editedReference: "Invite Rachel, Daniel, and Priya to the review.", language: "en", mustPreserve: ["Rachel", "Daniel", "Priya"]),
         // Accidental repeats (#389) and the doubles that are meant.
         Probe(id: "repeat-word", raw: "I gave it to the cleanup cleanup tab yesterday", editedReference: "I gave it to the cleanup tab yesterday.", language: "en", mustPreserve: ["cleanup tab"]),

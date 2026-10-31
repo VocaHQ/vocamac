@@ -172,14 +172,21 @@ enum ChangeOfMindResolver {
         }
     }
 
-    /// The edit that removes words `from..<to`, keeping the gap before `from`.
+    /// The edit that removes words `from..<to`, keeping the gap before `from`,
+    /// or nil when that would split a quote or bracket: "Send it to [John],
+    /// no wait, Mary" must not leave "[Mary".
     private static func removing(
         _ words: [Word], from: Int, to: Int, text: String, capitalizes: Bool
-    ) -> Edit {
+    ) -> Edit? {
         let start = words[from].range.lowerBound
         let end = to < words.count ? words[to].range.lowerBound : text.endIndex
+        guard !text[start..<end].contains(where: { enclosingMarks.contains($0) }) else { return nil }
         return Edit(removed: start..<end, capitalizesNext: capitalizes)
     }
+
+    /// Quotes and brackets, which come in pairs. Straight and curly single
+    /// quotes are left out: they are apostrophes inside words.
+    private static let enclosingMarks: Set<Character> = ["\"", "“", "”", "(", ")", "[", "]", "{", "}", "«", "»"]
 
     /// Whether word `index` opens a sentence or line.
     private static func opensSentence(_ words: [Word], _ index: Int) -> Bool {
@@ -203,21 +210,23 @@ enum ChangeOfMindResolver {
             let end = index + length
             // "scratch that itch": a phrase that runs on into the sentence
             // without a pause on either side is just words.
-            let pauseBefore = index > 0 && !words[index].gap.isEmpty
-            let pauseAfter = end == words.count || !words[end].gap.isEmpty
-            guard pauseBefore || pauseAfter else { continue }
+            // "Strike that pose" runs on as ordinary words; a cancellation
+            // ends at a pause, a full stop, or the end of the dictation.
+            let pauseAfter = end == words.count || !words[end].gap.isDisjoint(with: [.pause, .sentenceEnd])
+            guard pauseAfter else { continue }
             guard end == words.count || !words[end].gap.contains(.lineBreak) else { continue }
 
             // Cue words before it ("no, scratch that") go with it.
             let start = sentenceStart(words, containing: index)
             let spoken = words[start..<index].contains { !isCueWord($0.key) }
             if spoken {
-                return removing(words, from: start, to: end, text: text, capitalizes: true)
+                if let edit = removing(words, from: start, to: end, text: text, capitalizes: true) { return edit }
+                continue
             }
             // It opens a sentence: the previous sentence on the same line goes.
             guard start > 0, !words[start].gap.contains(.lineBreak) else { continue }
             let previous = sentenceStart(words, containing: start - 1)
-            return removing(words, from: previous, to: end, text: text, capitalizes: true)
+            if let edit = removing(words, from: previous, to: end, text: text, capitalizes: true) { return edit }
         }
         return nil
     }
@@ -264,14 +273,21 @@ enum ChangeOfMindResolver {
     private static func chain(in words: [Word], at start: Int) -> Chain? {
         var end = start
         var cues = 0
+        var chainOnly = 0
         var hasPhrase = false
         var lastCue = ""
         while end < words.count {
             if end > start, words[end].gap.contains(.lineBreak) || words[end].gap.contains(.other) { break }
             if let length = match(cuePhrases, in: words, at: end) {
-                cues += 1
-                lastCue = words[end].key
-                if length > 1 { hasPhrase = true }
+                // "not actually" denies on its own ("Monday, not actually
+                // Tuesday"); it only joins a chain another cue starts.
+                if chainOnlyPhrases.contains(Array(words[end..<(end + length)].map(\.key))) {
+                    chainOnly += 1
+                } else {
+                    cues += 1
+                    lastCue = words[end].key
+                    if length > 1 { hasPhrase = true }
+                }
                 end += length
             } else if interjections.contains(words[end].key) {
                 end += 1
@@ -286,11 +302,11 @@ enum ChangeOfMindResolver {
         let punctuatedAfter = !after.isDisjoint(with: [.pause, .sentenceEnd])
         return Chain(
             start: start, end: end,
-            isStrong: cues >= 2 || hasPhrase,
+            isStrong: cues + chainOnly >= 2 || hasPhrase,
             isPunctuated: punctuatedBefore || punctuatedAfter,
             isEnclosed: punctuatedBefore && punctuatedAfter,
             isStandaloneSentence: start > 0 && before.contains(.sentenceEnd) && after.contains(.sentenceEnd),
-            isDiscourseMarker: cues == 1 && !hasPhrase && discourseMarkers.contains(lastCue)
+            isDiscourseMarker: cues == 1 && chainOnly == 0 && !hasPhrase && discourseMarkers.contains(lastCue)
         )
     }
 
@@ -336,8 +352,10 @@ enum ChangeOfMindResolver {
             // Monday, no, I can do Tuesday" stays.
             let restartKeys = Set(restartWords.prefix(rejected.count + shared + 3).map(\.key))
             if rejected.contains(where: { isNegation($0.key) && !restartKeys.contains($0.key) }) { continue }
-            return removing(words, from: opening, to: restartStart, text: text,
-                            capitalizes: opensSentence(words, opening) && words[opening].isCapitalized)
+            if let edit = removing(words, from: opening, to: restartStart, text: text,
+                                   capitalizes: opensSentence(words, opening) && words[opening].isCapitalized) {
+                return edit
+            }
         }
         return nil
     }
@@ -355,6 +373,12 @@ enum ChangeOfMindResolver {
         let clauseStart = sentenceStart(words, containing: first - 1)
         let clause = words[clauseStart..<first]
         guard !clause.contains(where: { isNegation($0.key) }) else { return nil }
+        // "the blue one, I mean, the red one too": the speaker added.
+        let replacementSentence = words[replacement...].prefix { word in
+            word.range.lowerBound == words[replacement].range.lowerBound
+                || word.gap.isDisjoint(with: [.sentenceEnd, .lineBreak])
+        }
+        guard !replacementSentence.prefix(14).contains(where: { additions.contains($0.key) }) else { return nil }
         // Where the replacement ends: the next pause, sentence end, or text end.
         let replacementEnd = words[(replacement + 1)...].firstIndex(where: { !$0.gap.isEmpty }) ?? words.count
         let replacementLength = replacementEnd - replacement
@@ -375,8 +399,10 @@ enum ChangeOfMindResolver {
                   abs(replacementLength - length) <= 1,
                   !words[(start + 1)..<first].contains(where: { !$0.gap.isEmpty }),
                   !words[start..<first].allSatisfy({ replacementKeys.contains($0.key) }) else { continue }
-            return removing(words, from: start, to: replacement, text: text,
-                            capitalizes: opensSentence(words, start) && words[start].isCapitalized)
+            if let edit = removing(words, from: start, to: replacement, text: text,
+                                   capitalizes: opensSentence(words, start) && words[start].isCapitalized) {
+                return edit
+            }
         }
         // Same last word, a content word, phrases of equal length.
         for length in 2...4 where first - length >= clauseStart && replacement + length <= words.count {
@@ -388,8 +414,10 @@ enum ChangeOfMindResolver {
                   !words[(start + 1)..<first].contains(where: { !$0.gap.isEmpty }),
                   !words[(replacement + 1)..<(replacement + length)].contains(where: { !$0.gap.isEmpty })
             else { continue }
-            return removing(words, from: start, to: replacement, text: text,
-                            capitalizes: opensSentence(words, start) && words[start].isCapitalized)
+            if let edit = removing(words, from: start, to: replacement, text: text,
+                                   capitalizes: opensSentence(words, start) && words[start].isCapitalized) {
+                return edit
+            }
         }
         // One word for another of the same kind, the replacement standing
         // alone before a pause or the end: "to John, no, Mary".
@@ -485,6 +513,10 @@ enum ChangeOfMindResolver {
     .sorted { $0.count > $1.count }
 
     private static let cueWords: Set<String> = Set(cuePhrases.flatMap { $0 })
+
+    private static let chainOnlyPhrases: Set<[String]> = Set(
+        SpokenCorrectionResolver.chainOnlyCues.map { $0.split(separator: " ").map(String.init) }
+    )
 
     static let interjections: Set<String> = ["oh", "uh", "um", "uhm", "ah", "er", "erm", "hmm", "oops", "whoops"]
 

@@ -141,6 +141,8 @@ final class ChangeOfMindResolverTests: XCTestCase {
             "I need to scratch that itch",
             "Scratch that off the list.",           // nothing before it to cancel
             "Strike that pose for the camera",
+            "Take a photo. Strike that pose.",       // runs on into ordinary words
+            "Scratch that itch. Then sleep.",
         ])
     }
 
@@ -222,7 +224,23 @@ final class ChangeOfMindResolverTests: XCTestCase {
             "I love you. No. I love you more.",
             "It works on my machine. Sorry, it works on staging too.",
             "Is it John? No, Mary.",
+            "We meet Monday, not actually Tuesday.", // a lone "not actually" denies
+            "I want the blue one, I mean, the red one too.",
+            "Send it to [John], no wait, Mary.",      // never splits a bracket
+            "He said \"stop\", no wait, \"go\".",
         ])
+    }
+
+    func testAQuoteOrBracketTheEditDoesNotCrossStays() {
+        assertResolves([
+            ("Send it to [the team], no wait, Mary.", "Send it to [the team], no wait, Mary."),
+            ("Tag it (draft), sorry, no, tag it final.", "Tag it (draft), sorry, no, tag it final."),
+            ("Send it to John, no wait, [Mary].", "Send it to John, no wait, [Mary]."),
+        ])
+    }
+
+    func testSettingsExampleResolves() {
+        assertResolves([("let's meet tomorrow, sorry, no, let's meet Friday", "let's meet Friday")])
     }
 
     func testSeveralCorrectionsInOneDictation() {

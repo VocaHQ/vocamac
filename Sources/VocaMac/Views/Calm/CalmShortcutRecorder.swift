@@ -17,6 +17,8 @@ enum CalmShortcutTarget: String, Identifiable, Sendable {
     case pasteLast
     /// Saving keys turns Command Mode on; Turn off clears them.
     case commandMode
+    /// Saving keys turns Silent Mode on; Turn off clears them.
+    case silentMode
 
     var id: String { rawValue }
 
@@ -27,6 +29,7 @@ enum CalmShortcutTarget: String, Identifiable, Sendable {
         case .handsFree: return .handsFreeToggle
         case .pasteLast: return .pasteLastDictation
         case .commandMode: return .commandMode
+        case .silentMode: return .silentMode
         }
     }
 
@@ -36,6 +39,7 @@ enum CalmShortcutTarget: String, Identifiable, Sendable {
         case .handsFree: return "Hands-free shortcut"
         case .pasteLast: return "Paste last dictation"
         case .commandMode: return "Command Mode shortcut"
+        case .silentMode: return "Silent Mode shortcut"
         }
     }
 }
@@ -114,6 +118,7 @@ struct CalmShortcutRecorderDialog: View {
         case .handsFree: return "Press once to start, again to stop."
         case .pasteLast: return "Types your last dictation again."
         case .commandMode: return "Press it once, speak, and press it again. Or hold it while you speak."
+        case .silentMode: return "Hold it while you whisper or mouth your words, or press it once and again to finish."
         }
     }
 
@@ -226,6 +231,25 @@ struct CalmShortcutRecorderDialog: View {
                 .calmButton(.quiet)
                 .help("Clears the shortcut. The switch puts it back.")
             } else if let suggestion = ShortcutValidation.suggestion(for: .commandMode, appState: appState),
+                      suggestion != candidate {
+                Button("Use \(CalmCommandsText.keys(suggestion))") {
+                    stopCapture()
+                    isWaiting = false
+                    candidate = suggestion
+                }
+                .calmButton(.quiet)
+                .help("Three modifiers, which other apps rarely use")
+            }
+        case .silentMode:
+            if hadShortcut {
+                Button("Turn off") {
+                    stopCapture()
+                    appState.setSilentModeOn(false)
+                    dismissDialog?()
+                }
+                .calmButton(.quiet)
+                .help("Clears the shortcut. The switch puts it back.")
+            } else if let suggestion = ShortcutValidation.suggestion(for: .silentMode, appState: appState),
                       suggestion != candidate {
                 Button("Use \(CalmCommandsText.keys(suggestion))") {
                     stopCapture()

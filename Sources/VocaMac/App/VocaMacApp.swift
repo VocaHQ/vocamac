@@ -352,6 +352,8 @@ struct VocaMacApp: App {
             MenuBarIcon(
                 appStatus: appState.appStatus,
                 isCommandMode: appState.commandModeSession != nil,
+                isSilentMode: appState.isSilentSession,
+                silentByDefault: appState.isSilentModeOn && appState.silentModeUsesDictationKey,
                 readiness: MenuBarReadiness(appState.dictationReadiness),
                 accessibilityLabel: appState.menuBarAccessibilityLabel
             )
@@ -591,6 +593,8 @@ struct VocaMacApp: App {
 struct MenuBarIcon: View {
     let appStatus: AppStatus
     var isCommandMode = false
+    var isSilentMode = false
+    var silentByDefault = false
     var readiness: MenuBarReadiness = .ready
     /// Says what the app is doing or needs ("VocaMac, recording").
     var accessibilityLabel = "VocaMac"
@@ -608,7 +612,10 @@ struct MenuBarIcon: View {
     }
 
     private func makeStatusImage() -> NSImage {
-        switch MenuBarIconStyle.style(for: appStatus, isCommandMode: isCommandMode, readiness: readiness) {
+        switch MenuBarIconStyle.style(
+            for: appStatus, isCommandMode: isCommandMode, isSilentMode: isSilentMode,
+            silentByDefault: silentByDefault, readiness: readiness
+        ) {
         case .systemSymbolTemplate(let name):
             return fallbackSymbol(named: name, tint: nil)
         case .notReadyTemplate(let badged):
@@ -712,6 +719,7 @@ struct MenuBarIcon: View {
 
     private var statusColor: NSColor {
         if isCommandMode { return VocaDesign.commandNSColor }
+        if isSilentMode { return BrandAssets.brandColor }
         switch appStatus {
         case .idle:       return BrandAssets.brandColor
         case .recording:  return BrandAssets.brandColor

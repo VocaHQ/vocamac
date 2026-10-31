@@ -80,6 +80,10 @@ final class CLIEntrypoint {
                     options: options
                 )
             }
+        case .readLips(let path):
+            return await runJSONOperation {
+                try await Self.readLips(path: path)
+            }
         case .transcribeFile(let path, let model, let language):
             return await runJSONOperation {
                 try await self.headlessTranscriber.transcribe(
@@ -89,6 +93,28 @@ final class CLIEntrypoint {
                 )
             }
         }
+    }
+
+    /// Lip reading on a video file: the same per-frame processing, crops
+    /// and model as Silent Mode, to check accuracy on recorded clips.
+    private static func readLips(path: String) async throws -> CLILipReadingResponse {
+        let reader = CoreMLLipReader()
+        guard reader.isInstalled else {
+            throw CLIError(.modelNotDownloaded, "The lip-reading model isn't installed. Run `make lip-reading-model` in VocaMac's source folder.")
+        }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw CLIError(.invalidAudio, "No file at \(path).")
+        }
+        let started = ProcessInfo.processInfo.systemUptime
+        let frames = try await LipVideoReader.frames(of: url)
+        let faces = frames.filter { $0.mouth != nil }.count
+        let text = try await LipVideoReader.read(url, with: reader)
+        return CLILipReadingResponse(
+            text: text, frames: frames.count, framesWithFace: faces,
+            videoSeconds: (frames.last?.time ?? 0) - (frames.first?.time ?? 0),
+            durationSeconds: ProcessInfo.processInfo.systemUptime - started
+        )
     }
 
     private func runJSONOperation<Response: Encodable>(
@@ -210,6 +236,7 @@ final class CLIEntrypoint {
       VocaMac --transcribe-file <audio-path> --json --pieces [--cleanup <cleanup-model-id>]
           [--pause-seconds <s>] [--min-piece-seconds <s>] [--model <id>] [--language <code>]
       VocaMac --list-models --json
+      VocaMac --read-lips <video-path> --json
       VocaMac --help
 
     Omitting --model and --language follows the current VocaMac app preferences.
@@ -217,6 +244,8 @@ final class CLIEntrypoint {
     --pieces compares decoding the whole file with decoding it piece by piece at pauses, as
     "Process while speaking" does while recording, and reports both texts and timings.
     --cleanup also cleans both with a downloaded cleanup model.
+    --read-lips reads mouthed English from a video of a face with Silent Mode's lip reader
+    (build it first with `make lip-reading-model`).
     """ + "\n"
 }
 

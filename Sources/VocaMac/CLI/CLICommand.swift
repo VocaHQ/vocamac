@@ -19,13 +19,15 @@ enum CLICommand: Equatable {
     /// would while recording), optionally cleaning both, and report timings.
     case comparePieces(path: String, model: String?, language: String?, options: PieceComparisonOptions)
     case listModels
+    /// Read mouthed English from a video of a face with Silent Mode's lip reader.
+    case readLips(path: String)
 
     /// Flags that unambiguously request the headless CLI. Any other launch
     /// arguments (e.g. GUI-only `--restarted` from Settings → Debug → Restart)
     /// fall through to the normal SwiftUI app. Also used by
     /// `VocaMacApp.ensureSingleInstance()` to avoid killing an in-flight CLI job.
     static let cliFlags: Set<String> = [
-        "--transcribe-file", "--list-models", "--help", "-h",
+        "--transcribe-file", "--list-models", "--read-lips", "--help", "-h",
     ]
 
     /// Only dispatch to the headless CLI when a recognized CLI flag is present.
@@ -42,6 +44,7 @@ enum CLICommand: Equatable {
         }
 
         var audioPath: String?
+        var videoPath: String?
         var model: String?
         var language: String?
         var wantsList = false
@@ -60,6 +63,11 @@ enum CLICommand: Equatable {
                     throw CLIError(.invalidArguments, "--transcribe-file may only be provided once.")
                 }
                 audioPath = try value(after: argument, in: arguments, index: &index)
+            case "--read-lips":
+                guard videoPath == nil else {
+                    throw CLIError(.invalidArguments, "--read-lips may only be provided once.")
+                }
+                videoPath = try value(after: argument, in: arguments, index: &index)
             case "--list-models":
                 guard !wantsList else {
                     throw CLIError(.invalidArguments, "--list-models may only be provided once.")
@@ -122,6 +130,13 @@ enum CLICommand: Equatable {
 
         guard wantsJSON else {
             throw CLIError(.invalidArguments, "Headless commands require --json.")
+        }
+        if let videoPath {
+            guard audioPath == nil, !wantsList, model == nil, language == nil, !wantsPieces, cleanupModel == nil,
+                  pauseSeconds == nil, minPieceSeconds == nil else {
+                throw CLIError(.invalidArguments, "--read-lips takes only a video path and --json.")
+            }
+            return .readLips(path: videoPath)
         }
         guard wantsList != (audioPath != nil) else {
             throw CLIError(

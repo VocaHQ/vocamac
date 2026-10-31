@@ -18,7 +18,7 @@ enum CalmIconName: String, CaseIterable, Sendable {
     case chevDown = "chev-down"
     case check, warning, info, download, play, lock, update, flame, mic
     case arrowRight = "arrow-right"
-    case undo, more, sort, keyboard
+    case undo, more, sort, keyboard, silent
 
     /// SVG path data on the 20 × 20 grid (rects and circles converted to paths).
     var pathData: String {
@@ -60,6 +60,8 @@ enum CalmIconName: String, CaseIterable, Sendable {
         case .more: return "M5 10h.1M10 10h.1M15 10h.1"
         case .sort: return "M6.5 4v12M3.5 7l3-3 3 3M13.5 16V4M10.5 13l3 3 3-3"
         case .keyboard: return "M2.8 5.5h14.4v9H2.8zM5.5 8.5h.1M8.5 8.5h.1M11.5 8.5h.1M14.5 8.5h.1M7 11.5h6"
+        // Lips: an upper lip with its bow, a lower lip, and the line between.
+        case .silent: return "M2.8 10c1.6-2.6 3.4-4.3 5.1-4.3.9 0 1.5.6 2.1.6s1.2-.6 2.1-.6c1.7 0 3.5 1.7 5.1 4.3-1.9 2.9-4.3 4.6-7.2 4.6S4.7 12.9 2.8 10zM2.8 10h14.4"
         }
     }
 }

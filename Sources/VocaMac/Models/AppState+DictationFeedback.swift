@@ -117,7 +117,8 @@ extension AppState {
     /// Hands-free label. The hands-free shortcut (and the menu) keep
     /// recording until pressed again, whatever the activation mode.
     var overlayStopHint: OverlayStopHint {
-        OverlayStopHint.resolve(
+        if let silentStopHint { return silentStopHint }
+        return OverlayStopHint.resolve(
             commandMode: commandModeSession == nil ? nil : (
                 isKeyHeld: isCommandModeKeyHeld,
                 shortcut: shortcut(for: .commandMode).map { CalmKeyCaps.compactText(for: $0) }
@@ -136,7 +137,7 @@ extension AppState {
     var menuBarAccessibilityLabel: String {
         MenuBarAccessibility.label(
             status: appStatus, readiness: dictationReadiness,
-            isCommandMode: commandModeSession != nil, isCleaningUp: isCleaningUp,
+            isCommandMode: commandModeSession != nil, isSilentMode: isSilentSession, isCleaningUp: isCleaningUp,
             isAutoPaused: isAutoPaused
         )
     }

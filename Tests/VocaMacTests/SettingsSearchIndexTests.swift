@@ -156,7 +156,7 @@ final class SettingsSectionTests: XCTestCase {
         XCTAssertEqual(CalmNavigation.destination(for: .performance), .settings(.system))
         XCTAssertEqual(CalmNavigation.destination(for: .audio), .settings(.system))
         XCTAssertEqual(CalmNavigation.destination(for: .speechModel), .settings(.models))
-        XCTAssertEqual(CalmSettingsMenuGroup.settings.items, [.general, .system, .models, .cleanup])
+        XCTAssertEqual(CalmSettingsMenuGroup.settings.items, [.general, .system, .models, .cleanup, .silentMode])
     }
 
     func testPermissionsPageKeepsItsStoredRawValue() {

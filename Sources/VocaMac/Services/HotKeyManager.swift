@@ -896,18 +896,22 @@ enum HotKeyShortcutAction: Hashable, Identifiable {
     case handsFreeToggle
     /// Hold while speaking an instruction that transforms selected text.
     case commandMode
+    /// Hold (or press, then press again) to dictate with the camera reading
+    /// the lips: Silent Mode.
+    case silentMode
     /// Apply one of the user's saved Command Mode instructions to the
     /// selection, without recording anything.
     case savedCommand(UUID)
 
     /// The shortcuts every install has. Saved commands come and go.
-    static let builtIn: [HotKeyShortcutAction] = [.pasteLastDictation, .handsFreeToggle, .commandMode]
+    static let builtIn: [HotKeyShortcutAction] = [.pasteLastDictation, .handsFreeToggle, .commandMode, .silentMode]
 
     var id: String {
         switch self {
         case .pasteLastDictation: return "pasteLastDictation"
         case .handsFreeToggle: return "handsFreeToggle"
         case .commandMode: return "commandMode"
+        case .silentMode: return "silentMode"
         case .savedCommand(let id): return "savedCommand-\(id.uuidString)"
         }
     }
@@ -917,6 +921,7 @@ enum HotKeyShortcutAction: Hashable, Identifiable {
         case .pasteLastDictation: return "Paste last dictation"
         case .handsFreeToggle: return "Hands-free dictation"
         case .commandMode: return "Command Mode"
+        case .silentMode: return "Silent Mode"
         case .savedCommand: return "Saved command"
         }
     }

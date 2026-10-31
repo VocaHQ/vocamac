@@ -558,6 +558,10 @@ struct MenuBarView: View {
                         )
                         .help("Select text in any app, press this, and say how to change it")
                     }
+                    if appState.appStatus == .idle, let keys = appState.silentModeShortcutText {
+                        MenuPanelShortcutHint(verb: "Silent", keys: keys)
+                            .help("Hold this and whisper or mouth your words; the camera reads your lips")
+                    }
                 }
             }
 

@@ -98,9 +98,23 @@ enum ShortcutValidation {
         HotKeyCombo(keyCode: 44, modifiers: [.control, .option, .command]),  // /
     ]
 
+    /// Silent Mode ships unbound too. S for "silent", then M for "mouth".
+    /// A secondary shortcut can't be a lone modifier (those are reserved for
+    /// the dictation key), so these use ⌃⌥⌘ like Command Mode's.
+    static let silentModeSuggestions: [HotKeyCombo] = [
+        HotKeyCombo(keyCode: 1, modifiers: [.control, .option, .command]),   // S
+        HotKeyCombo(keyCode: 46, modifiers: [.control, .option, .command]),  // M
+        HotKeyCombo(keyCode: 47, modifiers: [.control, .option, .command]),  // .
+    ]
+
     /// A shortcut to offer for `action` while it has none, or nil.
     static func suggestion(for action: HotKeyShortcutAction, appState: AppState) -> HotKeyCombo? {
-        guard action == .commandMode else { return nil }
-        return commandModeSuggestions.first { problem(with: $0, action: action, appState: appState) == nil }
+        let candidates: [HotKeyCombo]
+        switch action {
+        case .commandMode: candidates = commandModeSuggestions
+        case .silentMode: candidates = silentModeSuggestions
+        default: return nil
+        }
+        return candidates.first { problem(with: $0, action: action, appState: appState) == nil }
     }
 }

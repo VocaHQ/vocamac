@@ -6,6 +6,7 @@
 
 import Foundation
 import Combine
+import QuartzCore
 import ApplicationServices
 @testable import VocaMac
 
@@ -435,6 +436,72 @@ final class MockCursorOverlay: CursorOverlayManaging {
     func setEscapeHintVisible(_ visible: Bool) {
         escapeHintVisible = visible
     }
+
+    var silentSession: SilentLiveState?
+    func setSilentSession(_ live: SilentLiveState?) {
+        silentSession = live
+    }
+
+    var doneMessages: [String] = []
+    func showDone(message: String) {
+        doneMessages.append(message)
+    }
+}
+
+// MARK: - Silent Mode
+
+/// A camera that starts and stops on request and delivers no frames by
+/// itself; tests feed frames through `SilentModeController.ingest`.
+/// `@unchecked Sendable`: tests use it from the main actor only.
+final class MockLipTracker: CameraLipTracking, @unchecked Sendable {
+    var status: PermissionStatus = .granted
+    var startError: Error?
+    private(set) var startCount = 0
+    private(set) var stopCount = 0
+    private(set) var lastCameraID: String?
+    private(set) var handler: (@Sendable (LipFrame) -> Void)?
+
+    func setFrameHandler(_ handler: (@Sendable (LipFrame) -> Void)?) { self.handler = handler }
+    private(set) var capturesMouth = false
+    func setCapturesMouth(_ captures: Bool) { capturesMouth = captures }
+
+    func start(cameraID: String?) async throws {
+        startCount += 1
+        lastCameraID = cameraID
+        if let startError { throw startError }
+    }
+
+    func stop() { stopCount += 1 }
+    @MainActor func makePreviewLayer() -> CALayer? { nil }
+    func authorizationStatus() -> PermissionStatus { status }
+    func requestAccess() async -> Bool { status == .granted }
+    func availableCameras() -> [CameraDevice] { [CameraDevice(id: "built-in", name: "FaceTime HD Camera")] }
+}
+
+/// A lip reader that answers with fixed text. `@unchecked Sendable`:
+/// tests use it from the main actor only.
+final class MockLipReader: LipReading, @unchecked Sendable {
+    var isInstalled = false
+    var text = "hello how are you"
+    var error: Error?
+    private(set) var readLengths: [Int] = []
+    private(set) var prepareCount = 0
+    private(set) var unloadCount = 0
+
+    func prepare() async { prepareCount += 1 }
+
+    func read(_ crops: [MouthCrop]) async throws -> String {
+        readLengths.append(crops.count)
+        if let error { throw error }
+        return text
+    }
+
+    func unload() { unloadCount += 1 }
+}
+
+final class MockKeyPresser: KeyPressPosting {
+    private(set) var presses: [SyntheticKeyPress] = []
+    func press(_ key: SyntheticKeyPress) { presses.append(key) }
 }
 
 // MARK: - MockModelManager
@@ -1052,6 +1119,9 @@ extension AppState {
             PreferenceKey.savedCommands, PreferenceKey.voiceActionsEnabled,
             PreferenceKey.voiceActionShortcuts, PreferenceKey.aiModelsKeptSeparate,
             PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
+            PreferenceKey.silentModeShortcut, PreferenceKey.silentModeSensitivity,
+            PreferenceKey.silentModeUsesDictationKey, PreferenceKey.silentModeShowsVideo,
+            PreferenceKey.silentModeCameraID, PreferenceKey.silentModeReadsLips,
         ] {
             UserDefaults.standard.removeObject(forKey: key)
         }
@@ -1067,6 +1137,9 @@ extension AppState {
         let statsManager = MockStatsManager()
         let frontmostAppResolver = MockFrontmostAppResolver()
         let cleanup = transcriptCleanup ?? MockTranscriptCleanup()
+        let lipTracker = MockLipTracker()
+        let keyPresser = MockKeyPresser()
+        let lipReader = MockLipReader()
 
         let mocks = TestMocks(
             audioEngine: audioEngine,
@@ -1081,7 +1154,10 @@ extension AppState {
             textInjector: textInjector,
             statsManager: statsManager,
             frontmostAppResolver: frontmostAppResolver,
-            transcriptCleanup: cleanup
+            transcriptCleanup: cleanup,
+            lipTracker: lipTracker,
+            keyPresser: keyPresser,
+            lipReader: lipReader
         )
         let appState = AppState(
             audioEngine: audioEngine,
@@ -1106,6 +1182,9 @@ extension AppState {
             voiceActionPerformer: voiceActionPerformer,
             commandReviewPresenter: commandReviewPresenter,
             crashReportFinder: crashReportFinder,
+            silentCamera: lipTracker,
+            keyPresser: keyPresser,
+            lipReader: lipReader,
             skipSystemIntegration: true
         )
         // Spell checking depends on the machine's dictionaries; tests use a
@@ -1137,6 +1216,9 @@ struct TestMocks {
     let statsManager: MockStatsManager
     let frontmostAppResolver: MockFrontmostAppResolver
     let transcriptCleanup: MockTranscriptCleanup
+    let lipTracker: MockLipTracker
+    let keyPresser: MockKeyPresser
+    let lipReader: MockLipReader
 }
 
 // MARK: - Test Words

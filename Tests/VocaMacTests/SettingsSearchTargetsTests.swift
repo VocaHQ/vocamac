@@ -32,6 +32,7 @@ final class SettingsSearchTargetsTests: XCTestCase {
         "CalmAllSpeechModels": .settings(.allModels),
         "CalmModelsOnThisMac": .settings(.models),
         "CalmCleanupSettings": .settings(.cleanup),
+        "CalmSilentModeSettings": .settings(.silentMode),
         "CalmPrivacySettings": .settings(.privacy),
         "CalmAdvancedSettings": .settings(.advanced),
         "CalmGatewaySettings": .settings(.gateway),

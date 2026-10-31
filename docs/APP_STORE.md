@@ -68,6 +68,7 @@ doesn't see the direct download's data.
 |--|--|
 | `com.apple.security.app-sandbox` | Required for the Mac App Store |
 | `com.apple.security.device.audio-input` | The microphone |
+| `com.apple.security.device.camera` | Silent Mode's camera, only while a Silent Mode recording, its preview, or teaching a command runs |
 | `com.apple.security.network.client` | Model downloads, the Custom Endpoint engine, AI servers on the LAN |
 | `com.apple.security.files.user-selected.read-write` | Open and save panels: Transcribe File, export and import of settings, history and style rules, log export. Save panels need write access, so read-only isn't enough |
 

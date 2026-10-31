@@ -49,6 +49,14 @@ enum OverlayLayout {
     static let liveTextWidth: CGFloat = liveWidth - 32
     /// "Editing 120 characters" above a Command Mode instruction.
     static let liveHeaderHeight: CGFloat = 16
+    /// Silent Mode's face tile in the live panel (4:3), and the strip it
+    /// sits in, with 12 below it.
+    static let silentTileSize = CGSize(width: 112, height: 84)
+    static let silentStripHeight: CGFloat = silentTileSize.height + 12
+    /// Silent Mode's lip badge in the pill, where the waveform is otherwise.
+    static let silentBadgeSize: CGFloat = 26
+    /// How long a Silent Mode command's chip stays up.
+    static let doneDisplayDuration: TimeInterval = 1.2
 
     /// The card slot for a style at rest: a pill, or a one-line live panel.
     static func contentSize(for style: OverlayStyle) -> CGSize {
@@ -71,10 +79,11 @@ enum OverlayLayout {
 
     /// Live panel height: padding 14, optional header, the words, a divider
     /// with 10 above and below, an 18-point footer and padding 12.
-    static func liveHeight(lines: Int, hasHeader: Bool) -> CGFloat {
+    static func liveHeight(lines: Int, hasHeader: Bool, hasSilentStrip: Bool = false) -> CGFloat {
         let lines = min(max(lines, 1), liveMaxLines)
         let header = hasHeader ? liveHeaderHeight + 10 : 0
-        return 14 + header + CGFloat(lines) * liveLineHeight + 10 + 1 + 10 + 18 + 12
+        let strip = hasSilentStrip ? silentStripHeight : 0
+        return 14 + strip + header + CGFloat(lines) * liveLineHeight + 10 + 1 + 10 + 18 + 12
     }
 
     /// Failure pill height: one line fills the 40-point pill; more lines add
@@ -380,6 +389,8 @@ enum OverlayNotice: Equatable {
     case error(String)
     case copied(String)
     case learned(String)
+    /// Something done on the user's behalf: a Silent Mode command.
+    case done(String)
 
     static func from(message: String) -> OverlayNotice {
         if message == TextInjector.accessibilityOffMessage {
@@ -390,7 +401,7 @@ enum OverlayNotice: Equatable {
 
     var text: String {
         switch self {
-        case .error(let text), .copied(let text), .learned(let text): return text
+        case .error(let text), .copied(let text), .learned(let text), .done(let text): return text
         }
     }
 }
@@ -495,6 +506,8 @@ final class CursorOverlayManager {
         viewModel.failureMessage = ""
         viewModel.learnedUndo = nil
         viewModel.commandSession = nil
+        viewModel.silent = nil
+        viewModel.isDoneNotice = false
         viewModel.liveWordsAvailable = false
         viewModel.isLoadingSpeechModel = false
         viewModel.isCleaningUp = false
@@ -573,8 +586,27 @@ final class CursorOverlayManager {
         isDictationUnderway = false
         parkLearnedNotice()
         viewModel.learnedUndo = nil
+        viewModel.isDoneNotice = false
         presentNotice(trimmed, duration: OverlayInteraction.failureDisplayDuration(for: trimmed))
         VocaLogger.debug(.cursorOverlay, "Overlay showing failure")
+    }
+
+    /// Shows a short confirmation (a mint check), then hides.
+    func showDone(message: String) {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        isDictationUnderway = false
+        parkLearnedNotice()
+        viewModel.learnedUndo = nil
+        viewModel.isDoneNotice = true
+        presentNotice(trimmed, duration: OverlayLayout.doneDisplayDuration)
+        VocaLogger.debug(.cursorOverlay, "Overlay showing a done notice")
+    }
+
+    func setSilentSession(_ live: SilentLiveState?) {
+        guard viewModel.silent !== live else { return }
+        viewModel.silent = live
+        refreshPanelSize()
     }
 
     /// Say what VocaMac learned from the user's edits, with an Undo button,
@@ -589,6 +621,7 @@ final class CursorOverlayManager {
             return
         }
         viewModel.learnedUndo = undo
+        viewModel.isDoneNotice = false
         viewModel.onNoticeFinished = { [weak self] in self?.hideNow() }
         presentNotice(trimmed, duration: OverlayLayout.learnedDisplayDuration)
         VocaLogger.debug(.cursorOverlay, "Overlay showing what was learned")
@@ -673,6 +706,8 @@ final class CursorOverlayManager {
         viewModel.isActive = false
         viewModel.phase = .idle
         viewModel.learnedUndo = nil
+        viewModel.silent = nil
+        viewModel.isDoneNotice = false
         viewModel.audioLevel = 0
         viewModel.waveformTick = 0
         viewModel.elapsedSeconds = 0
@@ -987,6 +1022,10 @@ final class MicIndicatorViewModel: ObservableObject {
     @Published private(set) var confirmedTranscriptLength = 0
     /// Set while the session edits selected text (Command Mode).
     @Published var commandSession: CommandModeSession?
+    /// Set while a Silent Mode recording runs: the camera strip draws it.
+    @Published var silent: SilentLiveState?
+    /// The notice up is a confirmation, not a failure.
+    @Published var isDoneNotice = false
     @Published var liveWordsAvailable = false
     /// The speech model is still loading while the microphone records.
     @Published var isLoadingSpeechModel = false
@@ -1024,7 +1063,15 @@ final class MicIndicatorViewModel: ObservableObject {
     }
 
     var notice: OverlayNotice {
-        learnedUndo == nil ? OverlayNotice.from(message: failureMessage) : .learned(failureMessage)
+        if learnedUndo != nil { return .learned(failureMessage) }
+        if isDoneNotice { return .done(failureMessage) }
+        return OverlayNotice.from(message: failureMessage)
+    }
+
+    /// The camera strip shows while listening; once the recording ends the
+    /// camera is off and the panel goes back to its usual size.
+    var showsSilentStrip: Bool {
+        silent != nil && (phase == .connecting || phase == .recording)
     }
 
     /// The Undo button on a "Learned" notice.
@@ -1062,6 +1109,9 @@ final class MicIndicatorViewModel: ObservableObject {
             }
         }
         if !transcript.isEmpty { return (transcript, false) }
+        if silent != nil {
+            return ("Your words will appear when you stop", true)
+        }
         return (
             liveWordsAvailable ? "Words will appear here as you speak" : "Your words will appear when you stop",
             true
@@ -1117,7 +1167,9 @@ final class MicIndicatorViewModel: ObservableObject {
         case .live:
             return CGSize(
                 width: OverlayLayout.liveWidth,
-                height: OverlayLayout.liveHeight(lines: liveLineCount, hasHeader: liveHeader != nil)
+                height: OverlayLayout.liveHeight(
+                    lines: liveLineCount, hasHeader: liveHeader != nil, hasSilentStrip: showsSilentStrip
+                )
             )
         }
     }
@@ -1475,11 +1527,20 @@ private struct OverlayPill: View {
     private var content: some View {
         switch viewModel.phase {
         case .connecting:
-            OverlayWaveform(viewModel: viewModel, color: OverlayPalette.connecting)
+            if let silent = viewModel.silent {
+                OverlaySilentBadge(live: silent)
+            } else {
+                OverlayWaveform(viewModel: viewModel, color: OverlayPalette.connecting)
+            }
             Text(viewModel.isLoadingSpeechModel ? "Loading model…" : "Connecting…")
                 .foregroundStyle(OverlayPalette.secondaryText)
         case .recording:
-            OverlayWaveform(viewModel: viewModel, color: tint)
+            if let silent = viewModel.silent {
+                OverlaySilentBadge(live: silent)
+                OverlaySilentLabel(live: silent)
+            } else {
+                OverlayWaveform(viewModel: viewModel, color: tint)
+            }
             if let session = viewModel.commandSession {
                 Text(OverlayCopy.commandWord(session.kind)).foregroundStyle(OverlayPalette.violet)
             } else if viewModel.isLoadingSpeechModel {
@@ -1512,6 +1573,7 @@ private struct OverlayPill: View {
         case .recording:
             if let seconds = viewModel.countdownSeconds { return "Recording stops in \(seconds) seconds" }
             if viewModel.isCommandMode { return "Command Mode, listening" }
+            if viewModel.silent != nil { return "Silent Mode, reading your lips" }
             return viewModel.stopHint?.isHandsFree == true ? "Recording, hands-free" : "Recording"
         case .processing, .idle: return OverlayCopy.workingTitle(viewModel)
         case .failure: return viewModel.notice.text
@@ -1531,7 +1593,13 @@ private struct OverlayFailurePill: View {
             return false
         }()
         let isLearned: Bool = {
-            if case .learned = notice { return true }
+            switch notice {
+            case .learned, .done: return true
+            default: return false
+            }
+        }()
+        let isDone: Bool = {
+            if case .done = notice { return true }
             return false
         }()
         HStack(alignment: layout.lines > 1 ? .top : .center, spacing: 10) {
@@ -1553,7 +1621,7 @@ private struct OverlayFailurePill: View {
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(width: layout.width + 2, alignment: .leading)
-            if isLearned {
+            if isLearned, !isDone {
                 Button("Undo") { viewModel.undoLearned() }
                     .buttonStyle(.plain)
                     .font(CalmFont.sf(13, weight: 650))
@@ -1587,6 +1655,11 @@ private struct OverlayLivePanel: View {
     var body: some View {
         let lines = viewModel.liveLineCount
         VStack(alignment: .leading, spacing: 10) {
+            if viewModel.showsSilentStrip, let silent = viewModel.silent {
+                OverlaySilentStrip(live: silent)
+                    .padding(.bottom, 2)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
             if let header = viewModel.liveHeader {
                 Text(header)
                     .font(.system(size: 12))
@@ -1646,9 +1719,12 @@ private struct OverlayLivePanel: View {
         HStack(spacing: 10) {
             switch viewModel.phase {
             case .connecting, .recording:
+                // Dimmed in Silent Mode: the lips, not the voice, drive it.
                 OverlayWaveform(
                     viewModel: viewModel,
-                    color: viewModel.phase == .connecting ? OverlayPalette.connecting : tint
+                    color: viewModel.phase == .connecting
+                        ? OverlayPalette.connecting
+                        : (viewModel.silent == nil ? tint : tint.opacity(0.4))
                 )
                 Text(OverlayCopy.listeningHint(viewModel))
                     .lineLimit(1)

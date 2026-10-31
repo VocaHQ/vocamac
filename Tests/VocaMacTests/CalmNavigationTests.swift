@@ -145,7 +145,7 @@ final class CalmNavigationMappingTests: XCTestCase {
             .advanced: .settings(.advanced), .gateway: .settings(.gateway), .about: .settings(.about),
             .history: .main(.home), .stats: .main(.insights), .dictionary: .main(.dictionary),
             .snippets: .main(.snippets), .formatting: .settings(.general), .writingStyles: .main(.styles),
-            .commandMode: .main(.commands),
+            .commandMode: .main(.commands), .silentMode: .settings(.silentMode),
         ]
         XCTAssertEqual(Set(expected.keys), Set(SettingsPage.allCases))
         for (page, destination) in expected {

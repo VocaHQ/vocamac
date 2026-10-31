@@ -99,7 +99,7 @@ plist_value() {
 [ "$(plist_value LSMinimumSystemVersion)" = "14.0" ] || fail "LSMinimumSystemVersion is not 14.0"
 [ "$(plist_value LSApplicationCategoryType)" = "public.app-category.productivity" ] || fail "LSApplicationCategoryType is missing"
 [ "$(plist_value ITSAppUsesNonExemptEncryption)" = "false" ] || fail "ITSAppUsesNonExemptEncryption is not false"
-for key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription DTSDKName DTXcodeBuild; do
+for key in NSMicrophoneUsageDescription NSCameraUsageDescription NSSpeechRecognitionUsageDescription DTSDKName DTXcodeBuild; do
     [ -n "$(plist_value "$key")" ] || fail "Info.plist has no $key"
 done
 if plist_value NSAppleEventsUsageDescription >/dev/null; then
@@ -122,7 +122,7 @@ else
 fi
 
 ENTITLEMENTS="$(codesign -d --entitlements - "$APP_DIR" 2>/dev/null)"
-for entitlement in com.apple.security.app-sandbox com.apple.security.device.audio-input com.apple.security.network.client; do
+for entitlement in com.apple.security.app-sandbox com.apple.security.device.audio-input com.apple.security.device.camera com.apple.security.network.client; do
     grep -q "$entitlement" <<< "$ENTITLEMENTS" || fail "The app is not signed with $entitlement"
 done
 if grep -q -e "apple-events" -e "temporary-exception" <<< "$ENTITLEMENTS"; then

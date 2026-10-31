@@ -344,6 +344,71 @@ enum SettingsSearchIndex {
             keywords: ["command", "model", "download", "qwen", "ministral", "3b", "4b", "7b", "command mode models"]
         ),
 
+        // Silent Mode
+        SettingsSearchEntry(
+            id: "silent-mode",
+            page: .silentMode,
+            title: "Silent Mode",
+            subtitle: "Dictate in a whisper while the camera reads your lips",
+            keywords: ["silent", "whisper", "lips", "lip reading", "mouth", "camera", "quiet", "office", "shortcut", "subvocal"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-preview",
+            page: .silentMode,
+            title: "Check your framing",
+            subtitle: "See what Silent Mode's camera sees",
+            keywords: ["silent", "camera", "preview", "face", "lips", "framing"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-sensitivity",
+            page: .silentMode,
+            title: "Lip movement sensitivity",
+            subtitle: "How much the lips must move to count as speech",
+            keywords: ["silent", "sensitivity", "lips", "movement", "threshold", "mouthing"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-video",
+            page: .silentMode,
+            title: "Show the camera picture",
+            subtitle: "The overlay shows your face, or only your lips' outline",
+            keywords: ["silent", "camera", "video", "face", "overlay", "privacy", "screen sharing"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-dictation-key",
+            page: .silentMode,
+            title: "Dictation key records silently too",
+            subtitle: "Every dictation reads your lips while Silent Mode is on",
+            keywords: ["silent", "dictation key", "always", "default", "hotkey"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-reading",
+            page: .silentMode,
+            title: "How you'll speak in Silent Mode",
+            subtitle: "Mouth the words, or whisper them",
+            keywords: ["silent", "mouth", "whisper", "lip reading", "english"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-lip-model",
+            page: .silentMode,
+            title: "Lip-reading model",
+            subtitle: "Reads mouthed English words",
+            keywords: ["silent", "lip reading", "model", "import", "auto-avsr", "english", "mouth"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-commands",
+            page: .silentMode,
+            title: "Silent commands",
+            subtitle: "Mouth a word to press Return, undo, and more",
+            keywords: ["silent", "command", "mouth", "send", "return", "undo", "teach", "gesture", "lips"]
+        ),
+        SettingsSearchEntry(
+            id: "silent-mode-privacy",
+            page: .silentMode,
+            title: "What the camera keeps",
+            subtitle: "No pictures are saved; lip measurements stay on this Mac",
+            keywords: ["silent", "camera", "privacy", "pictures", "video", "delete"]
+        ),
+
         // Speech Model
         SettingsSearchEntry(
             id: "models",

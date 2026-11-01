@@ -52,7 +52,7 @@ The cursor indicator provides:
 - **Window-specific confirmation**: in applications with multiple text fields, it shows which field is active for dictation
 - **Minimal distraction**: the icon is small and subtle, placed just below your cursor position
 
-The floating near-cursor indicator is the recording overlay. In **Settings → Application**, set **Recording Overlay Style** to Minimal or Live panel and **Position** to Near cursor. Set Style to Off if you prefer the menu bar icon alone.
+The floating near-cursor indicator is the recording overlay. In **Settings → Dictation**, under **Recording Overlay**, set **Style** to Minimal or Live panel and **Position** to Near cursor. Set Style to Off if you prefer the menu bar icon alone.
 
 ## Why Visual Feedback Matters
 

@@ -44,4 +44,4 @@ Each downloaded DMG is validated against the release digest before the app offer
 
 Since VocaMac is now signed with a stable Developer ID identity, permissions are expected to carry over across updates. In most cases, you can update and continue dictating without re-granting access.
 
-If permissions ever look stale, the Debug tab still includes a one-click permission reset helper.
+If permissions ever look stale, the **Permissions and Logs** page in Settings still includes a one-click permission reset helper.

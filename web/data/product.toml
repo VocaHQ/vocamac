@@ -133,7 +133,7 @@ id = "parakeet-v3"
 name = "Parakeet v3"
 engine = "Parakeet"
 size = "483 MB"
-note = "Fastest engine. 25 European languages + Japanese, auto-detected."
+note = "Fastest engine. 25 European languages, auto-detected."
 
 [[releaseModels]]
 id = "parakeet-unified"
@@ -161,7 +161,7 @@ id = "apple-speech"
 name = "Apple Speech"
 engine = "Apple Speech"
 size = "Managed by macOS"
-note = "macOS 26+ system engine (SpeechAnalyzer). Roughly 30 locales."
+note = "macOS 26+ system engine (SpeechAnalyzer). Languages are set by macOS."
 
 [[releaseModels]]
 id = "moonshine-v2-tiny"

@@ -31,7 +31,7 @@ The available source languages and results depend on the selected Whisper model.
 
 By default, VocaMac automatically detects the language you're speaking. Whisper's detection is remarkably accurate, even for short utterances.
 
-For more predictable results, you can manually set your source language in **Settings → Speech Model**. Select from the language hints in Settings. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
+For more predictable results, you can manually set your source language in **Settings → Language** under **Recognition Language**. Select from the language hints in Settings. With a hint selected, VocaMac uses that language for the Whisper path (and translates to English when translation is enabled).
 
 Changing languages is as simple as picking a new option from the dropdown. No restarts, no waiting. The change takes effect immediately.
 
@@ -93,7 +93,7 @@ You can always make corrections manually after VocaMac inserts the text. Think o
 
 ## Toggling Translation On and Off
 
-Translation is disabled by default. To enable it, open **Settings → Speech Model** and toggle **Enable translation**.
+Translation is disabled by default. To enable it, open **Settings → Language** and, under **Translation**, turn on **Translate what you say**. The switch needs a Whisper model that can translate; if yours can't, Settings offers **Choose a Model That Translates**.
 
 Once enabled, all recordings will be transcribed and translated to English automatically. You can toggle translation on and off anytime without restarting VocaMac.
 

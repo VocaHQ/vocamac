@@ -38,7 +38,7 @@ The model management interface shows how much disk space each model uses. Downlo
 
 Audio behavior can make or break the dictation experience. VocaMac includes granular controls for how it handles microphone input and silence detection.
 
-Set the silence detection threshold to match your environment. In a quiet office, a lower threshold may work well; in a noisier space, a higher threshold can help avoid accidental stops. Test the setting with your microphone and speaking style.
+Set **Silence sensitivity** (how quiet counts as silence) and how long a pause ends a hands-free recording to match your environment. Test the setting with your microphone and speaking style.
 
 Configure the maximum recording duration. If you prefer shorter bursts of dictation, set a reasonable limit. The app will automatically stop recording when you reach it, preventing accidental marathon recording sessions.
 
@@ -54,13 +54,13 @@ Language settings are remembered across sessions. Switch languages whenever you 
 
 The Application page includes behavior options that fine-tune how VocaMac fits into your workflow.
 
-Preserve clipboard content. By default, VocaMac doesn't overwrite what's already in your clipboard. If you copy something before dictating, it will be safe.
+Restore clipboard after typing. On by default, so VocaMac puts your clipboard back after it types text. If you copy something before dictating, it will be safe.
 
-Show a cursor indicator while recording. A subtle visual indicator in the menu bar helps you know when VocaMac is listening.
+Launch at Login. VocaMac opens in the menu bar when you sign in. The app is most useful when it's always available, so auto-launch makes sense for most users.
 
-Enable sound effects for recording and transcription. Some people love the audio feedback. Others prefer silence. Choose what works for you.
+Settings Backup. Export your preferences, shortcuts, rules, snippets, and dictionary to a file, and import them later. History, stats, models, endpoint settings, and API keys are not included.
 
-Launch VocaMac automatically when you log in. The app is most useful when it's always available, so auto-launch makes sense for most users.
+Two related options live elsewhere. The on-screen recording indicator is under **Settings → Dictation → Recording Overlay**. The tone played when the microphone opens and closes is the **Sound** picker on the **Audio** page: ten tones or Off, with Voca as the default.
 
 ## About Tab
 

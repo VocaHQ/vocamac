@@ -2,7 +2,7 @@
 title: "Usage Statistics"
 seoTitle: "Dictation Stats: Words per Minute and Streaks | VocaMac"
 subtitle: "See how much you dictate, how fast you speak, and how consistent you've been. All stored locally."
-description: "VocaMac's Stats page tracks words transcribed, speaking speed, daily streaks, and lifetime totals — stored locally on your Mac and never uploaded."
+description: "VocaMac's Stats page tracks words transcribed, speaking speed, daily streaks, and lifetime totals — stored locally on your Mac and shared only if you choose to."
 keywords: "dictation statistics, words per minute tracker, voice typing stats, speaking speed macOS, local usage stats, dictation streak"
 icon: "📈"
 related: ["dictation-history", "visual-feedback", "fully-configurable"]
@@ -24,4 +24,4 @@ It's a light, motivating way to keep a habit going, without turning dictation in
 
 ## Private by Design
 
-Your stats are yours alone. They're saved locally on your Mac and never uploaded, synced, or shared — nothing about how much you dictate ever leaves your machine. Want a clean slate? A single button in the Stats page resets everything.
+Your stats are yours alone. They're saved locally on your Mac and never uploaded or synced. If you want to show them off, the Stats page's share menu can open a pre-filled post on X or LinkedIn; nothing is shared unless you click it. Want a clean slate? A single button in the Stats page resets everything.

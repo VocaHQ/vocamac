@@ -383,3 +383,20 @@ test("ships a playable 404 page whose assets stay on that page", async () => {
   const sitemap = await readFile(join(outputRoot, "sitemap.xml"), "utf8");
   assert.doesNotMatch(sitemap, /404/);
 });
+
+test("keeps site claims aligned with the v1.2.0 release", async () => {
+  assert.doesNotMatch(index, /Custom vocabulary is processed with the Whisper path/);
+  assert.doesNotMatch(index, /In-memory audio|captured in memory/);
+  assert.match(index, /Does my voice leave my Mac\?<\/summary><p>[^<]*<a href="\/features\/custom-endpoint\/">Custom Endpoint<\/a>/);
+  assert.doesNotMatch(product, /\+ Japanese/);
+
+  const feature = (slug) => readFile(join(outputRoot, `features/${slug}/index.html`), "utf8");
+  const cleanup = await feature("transcript-cleanup");
+  assert.doesNotMatch(cleanup, /never sent anywhere|without anything leaving your Mac/);
+  assert.match(cleanup, /Settings → Smart Cleanup/);
+  assert.match(cleanup, /Ministral 3 3B Instruct/);
+  assert.doesNotMatch(await feature("silence-detection"), /0\.3 seconds|0-100%/);
+  assert.doesNotMatch(await feature("clipboard-preservation"), /200 milliseconds|recording \*?<em>started/);
+  assert.doesNotMatch(await feature("github-release-updates"), /Debug tab/);
+  assert.match(await feature("translation"), /Translate what you say/);
+});

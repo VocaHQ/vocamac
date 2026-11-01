@@ -1,8 +1,8 @@
 ---
 title: "Transcript Cleanup"
 seoTitle: "Remove Filler Words From Dictation, On-Device | VocaMac"
-subtitle: "Optionally run a small language model over your dictation to drop the ums and punctuate what you said — still without anything leaving your Mac."
-description: "VocaMac can pass a finished transcript through a local GGUF language model to remove filler words and false starts and add punctuation, entirely on-device."
+subtitle: "Optionally run a small language model over your dictation to drop the ums and punctuate what you said — on your Mac by default."
+description: "VocaMac can pass a finished transcript through a local GGUF language model to remove filler words and false starts and add punctuation, on-device by default."
 keywords: "remove filler words dictation, clean up speech to text, local llm transcript cleanup, on-device punctuation dictation macOS, um uh removal transcription"
 icon: "✨"
 related: ["writing-styles", "command-mode", "dictation-history"]
@@ -12,7 +12,7 @@ related: ["writing-styles", "command-mode", "dictation-history"]
 
 Say a sentence out loud and read the transcript back. It is all there — the "um", the "I was, I was going to say", the sentence that restarts halfway through. Speech recognition is doing its job faithfully; the problem is that nobody writes the way they talk.
 
-Transcript Cleanup runs a small language model over the finished transcript, on your Mac, before the text is typed. Filler words go, false starts go, and what you said gets punctuated.
+Transcript Cleanup runs a small language model over the finished transcript, on your Mac by default, before the text is typed. Filler words go, false starts go, and what you said gets punctuated.
 
 ![VocaMac Settings showing the Cleanup page with its model list and Try It panel](/screenshots/settings-cleanup.png)
 
@@ -32,14 +32,18 @@ It is deliberately narrow. It does not summarise, rephrase, or answer — if you
 
 ## Off by Default
 
-Cleanup is opt-in and requires a one-time model download. Open **Settings → Cleanup**, download a model, and turn it on.
+Cleanup is opt-in and requires a one-time model download. Open **Settings → Smart Cleanup**, download a model, and turn it on.
 
 | Model | Size | Notes |
 |---|---|---|
-| Qwen 2.5 0.5B | ~491 MB | Recommended. Writes dictated "comma" and "period" as marks and capitalises sentences. |
+| Qwen 2.5 0.5B | ~491 MB | The default. Writes dictated "comma" and "period" as marks and capitalises sentences. |
 | Qwen 3 0.6B | ~397 MB | Smallest. Punctuates long paragraphs slightly better; leaves dictated punctuation as words. |
+| Qwen 2.5 1.5B | ~1.12 GB | Also handles Command Mode. Slower than 0.5B for cleanup. |
+| Ministral 3 3B Instruct | ~2.15 GB | Cleanup and Command Mode. A lighter, faster alternative to Qwen 3 4B. |
+| Qwen 3 4B Instruct | ~2.50 GB | Strong Command Mode quality. Needs 16 GB of memory to stay comfortable. |
+| Qwen 2.5 7B Instruct | ~4.68 GB | Largest on-device option. Slower; needs 16 GB of memory or more. |
 
-Both add roughly two tenths of a second to a short dictation. If the model takes too long, returns nothing, or returns something implausible, VocaMac falls back to the raw transcript rather than making you wait.
+Settings suggests a model from your Mac's memory: Qwen 2.5 0.5B below 16 GB, and Ministral 3 3B, which also serves Command Mode, from 16 GB up. Qwen 2.5 0.5B adds roughly two tenths of a second to a short dictation; the larger models are slower. If the model takes too long, returns nothing, or returns something implausible, VocaMac falls back to the raw transcript rather than making you wait.
 
 ## Try It Before You Trust It
 
@@ -49,8 +53,10 @@ You can edit the prompt the model is given and try the edit immediately, before 
 
 ## Honest Limits
 
-These are very small models, chosen so cleanup finishes fast enough to sit in the middle of a dictation. They will not catch every filler, and neither of the shipped models reliably acts on a spoken "scratch that" by itself. VocaMac handles "scratch that" and spoken corrections ("tomorrow, sorry, no, let's meet Friday") with rules before the model sees the text, so they work at the Medium level even with Smart Cleanup off. Dictation in languages other than English is passed through untouched rather than mangled.
+The suggested models are small, chosen so cleanup finishes fast enough to sit in the middle of a dictation. They will not catch every filler, and the two smallest do not act on a spoken "scratch that". VocaMac resolves spoken corrections of a day, month, number, or time ("let's do it tomorrow, oh, no, Wednesday") with rules before the model sees the text, so they work at the Medium level and above even with Smart Cleanup off. In testing, the two smallest models left dictation in other languages as spoken; larger models vary, so check yours with Try It.
 
 ## Private by Design
 
-The model runs on your Mac through llama.cpp with Metal acceleration. Your transcript is never sent anywhere — cleanup is the same on-device promise as the rest of VocaMac, and turning it off unloads the model and frees the memory.
+By default the model runs on your Mac through llama.cpp with Metal acceleration, and your transcript stays there. Turning cleanup off unloads the model and frees the memory.
+
+Under **Where Cleanup Runs** you can instead choose an Ollama, LM Studio, or OpenAI-compatible server. Then the cleanup prompt and your transcript text leave your Mac for the endpoint you configured, so keep that server on localhost, a trusted LAN, or Tailscale, or use HTTPS.

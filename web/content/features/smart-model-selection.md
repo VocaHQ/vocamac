@@ -22,6 +22,8 @@ The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large
 
 Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or Base for a smaller download and lower memory use. Choose a compact Large or Distil model when accuracy matters and your Mac has the headroom. The full Large v3 model needs substantially more disk space and memory.
 
+Whisper is not the only choice. v1.2.0 also offers Parakeet, Apple Speech (macOS 26 and later), and specialized ONNX models. During setup, VocaMac suggests a model from the languages you speak and your Mac's memory: Parakeet 110M for English, GigaAM v3 for Russian, SenseVoice for Chinese, Japanese, or Korean, Canary 180M Flash for Spanish, German, or French, and Whisper Small for other languages or a mix.
+
 ## Download, verify, switch
 
 The first use of a model can download its files from the documented WhisperKit model repository. VocaMac caches the model locally, verifies the downloaded assets, and uses the selected model for later recordings. You can keep more than one model and delete downloaded models you no longer need from Settings.

@@ -5,7 +5,7 @@ subtitle: "Whisper can translate supported speech into English while it runs loc
 description: "Speak another language and get English text at your cursor. VocaMac uses Whisper's translation locally on your Mac once the model is downloaded."
 keywords: "offline speech translation macOS, voice translator mac, speak translate type, whisper translation, local speech translation, voice to text translation mac"
 icon: "🌐"
-related: ["languages", "smart-model-selection", "transcript-cleanup"]
+related: ["languages", "speech-engines", "transcribe-audio-files"]
 ---
 
 ## Translate While You Speak

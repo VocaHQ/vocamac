@@ -5,7 +5,7 @@ subtitle: "VocaMac reads your Apple Silicon hardware and helps you choose a Whis
 description: "VocaMac checks your Apple Silicon Mac's memory and suggests a Whisper model that fits, from Tiny to Large v3. You keep the final choice and every download."
 keywords: "whisper model selection, auto detect hardware macOS, apple silicon whisper, coreml speech model, best whisper model mac, RAM based model recommendation"
 icon: "🧠"
-related: ["apple-silicon-native", "languages", "custom-endpoint"]
+related: ["speech-engines", "apple-silicon-native", "languages"]
 ---
 
 ## A recommendation, not a lock-in

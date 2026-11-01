@@ -5,7 +5,7 @@ subtitle: "Optionally run a small language model over your dictation to drop the
 description: "VocaMac can pass a finished transcript through a local GGUF language model to remove filler words and false starts and add punctuation, entirely on-device."
 keywords: "remove filler words dictation, clean up speech to text, local llm transcript cleanup, on-device punctuation dictation macOS, um uh removal transcription"
 icon: "✨"
-related: ["writing-styles", "custom-vocabulary", "dictation-history"]
+related: ["writing-styles", "command-mode", "dictation-history"]
 ---
 
 ## Speech Is Messier Than Writing

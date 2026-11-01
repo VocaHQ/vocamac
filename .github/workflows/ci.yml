@@ -2,9 +2,11 @@ name: CI
 
 # release/** holds release lines cut from a tag, such as release/1.2-appstore
 # for the Mac App Store build (docs/APP_STORE.md); their PRs get the same gate.
+# Not on a push to release/**: zizmor reads that as a release workflow, where
+# the caches below could be poisoned.
 on:
   push:
-    branches: [main, 'release/**']
+    branches: [main]
   pull_request:
     branches: [main, 'release/**']
 

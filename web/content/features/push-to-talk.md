@@ -1,7 +1,8 @@
 ---
 title: "Push-to-Talk"
+seoTitle: "Push-to-Talk Dictation on Mac: Hold to Talk | VocaMac"
 subtitle: "Hold a hotkey to record. Release to transcribe. Simple, predictable, no surprises."
-description: "Push-to-Talk mode in VocaMac lets you hold a hotkey to record and release to transcribe. The fastest, most intuitive way to dictate on macOS."
+description: "Hold Right Option or a hotkey you choose, speak, and let go: VocaMac types what you said at your cursor. Free, on-device push-to-talk voice typing for Mac."
 keywords: "push to talk macOS, voice dictation hotkey, hold to record, speech to text shortcut, VocaMac push to talk"
 icon: "🎯"
 ---

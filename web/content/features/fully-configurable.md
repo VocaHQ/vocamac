@@ -1,7 +1,8 @@
 ---
 title: "Fully Configurable"
+seoTitle: "Mac Dictation Settings: Hotkeys, Models, Languages | VocaMac"
 subtitle: "Choose hotkeys, models, languages, silence detection. Settings window with model management."
-description: "VocaMac is fully configurable with a comprehensive settings window. Customize hotkeys, choose Whisper models, set languages, tune silence detection, and more."
+description: "Choose the hotkey, activation mode, speech model, language and silence detection in VocaMac's Settings window, with model downloads managed in one place."
 keywords: "configurable dictation app, custom hotkey voice typing, whisper model settings, silence detection settings, voice to text preferences macOS"
 icon: "⚙️"
 ---

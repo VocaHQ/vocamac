@@ -1,5 +1,6 @@
 ---
 title: "System-wide text insertion"
+seoTitle: "Voice Typing at Your Cursor in Mac Apps | VocaMac"
 subtitle: "Put the transcript at the active cursor in the apps where macOS permits accessibility-driven text insertion."
 description: "VocaMac uses macOS accessibility APIs and a clipboard-safe insertion path to place local transcripts at the active cursor."
 keywords: "system wide dictation macOS, voice typing any app, text injection accessibility, dictation VS Code, voice to text terminal, speech to text everywhere mac"

@@ -1,5 +1,6 @@
 ---
 title: "Usage Statistics"
+seoTitle: "Dictation Stats: Words per Minute and Streaks | VocaMac"
 subtitle: "See how much you dictate, how fast you speak, and how consistent you've been. All stored locally."
 description: "VocaMac's Stats page tracks words transcribed, speaking speed, daily streaks, and lifetime totals — stored locally on your Mac and never uploaded."
 keywords: "dictation statistics, words per minute tracker, voice typing stats, speaking speed macOS, local usage stats, dictation streak"

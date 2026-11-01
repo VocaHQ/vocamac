@@ -1,5 +1,7 @@
 {{- $p := hugo.Data.product -}}
 {{- $title := cond .IsHome "VocaMac: native voice typing for macOS" (printf "%s | VocaMac" .Title) -}}
+{{- /* seoTitle replaces the whole <title> when search wording differs from the on-page H1. */ -}}
+{{- with .Params.seoTitle }}{{ $title = . }}{{ end -}}
 {{- $description := cond (ne .Params.description nil) .Params.description site.Params.description -}}
 {{- /* absURL, not a hardcoded domain string: a literal "https://vocamac.com/..."
    can't follow a --baseURL override, so a Netlify preview build kept

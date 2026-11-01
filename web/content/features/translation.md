@@ -1,7 +1,8 @@
 ---
 title: "Translation"
+seoTitle: "On-Device Speech Translation to English on Mac | VocaMac"
 subtitle: "Whisper can translate supported speech into English while it runs locally on your Mac."
-description: "VocaMac's Whisper path supports local speech translation into English after the required model is available on your Mac."
+description: "Speak another language and get English text at your cursor. VocaMac uses Whisper's translation locally on your Mac once the model is downloaded."
 keywords: "offline speech translation macOS, voice translator mac, speak translate type, whisper translation, local speech translation, voice to text translation mac"
 icon: "🌐"
 ---

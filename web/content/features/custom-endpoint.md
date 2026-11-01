@@ -1,5 +1,6 @@
 ---
 title: "Custom Endpoint"
+seoTitle: "Use Your Own Whisper Server for Mac Dictation | VocaMac"
 subtitle: "Optionally send each recording to a Whisper-compatible server you host — OpenAI audio API or whisper.cpp — instead of running a local speech model."
 description: "VocaMac's Custom Endpoint speech model uploads each recording to your OpenAI-compatible or whisper.cpp server and pastes the returned transcript. Opt-in, never the default."
 keywords: "custom speech endpoint macOS, whisper compatible api dictation, remote whisper transcription, openai audio transcriptions mac, whisper.cpp server dictation, self-hosted speech to text mac"

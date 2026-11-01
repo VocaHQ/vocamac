@@ -1,7 +1,8 @@
 ---
 title: "Visual Feedback"
+seoTitle: "Recording Indicator and Mic Level for Dictation | VocaMac"
 subtitle: "Menu-bar status, audio level, and an optional cursor indicator make recording state visible without relying on color alone."
-description: "VocaMac provides clear visual feedback during recording with menu-bar state, status text, an audio level indicator, and an optional floating cursor indicator."
+description: "See when VocaMac is listening: a menu-bar recording state, a live audio level meter, and an optional floating indicator next to your cursor."
 keywords: "recording indicator macOS, visual feedback dictation, menu bar recording icon, cursor indicator voice typing, audio level meter mac, recording status indicator"
 icon: "📊"
 ---

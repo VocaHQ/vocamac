@@ -21,6 +21,21 @@ final class MenuBarIconStyleTests: XCTestCase {
         )
     }
 
+    func testSilentModeShowsLipsWhileTheCameraIsInUse() {
+        XCTAssertEqual(MenuBarIconStyle.style(for: .recording, isSilentMode: true), .systemSymbol(name: "mouth.fill"))
+        XCTAssertEqual(MenuBarIconStyle.style(for: .processing, isSilentMode: true), .systemSymbol(name: "mouth.fill"))
+        XCTAssertEqual(MenuBarIconStyle.style(for: .idle, isSilentMode: true), .systemSymbolTemplate(name: "mic.fill"))
+    }
+
+    func testTheDictationKeyRecordingSilentlyShowsAtRest() {
+        XCTAssertEqual(MenuBarIconStyle.style(for: .idle, silentByDefault: true), .systemSymbolTemplate(name: "mouth"))
+        // Something to fix still shows first.
+        XCTAssertEqual(
+            MenuBarIconStyle.style(for: .idle, silentByDefault: true, readiness: .blocked),
+            .notReadyTemplate(badged: true)
+        )
+    }
+
     func testCommandModeShowsAWandWhileListeningAndRewriting() {
         XCTAssertEqual(
             MenuBarIconStyle.style(for: .recording, isCommandMode: true),

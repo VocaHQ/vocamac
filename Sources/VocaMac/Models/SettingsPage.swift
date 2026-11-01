@@ -45,7 +45,7 @@ enum SettingsSection: CaseIterable, Identifiable {
     var pages: [SettingsPage] {
         switch self {
         case .dictation: return [.dictation, .speechModel, .language, .audio, .performance]
-        case .writing: return [.formatting, .writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
+        case .writing: return [.formatting, .writingStyles, .cleanup, .commandMode, .silentMode, .dictionary, .snippets]
         case .activity: return [.history, .stats]
         case .app: return [.application, .gateway, .advanced, .about]
         }
@@ -63,6 +63,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
     case snippets
     case cleanup
     case commandMode
+    case silentMode
     case speechModel
     case audio
     case performance
@@ -85,6 +86,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .snippets: return "Snippets"
         case .cleanup: return "Smart Cleanup"
         case .commandMode: return "Command Mode"
+        case .silentMode: return "Silent Mode"
         case .speechModel: return "Speech Model"
         case .audio: return "Audio"
         case .performance: return "Performance"
@@ -106,6 +108,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .writingStyles: return "How dictation is written in each app: email, chat, notes, code, and tone."
         case .cleanup: return "Optional on-device model that tidies each dictation."
         case .commandMode: return "Edit selected text by saying what to change."
+        case .silentMode: return "Dictate in a whisper or mouth commands while the camera reads your lips."
         case .language: return "The languages you speak and the one VocaMac listens for."
         case .speechModel: return "The model that turns speech into text."
         default: return nil
@@ -123,6 +126,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .snippets: return "text.quote"
         case .cleanup: return "sparkles"
         case .commandMode: return "wand.and.stars"
+        case .silentMode: return "mouth"
         case .speechModel: return "brain"
         case .audio: return "waveform"
         case .performance: return "bolt.circle"

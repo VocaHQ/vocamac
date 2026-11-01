@@ -39,6 +39,16 @@ struct CalmAdvancedSettings: View {
                         status: appState.inputMonitoringPermission,
                         request: appState.requestInputMonitoringPermission
                     )
+                    // Only Silent Mode uses the camera; without it the row would
+                    // read as something VocaMac needs.
+                    if appState.isSilentModeOn {
+                        permissionRow(
+                            "Camera", purpose: "For Silent Mode, to read your lips",
+                            status: appState.silentMode.cameraPermission,
+                            request: requestCamera
+                        )
+                        .onAppear { appState.silentMode.refresh() }
+                    }
                     CalmRow(
                         "Still shows as off?",
                         description: CalmAdvancedSummary.recheckDescription(mayNeedRelaunch: appState.permissionsMayNeedRelaunch)
@@ -128,6 +138,14 @@ struct CalmAdvancedSettings: View {
     }
 
     // MARK: Rows
+
+    private func requestCamera() {
+        if appState.silentMode.cameraPermission == .denied {
+            CalmSilentModeLinks.openCameraPrivacy()
+        } else {
+            Task { await appState.silentMode.requestPermission() }
+        }
+    }
 
     @ViewBuilder
     private func permissionRow(

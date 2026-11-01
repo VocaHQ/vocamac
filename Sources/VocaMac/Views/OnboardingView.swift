@@ -906,6 +906,8 @@ struct HotkeyConfigStep: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .vocaCard()
+
+            OnboardingSilentModeCard()
         }
         .padding(16)
         // Keep the live listener aligned with wizard fields.
@@ -919,6 +921,59 @@ struct HotkeyConfigStep: View {
         .onChange(of: appState.hotKeyModifiers) {
             appState.syncHotKeyConfiguration()
         }
+    }
+}
+
+/// Optional: a second shortcut for Silent Mode. Skipping it changes nothing.
+struct OnboardingSilentModeCard: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "mouth")
+                .font(.system(size: 18))
+                .foregroundStyle(VocaDesign.accent)
+                .frame(width: 24)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("SILENT MODE")
+                        .font(VocaDesign.eyebrow)
+                        .tracking(1.2)
+                        .foregroundStyle(.secondary)
+                    Text("ALPHA")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Capsule().fill(VocaDesign.accent.opacity(0.15)))
+                        .foregroundStyle(VocaDesign.accent)
+                }
+                Text(description)
+                    .font(.callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("The camera light comes on only while Silent Mode records. No picture is saved.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            if appState.isSilentModeOn {
+                Button("Turn off") { appState.setSilentModeOn(false) }
+                    .buttonStyle(.vocaLink)
+            } else {
+                Button("Set it up") { appState.setSilentModeOn(true) }
+                    .buttonStyle(.vocaLink)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vocaCard()
+    }
+
+    private var description: String {
+        if let keys = appState.silentModeShortcutText {
+            return "Hold \(keys) and whisper or mouth your words. The camera reads your lips, so a busy office can't put words in your text."
+        }
+        return "A second shortcut for a quiet room: whisper or mouth your words while the camera reads your lips. Optional, and you can skip it."
     }
 }
 

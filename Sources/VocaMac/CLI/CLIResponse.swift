@@ -83,6 +83,22 @@ struct CLIModelListResponse: Codable, Equatable {
     let models: [CLIModelResponse]
 }
 
+/// Output of `--read-lips`.
+struct CLILipReadingResponse: Codable, Equatable {
+    let text: String
+    let frames: Int
+    let framesWithFace: Int
+    let videoSeconds: Double
+    let durationSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case text, frames
+        case framesWithFace = "frames_with_face"
+        case videoSeconds = "video_seconds"
+        case durationSeconds = "duration_seconds"
+    }
+}
+
 /// Error envelope written to stderr.
 struct CLIErrorResponse: Codable, Equatable {
     let error: CLIErrorCategory

@@ -156,7 +156,7 @@ struct CalmGeneralSettings: View {
                 mode: appState.activationMode, threshold: appState.doubleTapThreshold,
                 startsWaiting: false
             )
-        case .handsFree, .pasteLast, .commandMode:
+        case .handsFree, .pasteLast, .commandMode, .silentMode:
             CalmShortcutRecorderDialog(target: target, current: target.action.flatMap { appState.shortcut(for: $0) })
         }
     }

@@ -45,8 +45,19 @@ enum MenuBarIconStyle: Equatable {
     static func style(
         for status: AppStatus,
         isCommandMode: Bool = false,
+        isSilentMode: Bool = false,
+        silentByDefault: Bool = false,
         readiness: MenuBarReadiness = .ready
     ) -> MenuBarIconStyle {
+        // Lips while Silent Mode records, so the menu bar says the camera,
+        // not only the microphone, is in use.
+        if isSilentMode, status == .recording || status == .processing {
+            return .systemSymbol(name: "mouth.fill")
+        }
+        // The dictation key records silently too: say so at rest.
+        if silentByDefault, status == .idle, readiness == .ready {
+            return .systemSymbolTemplate(name: "mouth")
+        }
         // A wand while Command Mode listens or rewrites, so the menu bar says
         // an edit of the selection is under way rather than a dictation.
         if isCommandMode, status == .recording || status == .processing {

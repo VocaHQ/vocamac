@@ -621,9 +621,38 @@ extension TranscriptionRouter: SpeechTranscribing {
         translate: Bool,
         vocabulary: String
     ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate, vocabulary: vocabulary, cameraRanges: nil
+        )
+    }
+
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool, vocabulary: String, keeping ranges: [Range<Int>]
+    ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate, vocabulary: vocabulary, cameraRanges: ranges
+        )
+    }
+
+    /// - Parameter cameraRanges: Silent Mode's stretches to keep, in place
+    ///   of the voice activity detector's. The camera saw speech in them, so
+    ///   nothing is dropped as a likely hallucination.
+    private func transcribe(
+        audioData: [Float],
+        language: String?,
+        translate: Bool,
+        vocabulary: String,
+        cameraRanges: [Range<Int>]?
+    ) async throws -> VocaTranscription {
         let interval = PerformanceTrace.begin("TranscriptionQueueAndDecode")
         defer { PerformanceTrace.end(interval) }
-        guard let prepared = await audioWithoutSilence(audioData) else {
+        let speech: SpeechOnlyAudio?
+        if let cameraRanges {
+            speech = Self.cameraSpeech(cameraRanges, in: audioData)
+        } else {
+            speech = await audioWithoutSilence(audioData)
+        }
+        guard let prepared = speech else {
             VocaLogger.info(.general, "No speech detected; skipping the decode")
             return VocaTranscription(
                 text: "", duration: 0, detectedLanguage: language ?? "auto",
@@ -775,6 +804,20 @@ extension TranscriptionRouter: SpeechTranscribing {
         case .noSpeech:
             return nil
         }
+    }
+
+    /// The recording cut to the stretches Silent Mode's camera kept, or nil
+    /// when it kept none.
+    static func cameraSpeech(_ ranges: [Range<Int>], in audioData: [Float]) -> SpeechOnlyAudio? {
+        let kept: [Range<Int>] = ranges.compactMap { range in
+            let lower = max(0, range.lowerBound), upper = min(audioData.count, range.upperBound)
+            return lower < upper ? lower..<upper : nil
+        }
+        guard !kept.isEmpty else { return nil }
+        return SpeechOnlyAudio(
+            samples: SpeechActivityTrimmer.apply(kept, to: audioData),
+            trimPieces: SpeechActivityTrimmer.copiedPieces(from: kept, sampleCount: audioData.count)
+        )
     }
 
     /// Must run inside `operationSerializer`.

@@ -183,6 +183,7 @@ struct CalmSettingsPageView: View {
         case .models: CalmModelsSettings()
         case .allModels: CalmAllModelsSettings()
         case .cleanup: CalmCleanupSettings()
+        case .silentMode: CalmSilentModeSettings()
         case .privacy: CalmPrivacySettings()
         case .advanced: CalmAdvancedSettings()
         case .gateway: CalmGatewaySettings()

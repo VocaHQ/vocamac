@@ -206,9 +206,17 @@ protocol CursorOverlayManaging: AnyObject {
     /// How this dictation ends ("Let go of Right ⌥ to type"), and whether it
     /// carries on after the key is let go. `show` resets it.
     func setStopHint(_ hint: OverlayStopHint?)
+    /// Show Silent Mode's camera strip for this recording, or nil for an
+    /// ordinary dictation. `show` resets it.
+    func setSilentSession(_ live: SilentLiveState?)
+    /// A short confirmation, such as the Silent Mode command about to run,
+    /// then hide.
+    func showDone(message: String)
 }
 
 extension CursorOverlayManaging {
+    func setSilentSession(_ live: SilentLiveState?) {}
+    func showDone(message: String) {}
     func showLearned(message: String, undo: @escaping @MainActor () -> Void) {}
     func setCommandSession(_ session: CommandModeSession?) {}
     func setLiveWordsAvailable(_ available: Bool) {}
@@ -279,6 +287,15 @@ protocol SpeechTranscribing: AnyObject, Sendable {
         commit: StreamingCommitOptions?
     ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
+    /// Decode only `ranges` of the recording (sample ranges, in order),
+    /// joined by short pauses, instead of what the voice activity detector
+    /// would keep. Silent Mode passes the stretches where the camera saw the
+    /// lips move: whispered speech the detector would drop is kept, and a
+    /// voice nearby with the user's lips still is not. Timings come back on
+    /// the recording's own timeline.
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool, vocabulary: String, keeping ranges: [Range<Int>]
+    ) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
     func unloadModel() async
@@ -291,6 +308,17 @@ extension SpeechTranscribing {
     /// Conformances with no retired state to clear — the mocks, and the
     /// individual engines — need do nothing.
     func removeRetiredEngineState() {}
+
+    /// Conformances without a voice activity step (the mocks) decode the
+    /// kept ranges as one stretch of audio.
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool, vocabulary: String, keeping ranges: [Range<Int>]
+    ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: SpeechActivityTrimmer.apply(ranges, to: audioData),
+            language: language, translate: translate, vocabulary: vocabulary
+        )
+    }
 
     func startStreaming(
         language: String?,

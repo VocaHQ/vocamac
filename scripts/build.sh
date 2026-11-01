@@ -372,6 +372,8 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>VocaMac needs microphone access to capture your voice for transcription.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Silent Mode reads your lips while it records, so a whisper or a mouthed word can be typed. The camera is on only while Silent Mode records, and no picture is saved.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <!-- Ollama and LM Studio serve plain HTTP on this Mac or the LAN. -->

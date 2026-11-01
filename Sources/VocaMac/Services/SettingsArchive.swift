@@ -72,6 +72,8 @@ enum SettingsArchiveService {
         PreferenceKey.aiModelsKeptSeparate: .bool, PreferenceKey.cleanupSkipsCleanText: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,
         PreferenceKey.automaticWritingStyles: .bool,
+        PreferenceKey.silentModeUsesDictationKey: .bool, PreferenceKey.silentModeShowsVideo: .bool,
+        PreferenceKey.silentModeReadsLips: .bool,
         // Whole numbers
         "vocamac.hotKeyCode": .integer, "vocamac.hotKeyModifiers": .integer,
         "vocamac.maxRecordingDuration": .integer, "vocamac.selectedAudioChannel": .integer,
@@ -79,7 +81,7 @@ enum SettingsArchiveService {
         // Decimals
         "vocamac.doubleTapThreshold": .double, "vocamac.silenceDuration": .double,
         "vocamac.silenceThreshold": .double, PreferenceKey.autoPausePollInterval: .double,
-        PreferenceKey.modelKeepAliveIdleTimeout: .double,
+        PreferenceKey.modelKeepAliveIdleTimeout: .double, PreferenceKey.silentModeSensitivity: .double,
         // Text, enum raw values, and JSON stored as text
         "vocamac.activationMode": .string, "vocamac.customVocabulary": .string,
         "vocamac.logLevel": .string, "vocamac.overlayPosition": .string,
@@ -89,7 +91,7 @@ enum SettingsArchiveService {
         PreferenceKey.commandModeEngine: .string, PreferenceKey.commandModeReview: .string,
         PreferenceKey.savedCommands: .string, PreferenceKey.dictationTone: .string,
         PreferenceKey.handsFreeShortcut: .string, PreferenceKey.historyRetention: .string,
-        PreferenceKey.historyExcludedApps: .string,
+        PreferenceKey.historyExcludedApps: .string, PreferenceKey.silentModeShortcut: .string,
         PreferenceKey.learnCorrectionsMode: .string, PreferenceKey.pasteLastShortcut: .string,
         PreferenceKey.selectedLanguage: .string, PreferenceKey.selectedModelSize: .string,
         PreferenceKey.spokenLanguages: .string, PreferenceKey.modelRecommendationPriority: .string,

@@ -36,6 +36,14 @@ final class CLITests: XCTestCase {
         XCTAssertTrue(dependencies.transcriber.loadRequests.isEmpty)
     }
 
+    func testReadLipsTakesAVideoAndJSON() throws {
+        XCTAssertEqual(CLICommand.invocationMode(arguments: ["--read-lips", "clip.mov", "--json"]), .cli)
+        XCTAssertEqual(try CLICommand.parse(arguments: ["--read-lips", "clip.mov", "--json"]), .readLips(path: "clip.mov"))
+        XCTAssertThrowsError(try CLICommand.parse(arguments: ["--read-lips", "clip.mov"]))
+        XCTAssertThrowsError(try CLICommand.parse(arguments: ["--read-lips", "clip.mov", "--json", "--model", "tiny"]))
+        XCTAssertThrowsError(try CLICommand.parse(arguments: ["--read-lips", "--json"]))
+    }
+
     func testMissingTranscribeFileValueFails() {
         XCTAssertThrowsError(try CLICommand.parse(arguments: ["--transcribe-file", "--json"])) { error in
             XCTAssertCLIError(error, category: .invalidArguments)

@@ -55,6 +55,7 @@ enum CalmSettingsDestination: String, CaseIterable, Identifiable, Hashable, Send
     case models
     case allModels
     case cleanup
+    case silentMode
     case privacy
     case advanced
     case gateway
@@ -70,6 +71,7 @@ enum CalmSettingsDestination: String, CaseIterable, Identifiable, Hashable, Send
         case .models: return "Models"
         case .allModels: return "All models"
         case .cleanup: return "Smart Cleanup"
+        case .silentMode: return "Silent Mode"
         case .privacy: return "Privacy and History"
         case .advanced: return "Advanced"
         case .gateway: return "Phone gateway"
@@ -83,6 +85,7 @@ enum CalmSettingsDestination: String, CaseIterable, Identifiable, Hashable, Send
         case .system: return .system
         case .models, .allModels: return .models
         case .cleanup: return .cleanup
+        case .silentMode: return .silent
         case .privacy: return .privacy
         case .advanced, .gateway: return .advanced
         case .about: return .info
@@ -128,7 +131,7 @@ enum CalmSettingsMenuGroup: CaseIterable, Identifiable, Sendable {
     /// Menu items, top to bottom.
     var items: [CalmSettingsDestination] {
         switch self {
-        case .settings: return [.general, .system, .models, .cleanup]
+        case .settings: return [.general, .system, .models, .cleanup, .silentMode]
         case .data: return [.privacy, .advanced]
         }
     }
@@ -207,6 +210,7 @@ enum CalmNavigation {
         case .formatting: return .settings(.general)
         case .writingStyles: return .main(.styles)
         case .commandMode: return .main(.commands)
+        case .silentMode: return .settings(.silentMode)
         }
     }
 

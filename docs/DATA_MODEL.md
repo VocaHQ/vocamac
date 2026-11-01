@@ -701,6 +701,9 @@ enum UpdateState: Equatable {
 | Model files | `~/Library/Application Support/VocaMac/models/` | Permanent (user can delete) |
 | Audio buffers | In-memory `[Float]` | Discarded after transcription |
 | Transcription results | `~/Library/Application Support/VocaMac/History/` (`index.json` + `audio/*.wav`) | Per the history retention setting; off when history is disabled |
+| Silent Mode commands | `~/Library/Application Support/VocaMac/silent-commands.json` (lip feature vectors per take, never pictures) | Until deleted on the Silent Mode page; not in settings exports |
+| Silent Mode camera frames | In memory: one `LipFrame` (lip contour, head pose) per frame, and for lip reading an 88×88 grayscale mouth crop (`MouthCrop`) | Discarded when the recording is decoded |
+| Lip-reading model | `~/Library/Application Support/VocaMac/models/lip-reading/` (`LipReader.mlpackage`, compiled `.mlmodelc`, `tokens.json`), built by `make lip-reading-model` | Until removed on the Silent Mode page |
 | App state | In-memory `AppState` | Rebuilt on each launch |
 | System capabilities | Computed at launch | Rebuilt on each launch |
 | Update check cache | `UserDefaults` (`vocamac.update.*`) | Persisted across launches |
@@ -719,6 +722,7 @@ enum UpdateState: Equatable {
 │   ├── index.json             ← Dictation history snapshot
 │   ├── journal.jsonl          ← Changes since the snapshot (replayed at launch)
 │   └── audio/<entry-id>.wav   ← Recordings kept for playback and retry
+├── silent-commands.json       ← Silent Mode's taught commands (lip measurements)
 └── logs/                      ← Future: debug logging
 ```
 

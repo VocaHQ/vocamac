@@ -147,6 +147,7 @@ enum LogCategory: String {
     case customEndpointService = "CustomEndpointService"
     case history = "History"
     case dictionary = "Dictionary"
+    case silentMode = "SilentMode"
     case general = "General"
 }
 

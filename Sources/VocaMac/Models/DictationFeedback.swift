@@ -90,9 +90,11 @@ enum MenuBarAccessibility {
         status: AppStatus,
         readiness: DictationReadiness,
         isCommandMode: Bool = false,
+        isSilentMode: Bool = false,
         isCleaningUp: Bool = false,
         isAutoPaused: Bool = false
     ) -> String {
+        if isSilentMode, status == .recording { return "VocaMac, Silent Mode reading your lips" }
         guard let state = stateDescription(
             status: status, readiness: readiness, isCommandMode: isCommandMode,
             isCleaningUp: isCleaningUp, isAutoPaused: isAutoPaused

@@ -55,6 +55,19 @@ enum PreferenceKey {
     static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
     static let handsFreeShortcut = "vocamac.shortcuts.handsFree"
     static let commandModeShortcut = "vocamac.shortcuts.commandMode"
+    /// `HotKeyCombo.storageString` for Silent Mode, or empty when it is off.
+    static let silentModeShortcut = "vocamac.shortcuts.silentMode"
+    /// Double, `ArticulationSensitivity.range`: how readily lip movement counts as speech.
+    static let silentModeSensitivity = "vocamac.silentMode.sensitivity"
+    /// Bool: the dictation key records silently too, while Silent Mode is on.
+    static let silentModeUsesDictationKey = "vocamac.silentMode.usesDictationKey"
+    /// Bool: the overlay shows the camera picture behind the lip outline.
+    static let silentModeShowsVideo = "vocamac.silentMode.showsVideo"
+    /// `AVCaptureDevice.uniqueID` of the chosen camera, or empty for the built-in one.
+    static let silentModeCameraID = "vocamac.silentMode.cameraID"
+    /// Bool: Silent Mode reads mouthed words with the lip-reading model
+    /// (true) or decodes a whisper with the speech model (false).
+    static let silentModeReadsLips = "vocamac.silentMode.readsLips"
     static let commandModeEngine = "vocamac.commandMode.engine"
     static let commandModeClipboardFallback = "vocamac.commandMode.clipboardFallback"
     static let aiModelsKeptSeparate = "vocamac.aiModels.keepSeparate"

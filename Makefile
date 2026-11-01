@@ -1,7 +1,7 @@
 # VocaMac — Makefile
 # Run `make help` for available commands.
 
-.PHONY: build install install-cli dmg appstore release test smoke lint clean reset run help
+.PHONY: build install install-cli lip-reading-model dmg appstore release test smoke lint clean reset run help
 
 .DEFAULT_GOAL := help
 
@@ -16,6 +16,10 @@ install:
 ## Install CLI commands (vocamac, vocamac-build) to ~/.local/bin
 install-cli:
 	@./scripts/install.sh --cli
+
+## Build Silent Mode's English lip-reading model on this Mac (needs uv; research/non-commercial weights)
+lip-reading-model:
+	@uv run scripts/convert-lip-reading-model.py
 
 ## Build DMG for distribution
 dmg:
@@ -83,6 +87,7 @@ help:
 	@echo "  make build        Build .app bundle (fast, for development)"
 	@echo "  make install      Build + install to /Applications (recommended)"
 	@echo "  make install-cli  Install CLI commands to ~/.local/bin"
+	@echo "  make lip-reading-model  Build Silent Mode's English lip-reading model (research use)"
 	@echo "  make dmg          Build DMG for distribution (output in dist/)"
 	@echo "  make appstore     Build the Mac App Store variant (output in dist/appstore/)"
 	@echo "  make release VERSION=X.Y.Z  Tag and release (triggers CI signing + notarization)"

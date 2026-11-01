@@ -19,4 +19,17 @@
   "/screenshots/update-ux.png" (dict "width" 1040 "height" 880)
 -}}
 {{- $size := index $dimensions .Destination -}}
+{{- /* Prose is at most 44rem (704px) wide, but most screenshots are 1720px PNGs of
+   300 KB or more. Offer WebP at 1x and 2x that width; the PNG stays the fallback. */ -}}
+{{- $srcset := slice -}}
+{{- with resources.Get (strings.TrimPrefix "/" .Destination) -}}
+  {{- if and (eq .MediaType.SubType "png") (gt .Width 1000) -}}
+    {{- $png := . -}}
+    {{- range slice 704 1408 -}}
+      {{- $srcset = $srcset | append (printf "%s %dw" ($png.Resize (printf "%dx webp q82" .)).RelPermalink .) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- with $srcset }}<picture><source type="image/webp" srcset="{{ delimit . ", " }}" sizes="(max-width: 760px) 100vw, 704px">{{ end -}}
 <img src="{{ .Destination | safeURL }}" alt="{{ .Text }}" loading="lazy" decoding="async"{{ with $size }} width="{{ .width }}" height="{{ .height }}"{{ end }}{{ with .Title }} title="{{ . }}"{{ end }}>
+{{- with $srcset }}</picture>{{ end -}}

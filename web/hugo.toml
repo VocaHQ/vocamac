@@ -33,3 +33,14 @@ enableRobotsTXT = false
 
 # Disable default RSS
 disableKinds = ["taxonomy", "term", "RSS"]
+
+# Screenshots stay published at /screenshots/*.png from static/, and are also
+# mounted as assets so the image render hook can add resized WebP copies.
+# Declaring any mount replaces the defaults, so static/ is listed explicitly.
+[module]
+  [[module.mounts]]
+    source = "static"
+    target = "static"
+  [[module.mounts]]
+    source = "static/screenshots"
+    target = "assets/screenshots"

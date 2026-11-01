@@ -93,7 +93,7 @@ Push-to-Talk is intended for applications and fields that accept macOS text inse
 - Terminal emulators
 - Email clients
 
-VocaMac pastes the text at your cursor: it puts the transcript on the clipboard, sends ⌘V, then [restores your clipboard](/features/clipboard-preservation/), with an Accessibility-based fallback. The exact result depends on the target app, the active field, and Accessibility permission.
+VocaMac types the text at your cursor. Where the field allows it, VocaMac writes the text directly through the Accessibility API; otherwise it pastes with ⌘V and then [restores your clipboard](/features/clipboard-preservation/). The exact result depends on the target app, the active field, and Accessibility permission.
 
 ## Compared to Double-Tap Toggle
 

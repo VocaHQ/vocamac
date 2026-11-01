@@ -334,3 +334,21 @@ test("all rendered local references resolve", async () => {
     }
   }
 });
+
+test("every feature page links onward and is linked from other feature pages", async () => {
+  const featurePages = pages
+    .map((page) => relative(outputRoot, page))
+    .filter((rel) => rel.startsWith("features/") && rel !== "features/index.html");
+  const inbound = new Map(featurePages.map((rel) => [`/${rel.replace(/index\.html$/, "")}`, 0]));
+
+  for (const rel of featurePages) {
+    const html = await readFile(join(outputRoot, rel), "utf8");
+    const related = html.match(/<section class="related-features"[\s\S]*?<\/section>/)?.[0];
+    assert.ok(related, `${rel} has a related-features block`);
+    const links = attrValues(related, "href").filter((href) => href.startsWith("/features/") && href !== "/features/");
+    assert.ok(links.length >= 3, `${rel} links to at least three related features`);
+    assert.ok(!links.includes(`/${rel.replace(/index\.html$/, "")}`), `${rel} does not link to itself`);
+    for (const href of links) inbound.set(href, (inbound.get(href) ?? 0) + 1);
+  }
+  for (const [href, count] of inbound) assert.ok(count >= 1, `${href} is linked from another feature page`);
+});

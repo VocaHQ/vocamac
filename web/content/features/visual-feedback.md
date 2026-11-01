@@ -5,6 +5,7 @@ subtitle: "Menu-bar status, audio level, and an optional cursor indicator make r
 description: "See when VocaMac is listening: a menu-bar recording state, a live audio level meter, and an optional floating indicator next to your cursor."
 keywords: "recording indicator macOS, visual feedback dictation, menu bar recording icon, cursor indicator voice typing, audio level meter mac, recording status indicator"
 icon: "📊"
+related: ["push-to-talk", "silence-detection", "usage-stats"]
 ---
 
 ## Always Know What's Happening

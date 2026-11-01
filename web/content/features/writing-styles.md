@@ -5,6 +5,7 @@ subtitle: "Give each app its own output style, so code stays code and email read
 description: "VocaMac's Writing Styles set how dictation is written per app: Plain, Code, Terminal, Chat, Slack, Email, or Notes. Code and Terminal never let a model reword your words."
 keywords: "dictation writing styles, per-app dictation, voice typing for code, dictate into terminal, macOS dictation formatting, email dictation"
 icon: "✍️"
+related: ["transcript-cleanup", "system-wide-text-injection", "custom-vocabulary"]
 ---
 
 ## One Voice, Every App

@@ -5,6 +5,7 @@ subtitle: "A native macOS app with local WhisperKit/CoreML transcription on Appl
 description: "VocaMac is a native Apple Silicon app that runs Whisper speech recognition locally with CoreML, so dictation stays on your Mac after a one-time model download."
 keywords: "apple silicon speech recognition, coreml voice to text, whisperkit macOS, local dictation mac, hardware accelerated transcription mac"
 icon: "⚡"
+related: ["smart-model-selection", "custom-endpoint", "languages"]
 ---
 
 ## Built for Apple Silicon

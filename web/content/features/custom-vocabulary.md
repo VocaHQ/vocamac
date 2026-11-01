@@ -5,6 +5,7 @@ subtitle: "Teach VocaMac the names, brands, and jargon you use so they're transc
 description: "Add names, product terms and jargon to VocaMac's custom vocabulary so Mac dictation spells them your way. Whisper, Parakeet and Apple Speech all use it."
 keywords: "custom vocabulary dictation, whisper glossary, proper noun transcription, technical jargon speech to text, fix misspelled names dictation macOS"
 icon: "📝"
+related: ["transcript-cleanup", "languages", "smart-model-selection"]
 ---
 
 ## Teach VocaMac Your Words

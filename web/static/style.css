@@ -1632,7 +1632,7 @@ details.source-install summary {
 .footer-inner {
   display: grid;
   gap: 2.5rem;
-  grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.4fr) repeat(4, minmax(0, 1fr));
 }
 
 .footer-brand p { margin-top: 0.8rem; max-width: 34ch; color: var(--muted); font-size: 0.92rem; }
@@ -1883,6 +1883,26 @@ details.source-install summary {
 }
 
 .feature-cta p { margin: 0; color: var(--ink); font-family: var(--display); font-size: 1.15rem; }
+
+.related-features { margin-top: 3rem; }
+.related-features ul { display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin: 1rem 0 1.2rem; padding: 0; list-style: none; }
+.related-features li { margin: 0; }
+
+.related-features li a {
+  display: block;
+  height: 100%;
+  padding: 1rem 1.1rem;
+  color: var(--muted);
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  font-size: 0.92rem;
+  text-decoration: none;
+  transition: border-color 220ms var(--ease);
+}
+
+.related-features li a:hover { border-color: var(--brand); }
+.related-features strong { display: block; margin-bottom: 0.3rem; color: var(--ink); font-family: var(--display); font-size: 1.02rem; }
 
 .gallery {
   display: grid;

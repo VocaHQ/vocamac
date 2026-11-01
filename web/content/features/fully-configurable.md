@@ -5,6 +5,7 @@ subtitle: "Choose hotkeys, models, languages, silence detection. Settings window
 description: "Choose the hotkey, activation mode, speech model, language and silence detection in VocaMac's Settings window, with model downloads managed in one place."
 keywords: "configurable dictation app, custom hotkey voice typing, whisper model settings, silence detection settings, voice to text preferences macOS"
 icon: "⚙️"
+related: ["smart-model-selection", "push-to-talk", "silence-detection"]
 ---
 
 ## Make VocaMac Your Own

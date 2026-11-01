@@ -41,6 +41,20 @@
                 <p>Ready to try {{ .Title }}?</p>
                 <a class="btn btn-primary" href="/#install">Install VocaMac <span class="btn-arrow btn-arrow-down" aria-hidden="true">↓</span></a>
             </div>
+            {{- /* Curated in front matter (related: [slugs]) so every feature page links to its neighbours. */}}
+            {{- $related := slice -}}
+            {{- range .Params.related }}{{ with site.GetPage (printf "/features/%s" .) }}{{ $related = $related | append . }}{{ end }}{{ end -}}
+            {{- with $related }}
+            <section class="related-features" aria-labelledby="related-title">
+                <h2 id="related-title">Related features</h2>
+                <ul>
+                    {{- range . }}
+                    <li><a href="{{ .RelPermalink }}"><strong>{{ .Title }}</strong><span>{{ .Params.subtitle | markdownify }}</span></a></li>
+                    {{- end }}
+                </ul>
+                <a class="text-link" href="/features/">All VocaMac features <span class="btn-arrow" aria-hidden="true">→</span></a>
+            </section>
+            {{- end }}
         </article>
         {{ with .TableOfContents }}
         <aside class="doc-aside" aria-label="On this page">

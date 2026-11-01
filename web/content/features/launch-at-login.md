@@ -5,6 +5,7 @@ subtitle: "Start VocaMac with your Mac so the menu-bar shortcut is ready when yo
 description: "Turn on Launch at Login and macOS opens VocaMac when you sign in, using Apple's SMAppService, so push-to-talk dictation is ready in the menu bar."
 keywords: "launch at login macOS, auto start menu bar app, SMAppService, startup app mac, always ready dictation"
 icon: "🚀"
+related: ["github-release-updates", "fully-configurable", "push-to-talk"]
 ---
 
 ## Ready in the menu bar

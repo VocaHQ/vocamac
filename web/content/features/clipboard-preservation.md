@@ -5,6 +5,7 @@ subtitle: "Your clipboard is saved and restored after text injection. Nothing ge
 description: "VocaMac preserves your clipboard contents during text injection. Your copied text is saved before injection and restored afterward, so nothing is lost."
 keywords: "clipboard preservation dictation, save clipboard voice typing, paste without overwrite, clipboard restore macOS, text injection clipboard, non-destructive dictation"
 icon: "📋"
+related: ["system-wide-text-injection", "dictation-history", "writing-styles"]
 ---
 
 ## The Problem

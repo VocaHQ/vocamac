@@ -5,6 +5,7 @@ subtitle: "Auto-stops recording after you stop speaking. Adjustable sensitivity 
 description: "VocaMac can stop recording when you stop talking. Tune the silence threshold and duration so hands-free dictation on your Mac ends when you do."
 keywords: "auto stop recording silence, voice activity detection macOS, silence detection dictation, smart recording stop, adjustable silence threshold, voice typing auto stop"
 icon: "🤫"
+related: ["double-tap-toggle", "push-to-talk", "fully-configurable"]
 ---
 
 ## How It Works

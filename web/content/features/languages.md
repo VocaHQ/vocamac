@@ -5,6 +5,7 @@ subtitle: "Let Whisper detect a language or choose one of the languages exposed 
 description: "VocaMac's stable Whisper path supports automatic detection and 43 selectable language hints, with all transcription running locally on your Mac."
 keywords: "multilingual dictation macOS, whisper language support, speech to text languages, auto detect language voice, multilingual voice typing mac"
 icon: "🌍"
+related: ["translation", "smart-model-selection", "custom-vocabulary"]
 ---
 
 ## Speak in your language

@@ -4,6 +4,7 @@ subtitle: "VocaMac checks GitHub Releases for updates. Homebrew users run `brew 
 description: "VocaMac includes built-in update checks powered by the GitHub Releases API. See new versions in-app, download the signed DMG with progress, and install safely."
 keywords: "mac app update checker, github releases updater, signed dmg updates, menu bar app update flow, vocamac updates"
 icon: "⬇️"
+related: ["launch-at-login", "apple-silicon-native", "fully-configurable"]
 ---
 
 ## Built-In Update Checks

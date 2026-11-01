@@ -103,6 +103,41 @@ test("emits valid structured metadata", () => {
   assert.equal(structured.processorRequirements, "Apple Silicon");
 });
 
+function jsonLdBlocks(html) {
+  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((match) => JSON.parse(match[1]));
+}
+
+test("names the site and gives every subpage a breadcrumb trail", async () => {
+  const website = jsonLdBlocks(index).find((block) => block["@type"] === "WebSite");
+  assert.equal(website?.name, "VocaMac");
+  assert.equal(website?.url, "https://vocamac.com/");
+  assert.ok(!jsonLdBlocks(index).some((block) => block["@type"] === "BreadcrumbList"), "home has no breadcrumb");
+
+  for (const page of pages) {
+    const rel = relative(outputRoot, page);
+    if (rel === "index.html" || rel === "404.html") continue;
+    const html = await readFile(page, "utf8");
+    const canonical = html.match(/rel="canonical" href="([^"]+)"/)[1];
+    const trail = jsonLdBlocks(html).find((block) => block["@type"] === "BreadcrumbList");
+    assert.ok(trail, `${rel} has a BreadcrumbList`);
+    const items = trail.itemListElement;
+    assert.equal(items[0].item, "https://vocamac.com/", `${rel} starts at the home page`);
+    assert.equal(items.at(-1).item, canonical, `${rel} ends at its own canonical URL`);
+    assert.deepEqual(items.map((item) => item.position), items.map((_, i) => i + 1));
+    if (rel.startsWith("features/") && rel !== "features/index.html") {
+      assert.equal(items.length, 3, `${rel} sits under Features`);
+      assert.equal(items[1].item, "https://vocamac.com/features/");
+    }
+  }
+});
+
+test("does not add review, rating, FAQ or HowTo markup", async () => {
+  for (const page of pages) {
+    const html = await readFile(page, "utf8");
+    assert.doesNotMatch(html, /aggregateRating|"Review"|"FAQPage"|"HowTo"/, relative(outputRoot, page));
+  }
+});
+
 test("keeps the visual and privacy boundaries flat", () => {
   const banned = ["linear-gradient", "radial-gradient", "conic-gradient", "backdrop-filter"];
   for (const token of banned) assert.doesNotMatch(css, new RegExp(token, "i"), `unexpected ${token}`);

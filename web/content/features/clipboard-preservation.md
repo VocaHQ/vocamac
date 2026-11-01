@@ -1,9 +1,11 @@
 ---
 title: "Clipboard Preservation"
+seoTitle: "Dictate Without Losing Your Clipboard on Mac | VocaMac"
 subtitle: "Your clipboard is saved and restored after text injection. Nothing gets overwritten."
 description: "VocaMac preserves your clipboard contents during text injection. Your copied text is saved before injection and restored afterward, so nothing is lost."
 keywords: "clipboard preservation dictation, save clipboard voice typing, paste without overwrite, clipboard restore macOS, text injection clipboard, non-destructive dictation"
 icon: "📋"
+related: ["system-wide-text-injection", "dictation-history", "writing-styles"]
 ---
 
 ## The Problem
@@ -36,7 +38,7 @@ This happens in milliseconds. You won't see any flickering or delay. It's seamle
 
 ## How Text Injection Works Under the Hood
 
-Text injection in VocaMac relies on macOS's accessibility APIs. Here's what happens when you dictate:
+Text injection in VocaMac needs macOS Accessibility permission and takes one of two paths. In simple single-line fields (text, search, and combo boxes), VocaMac writes the transcript directly through the Accessibility API, and the clipboard is not involved. Everywhere else, including multi-line editors and terminals, it pastes through the clipboard. Here's what happens on that paste path:
 
 **Step 1: Grab focus**
 
@@ -44,7 +46,7 @@ VocaMac uses the Accessibility API to identify the currently active text field (
 
 **Step 2: Prepare the text**
 
-The transcribed text from WhisperKit is cleaned up: punctuation is added where appropriate, extra spaces are removed, and the text is formatted for readability.
+The transcribed text from the selected speech model is cleaned up: punctuation is added where appropriate, extra spaces are removed, and the text is formatted for readability.
 
 **Step 3: Handle the clipboard**
 
@@ -61,7 +63,7 @@ Immediately after the paste completes, VocaMac:
 - Restores the original clipboard contents
 - Returns to idle state
 
-The paste-and-restore window is kept to roughly 200 milliseconds, giving the target app enough time to consume the paste event while preserving your original clipboard.
+VocaMac waits until the target app has read the pasted text, at least 0.15 seconds and at most 2 seconds, before putting your original clipboard back.
 
 ## Enabling and Disabling
 
@@ -81,7 +83,7 @@ If your clipboard is empty when you start dictating, VocaMac will restore it to 
 
 **Clipboard changes during dictation**
 
-If you copy something new while VocaMac is in the middle of recording, your clipboard will contain the new item (as expected). VocaMac restores whatever was on the clipboard at the moment recording *started*, so the new item is preserved.
+If you copy something new while VocaMac is in the middle of recording, your clipboard will contain the new item (as expected). VocaMac takes its snapshot of the clipboard just before it pastes, not when recording starts, so the new item is what gets restored.
 
 **Multiple pastes**
 
@@ -129,7 +131,7 @@ Clipboard preservation is just one example of how VocaMac is designed with your 
 For developers interested in how this works, VocaMac's clipboard preservation is implemented using:
 
 - **NSPasteboard**: Apple's standard API for reading and writing clipboard contents
-- **Accessibility APIs**: to detect the active text field and simulate paste commands
+- **Accessibility APIs**: to write directly into simple text fields, and otherwise to detect the active text field and simulate paste commands
 - **Timing precision**: ensuring operations happen in the correct order without race conditions
 
 The implementation is part of VocaMac's open source codebase. If you're curious, you can review the exact implementation on GitHub.

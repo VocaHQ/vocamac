@@ -110,14 +110,14 @@
                 <span class="card-icon">{{ partial "icon.html" "mic" }}</span>
                 <span class="step-index">02 / speak</span>
                 <h3>Say what you mean</h3>
-                <p>Audio is captured in memory and passed to the speech-to-text model selected in Settings.</p>
+                <p>Audio is recorded on your Mac and passed to the speech-to-text model selected in Settings.</p>
                 <p class="step-note">Choose a language hint when automatic detection needs help.</p>
             </article>
             <article class="step reveal">
                 <span class="card-icon">{{ partial "icon.html" "caret" }}</span>
                 <span class="step-index">03 / insert</span>
                 <h3>Keep working</h3>
-                <p>When recording ends, the transcript is inserted at the cursor through macOS accessibility APIs.</p>
+                <p>When recording ends, the transcript lands at the cursor: written into simple text fields through macOS Accessibility, or pasted with ⌘V and your clipboard put back.</p>
                 <p class="step-note">Some secure fields and apps can restrict system text insertion.</p>
             </article>
         </div>
@@ -235,8 +235,8 @@
             <li class="route-step">
                 <div class="route-node">
                     <span class="route-icon">{{ partial "icon.html" "memory" }}</span>
-                    <span class="route-name">In-memory audio</span>
-                    <span class="route-sub">Held for the recording</span>
+                    <span class="route-name">Audio on your Mac</span>
+                    <span class="route-sub">Removed after transcription by default</span>
                 </div>
                 <svg class="route-link" width="56" height="24" viewBox="0 0 56 24" aria-hidden="true"><path class="route-track" d="M2 12h48"/><path class="route-pulse" d="M2 12h48"/><path class="route-head" d="M46 7.5 50.5 12 46 16.5"/></svg>
             </li>
@@ -259,12 +259,12 @@
 
         <p class="route-negative">
             <span class="route-negative-icon">{{ partial "icon.html" "cloud-off" }}</span>
-            <span><strong>There is no extra stop.</strong> The path above has no Voca speech server in it. Dictation audio is not uploaded for transcription.</span>
+            <span><strong>There is no extra stop.</strong> The path above has no Voca speech server in it. With an on-device engine, the default, dictation audio is not uploaded for transcription. If you choose <a href="/features/custom-endpoint/">Custom Endpoint</a>, recordings go to the server you configured, so keep it on localhost, a trusted LAN, or Tailscale, or use HTTPS.</span>
         </p>
 
         <div class="boundaries">
-            <article class="boundary reveal"><span class="card-icon">{{ partial "icon.html" "lock" }}</span><h3>What stays local</h3><p>During transcription, your audio and the selected model stay on the Mac. VocaMac has no Voca-hosted speech endpoint.</p></article>
-            <article class="boundary reveal"><span class="card-icon">{{ partial "icon.html" "globe" }}</span><h3>What uses a network</h3><p>Initial model downloads, release downloads, and the app's update check use their documented sources. Apple may manage language assets for system speech.</p></article>
+            <article class="boundary reveal"><span class="card-icon">{{ partial "icon.html" "lock" }}</span><h3>What stays local</h3><p>With an on-device engine, the default, your audio and the selected model stay on the Mac. VocaMac has no Voca-hosted speech endpoint.</p></article>
+            <article class="boundary reveal"><span class="card-icon">{{ partial "icon.html" "globe" }}</span><h3>What uses a network</h3><p>Initial model downloads, release downloads, and the app's update check use their documented sources. Apple may manage language assets for system speech. Opt-in Custom Endpoint and Smart Cleanup servers send audio or text to the server you set.</p></article>
             <article class="boundary reveal"><span class="card-icon">{{ partial "icon.html" "code" }}</span><h3>What you can inspect</h3><p>The application is open source under {{ $p.license.id }}. Preferences, local model management, and the injection path are visible in the repository.</p></article>
         </div>
     </div>
@@ -281,7 +281,7 @@
             <article class="config-item reveal"><span class="card-icon">{{ partial "icon.html" "hotkey" }}</span><h3>Hotkeys and modes</h3><p>Choose push-to-talk or double-tap toggle, then keep a shortcut that fits your hands.</p><a href="/features/push-to-talk/">Explore activation <span class="btn-arrow" aria-hidden="true">→</span></a></article>
             <article class="config-item reveal"><span class="card-icon">{{ partial "icon.html" "chip" }}</span><h3>Models and language</h3><p>Pick a local model and let it follow automatic language detection or a language hint.</p><a href="/features/smart-model-selection/">Explore model choice <span class="btn-arrow" aria-hidden="true">→</span></a></article>
             <article class="config-item reveal"><span class="card-icon">{{ partial "icon.html" "levels" }}</span><h3>Microphone and feedback</h3><p>Choose the input device and use menu-bar, audio-level, or cursor feedback when you need it.</p><a href="/features/visual-feedback/">Explore feedback <span class="btn-arrow" aria-hidden="true">→</span></a></article>
-            <article class="config-item reveal"><span class="card-icon">{{ partial "icon.html" "vocabulary" }}</span><h3>Your vocabulary</h3><p>Add names and terms that matter to you. Custom vocabulary is processed with the Whisper path.</p><a href="/features/custom-vocabulary/">Explore vocabulary <span class="btn-arrow" aria-hidden="true">→</span></a></article>
+            <article class="config-item reveal"><span class="card-icon">{{ partial "icon.html" "vocabulary" }}</span><h3>Your vocabulary</h3><p>Add names and terms that matter to you. Every engine applies your spellings; Whisper, Parakeet, and Apple Speech also use them as recognition hints.</p><a href="/features/custom-vocabulary/">Explore vocabulary <span class="btn-arrow" aria-hidden="true">→</span></a></article>
         </div>
     </div>
 </section>
@@ -374,12 +374,12 @@
             <h2 class="section-title" id="faq-title">The useful bits before you install.</h2>
         </div>
         <div class="faq" data-faq>
-            <details open><summary>Does my voice leave my Mac?</summary><p>During transcription, audio is passed to the selected local speech-to-text model on your Mac. VocaMac does not send dictation audio to a Voca cloud service. Model downloads and update checks are separate network actions.</p></details>
+            <details open><summary>Does my voice leave my Mac?</summary><p>Not by default. Audio is passed to the selected on-device speech-to-text model, and VocaMac does not send dictation audio to a Voca cloud service. If you choose <a href="/features/custom-endpoint/">Custom Endpoint</a>, each recording is sent to the server you configured; keep that server on localhost, a trusted LAN, or Tailscale, or reach it over HTTPS. Model downloads and update checks are separate network actions.</p></details>
             <details><summary>Do I need internet access?</summary><p>You need internet access to download the app or a model that is not on your Mac yet. After the model is available, on-device transcription can work offline. VocaMac also checks GitHub for application updates on launch when the last check is older than 24 hours; that launch-time check cannot be turned off.</p></details>
             <details><summary>Which Macs can run VocaMac?</summary><p>The current release supports {{ $p.requirements.os }} on {{ $p.requirements.arch }}. Intel Macs are not supported by the released arm64 build.</p></details>
             <details><summary>Why does VocaMac need permissions?</summary><p>Microphone access captures speech. Accessibility and Input Monitoring let the menu-bar app hear its configured shortcut and insert the resulting text into the app where you are working. Secure fields and individual apps can still restrict insertion.</p></details>
             <details><summary>Can IT deploy VocaMac to managed Macs?</summary><p>Yes. Accessibility and Input Monitoring can be pre-approved with an MDM privacy profile, so nobody needs an administrator password to get started. The microphone prompt still has to be accepted by the person using the Mac — Apple does not let a profile grant that one. See <a href="/enterprise/">VocaMac for managed Macs</a>.</p></details>
-            <details><summary>Which model should I choose?</summary><p>Start with Small on an 8 GB Mac, then choose a compact Large or Distil variant when accuracy matters and your Mac has the headroom. Tiny and Base are useful when a smaller download or lower memory use matters more.</p></details>
+            <details><summary>Which model should I choose?</summary><p>Setup suggests one from your language and your Mac's memory: Parakeet 110M for English, GigaAM v3 for Russian, SenseVoice for Chinese, Japanese, or Korean, Canary 180M Flash for Spanish, German, or French, and Whisper Small for other languages or when you switch between them. You can change models at any time in Settings.</p></details>
             <details><summary>What is available beyond Whisper?</summary><p>{{ $p.stable.tag }} includes Parakeet (NVIDIA TDT models on the Apple Neural Engine), Apple Speech (the macOS 26+ system engine), and sherpa-onnx (CPU-only specialized models: Moonshine, SenseVoice, GigaAM v3, Canary 180M Flash, and Qwen3 ASR 0.6B). See the model table above and the release notes for language and macOS requirements.</p></details>
         </div>
     </div>

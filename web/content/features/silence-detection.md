@@ -1,9 +1,11 @@
 ---
 title: "Silence Detection"
+seoTitle: "Silence Detection: Auto-Stop Dictation on Mac | VocaMac"
 subtitle: "Auto-stops recording after you stop speaking. Adjustable sensitivity and duration thresholds."
-description: "VocaMac automatically detects silence and stops recording when you finish speaking. Fine-tune sensitivity and duration thresholds in settings."
+description: "VocaMac can stop recording when you stop talking. Tune the silence threshold and duration so hands-free dictation on your Mac ends when you do."
 keywords: "auto stop recording silence, voice activity detection macOS, silence detection dictation, smart recording stop, adjustable silence threshold, voice typing auto stop"
 icon: "🤫"
+related: ["double-tap-toggle", "push-to-talk", "fully-configurable"]
 ---
 
 ## How It Works
@@ -23,23 +25,15 @@ This is particularly useful in two scenarios:
 
 Every environment is different. A quiet home office has lower background noise than a busy coffee shop. VocaMac lets you tune silence detection to match your surroundings with two settings:
 
-**Silence Threshold (0-100%)**
+**Silence sensitivity**
 
-This controls how sensitive the detector is to quiet sounds. A lower threshold is more aggressive (stops recording sooner), while a higher threshold is more lenient (requires more silence before stopping).
+This controls how quiet counts as silence. The slider reads High, Medium, or Low and starts at Medium. Higher sensitivity treats only near-silence as silence, so soft speech keeps the recording going; lower sensitivity lets louder background sound count as silence, so a recording in a noisy room still ends.
 
-- **Low threshold (20-40%)**: use in quiet environments where you want quick stops
-- **Medium threshold (50-60%)**: a useful starting point for many environments
-- **High threshold (70-90%)**: use in noisy environments to prevent accidental cutoffs
+**Stop after silence (0.5–300 seconds)**
 
-**Silence Duration (0.5-3 seconds)**
+This is how long the quiet must last before VocaMac stops the recording. The default is 2 seconds. A longer duration gives you time to catch your breath between sentences without the recording cutting off unexpectedly.
 
-This is how long VocaMac waits after detecting silence before actually stopping the recording. A longer duration gives you time to catch your breath between sentences without the recording cutting off unexpectedly.
-
-- **0.5 seconds**: aggressive, stops almost immediately after silence
-- **1-1.5 seconds**: the default, balances responsiveness with safety
-- **2-3 seconds**: forgiving, great for natural pauses in speech
-
-You can adjust both settings in **Settings → Audio → Silence Detection**.
+You can adjust both settings in **Settings → Audio → Recording and Silence**.
 
 ## Silence Detection with Push-to-Talk vs. Double-Tap Toggle
 
@@ -61,8 +55,6 @@ One concern with any silence detection system is false positives: stopping recor
 
 **Tunable thresholds**: adjust sensitivity and duration to match your environment
 
-**Minimum recording duration**: VocaMac won't stop recording in the first 0.3 seconds, even if silence is detected, to avoid cutting off initial words
-
 **Audio-level feedback**: the popover exposes the current input level so you can tune the threshold against your actual microphone and room
 
 **Real-time monitoring**: you can see the audio level indicator in the VocaMac popover in real time, so you know exactly how loud the detector thinks your speech is
@@ -74,15 +66,14 @@ VocaMac recently fixed a critical silence detection bug: in rare cases, audio at
 The current implementation is designed to:
 
 1. No audio is lost at the start of recording
-2. The minimum recording duration (0.3 seconds) is respected
-3. Keep silence detection scoped to the configured threshold and duration
+2. Keep silence detection scoped to the configured threshold and duration
 
 As with any energy-based detector, test the threshold and duration with your microphone and speaking style before relying on it for long dictations.
 
 ## Tips for Best Results
 
-- In quiet environments, use a lower sensitivity threshold (40-50%)
-- In noisy environments, use a higher threshold (70-80%) to avoid false stops
-- Start with the default 1-second duration and adjust based on your natural speech patterns
+- If recording stops while you are still talking, raise the sensitivity or lengthen **Stop after silence**
+- If recording doesn't stop in a noisy room, lower the sensitivity
+- Start with the default 2-second duration and adjust based on your natural speech patterns
 - Use silence detection primarily in Double-Tap Toggle mode
 - Test your settings in a quick voice memo to hear how they feel before relying on them during real work

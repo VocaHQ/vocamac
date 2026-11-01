@@ -1,9 +1,11 @@
 ---
 title: "Visual Feedback"
+seoTitle: "Recording Indicator and Mic Level for Dictation | VocaMac"
 subtitle: "Menu-bar status, audio level, and an optional cursor indicator make recording state visible without relying on color alone."
-description: "VocaMac provides clear visual feedback during recording with menu-bar state, status text, an audio level indicator, and an optional floating cursor indicator."
+description: "See when VocaMac is listening: a menu-bar recording state, a live audio level meter, and an optional floating indicator next to your cursor."
 keywords: "recording indicator macOS, visual feedback dictation, menu bar recording icon, cursor indicator voice typing, audio level meter mac, recording status indicator"
 icon: "📊"
+related: ["push-to-talk", "silence-detection", "usage-stats"]
 ---
 
 ## Always Know What's Happening
@@ -50,7 +52,7 @@ The cursor indicator provides:
 - **Window-specific confirmation**: in applications with multiple text fields, it shows which field is active for dictation
 - **Minimal distraction**: the icon is small and subtle, placed just below your cursor position
 
-The floating near-cursor indicator is the recording overlay. In **Settings → Application**, set **Recording Overlay Style** to Minimal or Live panel and **Position** to Near cursor. Set Style to Off if you prefer the menu bar icon alone.
+The floating near-cursor indicator is the recording overlay. In **Settings → Dictation**, under **Recording Overlay**, set **Style** to Minimal or Live panel and **Position** to Near cursor. Set Style to Off if you prefer the menu bar icon alone.
 
 ## Why Visual Feedback Matters
 

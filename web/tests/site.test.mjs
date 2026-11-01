@@ -38,7 +38,7 @@ function pngDimensions(buffer) {
 }
 
 test("renders a complete VocaMac homepage", () => {
-  assert.match(index, /<title>VocaMac: native voice typing for macOS<\/title>/);
+  assert.match(index, /<title>VocaMac: Free On-Device Voice to Text and Dictation for Mac<\/title>/);
   assert.equal((index.match(/<h1\b/g) ?? []).length, 1);
   assert.match(index, /<main id="main">/);
   assert.match(index, /class="skip-link" href="#main"/);
@@ -101,6 +101,41 @@ test("emits valid structured metadata", () => {
   assert.equal(structured["@type"], "SoftwareApplication");
   assert.equal(structured.softwareVersion, "1.2.0");
   assert.equal(structured.processorRequirements, "Apple Silicon");
+});
+
+function jsonLdBlocks(html) {
+  return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((match) => JSON.parse(match[1]));
+}
+
+test("names the site and gives every subpage a breadcrumb trail", async () => {
+  const website = jsonLdBlocks(index).find((block) => block["@type"] === "WebSite");
+  assert.equal(website?.name, "VocaMac");
+  assert.equal(website?.url, "https://vocamac.com/");
+  assert.ok(!jsonLdBlocks(index).some((block) => block["@type"] === "BreadcrumbList"), "home has no breadcrumb");
+
+  for (const page of pages) {
+    const rel = relative(outputRoot, page);
+    if (rel === "index.html" || rel === "404.html") continue;
+    const html = await readFile(page, "utf8");
+    const canonical = html.match(/rel="canonical" href="([^"]+)"/)[1];
+    const trail = jsonLdBlocks(html).find((block) => block["@type"] === "BreadcrumbList");
+    assert.ok(trail, `${rel} has a BreadcrumbList`);
+    const items = trail.itemListElement;
+    assert.equal(items[0].item, "https://vocamac.com/", `${rel} starts at the home page`);
+    assert.equal(items.at(-1).item, canonical, `${rel} ends at its own canonical URL`);
+    assert.deepEqual(items.map((item) => item.position), items.map((_, i) => i + 1));
+    if (rel.startsWith("features/") && rel !== "features/index.html") {
+      assert.equal(items.length, 3, `${rel} sits under Features`);
+      assert.equal(items[1].item, "https://vocamac.com/features/");
+    }
+  }
+});
+
+test("does not add review, rating, FAQ or HowTo markup", async () => {
+  for (const page of pages) {
+    const html = await readFile(page, "utf8");
+    assert.doesNotMatch(html, /aggregateRating|"Review"|"FAQPage"|"HowTo"/, relative(outputRoot, page));
+  }
 });
 
 test("keeps the visual and privacy boundaries flat", () => {
@@ -298,4 +333,70 @@ test("all rendered local references resolve", async () => {
       await access(join(file, "index.html"));
     }
   }
+});
+
+test("every feature page links onward and is linked from other feature pages", async () => {
+  const featurePages = pages
+    .map((page) => relative(outputRoot, page))
+    .filter((rel) => rel.startsWith("features/") && rel !== "features/index.html");
+  const inbound = new Map(featurePages.map((rel) => [`/${rel.replace(/index\.html$/, "")}`, 0]));
+
+  for (const rel of featurePages) {
+    const html = await readFile(join(outputRoot, rel), "utf8");
+    const related = html.match(/<section class="related-features"[\s\S]*?<\/section>/)?.[0];
+    assert.ok(related, `${rel} has a related-features block`);
+    const links = attrValues(related, "href").filter((href) => href.startsWith("/features/") && href !== "/features/");
+    assert.ok(links.length >= 3, `${rel} links to at least three related features`);
+    assert.ok(!links.includes(`/${rel.replace(/index\.html$/, "")}`), `${rel} does not link to itself`);
+    for (const href of links) inbound.set(href, (inbound.get(href) ?? 0) + 1);
+  }
+  for (const [href, count] of inbound) assert.ok(count >= 1, `${href} is linked from another feature page`);
+});
+
+test("ships a playable 404 page whose assets stay on that page", async () => {
+  const notFound = await readFile(join(outputRoot, "404.html"), "utf8");
+  assert.equal((notFound.match(/<h1\b/g) ?? []).length, 1);
+  assert.match(notFound, /<a class="btn btn-primary" href="\/"/);
+  assert.match(notFound, /href="\/features\/"/);
+  assert.match(notFound, /href="\/#install"/);
+  assert.match(notFound, /<link rel="stylesheet" href="\/404\.css">/);
+  assert.match(notFound, /<script src="\/404\.js" defer><\/script>/);
+  assert.match(notFound, /href="https:\/\/xkcd\.com\/1172\/"/);
+  assert.doesNotMatch(notFound, /<img\b[^>]+xkcd/i);
+
+  const pageScript = await readFile(join(outputRoot, "404.js"), "utf8");
+  const pageStyle = await readFile(join(outputRoot, "404.css"), "utf8");
+  assert.ok(pageScript.length < 10_000, "404.js stays under 10 KB");
+  assert.ok(pageStyle.length < 10_000, "404.css stays under 10 KB");
+  assert.doesNotMatch(pageScript, /fetch\(|XMLHttpRequest|https?:\/\//);
+  for (const token of ["linear-gradient", "radial-gradient", "conic-gradient", "backdrop-filter"]) {
+    assert.doesNotMatch(pageStyle, new RegExp(token, "i"), `unexpected ${token} in 404.css`);
+  }
+  assert.match(pageStyle, /prefers-reduced-motion:\s*reduce/);
+
+  for (const page of pages) {
+    if (page === join(outputRoot, "404.html")) continue;
+    const html = page === join(outputRoot, "index.html") ? index : await readFile(page, "utf8");
+    assert.doesNotMatch(html, /\/404\.(?:js|css)/, `${relative(outputRoot, page)} must not load 404 assets`);
+  }
+
+  const sitemap = await readFile(join(outputRoot, "sitemap.xml"), "utf8");
+  assert.doesNotMatch(sitemap, /404/);
+});
+
+test("keeps site claims aligned with the v1.2.0 release", async () => {
+  assert.doesNotMatch(index, /Custom vocabulary is processed with the Whisper path/);
+  assert.doesNotMatch(index, /In-memory audio|captured in memory/);
+  assert.match(index, /Does my voice leave my Mac\?<\/summary><p>[^<]*<a href="\/features\/custom-endpoint\/">Custom Endpoint<\/a>/);
+  assert.doesNotMatch(product, /\+ Japanese/);
+
+  const feature = (slug) => readFile(join(outputRoot, `features/${slug}/index.html`), "utf8");
+  const cleanup = await feature("transcript-cleanup");
+  assert.doesNotMatch(cleanup, /never sent anywhere|without anything leaving your Mac/);
+  assert.match(cleanup, /Settings → Smart Cleanup/);
+  assert.match(cleanup, /Ministral 3 3B Instruct/);
+  assert.doesNotMatch(await feature("silence-detection"), /0\.3 seconds|0-100%/);
+  assert.doesNotMatch(await feature("clipboard-preservation"), /200 milliseconds|recording \*?<em>started/);
+  assert.doesNotMatch(await feature("github-release-updates"), /Debug tab/);
+  assert.match(await feature("translation"), /Translate what you say/);
 });

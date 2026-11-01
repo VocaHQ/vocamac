@@ -1,9 +1,11 @@
 ---
 title: "Smart model selection"
+seoTitle: "Pick the Right Whisper Model for Your Mac | VocaMac"
 subtitle: "VocaMac reads your Apple Silicon hardware and helps you choose a Whisper model that fits its memory and accuracy trade-offs."
-description: "VocaMac recommends a Whisper model based on your Mac's hardware, while keeping model choice and downloads under your control."
+description: "VocaMac checks your Apple Silicon Mac's memory and suggests a Whisper model that fits, from Tiny to Large v3. You keep the final choice and every download."
 keywords: "whisper model selection, auto detect hardware macOS, apple silicon whisper, coreml speech model, best whisper model mac, RAM based model recommendation"
 icon: "🧠"
+related: ["speech-engines", "apple-silicon-native", "languages"]
 ---
 
 ## A recommendation, not a lock-in
@@ -19,6 +21,8 @@ VocaMac can inspect the Mac's Apple Silicon hardware and available memory to rec
 The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 77 MB to 1.6 GB. VocaMac shows the local model state and resource guidance in Settings.
 
 Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or Base for a smaller download and lower memory use. Choose a compact Large or Distil model when accuracy matters and your Mac has the headroom. The full Large v3 model needs substantially more disk space and memory.
+
+Whisper is not the only choice. v1.2.0 also offers Parakeet, Apple Speech (macOS 26 and later), and specialized ONNX models. During setup, VocaMac suggests a model from the languages you speak and your Mac's memory: Parakeet 110M for English, GigaAM v3 for Russian, SenseVoice for Chinese, Japanese, or Korean, Canary 180M Flash for Spanish, German, or French, and Whisper Small for other languages or a mix.
 
 ## Download, verify, switch
 

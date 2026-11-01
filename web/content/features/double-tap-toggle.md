@@ -1,9 +1,11 @@
 ---
 title: "Double-Tap Toggle"
+seoTitle: "Hands-Free Dictation on Mac: Double-Tap to Toggle | VocaMac"
 subtitle: "Prefer toggle mode? Double-tap to start, double-tap to stop. Your choice."
 description: "Double-Tap Toggle mode in VocaMac lets you start and stop recording with a quick double-tap of your hotkey. Ideal for longer dictation sessions."
 keywords: "double tap dictation, toggle voice recording, hands free dictation mac, voice typing toggle mode, start stop recording hotkey"
 icon: "👆"
+related: ["push-to-talk", "silence-detection", "visual-feedback"]
 ---
 
 ## Two Ways to Control Recording

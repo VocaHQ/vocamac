@@ -1,9 +1,11 @@
 ---
 title: "Dictation History"
+seoTitle: "Dictation History on Mac: Search, Replay, Retry | VocaMac"
 subtitle: "Search, copy, replay and retry what you said. Saved locally, and never lost to a crash."
 description: "VocaMac's History page keeps your past dictations on your Mac so you can search, copy, replay and retry them. Audio is saved before transcription, and retention is up to you."
 keywords: "dictation history, retry transcription, replay dictation audio, paste last dictation, local voice typing history, macOS dictation log"
 icon: "🕘"
+related: ["usage-stats", "transcript-cleanup", "clipboard-preservation"]
 ---
 
 ## Never Lose What You Said

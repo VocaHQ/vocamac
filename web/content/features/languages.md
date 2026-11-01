@@ -1,9 +1,11 @@
 ---
 title: "Language support"
+seoTitle: "Multilingual Voice Typing on Mac | VocaMac"
 subtitle: "Let Whisper detect a language or choose one of the languages exposed in VocaMac's stable settings picker."
 description: "VocaMac's stable Whisper path supports automatic detection and 43 selectable language hints, with all transcription running locally on your Mac."
 keywords: "multilingual dictation macOS, whisper language support, speech to text languages, auto detect language voice, multilingual voice typing mac"
 icon: "🌍"
+related: ["translation", "smart-model-selection", "custom-vocabulary"]
 ---
 
 ## Speak in your language
@@ -14,11 +16,13 @@ VocaMac's stable Whisper path supports automatic detection plus 43 language hint
 
 The underlying Whisper model was trained on more languages than VocaMac exposes as manual settings. The website describes the picker users can actually use, not a larger training-data figure.
 
+This page covers Whisper. Parakeet, Apple Speech, and the specialized ONNX models have their own language sets, listed in the model table on the home page.
+
 ## Automatic or chosen
 
 Automatic detection is useful when you want VocaMac to infer the language from a full phrase. A manual hint can help when an utterance is short, an accent is unfamiliar, or you are dictating a predictable language for a long session.
 
-Open **Settings → Speech Model** to change the language hint. The selected language is saved locally and can be changed without an account or a cloud service.
+Open **Settings → Language** and choose the hint under **Recognition Language**; it offers automatic detection plus the languages you add under **Languages You Speak**. The selected language is saved locally and can be changed without an account or a cloud service.
 
 ## Model size still matters
 

@@ -38,7 +38,7 @@ function pngDimensions(buffer) {
 }
 
 test("renders a complete VocaMac homepage", () => {
-  assert.match(index, /<title>VocaMac: native voice typing for macOS<\/title>/);
+  assert.match(index, /<title>VocaMac: Free On-Device Voice to Text and Dictation for Mac<\/title>/);
   assert.equal((index.match(/<h1\b/g) ?? []).length, 1);
   assert.match(index, /<main id="main">/);
   assert.match(index, /class="skip-link" href="#main"/);

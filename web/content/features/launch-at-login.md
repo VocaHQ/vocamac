@@ -1,7 +1,8 @@
 ---
 title: "Launch at login"
+seoTitle: "Launch at Login on Mac: Start VocaMac at Startup"
 subtitle: "Start VocaMac with your Mac so the menu-bar shortcut is ready when you are."
-description: "VocaMac can register as a macOS login item using SMAppService and remain ready in the menu bar without a manual launch."
+description: "Turn on Launch at Login and macOS opens VocaMac when you sign in, using Apple's SMAppService, so push-to-talk dictation is ready in the menu bar."
 keywords: "launch at login macOS, auto start menu bar app, SMAppService, startup app mac, always ready dictation"
 icon: "🚀"
 ---

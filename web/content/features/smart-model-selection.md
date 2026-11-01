@@ -1,7 +1,8 @@
 ---
 title: "Smart model selection"
+seoTitle: "Pick the Right Whisper Model for Your Mac | VocaMac"
 subtitle: "VocaMac reads your Apple Silicon hardware and helps you choose a Whisper model that fits its memory and accuracy trade-offs."
-description: "VocaMac recommends a Whisper model based on your Mac's hardware, while keeping model choice and downloads under your control."
+description: "VocaMac checks your Apple Silicon Mac's memory and suggests a Whisper model that fits, from Tiny to Large v3. You keep the final choice and every download."
 keywords: "whisper model selection, auto detect hardware macOS, apple silicon whisper, coreml speech model, best whisper model mac, RAM based model recommendation"
 icon: "🧠"
 ---

@@ -1,7 +1,8 @@
 ---
 title: "Custom Vocabulary"
+seoTitle: "Custom Vocabulary for Speech to Text on Mac | VocaMac"
 subtitle: "Teach VocaMac the names, brands, and jargon you use so they're transcribed right, every time."
-description: "Add names, technical terms, and jargon to VocaMac's custom vocabulary so every speech model uses your preferred spellings locally."
+description: "Add names, product terms and jargon to VocaMac's custom vocabulary so Mac dictation spells them your way. Whisper, Parakeet and Apple Speech all use it."
 keywords: "custom vocabulary dictation, whisper glossary, proper noun transcription, technical jargon speech to text, fix misspelled names dictation macOS"
 icon: "📝"
 ---

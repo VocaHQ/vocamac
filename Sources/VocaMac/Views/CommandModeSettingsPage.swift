@@ -101,7 +101,10 @@ struct CommandModeSettingsPage: View {
             VocaSettingsGroup("Voice Actions") {
                 SettingsToggleRow(
                     title: "Voice actions",
-                    detail: "Say “open Safari”, “search the web for…”, “remind me to…”, or “run the shortcut…”. Only what you say starts an action, never the selected text.",
+                    // Reminders are added with AppleScript, which the App Store build leaves out.
+                    detail: AppDistribution.hasAppleScriptControl
+                        ? "Say “open Safari”, “search the web for…”, “remind me to…”, or “run the shortcut…”. Only what you say starts an action, never the selected text."
+                        : "Say “open Safari”, “search the web for…”, or “run the shortcut…”. Only what you say starts an action, never the selected text.",
                     isOn: $appState.voiceActionsEnabled
                 )
                 if appState.voiceActionsEnabled {

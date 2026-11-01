@@ -168,6 +168,9 @@ final class GatewayEmbedController: ObservableObject {
     // MARK: - Discovery
 
     func refreshBinaryAvailability() {
+        // The App Store build can't start a program from outside its bundle,
+        // so it doesn't look for one.
+        guard AppDistribution.hasPhoneGateway else { return }
         binaryPath = GatewayBinaryResolver.resolveExecutablePath()
         isBinaryAvailable = binaryPath != nil
         isDockerAvailable = GatewayBinaryResolver.isDockerCLIAvailable()
@@ -176,6 +179,7 @@ final class GatewayEmbedController: ObservableObject {
     // MARK: - Lifecycle
 
     func start() async {
+        guard AppDistribution.hasPhoneGateway else { return }
         refreshBinaryAvailability()
         guard let binaryPath else {
             let message = "VocaGateway is not installed. Install the native CLI, or use Docker as a fallback (no MLX / Apple Silicon native engines)."
@@ -242,6 +246,7 @@ final class GatewayEmbedController: ObservableObject {
     }
 
     func refreshStatus() async {
+        guard AppDistribution.hasPhoneGateway else { return }
         refreshBinaryAvailability()
 
         let live = await probe(path: "/")
@@ -448,7 +453,14 @@ final class GatewayEmbedController: ObservableObject {
     }
 
     private func spawnNativeProcess(executable: String) throws {
-#if os(macOS)
+#if APP_STORE
+        // The sandbox can't start a program from outside the app bundle.
+        throw NSError(
+            domain: "GatewayEmbedController",
+            code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "The App Store version of VocaMac can't start VocaGateway."]
+        )
+#elseif os(macOS)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = []

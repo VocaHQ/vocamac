@@ -47,7 +47,11 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .dictation: return [.dictation, .speechModel, .language, .audio, .performance]
         case .writing: return [.formatting, .writingStyles, .cleanup, .commandMode, .dictionary, .snippets]
         case .activity: return [.history, .stats]
-        case .app: return [.application, .gateway, .advanced, .about]
+        case .app:
+            // The App Store build has no phone gateway page.
+            return AppDistribution.hasPhoneGateway
+                ? [.application, .gateway, .advanced, .about]
+                : [.application, .advanced, .about]
         }
     }
 }
@@ -132,5 +136,12 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .gateway: return "server.rack"
         case .about: return "info.circle"
         }
+    }
+
+    /// The page shown for this one in this build. The App Store build has no
+    /// phone gateway page, so a request for it (Pair phone, a remembered last
+    /// page) opens Permissions & Logs instead.
+    var shownInThisBuild: SettingsPage {
+        self == .gateway && !AppDistribution.hasPhoneGateway ? .advanced : self
     }
 }

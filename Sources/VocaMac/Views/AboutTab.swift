@@ -53,37 +53,47 @@ struct AboutTab: View {
                 Text("Version \(appVersionDisplay) · \(buildChannelLabel)")
                     .foregroundStyle(.secondary)
 
-                Button {
-                    Task { @MainActor in
-                        await appState.updateChecker.checkForUpdates()
-                        switch appState.updateChecker.updateState {
-                        case .updateAvailable(let info), .updateAvailableViaHomebrew(let info, _):
-                            updateInfoForSheet = info
-                            showingUpdateSheet = true
-                        default:
-                            break
-                        }
-                    }
-                } label: {
-                    if case .checking = appState.updateChecker.updateState {
-                        HStack(spacing: 6) {
-                            ProgressView()
-                                .controlSize(.small)
-                            Text("Checking for Updates...")
-                        }
-                    } else {
-                        Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                }
-
-                if !updateStatusText.isEmpty {
-                    Text(updateStatusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                // The App Store build is updated by the App Store, and says
+                // nothing about the DMG or Homebrew.
+                if AppDistribution.hasSelfUpdate {
+                    updateControls
                 }
             }
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    /// "Check for Updates…" and what the last check found. Direct download only.
+    @ViewBuilder
+    private var updateControls: some View {
+        Button {
+            Task { @MainActor in
+                await appState.updateChecker.checkForUpdates()
+                switch appState.updateChecker.updateState {
+                case .updateAvailable(let info), .updateAvailableViaHomebrew(let info, _):
+                    updateInfoForSheet = info
+                    showingUpdateSheet = true
+                default:
+                    break
+                }
+            }
+        } label: {
+            if case .checking = appState.updateChecker.updateState {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Checking for Updates...")
+                }
+            } else {
+                Label("Check for Updates…", systemImage: "arrow.triangle.2.circlepath")
+            }
+        }
+
+        if !updateStatusText.isEmpty {
+            Text(updateStatusText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
     }
 

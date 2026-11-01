@@ -62,7 +62,7 @@ struct SettingsView: View {
         }
         .onAppear {
             if !didRestore {
-                selectedPage = SettingsPage(rawValue: lastPage) ?? .dictation
+                selectedPage = (SettingsPage(rawValue: lastPage) ?? .dictation).shownInThisBuild
                 pageBeforeSearch = selectedPage ?? .dictation
                 didRestore = true
             }
@@ -82,7 +82,7 @@ struct SettingsView: View {
     /// Jump to a page another part of the app asked for (e.g. History from
     /// the menu bar), once.
     private func showRequestedPage() {
-        guard let page = appState.requestedSettingsPage else { return }
+        guard let page = appState.requestedSettingsPage?.shownInThisBuild else { return }
         // Clear search only after remembering the destination. An empty query
         // restores `pageBeforeSearch`, which would otherwise undo this jump.
         pageBeforeSearch = page
@@ -93,7 +93,7 @@ struct SettingsView: View {
 
     /// Honor a page recorded on the window manager (Pair phone, first open).
     private func applyWindowRequestedPage() {
-        guard let page = settingsWindowManager.consumeRequestedPage() else { return }
+        guard let page = settingsWindowManager.consumeRequestedPage()?.shownInThisBuild else { return }
         pageBeforeSearch = page
         searchText = ""
         selectedPage = page
@@ -218,7 +218,13 @@ struct SettingsView: View {
             case .advanced:
                 PermissionsLogsTab()
             case .gateway:
-                GatewaySettingsTab()
+                // The App Store build has no phone gateway page; requests for
+                // it are sent to Permissions & Logs before they get here.
+                if AppDistribution.hasPhoneGateway {
+                    GatewaySettingsTab()
+                } else {
+                    PermissionsLogsTab()
+                }
             case .about:
                 AboutTab()
             }
@@ -2025,14 +2031,17 @@ struct AudioSettingsTab: View {
                 )
                 .settingsTarget("other-audio")
 
-                Divider()
+                // Pausing Spotify takes AppleScript, which the App Store build leaves out.
+                if AppDistribution.hasAppleScriptControl {
+                    Divider()
 
-                SettingsToggleRow(
-                    title: "Pause Spotify while dictating",
-                    detail: "Also reaches Spotify Connect on other speakers, which muting can't. Asks for permission the first time.",
-                    isOn: $appState.pauseSpotifyEnabled
-                )
-                .settingsTarget("spotify-pause")
+                    SettingsToggleRow(
+                        title: "Pause Spotify while dictating",
+                        detail: "Also reaches Spotify Connect on other speakers, which muting can't. Asks for permission the first time.",
+                        isOn: $appState.pauseSpotifyEnabled
+                    )
+                    .settingsTarget("spotify-pause")
+                }
             }
         }
         .onAppear {
@@ -2242,8 +2251,11 @@ struct PermissionsLogsTab: View {
 
                     Spacer()
 
-                    Button("Reset All…", role: .destructive, action: resetPermissions)
-                        .help("Clear every permission grant for VocaMac. The app quits and asks again on next launch.")
+                    // Resetting runs tccutil, which the App Store build can't start.
+                    if AppDistribution.canResetPermissions {
+                        Button("Reset All…", role: .destructive, action: resetPermissions)
+                            .help("Clear every permission grant for VocaMac. The app quits and asks again on next launch.")
+                    }
                 }
                 .controlSize(.small)
             } header: {
@@ -2351,7 +2363,11 @@ struct PermissionsLogsTab: View {
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.plainText]
         savePanel.nameFieldStringValue = "VocaMac-Debug-\(ISO8601DateFormatter().string(from: Date()).prefix(19)).log"
-        savePanel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        // In the sandbox the home folder is the app's container, so the App
+        // Store build lets the panel pick its usual starting folder.
+        if !AppDistribution.isAppStore {
+            savePanel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        }
 
         savePanel.begin { response in
             if response == .OK, let fileURL = savePanel.url {

@@ -1,0 +1,194 @@
+/* 404 page only. A 1-bit nod to the Puzzle desk accessory that shipped
+   with the 1984 Macintosh: pure black and white, flat fills, no images. */
+
+.nf-hero { padding: 4.5rem 0 4.5rem; }
+
+.nf-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 3rem;
+  align-items: center;
+}
+
+.nf-copy h1 { max-width: 13ch; font-size: clamp(2.6rem, 6.4vw, 4.6rem); }
+
+.nf-lede {
+  max-width: 46ch;
+  margin-top: 1.2rem;
+  color: var(--muted);
+  font-size: 1.0625rem;
+}
+
+.nf-install { margin-top: 1.3rem; color: var(--muted); }
+
+.nf-install a,
+.nf-xkcd a { color: var(--brand-dark); font-weight: 600; }
+
+.nf-game { justify-self: center; width: min(100%, 22rem); }
+
+/* ---------- Classic window ---------- */
+
+.mac-window {
+  color: #000;
+  background: #fff;
+  border: 2px solid #000;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.mac-titlebar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  border-bottom: 2px solid #000;
+}
+
+/* Six 1px rules on a 2px pitch: the striped title bar of an active window. */
+.mac-titlebar::before {
+  content: "";
+  position: absolute;
+  top: 5px;
+  right: 3px;
+  left: 3px;
+  height: 1px;
+  background: #000;
+  box-shadow: 0 2px 0 #000, 0 4px 0 #000, 0 6px 0 #000, 0 8px 0 #000, 0 10px 0 #000;
+}
+
+.mac-close {
+  position: absolute;
+  top: 4px;
+  left: 10px;
+  width: 13px;
+  height: 13px;
+  background: #fff;
+  border: 1px solid #000;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.mac-title {
+  position: relative;
+  padding: 0 0.45rem;
+  background: #fff;
+  font-family: Chicago, Charcoal, var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* ---------- Board ---------- */
+
+.puzzle-board {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  margin: 6px;
+  aspect-ratio: 1;
+  background: #fff;
+}
+
+.puzzle-board .tile {
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  color: #000;
+  background: #fff;
+  border: 1px solid #000;
+  border-radius: 0;
+  font-family: Chicago, Charcoal, var(--mono);
+  font-size: clamp(1.15rem, 5vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* With JS the tiles are buttons placed by --x/--y so a move can slide. */
+.puzzle-board.is-live { position: relative; display: block; }
+
+.puzzle-board.is-live .tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 25%;
+  height: 25%;
+  cursor: default;
+  transform: translate(calc(var(--x, 0) * 100%), calc(var(--y, 0) * 100%));
+  transition: transform 120ms ease-out;
+}
+
+.puzzle-board.is-live .tile.is-movable { cursor: pointer; }
+
+.puzzle-board .tile.is-movable:hover,
+.puzzle-board .tile.is-movable:active,
+.puzzle-board.is-solved .tile {
+  color: #fff;
+  background: #000;
+}
+
+.puzzle-board .tile:focus-visible { outline-offset: -5px; }
+
+.puzzle-bar {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 1.4rem;
+}
+
+.puzzle-bar[hidden] { display: none; }
+
+.puzzle-moves { color: var(--muted); font-family: var(--mono); font-size: 0.9rem; }
+.puzzle-moves span { color: var(--ink); font-weight: 700; }
+
+.puzzle-shuffle { padding: 0.55rem 1.2rem; }
+
+.puzzle-note {
+  min-height: 3.3em;
+  margin-top: 0.9rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+/* ---------- Nerd corner ---------- */
+
+.nf-nerd {
+  padding: 4rem 0 5rem;
+  background: var(--paper-deep);
+  border-top: 1px solid var(--line);
+}
+
+.nf-nerd h2 { max-width: 24ch; font-size: clamp(1.8rem, 4vw, 2.6rem); }
+
+.nf-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 2rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.nf-facts li {
+  padding: 1.2rem 1.3rem;
+  background: var(--paper-bright);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-paper);
+}
+
+.nf-xkcd { margin-top: 1.6rem; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .nf-hero { padding: 3rem 0 3.5rem; }
+  .nf-grid { grid-template-columns: minmax(0, 1fr); gap: 2.5rem; }
+}
+
+@media (max-width: 640px) {
+  .nf-facts { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .puzzle-board.is-live .tile { transition: none; }
+}

@@ -352,3 +352,34 @@ test("every feature page links onward and is linked from other feature pages", a
   }
   for (const [href, count] of inbound) assert.ok(count >= 1, `${href} is linked from another feature page`);
 });
+
+test("ships a playable 404 page whose assets stay on that page", async () => {
+  const notFound = await readFile(join(outputRoot, "404.html"), "utf8");
+  assert.equal((notFound.match(/<h1\b/g) ?? []).length, 1);
+  assert.match(notFound, /<a class="btn btn-primary" href="\/"/);
+  assert.match(notFound, /href="\/features\/"/);
+  assert.match(notFound, /href="\/#install"/);
+  assert.match(notFound, /<link rel="stylesheet" href="\/404\.css">/);
+  assert.match(notFound, /<script src="\/404\.js" defer><\/script>/);
+  assert.match(notFound, /href="https:\/\/xkcd\.com\/1172\/"/);
+  assert.doesNotMatch(notFound, /<img\b[^>]+xkcd/i);
+
+  const pageScript = await readFile(join(outputRoot, "404.js"), "utf8");
+  const pageStyle = await readFile(join(outputRoot, "404.css"), "utf8");
+  assert.ok(pageScript.length < 10_000, "404.js stays under 10 KB");
+  assert.ok(pageStyle.length < 10_000, "404.css stays under 10 KB");
+  assert.doesNotMatch(pageScript, /fetch\(|XMLHttpRequest|https?:\/\//);
+  for (const token of ["linear-gradient", "radial-gradient", "conic-gradient", "backdrop-filter"]) {
+    assert.doesNotMatch(pageStyle, new RegExp(token, "i"), `unexpected ${token} in 404.css`);
+  }
+  assert.match(pageStyle, /prefers-reduced-motion:\s*reduce/);
+
+  for (const page of pages) {
+    if (page === join(outputRoot, "404.html")) continue;
+    const html = page === join(outputRoot, "index.html") ? index : await readFile(page, "utf8");
+    assert.doesNotMatch(html, /\/404\.(?:js|css)/, `${relative(outputRoot, page)} must not load 404 assets`);
+  }
+
+  const sitemap = await readFile(join(outputRoot, "sitemap.xml"), "utf8");
+  assert.doesNotMatch(sitemap, /404/);
+});

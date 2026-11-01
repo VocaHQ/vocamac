@@ -1967,11 +1967,6 @@ details.source-install summary {
 .gallery > .shot-featured { grid-column: span 8; }
 .gallery > .shot-wide { grid-column: span 8; }
 
-.not-found { padding: 6rem 0; text-align: center; }
-.not-found h1 { font-size: clamp(3rem, 9vw, 5.5rem); }
-.not-found p { margin: 1rem auto 2rem; max-width: 44ch; color: var(--muted); }
-.not-found .hero-actions { justify-content: center; }
-
 /* ---------- Optional reveal enhancement ---------- */
 
 .js-reveal .reveal {

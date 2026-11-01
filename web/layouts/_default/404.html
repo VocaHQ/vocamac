@@ -1,10 +1,52 @@
+{{ define "extra_head" }}
+    <link rel="stylesheet" href="/404.css">
+    <script src="/404.js" defer></script>
+{{ end }}
 {{ define "main" }}
-<section class="not-found" aria-labelledby="page-title">
+<section class="nf-hero" aria-labelledby="page-title">
+    <div class="shell nf-grid">
+        <div class="nf-copy">
+            <p class="section-tag">404 / page not found</p>
+            <h1 id="page-title">This page slid out of place.</h1>
+            <p class="nf-lede">We could not find the page you asked for. The link may be old, or one tile off. Head home, or put the puzzle back in order while you are here.</p>
+            <div class="hero-actions">
+                <a class="btn btn-primary" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a>
+                <a class="btn btn-secondary" href="/features/">Browse features <span class="btn-arrow" aria-hidden="true">→</span></a>
+            </div>
+            <p class="nf-install">Just here for the app? <a href="/#install">Jump to install</a>.</p>
+        </div>
+
+        <div class="nf-game">
+            <div class="mac-window">
+                <div class="mac-titlebar">
+                    <span class="mac-close" aria-hidden="true"></span>
+                    <span class="mac-title" id="puzzle-title">Puzzle</span>
+                </div>
+                <div class="puzzle-board" data-puzzle-board aria-hidden="true">
+                    {{- range seq 15 }}<span class="tile">{{ . }}</span>{{ end -}}
+                </div>
+            </div>
+            <div class="puzzle-bar" data-puzzle-bar hidden>
+                <p class="puzzle-moves">Moves: <span data-puzzle-moves>0</span></p>
+                <button class="btn btn-secondary puzzle-shuffle" type="button" data-puzzle-shuffle>Shuffle</button>
+            </div>
+            <p class="puzzle-note" id="puzzle-note" data-puzzle-note>The 1984 Mac Puzzle, already solved. Turn on JavaScript to scramble it.</p>
+            <p class="sr-only" aria-live="polite" data-puzzle-live></p>
+        </div>
+    </div>
+</section>
+
+<section class="nf-nerd" aria-labelledby="nerd-title">
     <div class="shell">
-        <p class="section-tag">404 / not here</p>
-        <h1 id="page-title">That page wandered off.</h1>
-        <p>Try the VocaMac home page or browse the feature notes.</p>
-        <div class="hero-actions"><a class="btn btn-primary" href="/"><span class="btn-arrow btn-arrow-back" aria-hidden="true">←</span> Back to VocaMac</a><a class="btn btn-secondary" href="/features/">Browse features <span class="btn-arrow" aria-hidden="true">→</span></a></div>
+        <p class="section-tag">Nerd corner</p>
+        <h2 id="nerd-title">While you are lost, some trivia.</h2>
+        <ul class="nf-facts">
+            <li>The original Macintosh shipped in 1984 with 128 KB of RAM. Its Puzzle desk accessory is the sliding 15-tile game above.</li>
+            <li>HTTP 404 Not Found was defined in the HTTP/1.0 spec, RFC 1945, published in 1996.</li>
+            <li>When a classic Mac failed its startup hardware test, it showed a Sad Mac icon instead of the Happy Mac.</li>
+            <li>Try holding Right Option and saying the URL again. VocaMac transcribes on your Mac, so at least the typo will be yours.</li>
+        </ul>
+        <p class="nf-xkcd">Was this broken link part of your workflow? Someone saw that coming: <a href="https://xkcd.com/1172/">Workflow</a>, xkcd by Randall Munroe.</p>
     </div>
 </section>
 {{ end }}

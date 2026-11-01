@@ -414,6 +414,40 @@ final class SilentModeTests: XCTestCase {
 
     // MARK: Camera
 
+    /// Crops are smoothed over neighbouring frames: after a camera switch
+    /// the new camera's crops are built from its frames alone.
+    func testACameraSwitchDoesntMixTheTwoCamerasCrops() async throws {
+        let (state, _) = AppState.makeTestState()
+        let controller = state.silentMode
+        controller.beginDictation(readsLips: true)
+        await controller.begin(.dictation)
+        let (before, _) = try MouthCropTests.face(shift: .zero)
+        // The second camera frames the face larger.
+        let (after, _) = try MouthCropTests.face(shift: CGPoint(x: 20, y: 10), scale: 1.5)
+        func frames(_ patch: MouthPatch, from start: TimeInterval) -> [LipFrame] {
+            LipFrameFactory.speaking(from: start, seconds: 0.4).map { frame in
+                var frame = frame
+                frame.mouth = patch
+                return frame
+            }
+        }
+        let first = frames(before, from: 100), second = frames(after, from: 100.4)
+        first.forEach(controller.ingest)
+        await controller.useCamera("external")
+        second.forEach(controller.ingest)
+        let crops = controller.finishDictationCapture().crops
+
+        func alone(_ frames: [LipFrame]) -> [MouthCrop] {
+            var builder = MouthCropBuilder()
+            var crops: [MouthCrop] = []
+            for frame in frames {
+                if let patch = frame.mouth { crops += builder.ingest(time: frame.time, patch: patch) }
+            }
+            return crops + builder.finish()
+        }
+        XCTAssertEqual(crops, alone(first) + alone(second))
+    }
+
     func testChoosingAnotherCameraMovesARunningCamera() async {
         let (state, mocks) = AppState.makeTestState()
         await state.silentMode.begin(.preview)

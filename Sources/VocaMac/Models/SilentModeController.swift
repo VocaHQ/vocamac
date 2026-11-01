@@ -89,6 +89,9 @@ final class SilentModeController: ObservableObject {
     /// stop doesn't mark the camera as running.
     private var cameraGeneration = 0
     private var lastSpeaking: TimeInterval?
+    /// A camera switch is under way: frames still in flight from the old
+    /// camera, or early ones from the new, are dropped.
+    private var isSwitchingCamera = false
     private var stillNotified = false
 
     init(camera: CameraLipTracking) {
@@ -170,6 +173,11 @@ final class SilentModeController: ObservableObject {
         guard !clients.isEmpty else { return }
         cameraGeneration += 1
         let generation = cameraGeneration
+        // Crop smoothing averages face points over neighbouring frames, so
+        // two cameras' framings must not meet in one window.
+        finishPendingCrops()
+        isSwitchingCamera = true
+        defer { if generation == cameraGeneration { isSwitchingCamera = false } }
         meter = ArticulationMeter(sensitivity: sensitivity)
         live.outline = nil
         live.level = 0
@@ -192,9 +200,17 @@ final class SilentModeController: ObservableObject {
         }
     }
 
+    /// Finish the crops waiting on later frames and start a fresh builder.
+    private func finishPendingCrops() {
+        let pending = cropBuilder.finish()
+        if dictationCrops != nil { dictationCrops?.append(contentsOf: pending) }
+        cropBuilder = MouthCropBuilder()
+    }
+
     /// `client` is done with the camera; the last one turns it off.
     func end(_ client: Client) {
         if client == .preview { previewShowsCrops = false }
+        if clients.count == 1, clients.contains(client) { isSwitchingCamera = false }
         syncMouthCapture()
         guard clients.remove(client) != nil, clients.isEmpty else { return }
         cameraGeneration += 1
@@ -275,7 +291,7 @@ final class SilentModeController: ObservableObject {
 
     /// One frame from the camera. Internal so tests can feed frames.
     func ingest(_ frame: LipFrame) {
-        guard !clients.isEmpty else { return }
+        guard !clients.isEmpty, !isSwitchingCamera else { return }
         // Frames are kept without their patch: only the crops need it.
         var outline = frame
         outline.mouth = nil

@@ -73,11 +73,14 @@ final class MouthCropTests: XCTestCase {
     }
 
     /// A grayscale picture with a 7×7 bright spot at the mouth, and its patch.
-    static func face(shift: CGPoint) throws -> (MouthPatch, MouthKeypoints) {
+    /// A face moved by `shift` and sized by `scale` (about its middle).
+    static func face(shift: CGPoint, scale: Double = 1) throws -> (MouthPatch, MouthKeypoints) {
         let width = 640, height = 480
+        func point(_ x: Double, _ y: Double) -> CGPoint {
+            CGPoint(x: 320 + (x - 320) * scale + shift.x, y: 250 + (y - 250) * scale + shift.y)
+        }
         let keypoints = MouthKeypoints(
-            rightEye: CGPoint(x: 280 + shift.x, y: 200 + shift.y), leftEye: CGPoint(x: 360 + shift.x, y: 199 + shift.y),
-            nose: CGPoint(x: 320 + shift.x, y: 262 + shift.y), mouth: CGPoint(x: 320 + shift.x, y: 294 + shift.y)
+            rightEye: point(280, 200), leftEye: point(360, 199), nose: point(320, 262), mouth: point(320, 294)
         )
         var image = [UInt8](repeating: 40, count: width * height)
         let mx = Int(keypoints.mouth.x), my = Int(keypoints.mouth.y)

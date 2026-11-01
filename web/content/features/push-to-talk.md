@@ -72,7 +72,7 @@ VocaMac injects text at your cursor position using macOS accessibility APIs. The
 
 VocaMac also offers a **Double-Tap Toggle** mode as an alternative. Here's how they compare:
 
-| | Push-to-Talk | Double-Tap Toggle |
+| Behavior | Push-to-Talk | Double-Tap Toggle |
 |---|---|---|
 | **Activate** | Hold key | Double-tap key |
 | **Deactivate** | Release key | Double-tap again |

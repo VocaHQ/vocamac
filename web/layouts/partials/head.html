@@ -12,7 +12,8 @@
 
     <title>{{ $title }}</title>
     <meta name="description" content="{{ $description }}">
-    {{ with .Params.keywords }}<meta name="keywords" content="{{ . }}">{{ end }}
+    {{- /* No meta keywords: search engines ignore it, Hugo printed the list as "[a,b]", and the
+       minifier turns spaces inside each phrase into commas. Front-matter keywords stay as notes. */}}
     <meta name="author" content="{{ site.Params.author }}">
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="{{ .Permalink }}">
@@ -63,6 +64,16 @@
       "author": { "@type": "Person", "name": {{ site.Params.author | jsonify | safeJS }} }
     }
     </script>
+    {{- /* Google reads the site name shown in results from WebSite markup on the home page. */}}
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "VocaMac",
+      "alternateName": "Voca Mac",
+      "url": {{ site.BaseURL | jsonify | safeJS }}
+    }
+    </script>
 {{- else if .IsPage }}
     <script type="application/ld+json">
     {
@@ -73,6 +84,21 @@
       "url": {{ .Permalink | jsonify | safeJS }},
       "isPartOf": { "@type": "WebSite", "name": "VocaMac", "url": {{ site.BaseURL | jsonify | safeJS }} },
       "author": { "@type": "Person", "name": {{ site.Params.author | jsonify | safeJS }} }
+    }
+    </script>
+{{- end }}
+{{- /* Breadcrumbs follow the section tree the back links already show: VocaMac → Features → page. */}}
+{{- if and (not .IsHome) (ne .Kind "404") }}
+{{- $crumbs := slice (dict "name" "VocaMac" "url" site.Home.Permalink) -}}
+{{- with .Parent }}{{ if not .IsHome }}{{ $crumbs = $crumbs | append (dict "name" .Title "url" .Permalink) }}{{ end }}{{ end -}}
+{{- $crumbs = $crumbs | append (dict "name" .Title "url" .Permalink) }}
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BreadcrumbList",
+      "itemListElement": [{{ range $i, $c := $crumbs }}{{ if $i }},{{ end }}
+        { "@type": "ListItem", "position": {{ add $i 1 }}, "name": {{ $c.name | jsonify | safeJS }}, "item": {{ $c.url | jsonify | safeJS }} }{{ end }}
+      ]
     }
     </script>
 {{- end }}

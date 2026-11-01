@@ -2279,7 +2279,8 @@ details.source-install summary {
 
 .btn-weight {
   margin-left: 0.15rem;
-  opacity: 0.72;
+  /* 0.72 measured 4.1:1 on --brand; 0.86 keeps the label muted above 4.5:1. */
+  opacity: 0.86;
   font-family: var(--mono);
   font-size: 0.76rem;
   font-weight: 500;

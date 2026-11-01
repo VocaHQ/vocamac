@@ -973,6 +973,8 @@ final class AppState: ObservableObject {
     /// Hold the Silent Mode shortcut at least this long and letting go types;
     /// a quicker press waits for a second press.
     var silentModeHoldThreshold: TimeInterval = 0.35
+    /// The pause between showing a recognised silent command and running it.
+    var silentCommandPause: Duration = .milliseconds(600)
     /// The camera, the lip frames, and what the overlay draws.
     let silentMode: SilentModeController
     /// Presses keys for mouthed commands.
@@ -3043,24 +3045,31 @@ final class AppState: ObservableObject {
         // Silent Mode: decode only where the lips moved, run a mouthed
         // command, or, if the lips never moved, type nothing.
         var speechRanges: [Range<Int>]?
-        var lipReading: (crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>], lowMotion: Bool)?
+        var lipReading: (crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>], unseenSpeech: [Range<Int>])?
         if let silentFrames {
             let crops = silentCapture?.crops ?? []
-            let decision = silentDecision(
-                frames: silentFrames, audioEnd: stopRequested, sampleCount: audioData.count,
-                readsLips: readsLips && !crops.isEmpty
-            )
+            let decision = silentDecision(frames: silentFrames, audioEnd: stopRequested, audio: audioData)
             switch decision.outcome {
             case .command(let command):
                 resetCommandModeState()
                 liveTranscript = ""
-                appStatus = .idle
-                await runSilentCommand(command)
+                // Busy until the keys are pressed: Escape drops the command,
+                // and another press waits its turn instead of racing it.
+                activeHistoryEntryID = nil
+                appStatus = .processing
+                isTranscribing = true
+                await runSilentCommand(command) { [weak self] in
+                    self?.recordingGeneration == generation && self?.isRecording == false
+                }
+                if generation == recordingGeneration {
+                    isTranscribing = false
+                    appStatus = .idle
+                }
                 return
             case .decode(let ranges):
                 speechRanges = ranges
                 if readsLips, !crops.isEmpty {
-                    lipReading = (crops, decision.speaking, decision.lowMotion)
+                    lipReading = (crops, decision.speaking, decision.unseenSpeech)
                 }
             case .nothingSaid:
                 resetCommandModeState()
@@ -3167,11 +3176,18 @@ final class AppState: ObservableObject {
             // near-silent audio instead would invent text. Only a lip reader
             // that couldn't run (nil) falls back to the audio.
             var lipText: String?
-            if let lipReading {
-                lipText = await readLips(lipReading.crops, speaking: lipReading.speaking)
-                if lipReading.lowMotion, let text = lipText, text.split(separator: " ").count <= 1 {
-                    lipText = ""
+            if let lipReading, var pieces = await readLips(lipReading.crops, speaking: lipReading.speaking) {
+                // Words said aloud where the camera couldn't see are decoded
+                // from the audio and kept in their place.
+                let audioStart = stopRequested - Double(audioData.count) / 16_000
+                for range in lipReading.unseenSpeech {
+                    let heard = try await whisperService.transcribe(
+                        audioData: audioData, language: language, translate: false,
+                        vocabulary: recognitionVocabulary, keeping: [range]
+                    )
+                    pieces.append(SilentTextPiece(start: audioStart + Double(range.lowerBound) / 16_000, text: heard.text))
                 }
+                lipText = SilentTextPiece.joined(pieces)
             }
             if let lipText {
                 session?.cancel()

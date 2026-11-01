@@ -111,9 +111,39 @@ final class LipReadingWindowTests: XCTestCase {
         let joined = LipReadingWindow.chunks([0...2, 3...5, 6...8])
         XCTAssertEqual(joined, [0...8])
         let long = LipReadingWindow.chunks([0...70])
-        XCTAssertEqual(long.count, 3)
-        XCTAssertTrue(long.allSatisfy { $0.upperBound - $0.lowerBound <= 30 })
+        XCTAssertEqual(long.count, 5)
+        XCTAssertTrue(long.allSatisfy { $0.upperBound - $0.lowerBound <= LipReadingWindow.longestRead })
+        XCTAssertEqual(long.first?.lowerBound, 0)
         XCTAssertEqual(long.last?.upperBound, 70)
+    }
+
+    private func crops(seconds: Double) throws -> [MouthCrop] {
+        let (patch, _) = try MouthCropTests.face(shift: .zero)
+        var builder = MouthCropBuilder()
+        var crops: [MouthCrop] = []
+        for index in 0..<Int(seconds * 25) {
+            crops += builder.ingest(time: Double(index) / 25, patch: patch)
+        }
+        return crops + builder.finish()
+    }
+
+    /// A window with more words than the decoder writes is read again as
+    /// two halves, in order.
+    func testAWindowThatRunsOutOfRoomIsReadInHalves() async throws {
+        let reader = MockLipReader()
+        reader.longestComplete = 100
+        let crops = try crops(seconds: 9)
+        let pieces = try await LipReadingWindow.read(0...8, available: 0...8.96, from: crops, with: reader)
+        XCTAssertEqual(reader.readLengths, [200, 100, 100])
+        XCTAssertEqual(pieces.map(\.start), [0, 4])
+        XCTAssertEqual(SilentTextPiece.joined(pieces), "hello how are you hello how are you")
+    }
+
+    func testPastTheLastSplitThePartialTextIsKept() async throws {
+        let reader = MockLipReader()
+        reader.longestComplete = 10
+        let pieces = try await LipReadingWindow.read(0...8, available: 0...8.96, from: try crops(seconds: 9), with: reader, splits: 1)
+        XCTAssertEqual(pieces.map(\.text), ["partial", "partial"])
     }
 
     func testAWindowIsAModelLengthAndStaysOnRecordedFrames() {
@@ -244,27 +274,10 @@ final class SilentLipReadingTests: XCTestCase {
         XCTAssertEqual(mocks.cursorOverlay.failureMessages.last, "Didn't catch that.")
     }
 
-    func testSubtleMouthingIsStillRead() async throws {
+    /// Still lips type nothing in Mouth mode too: the lip reader isn't
+    /// asked to find words in a still face.
+    func testStillLipsAreNotRead() async throws {
         let (state, mocks) = silentState(installed: true)
-        let (patch, _) = try MouthCropTests.face(shift: .zero)
-        await state.handleShortcut(.silentMode)
-        await waitUntil { state.silentMode.isCameraRequested && mocks.lipTracker.startCount > 0 }
-        // Lips the movement check calls still, but in view.
-        let start = ProcessInfo.processInfo.systemUptime - 3
-        for var frame in LipFrameFactory.still(from: start, seconds: 3) {
-            frame.mouth = patch
-            state.silentMode.ingest(frame)
-        }
-        await state.handleShortcutReleased(.silentMode)
-        await waitUntil { mocks.textInjector.injectCallCount == 1 }
-
-        XCTAssertEqual(mocks.lipReader.readLengths.count, 1)
-        XCTAssertEqual(mocks.textInjector.lastInjectedText?.lowercased().contains("hello how are you"), true)
-    }
-
-    func testALoneWordFromStillLipsIsDropped() async throws {
-        let (state, mocks) = silentState(installed: true)
-        mocks.lipReader.text = "people"
         let (patch, _) = try MouthCropTests.face(shift: .zero)
         await state.handleShortcut(.silentMode)
         await waitUntil { state.silentMode.isCameraRequested && mocks.lipTracker.startCount > 0 }
@@ -275,7 +288,44 @@ final class SilentLipReadingTests: XCTestCase {
         }
         await state.handleShortcutReleased(.silentMode)
         await waitUntil { !mocks.cursorOverlay.failureMessages.isEmpty }
+
+        XCTAssertTrue(mocks.lipReader.readLengths.isEmpty)
+        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
+        XCTAssertEqual(mocks.cursorOverlay.failureMessages.last, "Silent Mode didn't see your lips move.")
+    }
+
+    /// Words said aloud before the camera came up are decoded from the
+    /// audio and typed ahead of what the lips said after.
+    func testWordsSaidBeforeTheCameraCameUpAreKept() async throws {
+        let (state, mocks) = silentState(installed: true)
+        // One second of speech, then two of mouthing.
+        mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.2, count: 16_000) + [Float](repeating: 0.001, count: 32_000)
+        let (patch, _) = try MouthCropTests.face(shift: .zero)
+        try await record(state, mocks) {
+            let start = ProcessInfo.processInfo.systemUptime - 2
+            let frames = LipFrameFactory.speaking(from: start, seconds: 1) + LipFrameFactory.still(from: start + 1, seconds: 1)
+            for var frame in frames {
+                frame.mouth = patch
+                state.silentMode.ingest(frame)
+            }
+        }
+
+        let heard = try XCTUnwrap(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertEqual(Double(heard.count) / 16_000, 1, accuracy: 0.15, "Only the unseen second is decoded")
+        XCTAssertEqual(mocks.lipReader.readLengths.count, 1)
+        XCTAssertEqual(mocks.textInjector.lastInjectedText?.lowercased().contains("from the whisper hello how are you"), true)
+    }
+
+    /// A cancelled Mouth recording still lets the model go after a while.
+    func testCancellingStartsTheIdleUnload() async {
+        let (state, mocks) = silentState(installed: true)
+        await state.handleShortcut(.silentMode)
+        await waitUntil { mocks.lipReader.prepareCount > 0 }
+        XCTAssertNil(state.lipReaderIdleUnload)
+        await state.cancelRecording()
+        XCTAssertNotNil(state.lipReaderIdleUnload)
+        XCTAssertEqual(state.lipReaderIdleUnload?.isCancelled, false)
     }
 
     func testTheModelLoadsWhenASilentRecordingStarts() async {

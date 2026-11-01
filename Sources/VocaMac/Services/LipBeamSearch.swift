@@ -48,19 +48,36 @@ enum LipBeamSearch {
         var ctc: PrefixState
     }
 
+    /// The best token sequence and whether it was cut off.
+    struct Result: Equatable {
+        /// Start token excluded, end token dropped.
+        var tokens: [Int]
+        /// The decoder's length ran out while an unfinished sentence still
+        /// scored best: words after `tokens` were lost.
+        var isTruncated: Bool
+    }
+
     /// The best token sequence (start token excluded, end token dropped).
+    static func decode(
+        ctc: CTCScores, configuration: Configuration = Configuration(),
+        step: ([[Int]], Int) throws -> [[Float]]
+    ) rethrows -> [Int] {
+        try search(ctc: ctc, configuration: configuration, step: step).tokens
+    }
+
+    /// The best token sequence, and whether the decoder's length cut it off.
     ///
     /// - Parameters:
     ///   - ctc: The CTC head's log-probabilities; token 0 is the blank and the
     ///     last token is both the start and the end of a sentence.
     ///   - step: The decoder: for `beamWidth` prefixes (padded), their log-
     ///     probabilities for the next token after `position`.
-    static func decode(
+    static func search(
         ctc: CTCScores, configuration: Configuration = Configuration(),
         step: ([[Int]], Int) throws -> [[Float]]
-    ) rethrows -> [Int] {
+    ) rethrows -> Result {
         let end = ctc.vocabulary - 1
-        guard ctc.frames > 0 else { return [] }
+        guard ctc.frames > 0 else { return Result(tokens: [], isTruncated: false) }
         var initialBlank = [Float](repeating: 0, count: ctc.frames)
         var running: Float = 0
         for frame in 0..<ctc.frames {
@@ -73,8 +90,12 @@ enum LipBeamSearch {
         )]
         var ended: [(tokens: [Int], score: Float)] = []
         let decoderWeight = 1 - configuration.ctcWeight
+        // CTC emits at most one token a frame, so a prefix as long as the
+        // clip is complete; only the decoder's own limit can cut one short.
+        let steps = min(ctc.frames, configuration.maximumLength - 1)
+        var finishedEarly = false
 
-        for position in 0..<min(ctc.frames, configuration.maximumLength - 1) {
+        for position in 0..<steps {
             var batch = hypotheses.map(\.tokens)
             while batch.count < configuration.beamWidth { batch.append(batch.last ?? [end]) }
             let decoded = try step(Array(batch.prefix(configuration.beamWidth)), position)
@@ -104,11 +125,18 @@ enum LipBeamSearch {
             hypotheses = next
             // Scores only fall as prefixes grow, so once a finished sentence
             // beats every open one, nothing can overtake it.
-            guard let bestOpen = hypotheses.map(\.score).max() else { break }
-            if let bestEnded = ended.map(\.score).max(), bestEnded > bestOpen { break }
+            guard let bestOpen = hypotheses.map(\.score).max() else {
+                finishedEarly = true
+                break
+            }
+            if let bestEnded = ended.map(\.score).max(), bestEnded > bestOpen {
+                finishedEarly = true
+                break
+            }
         }
         let best = ended.max { $0.score < $1.score }?.tokens ?? hypotheses.first?.tokens ?? []
-        return best.dropFirst().filter { $0 != end }
+        let isTruncated = !finishedEarly && !hypotheses.isEmpty && steps < ctc.frames
+        return Result(tokens: best.dropFirst().filter { $0 != end }, isTruncated: isTruncated)
     }
 
     /// The `count` highest-scoring token ids.

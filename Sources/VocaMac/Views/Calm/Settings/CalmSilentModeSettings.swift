@@ -197,7 +197,7 @@ struct CalmSilentModeSettings: View {
     private var cameraRow: some View {
         CalmRow("Camera to use") {
             CalmDropdown(
-                selection: $appState.silentModeCameraID,
+                selection: cameraBinding,
                 options: [CalmOption("", "Built-in camera")]
                     + appState.silentMode.cameras.map { CalmOption($0.id, $0.name) }
             )
@@ -253,6 +253,18 @@ struct CalmSilentModeSettings: View {
         )
     }
 
+    /// Saves the choice and moves a running camera (the preview, a
+    /// recording) to it at once.
+    private var cameraBinding: Binding<String> {
+        Binding(
+            get: { appState.silentModeCameraID },
+            set: { id in
+                appState.silentModeCameraID = id
+                Task { await appState.silentMode.useCamera(id.isEmpty ? nil : id) }
+            }
+        )
+    }
+
     private var showsVideoBinding: Binding<Bool> {
         Binding(
             get: { appState.silentModeShowsVideo },
@@ -290,6 +302,10 @@ struct CalmSilentPreviewPanel: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .calmPanelBackground()
+        .onChange(of: showsCrop) { _, shows in
+            // Mouth or Whisper chosen, or the model added, while the preview runs.
+            if isPreviewing { appState.silentMode.setPreviewShowsCrops(shows) }
+        }
         .onDisappear(perform: stop)
     }
 

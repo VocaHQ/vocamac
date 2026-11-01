@@ -75,6 +75,26 @@ final class LipBeamSearchTests: XCTestCase {
         XCTAssertTrue(sizes.allSatisfy { $0 == 5 })
     }
 
+    /// A decoder that never ends the sentence runs out of length with words
+    /// left: the result says so, so the window can be read in halves.
+    func testRunningOutOfLengthIsReported() {
+        let frames = ctc([1, 0, 2, 0, 1, 0, 2, 0, 1, 0])
+        let never: ([[Int]], Int) -> [[Float]] = { prefixes, _ in
+            prefixes.map { _ in [log(0.01), log(0.5), log(0.48), log(0.01)] }
+        }
+        let cut = LipBeamSearch.search(ctc: frames, configuration: .init(beamWidth: 4, ctcWeight: 0.3, preBeamWidth: 4, maximumLength: 4), step: never)
+        XCTAssertTrue(cut.isTruncated)
+
+        let ends: ([[Int]], Int) -> [[Float]] = { prefixes, _ in
+            prefixes.map { $0.count > 2 ? [log(0.01), log(0.01), log(0.01), log(0.97)] : [log(0.01), log(0.5), log(0.48), log(0.01)] }
+        }
+        let whole = LipBeamSearch.search(ctc: frames, configuration: .init(beamWidth: 4, ctcWeight: 0.3, preBeamWidth: 4, maximumLength: 8), step: ends)
+        XCTAssertFalse(whole.isTruncated)
+        // As many tokens as frames is complete, not cut off.
+        let short = LipBeamSearch.search(ctc: ctc([1, 0, 2]), configuration: .init(beamWidth: 4, ctcWeight: 0.3, preBeamWidth: 4, maximumLength: 64), step: never)
+        XCTAssertFalse(short.isTruncated)
+    }
+
     func testTopTokensAreTheHighestScores() {
         XCTAssertEqual(LipBeamSearch.topTokens([0.1, 0.9, 0.5, 0.7], count: 2), [1, 3])
         XCTAssertEqual(LipBeamSearch.topTokens([0.1, 0.9], count: 5), [0, 1])

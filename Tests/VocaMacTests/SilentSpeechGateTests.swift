@@ -55,6 +55,28 @@ final class SilentSpeechGateTests: XCTestCase {
         XCTAssertEqual(ranges.first?.lowerBound, 0, "The uncovered start is kept")
     }
 
+    /// A second the camera missed, then still lips: the words of that
+    /// second may be real, so they are kept rather than the whole recording
+    /// called silent.
+    func testStillLipsAfterAnUnseenStretchKeepTheUnseenAudio() throws {
+        let frames = LipFrameFactory.noFace(from: 100, seconds: 1) + LipFrameFactory.still(from: 101, seconds: 2)
+        guard case .speech(let ranges) = decide(frames) else { return XCTFail("Expected the unseen second kept") }
+        let range = try XCTUnwrap(ranges.first)
+        XCTAssertEqual(ranges.count, 1)
+        XCTAssertEqual(range.lowerBound, 0)
+        XCTAssertEqual(Double(range.upperBound) / Double(rate), 1, accuracy: 0.1)
+    }
+
+    func testUnseenIsWhereTheCameraMissedTheLips() throws {
+        let frames = LipFrameFactory.noFace(from: 100, seconds: 1) + LipFrameFactory.speaking(from: 101, seconds: 2)
+        let timeline = ArticulationDetector.timeline(for: frames, sensitivity: 1)
+        let unseen = SilentSpeechGate.unseen(timeline: timeline, audioEnd: audioEnd, sampleCount: sampleCount, sampleRate: rate)
+        XCTAssertEqual(unseen.count, 1)
+        XCTAssertEqual(Double(try XCTUnwrap(unseen.first).count) / Double(rate), 1, accuracy: 0.1)
+        let seen = ArticulationDetector.timeline(for: LipFrameFactory.still(from: 100, seconds: 3), sensitivity: 1)
+        XCTAssertEqual(SilentSpeechGate.unseen(timeline: seen, audioEnd: audioEnd, sampleCount: sampleCount, sampleRate: rate), [])
+    }
+
     func testRangesStayInsideTheRecording() {
         let frames = LipFrameFactory.speaking(from: 99, seconds: 5)
         guard case .speech(let ranges) = decide(frames) else { return XCTFail("Expected speech") }

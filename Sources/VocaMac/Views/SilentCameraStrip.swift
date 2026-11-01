@@ -83,17 +83,21 @@ struct SilentCameraPreview: NSViewRepresentable {
 
     func makeNSView(context: Context) -> PreviewHostView {
         let view = PreviewHostView()
-        view.attach(live.makePreviewLayer?())
+        view.attach(live.makePreviewLayer?(), session: live.cameraSession)
         return view
     }
 
     func updateNSView(_ view: PreviewHostView, context: Context) {
-        // The camera may have started after the view appeared.
-        if !view.hasPreview, live.phase.isCameraOn { view.attach(live.makePreviewLayer?()) }
+        // The camera may have started after the view appeared, or started
+        // again (another camera chosen) with a new session.
+        guard live.phase.isCameraOn, !view.hasPreview || view.session != live.cameraSession else { return }
+        view.attach(live.makePreviewLayer?(), session: live.cameraSession)
     }
 
     final class PreviewHostView: NSView {
         private var previewLayer: CALayer?
+        /// The camera session the picture belongs to.
+        private(set) var session = 0
         var hasPreview: Bool { previewLayer != nil }
 
         override init(frame: NSRect) {
@@ -105,8 +109,10 @@ struct SilentCameraPreview: NSViewRepresentable {
         @available(*, unavailable)
         required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-        func attach(_ preview: CALayer?) {
-            guard let preview, previewLayer == nil else { return }
+        func attach(_ preview: CALayer?, session: Int) {
+            guard let preview else { return }
+            previewLayer?.removeFromSuperlayer()
+            self.session = session
             if let capture = preview as? AVCaptureVideoPreviewLayer, let connection = capture.connection,
                connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false

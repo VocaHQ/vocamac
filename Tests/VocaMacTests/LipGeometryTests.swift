@@ -37,6 +37,35 @@ final class LipGeometryTests: XCTestCase {
         XCTAssertEqual(level.roundness, tilted.roundness, accuracy: 0.02)
     }
 
+    /// Vision's face box is in fractions of a 4:3 picture: a round mouth in
+    /// pixels must measure round, and a tilt must level out exactly.
+    func testAWideCameraPictureIsMeasuredInPixels() throws {
+        // 640×480: the box is 160×240 pixels.
+        let box = CGRect(x: 0.3, y: 0.2, width: 0.25, height: 0.5)
+        let boxPixels = CGSize(width: box.width * 640, height: box.height * 480)
+        func shape(roll: Double) -> LipShape {
+            func mouth(_ radiusX: Double, _ radiusY: Double, count: Int) -> [CGPoint] {
+                (0..<count).map { index in
+                    let angle = 2 * Double.pi * Double(index) / Double(count)
+                    let x = radiusX * cos(angle), y = radiusY * sin(angle)
+                    // Rotated in pixels, then into the box's unit square.
+                    let px = 80 + x * cos(roll) - y * sin(roll), py = 60 + x * sin(roll) + y * cos(roll)
+                    return CGPoint(x: px / Double(boxPixels.width), y: py / Double(boxPixels.height))
+                }
+            }
+            return LipShape(
+                outer: mouth(40, 14, count: 12), inner: mouth(28, 6, count: 8),
+                roll: roll, yaw: 0, faceBox: box, imageAspect: 480.0 / 640
+            )
+        }
+        let level = try XCTUnwrap(LipFeatures(shape(roll: 0)))
+        let tilted = try XCTUnwrap(LipFeatures(shape(roll: 0.3)))
+        XCTAssertEqual(level.roundness, 14.0 / 40, accuracy: 0.01)
+        XCTAssertEqual(level.openness, 12.0 / 80, accuracy: 0.01)
+        XCTAssertEqual(tilted.roundness, level.roundness, accuracy: 0.01)
+        XCTAssertEqual(tilted.openness, level.openness, accuracy: 0.01)
+    }
+
     func testTheContourIsTheSameWhicheverWayTheTrackerListsIt() {
         let points = LipFrameFactory.ellipse(centre: CGPoint(x: 0.5, y: 0.5), radiusX: 0.2, radiusY: 0.1, count: 12)
         let forward = LipGeometry.resampledLoop(points, count: 8)

@@ -16,6 +16,9 @@ import QuartzCore
 @MainActor
 final class SilentLiveState: ObservableObject {
     @Published var phase: SilentTrackingPhase = .off
+    /// Bumped each time the camera starts, so a picture of the previous
+    /// session is replaced.
+    @Published var cameraSession = 0
     /// Lip movement against the speaking threshold, 0…1.
     @Published var level: Double = 0
     /// The lips in the latest frame with a face.
@@ -147,8 +150,39 @@ final class SilentModeController: ObservableObject {
             guard generation == cameraGeneration else { return }
             if clients.isEmpty {
                 camera.stop()
-            } else if live.phase == .starting {
-                live.phase = .searching
+            } else {
+                live.cameraSession += 1
+                if live.phase == .starting { live.phase = .searching }
+            }
+        } catch {
+            guard generation == cameraGeneration else { return }
+            let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            VocaLogger.warning(.silentMode, "Camera unavailable: \(message)")
+            live.phase = .unavailable(message)
+        }
+    }
+
+    /// Use the camera with `id` (nil for the built-in one), moving a
+    /// running camera to it now rather than at its next start.
+    func useCamera(_ id: String?) async {
+        guard id != cameraID else { return }
+        cameraID = id
+        guard !clients.isEmpty else { return }
+        cameraGeneration += 1
+        let generation = cameraGeneration
+        meter = ArticulationMeter(sensitivity: sensitivity)
+        live.outline = nil
+        live.level = 0
+        live.mouthCrop = nil
+        live.phase = .starting
+        do {
+            try await camera.start(cameraID: id)
+            guard generation == cameraGeneration else { return }
+            if clients.isEmpty {
+                camera.stop()
+            } else {
+                live.cameraSession += 1
+                if live.phase == .starting { live.phase = .searching }
             }
         } catch {
             guard generation == cameraGeneration else { return }

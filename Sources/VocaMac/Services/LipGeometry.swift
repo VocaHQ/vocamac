@@ -27,6 +27,9 @@ struct LipShape: Equatable, Sendable {
     var yaw: Double
     /// The face box in the image's unit square.
     var faceBox: CGRect
+    /// The image's height over its width (0.75 for 640×480). The unit
+    /// square is stretched by it, so it is needed to make x and y comparable.
+    var imageAspect: Double = 1
 
     /// A face turned this far from the camera is not talking to the Mac
     /// (a colleague, a second display), and its lips are drawn side-on.
@@ -121,8 +124,11 @@ struct LipFeatures: Equatable, Sendable {
         guard shape.outer.count >= 3, shape.inner.count >= 2 else { return nil }
         let centre = LipGeometry.centroid(shape.outer)
         // Vision's points are in the face box's unit square, which is not
-        // square in pixels; the box's aspect makes x and y comparable.
-        let aspect = shape.faceBox.width > 0 ? Double(shape.faceBox.height / shape.faceBox.width) : 1
+        // square in pixels: the box is measured in fractions of an image
+        // that is itself wider than tall. Both together make x and y
+        // comparable, so levelling by the roll removes head tilt.
+        let aspect = shape.faceBox.width > 0
+            ? Double(shape.faceBox.height / shape.faceBox.width) * shape.imageAspect : 1
         func level(_ point: CGPoint) -> CGPoint {
             let x = Double(point.x - centre.x)
             let y = Double(point.y - centre.y) * aspect

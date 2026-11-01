@@ -280,7 +280,7 @@ final class LipFrameProcessor {
             VocaLogger.debug(.silentMode, "Face landmarks failed: \(error.localizedDescription)")
         }
         let face = (request.results ?? []).max { $0.boundingBox.width < $1.boundingBox.width }
-        let shape = face.flatMap(Self.lipShape)
+        let shape = face.flatMap { Self.lipShape($0, imageSize: size) }
         var frame = LipFrame(time: time, shape: shape, imageSize: size)
         if capturesMouth, shape?.isUsable == true, let face, let keypoints = Self.keypoints(face, imageSize: size) {
             frame.mouth = Self.mouthPatch(pixelBuffer, keypoints: keypoints)
@@ -329,7 +329,7 @@ final class LipFrameProcessor {
         return MouthPatch(keypoints: keypoints, transform: transform, pixels: pixels)
     }
 
-    private static func lipShape(_ face: VNFaceObservation) -> LipShape? {
+    private static func lipShape(_ face: VNFaceObservation, imageSize: CGSize) -> LipShape? {
         guard let landmarks = face.landmarks,
               let outer = landmarks.outerLips?.normalizedPoints, outer.count >= 4,
               let inner = landmarks.innerLips?.normalizedPoints, inner.count >= 2 else { return nil }
@@ -337,7 +337,8 @@ final class LipFrameProcessor {
             outer: outer, inner: inner,
             roll: face.roll?.doubleValue ?? 0,
             yaw: face.yaw?.doubleValue ?? 0,
-            faceBox: face.boundingBox
+            faceBox: face.boundingBox,
+            imageAspect: imageSize.width > 0 ? Double(imageSize.height / imageSize.width) : 1
         )
     }
 }

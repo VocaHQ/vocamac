@@ -37,14 +37,18 @@ extension LipReading {
     func modelLength(for frames: Int) -> Int { LipReadingWindow.modelLength(for: frames) }
 }
 
-enum LipReadingError: LocalizedError {
+enum LipReadingError: LocalizedError, Equatable {
     case notInstalled
     case modelFailed(String)
+    /// The window held more words than the decoder writes in one go;
+    /// `partial` is what it wrote. Read shorter windows instead.
+    case outputTooLong(partial: String)
 
     var errorDescription: String? {
         switch self {
         case .notInstalled: return "The lip-reading model isn't installed. See Settings › Silent Mode."
         case .modelFailed(let detail): return "Lip reading failed: \(detail)"
+        case .outputTooLong: return "Lip reading ran out of room for the words in one window."
         }
     }
 }
@@ -67,16 +71,23 @@ enum LipReadingWindow {
         lengths.first { $0 >= frames } ?? lengths.last ?? frames
     }
 
+    /// The longest stretch read at once, in seconds. The decoder writes at
+    /// most 63 word pieces a read; at a brisk 3 words a second (about 4
+    /// pieces) this leaves room, and `read` splits a window that overflows.
+    static let longestRead: TimeInterval = 15
+
     /// Stretches of speech, joined while they fit in one read and split
-    /// when one alone is too long. Seconds on the frames' clock.
+    /// evenly when one alone is too long. Seconds on the frames' clock.
     static func chunks(_ speaking: [ClosedRange<TimeInterval>]) -> [ClosedRange<TimeInterval>] {
-        let longest = Double(maximumFrames) / fps - 0.4
+        let longest = min(longestRead, Double(maximumFrames) / fps - 0.4)
         var result: [ClosedRange<TimeInterval>] = []
         for span in ArticulationDetector.merged(speaking) {
+            let parts = max(1, Int(((span.upperBound - span.lowerBound) / longest).rounded(.up)))
+            let step = (span.upperBound - span.lowerBound) / Double(parts)
             var start = span.lowerBound
-            while span.upperBound - start > longest {
-                result.append(start...(start + longest))
-                start += longest
+            for _ in 1..<parts {
+                result.append(start...(start + step))
+                start += step
             }
             let piece = start...span.upperBound
             if let last = result.last, piece.upperBound - last.lowerBound <= longest {
@@ -102,6 +113,29 @@ enum LipReadingWindow {
         if start + duration > available.upperBound { start = available.upperBound - duration }
         if start < available.lowerBound { start = available.lowerBound }
         return (0..<length).map { start + Double($0) / fps }
+    }
+
+    /// Read `span` of `crops` (in time order, covering `available`). A
+    /// window the decoder ran out of room in is read again as two halves,
+    /// up to `splits` times; past that, its partial text is kept.
+    static func read(
+        _ span: ClosedRange<TimeInterval>, available: ClosedRange<TimeInterval>,
+        from crops: [MouthCrop], with reader: any LipReading, splits: Int = 2
+    ) async throws -> [SilentTextPiece] {
+        let times = frameTimes(for: span, available: available) { reader.modelLength(for: $0) }
+        do {
+            let text = try await reader.read(Self.crops(at: times, from: crops))
+            return text.isEmpty ? [] : [SilentTextPiece(start: span.lowerBound, text: text)]
+        } catch LipReadingError.outputTooLong(let partial) {
+            let middle = (span.lowerBound + span.upperBound) / 2
+            guard splits > 0, middle - span.lowerBound >= Double(minimumFrames) / fps else {
+                VocaLogger.warning(.silentMode, "Lip reading ran out of room in a window it can't split; keeping what it read")
+                return partial.isEmpty ? [] : [SilentTextPiece(start: span.lowerBound, text: partial)]
+            }
+            VocaLogger.info(.silentMode, "Lip reading ran out of room; reading the window as two halves")
+            return try await read(span.lowerBound...middle, available: available, from: crops, with: reader, splits: splits - 1)
+                + read(middle...span.upperBound, available: available, from: crops, with: reader, splits: splits - 1)
+        }
     }
 
     /// The crop nearest each time. `crops` must be in time order.
@@ -189,8 +223,8 @@ enum CTCGreedyDecoder {
 
 // MARK: - Core ML
 
-/// `@unchecked Sendable`: the loaded models, tokens and lengths are guarded
-/// by `lock`; predictions run one at a time on `queue`.
+/// `@unchecked Sendable`: the loaded models, the load under way and its
+/// generation are guarded by `lock`; predictions run one at a time on `queue`.
 final class CoreMLLipReader: LipReading, @unchecked Sendable {
     static let encoderName = "LipReader"
     static let decoderName = "LipDecoder"
@@ -208,6 +242,12 @@ final class CoreMLLipReader: LipReading, @unchecked Sendable {
     private let lock = NSLock()
     private let queue = DispatchQueue(label: "com.vocamac.lipreading", qos: .userInitiated)
     private var loaded: LoadedModels?
+    /// The one load under way: `prepare` and a first `read` share it, so the
+    /// package is compiled, and its folder replaced, once.
+    private var loading: LoadTask?
+    private typealias LoadTask = Task<UncheckedSendableBox<LoadedModels>, Error>
+    /// Bumped by `unload`, so a load that finishes after it isn't kept.
+    private var generation = 0
 
     /// The encoder, the decoder when installed, the tokens, and the lengths
     /// the encoder accepts.
@@ -276,12 +316,16 @@ final class CoreMLLipReader: LipReading, @unchecked Sendable {
                         throw LipReadingError.modelFailed("no output")
                     }
                     let ctc = Self.scores(logProbs)
-                    let tokenIDs: [Int]
                     if let decoder = models.decoder, let memory = output.featureValue(for: "encoder_out")?.multiArrayValue {
-                        tokenIDs = try LipBeamSearch.decode(ctc: ctc, configuration: search) { prefixes, position in
+                        let result = try LipBeamSearch.search(ctc: ctc, configuration: search) { prefixes, position in
                             try Self.decoderStep(decoder, prefixes: prefixes, memory: memory, position: position, configuration: search)
                         }
-                        continuation.resume(returning: Self.text(tokenIDs, tokens: models.tokens))
+                        let text = Self.text(result.tokens, tokens: models.tokens)
+                        if result.isTruncated {
+                            continuation.resume(throwing: LipReadingError.outputTooLong(partial: text))
+                        } else {
+                            continuation.resume(returning: text)
+                        }
                     } else {
                         continuation.resume(returning: CTCGreedyDecoder.decode(bestTokens: Self.bestTokens(ctc), tokens: models.tokens))
                     }
@@ -377,7 +421,38 @@ final class CoreMLLipReader: LipReading, @unchecked Sendable {
     // MARK: Loading
 
     private func loadedModels() async throws -> LoadedModels {
-        if let loaded = lock.withLock({ loaded }) { return loaded }
+        enum Next {
+            case ready(LoadedModels)
+            case wait(LoadTask, generation: Int)
+        }
+        let next = lock.withLock { () -> Next in
+            if let loaded { return .ready(loaded) }
+            if let loading { return .wait(loading, generation: generation) }
+            // MLModel isn't Sendable; the box only carries it out of the task.
+            let task = LoadTask { UncheckedSendableBox(try await self.load()) }
+            loading = task
+            return .wait(task, generation: generation)
+        }
+        switch next {
+        case .ready(let models):
+            return models
+        case .wait(let task, let generation):
+            do {
+                let models = try await task.value.value
+                lock.withLock {
+                    guard self.generation == generation, loading == task else { return }
+                    loaded = models
+                    loading = nil
+                }
+                return models
+            } catch {
+                lock.withLock { if loading == task { loading = nil } }
+                throw error
+            }
+        }
+    }
+
+    private func load() async throws -> LoadedModels {
         guard isInstalled, let tokensURL else { throw LipReadingError.notInstalled }
         let started = ProcessInfo.processInfo.systemUptime
         let configuration = MLModelConfiguration()
@@ -390,7 +465,6 @@ final class CoreMLLipReader: LipReading, @unchecked Sendable {
         let shapes = encoder.modelDescription.inputDescriptionsByName["video"]?.multiArrayConstraint?.shapeConstraint.enumeratedShapes ?? []
         let lengths = shapes.compactMap { $0.count == 5 ? $0[2].intValue : nil }.sorted()
         let models = LoadedModels(encoder: encoder, decoder: decoder, tokens: tokens, lengths: lengths.isEmpty ? LipReadingWindow.lengths : lengths)
-        lock.withLock { loaded = models }
         VocaLogger.info(.silentMode, String(
             format: "Lip-reading model loaded in %.1fs (%d tokens, %d lengths, %@)",
             ProcessInfo.processInfo.systemUptime - started, tokens.count, models.lengths.count,
@@ -413,7 +487,11 @@ final class CoreMLLipReader: LipReading, @unchecked Sendable {
 
     /// Drop the loaded models (about 1 GB together).
     func unload() {
-        lock.withLock { loaded = nil }
+        lock.withLock {
+            loaded = nil
+            loading = nil
+            generation += 1
+        }
     }
 
     /// Copy a model folder (LipReader and optionally LipDecoder, as

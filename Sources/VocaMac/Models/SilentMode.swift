@@ -99,10 +99,25 @@ enum SilentCommandAction: Codable, Hashable, Sendable {
 struct LipTake: Codable, Equatable, Sendable {
     var frames: [[Double]]
     var recordedAt: Date
+    /// How the features were measured. Takes measured another way don't
+    /// match today's frames and are dropped when the commands load.
+    var version: Int
 
-    init(frames: [[Double]], recordedAt: Date = Date()) {
+    /// 2: lip points corrected for the camera picture's aspect.
+    static let currentVersion = 2
+
+    init(frames: [[Double]], recordedAt: Date = Date(), version: Int = LipTake.currentVersion) {
         self.frames = frames
         self.recordedAt = recordedAt
+        self.version = version
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        frames = try container.decode([[Double]].self, forKey: .frames)
+        recordedAt = try container.decode(Date.self, forKey: .recordedAt)
+        // Takes saved before versions were measured the first way.
+        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
     }
 }
 
@@ -147,7 +162,17 @@ struct SilentCommandStore: Sendable {
     func load() -> [SilentCommand] {
         guard let fileURL, let data = try? Data(contentsOf: fileURL) else { return [] }
         do {
-            return try JSONDecoder().decode([SilentCommand].self, from: data)
+            var commands = try JSONDecoder().decode([SilentCommand].self, from: data)
+            var dropped = 0
+            for index in commands.indices {
+                let count = commands[index].takes.count
+                commands[index].takes.removeAll { $0.version != LipTake.currentVersion }
+                dropped += count - commands[index].takes.count
+            }
+            if dropped > 0 {
+                VocaLogger.info(.silentMode, "Dropped \(dropped) takes measured an older way; those commands need teaching again")
+            }
+            return commands
         } catch {
             VocaLogger.warning(.silentMode, "Couldn't read the taught silent commands: \(error.localizedDescription)")
             return []

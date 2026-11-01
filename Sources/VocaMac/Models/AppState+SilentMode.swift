@@ -23,12 +23,25 @@ enum SilentOutcome: Equatable {
 /// A silent recording's outcome, and what lip reading should read.
 struct SilentDecision: Equatable {
     var outcome: SilentOutcome
-    /// Where the lips moved; for lips the movement check found still, where
-    /// the face was in view.
+    /// Where the lips moved, on the uptime clock.
     var speaking: [ClosedRange<TimeInterval>]
-    /// The movement check found no speech; a lone word read here is likely
-    /// the lip reader filling silence.
-    var lowMotion = false
+    /// Sample ranges the camera couldn't see that hold speech-level sound:
+    /// words said aloud before it came up or while the face was away.
+    var unseenSpeech: [Range<Int>] = []
+}
+
+/// Part of a silent recording's text, at the time it was said.
+struct SilentTextPiece: Equatable, Sendable {
+    var start: TimeInterval
+    var text: String
+
+    /// The pieces' text in time order.
+    static func joined(_ pieces: [SilentTextPiece]) -> String {
+        pieces.sorted { $0.start < $1.start }
+            .map { $0.text.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+    }
 }
 
 extension AppState {
@@ -96,9 +109,10 @@ extension AppState {
     /// the one a quick press started.
     func handleSilentModePress() async {
         if isCapturingAudio || isLoadingModelForRecording {
-            // Another press while a silent recording runs finishes it. A
-            // dictation started some other way is left alone.
-            guard isSilentSession || isLoadingModelForRecording else { return }
+            // Another press while a silent recording runs, or waits for the
+            // speech model, finishes it. A dictation started some other way
+            // is left alone, loading or not.
+            guard isSilentSession || (isLoadingModelForRecording && isSilentSessionRequested) else { return }
             silentModePressStartedAt = nil
             await stopRecordingAndTranscribe()
             return
@@ -162,6 +176,9 @@ extension AppState {
     func endSilentSession() {
         guard isSilentSession else { return }
         if silentMode.isDictating { _ = silentMode.finishDictationCapture() }
+        // Every exit starts the idle clock (a read resets it): a cancel, a
+        // command or still lips must not leave the model loaded for good.
+        if silentSessionReadsLips { scheduleLipReaderUnload() }
         isSilentSession = false
         silentSessionReadsLips = false
         silentSessionStartedByShortcut = false
@@ -182,42 +199,46 @@ extension AppState {
 
     // MARK: Outcome
 
-    /// Decide what a silent recording becomes, from its lip frames.
+    /// Decide what a silent recording becomes, from its lip frames and audio.
     ///
-    /// - Parameter readsLips: The recording has crops for the lip reader.
-    ///   Subtle mouthing can stay under the movement threshold, so then the
-    ///   lip reader reads what the camera saw rather than nothing being typed.
-    func silentDecision(frames: [LipFrame], audioEnd: TimeInterval, sampleCount: Int, readsLips: Bool = false) -> SilentDecision {
+    /// Still lips type nothing, Mouth mode included: subtle mouthing that
+    /// stays under the movement threshold needs a higher Sensitivity, not a
+    /// lip reader asked to find words in a still face.
+    func silentDecision(frames: [LipFrame], audioEnd: TimeInterval, audio: [Float]) -> SilentDecision {
         let sensitivity = ArticulationSensitivity.clamped(silentModeSensitivity)
         let timeline = ArticulationDetector.timeline(for: frames, sensitivity: sensitivity)
         VocaLogger.info(.silentMode, String(
             format: "Silent recording: %d frames, %.1fs with lips in view, %d stretches of movement; rest %.4f, threshold %.4f, peak %.4f",
             frames.count, timeline.coveredSeconds, timeline.active.count, timeline.floor, timeline.threshold, timeline.peak
         ))
-
+        let unseenSpeech = SilentSpeechGate.unseen(timeline: timeline, audioEnd: audioEnd, sampleCount: audio.count)
+            .filter { IncrementalAudioTranscriber.hasSpeech(Array(audio[$0])) }
         func decision(_ outcome: SilentOutcome) -> SilentDecision {
-            SilentDecision(outcome: outcome, speaking: timeline.speaking)
+            SilentDecision(outcome: outcome, speaking: timeline.speaking, unseenSpeech: unseenSpeech)
         }
-        if let burst = SilentSpeechGate.commandFrames(frames, timeline: timeline),
+
+        let gate = SilentSpeechGate.decide(timeline: timeline, audioEnd: audioEnd, sampleCount: audio.count)
+        if case .notJudged(let reason) = gate {
+            VocaLogger.info(.silentMode, "Decoding as usual: \(reason)")
+            return decision(.asUsual)
+        }
+        // A command replaces the whole recording, so only when the camera
+        // saw enough of it and nothing it missed was said aloud.
+        if unseenSpeech.isEmpty,
+           let burst = SilentSpeechGate.commandFrames(frames, timeline: timeline),
            let command = matchSilentCommand(LipSequence.features(burst)) {
             return decision(.command(command))
         }
 
-        switch SilentSpeechGate.decide(timeline: timeline, audioEnd: audioEnd, sampleCount: sampleCount) {
-        case .speech(let ranges):
+        switch gate {
+        case .speech(let ranges) where !timeline.speaking.isEmpty || !unseenSpeech.isEmpty:
             let kept = ranges.reduce(0) { $0 + $1.count }
-            VocaLogger.info(.silentMode, "Decoding \(kept) of \(sampleCount) samples, where the lips moved or the camera couldn't see")
+            VocaLogger.info(.silentMode, "Decoding \(kept) of \(audio.count) samples, where the lips moved or the camera couldn't see")
             return decision(.decode(ranges))
-        case .noArticulation:
-            if readsLips, !timeline.covered.isEmpty {
-                VocaLogger.info(.silentMode, "Little lip movement; reading the lips anyway")
-                return SilentDecision(outcome: .decode([]), speaking: timeline.covered, lowMotion: true)
-            }
+        case .speech, .noArticulation, .notJudged:
+            // Only what the camera missed is left, and it is quiet.
             VocaLogger.info(.silentMode, "No lip movement in a recording the camera watched; nothing decoded")
             return decision(.nothingSaid)
-        case .notJudged(let reason):
-            VocaLogger.info(.silentMode, "Decoding as usual: \(reason)")
-            return decision(.asUsual)
         }
     }
 
@@ -246,41 +267,34 @@ extension AppState {
 
     /// The words the lips said in `crops`, read stretch by stretch; nil when
     /// the model couldn't run, empty when it read nothing.
-    func readLips(_ crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>]) async -> String? {
+    func readLips(_ crops: [MouthCrop], speaking: [ClosedRange<TimeInterval>]) async -> [SilentTextPiece]? {
+        defer { scheduleLipReaderUnload() }
         guard let first = crops.first?.time, let last = crops.last?.time, first < last else { return nil }
         let available = first...last
         let started = ProcessInfo.processInfo.systemUptime
         // Loaded first (it usually is, from the start of the recording), so
         // the windows use the lengths this model accepts.
         await lipReader.prepare()
-        var texts: [String] = []
-        var frames = 0
+        var pieces: [SilentTextPiece] = []
         for chunk in LipReadingWindow.chunks(speaking) {
             // A little more context either side: a first or last syllable
             // mouthed gently can sit under the movement threshold.
             let lower = max(chunk.lowerBound - Self.lipReadingMargin, available.lowerBound)
             let upper = min(chunk.upperBound + Self.lipReadingMargin, available.upperBound)
             guard lower < upper else { continue }
-            let reader = lipReader
-            let window = LipReadingWindow.crops(
-                at: LipReadingWindow.frameTimes(for: lower...upper, available: available) { reader.modelLength(for: $0) },
-                from: crops
-            )
-            frames += window.count
             do {
-                let text = try await lipReader.read(window)
-                if !text.isEmpty { texts.append(text) }
+                pieces += try await LipReadingWindow.read(lower...upper, available: available, from: crops, with: lipReader)
             } catch {
                 VocaLogger.error(.silentMode, "Lip reading failed: \(error.localizedDescription)")
                 return nil
             }
         }
         VocaLogger.info(.silentMode, String(
-            format: "Read %d frames of lips in %.2fs: %d words",
-            frames, ProcessInfo.processInfo.systemUptime - started, texts.joined(separator: " ").split(separator: " ").count
+            format: "Read the lips in %.2fs: %d pieces, %d words",
+            ProcessInfo.processInfo.systemUptime - started, pieces.count,
+            SilentTextPiece.joined(pieces).split(separator: " ").count
         ))
-        scheduleLipReaderUnload()
-        return texts.joined(separator: " ")
+        return pieces
     }
 
     /// Free the lip-reading model once Silent Mode has been idle a while.
@@ -311,14 +325,34 @@ extension AppState {
 
     // MARK: Commands
 
-    /// Show what was recognised, then do it.
-    func runSilentCommand(_ command: SilentCommand) async {
+    /// Show what was recognised, then do it, unless the moment has passed:
+    /// Escape, a new recording, or another app in front during the pause.
+    ///
+    /// - Parameter isStillCurrent: Checked right before the keys are pressed.
+    /// - Returns: Whether the command ran.
+    @discardableResult
+    func runSilentCommand(_ command: SilentCommand, isStillCurrent: () -> Bool) async -> Bool {
         silentMode.live.recognizedCommand = command.action.chip
+        defer { silentMode.live.recognizedCommand = nil }
+        let target = frontmostAppResolver.currentFrontmostApp()
         cursorOverlay.showDone(message: command.action.chip)
         // Long enough to read before keys are pressed in the document.
-        try? await Task.sleep(for: .milliseconds(600))
+        do {
+            try await Task.sleep(for: silentCommandPause)
+        } catch {
+            return false
+        }
+        guard isStillCurrent() else {
+            VocaLogger.info(.silentMode, "Silent command \(command.action.title) dropped: cancelled or overtaken")
+            return false
+        }
+        guard frontmostAppResolver.currentFrontmostApp() == target else {
+            VocaLogger.info(.silentMode, "Silent command \(command.action.title) dropped: another app came to the front")
+            showOverlayFailure("Another app came to the front, so \(command.action.title) wasn't run.")
+            return false
+        }
         await performSilentAction(command.action)
-        silentMode.live.recognizedCommand = nil
+        return true
     }
 
     func performSilentAction(_ action: SilentCommandAction) async {

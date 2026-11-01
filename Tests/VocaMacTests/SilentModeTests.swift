@@ -241,6 +241,123 @@ final class SilentModeTests: XCTestCase {
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
     }
 
+    /// Teach "send" (Return) from three clean takes.
+    private func teachSend(_ state: AppState) throws {
+        var takes: [LipTake] = []
+        for index in 0..<3 {
+            let start = 1_000 + Double(index) * 10
+            let frames = LipFrameFactory.still(from: start, seconds: 0.5)
+                + LipFrameFactory.speaking(from: start + 0.5, seconds: 0.6)
+                + LipFrameFactory.still(from: start + 1.1, seconds: 0.5)
+            takes.append(try XCTUnwrap(state.silentTake(from: frames)))
+        }
+        state.saveSilentCommand(id: nil, action: .pressReturn, word: "send", takes: takes)
+    }
+
+    private func mouthSend(_ state: AppState) {
+        feed(state) { start in
+            LipFrameFactory.still(from: start, seconds: 1.2)
+                + LipFrameFactory.speaking(from: start + 1.2, seconds: 0.6)
+                + LipFrameFactory.still(from: start + 1.8, seconds: 1.2)
+        }
+    }
+
+    func testEscapeDuringTheCommandPauseDropsIt() async throws {
+        let (state, mocks) = silentState()
+        state.silentModeHoldThreshold = 0
+        try teachSend(state)
+        await holdSilentShortcut(state, mocks)
+        mouthSend(state)
+        let release = Task { await state.handleShortcutReleased(.silentMode) }
+        await waitUntil { !mocks.cursorOverlay.doneMessages.isEmpty }
+        XCTAssertEqual(mocks.cursorOverlay.doneMessages, ["Send ↩"])
+        await state.cancelDictation()
+        await release.value
+
+        XCTAssertEqual(mocks.keyPresser.presses, [], "Escape drops the command")
+        XCTAssertEqual(state.appStatus, .idle)
+    }
+
+    func testAnotherAppInFrontDropsTheCommand() async throws {
+        let (state, mocks) = silentState()
+        state.silentModeHoldThreshold = 0
+        mocks.frontmostAppResolver.frontmostApp = RunningAppSnapshot(displayName: "Mail", bundleIdentifier: "com.apple.mail")
+        try teachSend(state)
+        await holdSilentShortcut(state, mocks)
+        mouthSend(state)
+        let release = Task { await state.handleShortcutReleased(.silentMode) }
+        await waitUntil { !mocks.cursorOverlay.doneMessages.isEmpty }
+        mocks.frontmostAppResolver.frontmostApp = RunningAppSnapshot(displayName: "Slack", bundleIdentifier: "com.tinyspeck.slackmacgap")
+        await release.value
+
+        XCTAssertEqual(mocks.keyPresser.presses, [])
+        XCTAssertEqual(mocks.cursorOverlay.failureMessages.last, "Another app came to the front, so Send wasn't run.")
+    }
+
+    /// The camera came up late and the microphone heard speech before it:
+    /// those words win over a mouthed command.
+    func testSpeechTheCameraMissedIsDictatedNotACommand() async throws {
+        let (state, mocks) = silentState()
+        state.silentModeHoldThreshold = 0
+        try teachSend(state)
+        await holdSilentShortcut(state, mocks)
+        feed(state) { start in
+            LipFrameFactory.noFace(from: start, seconds: 1.2)
+                + LipFrameFactory.speaking(from: start + 1.2, seconds: 0.6)
+                + LipFrameFactory.still(from: start + 1.8, seconds: 1.2)
+        }
+        await state.handleShortcutReleased(.silentMode)
+        await waitUntil { mocks.textInjector.injectCallCount == 1 }
+
+        XCTAssertEqual(mocks.keyPresser.presses, [])
+        XCTAssertNotNil(mocks.whisperService.lastTranscribedAudioData)
+    }
+
+    /// A camera that saw under half the recording can't stand in for it.
+    func testTooLittleCoverageIsNeverACommand() async throws {
+        let (state, mocks) = silentState()
+        state.silentModeHoldThreshold = 0
+        mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.001, count: 48_000)
+        try teachSend(state)
+        await holdSilentShortcut(state, mocks)
+        feed(state) { start in
+            LipFrameFactory.noFace(from: start, seconds: 2)
+                + LipFrameFactory.speaking(from: start + 2, seconds: 0.6)
+                + LipFrameFactory.still(from: start + 2.6, seconds: 0.4)
+        }
+        await state.handleShortcutReleased(.silentMode)
+        await waitUntil { mocks.textInjector.injectCallCount == 1 }
+        XCTAssertEqual(mocks.keyPresser.presses, [])
+    }
+
+    /// The Silent Mode key pressed while an ordinary dictation waits for its
+    /// speech model must not end that dictation.
+    func testTheSilentKeyLeavesALoadingDictationAlone() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny]
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = nil
+        whisperService.isModelLoaded = false
+        let gate = StepGate()
+        whisperService.loadGate = gate
+        let (state, _) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let originalModel = state.selectedModelSize
+        defer { state.selectedModelSize = originalModel }
+        state.selectedModelSize = ModelSize.tiny.rawValue
+        state.setShortcut(silentKeys, for: .silentMode)
+
+        let start = Task { await state.startRecording() }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        await state.handleSilentModePress()
+        gate.open()
+        await start.value
+
+        XCTAssertTrue(state.isRecording, "The ordinary dictation carries on")
+        XCTAssertFalse(state.isSilentSession)
+        await state.cancelRecording()
+    }
+
     func testATakeWithoutMovementIsNotSaved() {
         let (state, _) = AppState.makeTestState()
         XCTAssertNil(state.silentTake(from: LipFrameFactory.still(from: 0, seconds: 2)))
@@ -273,5 +390,42 @@ final class SilentModeTests: XCTestCase {
         let command = SilentCommand(action: .runShortcut("Focus"), word: "focus", takes: [LipTake(frames: [[0.1, 0.2]])])
         store.save([command])
         XCTAssertEqual(store.load(), [command])
+    }
+
+    /// Takes saved before lip points were measured in pixels don't match
+    /// today's frames; the command stays, asking for new takes.
+    func testTakesMeasuredTheOldWayAreDropped() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("silent-commands.json")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let id = UUID()
+        let json = """
+        [{"id":"\(id.uuidString)","action":{"pressReturn":{}},"word":"send",
+          "takes":[{"frames":[[0.1,0.2]],"recordedAt":0}]}]
+        """
+        try Data(json.utf8).write(to: url)
+
+        let loaded = SilentCommandStore(fileURL: url).load()
+        XCTAssertEqual(loaded.map(\.id), [id])
+        XCTAssertEqual(loaded.first?.takes, [])
+        XCTAssertEqual(loaded.first?.isReady, false)
+    }
+
+    // MARK: Camera
+
+    func testChoosingAnotherCameraMovesARunningCamera() async {
+        let (state, mocks) = AppState.makeTestState()
+        await state.silentMode.begin(.preview)
+        let session = state.silentMode.live.cameraSession
+        await state.silentMode.useCamera("external")
+        XCTAssertEqual(mocks.lipTracker.startCount, 2)
+        XCTAssertEqual(mocks.lipTracker.lastCameraID, "external")
+        XCTAssertEqual(state.silentMode.live.cameraSession, session + 1)
+        state.silentMode.end(.preview)
+
+        // Off, it is only remembered for the next start.
+        await state.silentMode.useCamera(nil)
+        XCTAssertEqual(mocks.lipTracker.startCount, 2)
     }
 }

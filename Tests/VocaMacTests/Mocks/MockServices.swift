@@ -490,9 +490,13 @@ final class MockLipReader: LipReading, @unchecked Sendable {
 
     func prepare() async { prepareCount += 1 }
 
+    /// Windows longer than this "run out of room", like a real decoder.
+    var longestComplete: Int?
+
     func read(_ crops: [MouthCrop]) async throws -> String {
         readLengths.append(crops.count)
         if let error { throw error }
+        if let longestComplete, crops.count > longestComplete { throw LipReadingError.outputTooLong(partial: "partial") }
         return text
     }
 

@@ -109,7 +109,7 @@ final class CLIEntrypoint {
         let started = ProcessInfo.processInfo.systemUptime
         let frames = try await LipVideoReader.frames(of: url)
         let faces = frames.filter { $0.mouth != nil }.count
-        let text = try await LipVideoReader.read(url, with: reader)
+        let text = try await LipVideoReader.read(LipVideoReader.crops(from: frames), with: reader)
         return CLILipReadingResponse(
             text: text, frames: frames.count, framesWithFace: faces,
             videoSeconds: (frames.last?.time ?? 0) - (frames.first?.time ?? 0),

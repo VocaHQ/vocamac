@@ -18,8 +18,8 @@ enum SilentSpeechGate {
         /// Decode only these sample ranges, in order: where the lips moved,
         /// plus anything the camera couldn't see.
         case speech([Range<Int>])
-        /// The camera watched still lips the whole time: someone else was
-        /// talking, or nothing was said. Nothing is decoded.
+        /// The camera watched still lips the whole recording: someone else
+        /// was talking, or nothing was said. Nothing is decoded.
         case noArticulation
         /// The camera saw too little to judge; decode as an ordinary dictation.
         case notJudged(reason: String)
@@ -51,21 +51,44 @@ enum SilentSpeechGate {
             return .notJudged(reason: "the camera saw the lips for \(percent)% of the recording")
         }
 
+        // Keep the articulated stretches and every stretch the camera missed,
+        // even when the lips it did see were still: words said before it
+        // came up, or while the face was turned away, are not its to drop.
         let speaking = clipped(timeline.speaking, to: recording)
-        guard !speaking.isEmpty else { return .noArticulation }
+        let kept = ArticulationDetector.merged(speaking + uncovered(covered, within: recording))
+        let ranges = sampleRanges(kept, audioStart: audioStart, sampleCount: sampleCount, sampleRate: sampleRate)
+        return ranges.isEmpty ? .noArticulation : .speech(ranges)
+    }
 
-        // Keep the articulated stretches and every stretch the camera missed.
-        // A sliver shorter than a missed frame or two is only frame spacing
-        // at the recording's edges, not a blind spot.
-        let uncovered = gaps(in: covered, within: recording)
+    /// The sample ranges the camera couldn't see the lips in.
+    static func unseen(
+        timeline: ArticulationTimeline, audioEnd: TimeInterval, sampleCount: Int, sampleRate: Int = 16_000
+    ) -> [Range<Int>] {
+        guard sampleCount > 0, sampleRate > 0 else { return [] }
+        let audioStart = audioEnd - Double(sampleCount) / Double(sampleRate)
+        let recording = audioStart...audioEnd
+        let missed = uncovered(clipped(timeline.covered, to: recording), within: recording)
+        return sampleRanges(missed, audioStart: audioStart, sampleCount: sampleCount, sampleRate: sampleRate)
+    }
+
+    /// Stretches of `recording` the camera missed. A sliver shorter than a
+    /// missed frame or two is only frame spacing at the recording's edges,
+    /// not a blind spot.
+    private static func uncovered(
+        _ covered: [ClosedRange<TimeInterval>], within recording: ClosedRange<TimeInterval>
+    ) -> [ClosedRange<TimeInterval>] {
+        gaps(in: covered, within: recording)
             .filter { $0.upperBound - $0.lowerBound > ArticulationDetector.coverageGap }
-        let kept = ArticulationDetector.merged(speaking + uncovered)
-        let ranges: [Range<Int>] = kept.compactMap { range in
+    }
+
+    private static func sampleRanges(
+        _ spans: [ClosedRange<TimeInterval>], audioStart: TimeInterval, sampleCount: Int, sampleRate: Int
+    ) -> [Range<Int>] {
+        spans.compactMap { range in
             let lower = max(0, Int(((range.lowerBound - audioStart) * Double(sampleRate)).rounded(.down)))
             let upper = min(sampleCount, Int(((range.upperBound - audioStart) * Double(sampleRate)).rounded(.up)))
             return lower < upper ? lower..<upper : nil
         }
-        return ranges.isEmpty ? .noArticulation : .speech(ranges)
     }
 
     /// The parts of `ranges` inside `bounds`.

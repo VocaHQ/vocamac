@@ -7,8 +7,10 @@
 // read live. Used by the CLI's --read-lips and to check accuracy offline.
 
 import AVFoundation
+import CoreImage
 import CoreMedia
 import Foundation
+import ImageIO
 
 enum LipVideoReaderError: LocalizedError {
     case noVideoTrack
@@ -39,10 +41,15 @@ enum LipVideoReader {
         guard reader.startReading() else {
             throw LipVideoReaderError.unreadable(reader.error?.localizedDescription ?? "reading didn't start")
         }
+        // Phones store portrait video sideways with a rotation to apply;
+        // Vision and the crop need the picture upright.
+        let orientation = Self.orientation(of: try await track.load(.preferredTransform))
+        let rotator = orientation == .up ? nil : UprightFrames(orientation: orientation)
         let processor = LipFrameProcessor()
         var frames: [LipFrame] = []
         while let sample = output.copyNextSampleBuffer() {
-            guard let pixelBuffer = CMSampleBufferGetImageBuffer(sample) else { continue }
+            guard let stored = CMSampleBufferGetImageBuffer(sample) else { continue }
+            guard let pixelBuffer = rotator.map({ $0.upright(stored) }) ?? stored else { continue }
             let time = CMSampleBufferGetPresentationTimeStamp(sample).seconds
             frames.append(processor.process(pixelBuffer, time: time, capturesMouth: true))
         }
@@ -63,19 +70,55 @@ enum LipVideoReader {
         return crops + builder.finish()
     }
 
-    /// The whole video read as one stretch (split past 30 seconds).
+    /// The whole video read as one stretch (split when long).
     static func read(_ url: URL, with reader: any LipReading) async throws -> String {
-        let crops = crops(from: try await frames(of: url))
+        try await read(crops(from: try await frames(of: url)), with: reader)
+    }
+
+    /// `crops` read as one stretch (split when long).
+    static func read(_ crops: [MouthCrop], with reader: any LipReading) async throws -> String {
         // Loaded first, so the windows use the lengths this model accepts.
         await reader.prepare()
         guard let first = crops.first?.time, let last = crops.last?.time, first < last else { return "" }
-        var texts: [String] = []
+        var pieces: [SilentTextPiece] = []
         for chunk in LipReadingWindow.chunks([first...last]) {
-            let times = LipReadingWindow.frameTimes(for: chunk, available: first...last) { reader.modelLength(for: $0) }
-            let window = LipReadingWindow.crops(at: times, from: crops)
-            let text = try await reader.read(window)
-            if !text.isEmpty { texts.append(text) }
+            pieces += try await LipReadingWindow.read(chunk, available: first...last, from: crops, with: reader)
         }
-        return texts.joined(separator: " ")
+        return SilentTextPiece.joined(pieces)
+    }
+
+    /// The rotation a track's transform asks for, as an image orientation.
+    /// Only right-angle turns are recognised; anything else reads as upright.
+    static func orientation(of transform: CGAffineTransform) -> CGImagePropertyOrientation {
+        switch (transform.a.rounded(), transform.b.rounded(), transform.c.rounded(), transform.d.rounded()) {
+        case (0, 1, -1, 0): return .right
+        case (0, -1, 1, 0): return .left
+        case (-1, 0, 0, -1): return .down
+        default: return .up
+        }
+    }
+}
+
+/// Turns stored video frames upright, into full-range 4:2:0 buffers like
+/// the camera's.
+private final class UprightFrames {
+    private let orientation: CGImagePropertyOrientation
+    private let context = CIContext(options: [.workingColorSpace: NSNull(), .outputColorSpace: NSNull()])
+
+    init(orientation: CGImagePropertyOrientation) {
+        self.orientation = orientation
+    }
+
+    func upright(_ stored: CVPixelBuffer) -> CVPixelBuffer? {
+        var image = CIImage(cvPixelBuffer: stored).oriented(orientation)
+        image = image.transformed(by: CGAffineTransform(translationX: -image.extent.minX, y: -image.extent.minY))
+        var buffer: CVPixelBuffer?
+        let attributes: [String: Any] = [kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any]()]
+        guard CVPixelBufferCreate(
+            kCFAllocatorDefault, Int(image.extent.width), Int(image.extent.height),
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange, attributes as CFDictionary, &buffer
+        ) == kCVReturnSuccess, let buffer else { return nil }
+        context.render(image, to: buffer)
+        return buffer
     }
 }

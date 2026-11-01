@@ -46,6 +46,8 @@ struct CalmSilentTeachDialog: View {
     @State private var isRecording = false
     @State private var progress: Double = 0
     @State private var missedLast = false
+    /// Takes were thrown away because the word changed after them.
+    @State private var clearedForNewWord = false
     @State private var recording: Task<Void, Never>?
 
     /// How long one take listens. A short word takes under a second; the
@@ -86,8 +88,7 @@ struct CalmSilentTeachDialog: View {
                     .environment(\.colorScheme, .dark)
                 CalmSilentTakePanel(
                     live: appState.silentMode.live,
-                    word: word.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? action.suggestedWord : word.trimmingCharacters(in: .whitespacesAndNewlines),
+                    word: spokenWord,
                     takeCount: takes.count,
                     isRecording: isRecording,
                     progress: progress,
@@ -97,13 +98,16 @@ struct CalmSilentTeachDialog: View {
 
             if missedLast {
                 CalmInlineNotice("Didn’t see your lips move in that take. Face the camera and try again.", tone: .warning)
+            } else if clearedForNewWord {
+                CalmInlineNotice("The word changed, so the takes of the old one were cleared. Record the new word.", tone: .warning)
             }
         } footer: {
             CalmDialogFooter(primaryTitle: "Save", isPrimaryEnabled: canSave, onPrimary: save) {
                 if !takes.isEmpty, !isRecording {
                     Button("Start over") {
-                        takes = draft.commandID == nil ? [] : draft.takes
+                        takes = draft.commandID == nil || spokenWord != draft.word ? [] : draft.takes
                         missedLast = false
+                        clearedForNewWord = false
                     }
                     .calmButton(.quiet)
                 }
@@ -113,6 +117,13 @@ struct CalmSilentTeachDialog: View {
             appState.syncSilentModeSettings()
             Task { await appState.silentMode.begin(.teaching) }
         }
+        // Takes are movements of one word: a new word (typed, or another
+        // action's suggestion) can't keep the old word's takes.
+        .onChange(of: spokenWord) { _, _ in
+            guard !takes.isEmpty else { return }
+            takes = []
+            clearedForNewWord = true
+        }
         .onDisappear {
             recording?.cancel()
             _ = appState.silentMode.finishTake()
@@ -121,6 +132,12 @@ struct CalmSilentTeachDialog: View {
     }
 
     // MARK: Takes
+
+    /// The word the takes are of: the typed one, or the action's suggestion.
+    private var spokenWord: String {
+        let typed = word.trimmingCharacters(in: .whitespacesAndNewlines)
+        return typed.isEmpty ? action.suggestedWord : typed
+    }
 
     private var canSave: Bool {
         !isRecording && takes.count >= SilentCommand.minimumTakes
@@ -141,6 +158,8 @@ struct CalmSilentTeachDialog: View {
     private func recordTake() {
         guard !isRecording else { return }
         missedLast = false
+        clearedForNewWord = false
+        let takeWord = spokenWord
         isRecording = true
         progress = 0
         appState.silentMode.beginTake()
@@ -149,7 +168,7 @@ struct CalmSilentTeachDialog: View {
             try? await Task.sleep(for: .seconds(Self.takeSeconds))
             let frames = appState.silentMode.finishTake()
             isRecording = false
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, takeWord == spokenWord else { return }
             if let take = appState.silentTake(from: frames) {
                 takes.append(take)
             } else {

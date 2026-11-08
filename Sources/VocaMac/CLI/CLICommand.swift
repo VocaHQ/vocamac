@@ -14,7 +14,7 @@ enum CLIInvocationMode: Equatable {
 /// A validated VocaMac command-line operation.
 enum CLICommand: Equatable {
     case help
-    case transcribeFile(path: String, model: String?, language: String?)
+    case transcribeFile(path: String, model: String?, language: String?, output: CLIOutputOptions = CLIOutputOptions())
     /// Decode a file whole and piece by piece (as "Process while speaking"
     /// would while recording), optionally cleaning both, and report timings.
     case comparePieces(path: String, model: String?, language: String?, options: PieceComparisonOptions)
@@ -46,6 +46,8 @@ enum CLICommand: Equatable {
         var language: String?
         var wantsList = false
         var wantsJSON = false
+        var wantsText = false
+        var outputPath: String?
         var wantsPieces = false
         var cleanupModel: CleanupModelKind?
         var pauseSeconds: Double?
@@ -114,14 +116,27 @@ enum CLICommand: Equatable {
                     throw CLIError(.invalidArguments, "--json may only be provided once.")
                 }
                 wantsJSON = true
+            case "--text":
+                guard !wantsText else {
+                    throw CLIError(.invalidArguments, "--text may only be provided once.")
+                }
+                wantsText = true
+            case "--output":
+                guard outputPath == nil else {
+                    throw CLIError(.invalidArguments, "--output may only be provided once.")
+                }
+                outputPath = try value(after: argument, in: arguments, index: &index)
             default:
                 throw CLIError(.invalidArguments, "Unknown argument: \(argument)")
             }
             index += 1
         }
 
-        guard wantsJSON else {
-            throw CLIError(.invalidArguments, "Headless commands require --json.")
+        guard !(wantsJSON && wantsText) else {
+            throw CLIError(.invalidArguments, "Use either --json or --text, not both.")
+        }
+        guard wantsJSON || wantsText else {
+            throw CLIError(.invalidArguments, "Headless commands require --json (or --text with --transcribe-file).")
         }
         guard wantsList != (audioPath != nil) else {
             throw CLIError(
@@ -131,6 +146,9 @@ enum CLICommand: Equatable {
         }
 
         if wantsList {
+            guard !wantsText, outputPath == nil else {
+                throw CLIError(.invalidArguments, "--text and --output only apply to --transcribe-file.")
+            }
             guard !wantsPieces, cleanupModel == nil, pauseSeconds == nil, minPieceSeconds == nil else {
                 throw CLIError(.invalidArguments, "--pieces and its options only apply to --transcribe-file.")
             }
@@ -147,6 +165,9 @@ enum CLICommand: Equatable {
             throw CLIError(.invalidArguments, "--cleanup, --pause-seconds, and --min-piece-seconds require --pieces.")
         }
         if wantsPieces {
+            guard !wantsText, outputPath == nil else {
+                throw CLIError(.invalidArguments, "--text and --output do not apply to --pieces.")
+            }
             let defaults = StreamingCommitOptions()
             return .comparePieces(path: audioPath, model: model, language: language, options: PieceComparisonOptions(
                 cleanupModel: cleanupModel,
@@ -154,7 +175,10 @@ enum CLICommand: Equatable {
                 minPieceSeconds: minPieceSeconds ?? defaults.minPieceSeconds
             ))
         }
-        return .transcribeFile(path: audioPath, model: model, language: language)
+        return .transcribeFile(path: audioPath, model: model, language: language, output: CLIOutputOptions(
+            format: wantsText ? .text : .json,
+            path: outputPath
+        ))
     }
 
     /// Longest pause or minimum piece accepted: past a recording's 30-minute
@@ -182,4 +206,17 @@ struct PieceComparisonOptions: Equatable {
     var cleanupModel: CleanupModelKind?
     var pauseSeconds: Double
     var minPieceSeconds: Double
+}
+
+/// How `--transcribe-file` writes a successful result.
+struct CLIOutputOptions: Equatable {
+    /// `--json` writes the JSON object; `--text` writes only the transcript.
+    enum Format: Equatable {
+        case json
+        case text
+    }
+
+    var format: Format = .json
+    /// `--output <path>` writes the result to this file instead of stdout.
+    var path: String?
 }

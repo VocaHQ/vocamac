@@ -22,7 +22,7 @@ The model must already be downloaded in VocaMac. Headless mode never downloads a
 
 Only the selected model and language follow your app preferences. Translate-to-English and WhisperKit custom vocabulary are always off in headless mode, even if enabled in the app.
 
-Successful transcription writes exactly one JSON object to stdout:
+Successful transcription writes exactly one JSON object to stdout (see [Plain text and output files](#plain-text-and-output-files) for `--text` and `--output`):
 
 ```json
 {
@@ -63,7 +63,64 @@ Failures exit nonzero and write a JSON error to stderr, for example:
 {"error":"model_not_downloaded","message":"Model is not downloaded: small"}
 ```
 
-Stable error categories are `invalid_arguments`, `invalid_audio`, `model_not_found`, `model_not_downloaded`, `model_unsupported`, and `transcription_failed`. Use `--help` for command syntax; it exits without launching the GUI.
+Stable error categories and their exit codes:
+
+| Category | Exit code |
+|---|---|
+| `invalid_arguments` | 2 |
+| `invalid_audio` | 3 |
+| `model_not_found`, `model_not_downloaded`, `model_unsupported` | 4 |
+| `transcription_failed` | 5 |
+| `output_failed` | 6 |
+
+Use `--help` for command syntax; it exits without launching the GUI.
+
+## Plain text and output files
+
+For scripts that only want the words, use `--text` in place of `--json`. It writes just the transcript and a trailing newline:
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac --transcribe-file memo.m4a --text
+```
+
+`--output <file>` writes the result to a file instead of stdout, as JSON with `--json` or as plain text with `--text`. The file is replaced in one step, so another program never reads a half-written file. If it can't be written, the command exits with `output_failed`.
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac \
+  --transcribe-file memo.m4a --text --output memo.txt
+```
+
+Errors are written to stderr as JSON in every mode, with the exit codes above, so a script can tell a missing model from unreadable audio. `--text` and `--output` apply only to `--transcribe-file`, and not to `--pieces`.
+
+## Supported audio
+
+Files are read with AVFoundation: WAV, AIFF, CAF, M4A/AAC, MP3, MP4, and MOV work as they are. WebM, Ogg, and Opus files, such as most chat-app voice notes, need converting first, for example with `ffmpeg -i note.ogg -ac 1 -ar 16000 note.wav`.
+
+## Use with Hermes Agent
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) can use VocaMac to transcribe voice messages from its desktop app, Telegram, WhatsApp, Discord, Slack, and Signal on your Mac, with no cloud speech API.
+
+**With the plugin (recommended).** [hermes-vocamac](https://github.com/VocaHQ/hermes-vocamac) adds a `vocamac` speech-to-text provider. It also gives the agent a tool for transcribing audio and video files. It converts WebM and Ogg voice notes with ffmpeg, and it works with VocaMac 1.2.0 and later:
+
+```bash
+brew install ffmpeg
+hermes plugins install VocaHQ/hermes-vocamac --enable
+hermes config set stt.provider vocamac
+```
+
+**Without a plugin.** A Hermes command provider can call VocaMac directly. Add this to `~/.hermes/config.yaml`; `normalize: true` makes Hermes convert voice notes to 16 kHz mono M4A with ffmpeg first:
+
+```yaml
+stt:
+  provider: vocamac-cli
+  providers:
+    vocamac-cli:
+      type: command
+      normalize: true
+      command: "/Applications/VocaMac.app/Contents/MacOS/VocaMac --transcribe-file {input_path} --text --output {output_path}"
+```
+
+Either way, Hermes uses the model selected in VocaMac, and that model has to be downloaded already.
 
 To check how "Process while speaking" would handle a recording, add `--pieces`. The file is decoded whole and then piece by piece, cut at pauses the way a live dictation is, and the response reports both texts, a word difference rate between them, and the projected wait after stop. Add `--cleanup <cleanup-model-id>` (for example `ministral3_3b_q4_k_m`) to clean both with a downloaded cleanup model, and `--pause-seconds` or `--min-piece-seconds` to try other cut thresholds:
 

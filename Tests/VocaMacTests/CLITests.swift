@@ -349,6 +349,112 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(object["text"] as? String, transcript)
     }
 
+    // MARK: - Text and file output
+
+    func testTextAndOutputFlagsParse() throws {
+        XCTAssertEqual(
+            try CLICommand.parse(arguments: ["--transcribe-file", "a.wav", "--json"]),
+            .transcribeFile(path: "a.wav", model: nil, language: nil, output: CLIOutputOptions(format: .json))
+        )
+        XCTAssertEqual(
+            try CLICommand.parse(arguments: [
+                "--transcribe-file", "a.wav", "--text", "--output", "/tmp/out.txt", "--language", "en",
+            ]),
+            .transcribeFile(path: "a.wav", model: nil, language: "en", output: CLIOutputOptions(
+                format: .text, path: "/tmp/out.txt"
+            ))
+        )
+    }
+
+    func testTextAndOutputFlagsRejectInvalidCombinations() {
+        for arguments in [
+            ["--transcribe-file", "a.wav"],
+            ["--transcribe-file", "a.wav", "--json", "--text"],
+            ["--transcribe-file", "a.wav", "--text", "--text"],
+            ["--transcribe-file", "a.wav", "--text", "--output"],
+            ["--transcribe-file", "a.wav", "--json", "--output", "a.json", "--output", "b.json"],
+            ["--transcribe-file", "a.wav", "--text", "--pieces"],
+            ["--transcribe-file", "a.wav", "--json", "--pieces", "--output", "a.json"],
+            ["--list-models", "--text"],
+            ["--list-models", "--json", "--output", "a.json"],
+        ] {
+            XCTAssertThrowsError(try CLICommand.parse(arguments: arguments), "\(arguments)") { error in
+                XCTAssertCLIError(error, category: .invalidArguments)
+            }
+        }
+    }
+
+    func testTextOutputWritesOnlyTheTranscript() async {
+        let dependencies = makeDependencies(selectedModel: .small)
+        let transcript = "नमस्ते — hello 👋"
+        dependencies.transcriber.mockTranscriptionResult = VocaTranscription(
+            text: transcript,
+            duration: 0.1,
+            detectedLanguage: "hi",
+            audioLengthSeconds: 1,
+            modelUsed: .small
+        )
+        var standardOutput = Data()
+        let entrypoint = CLIEntrypoint(
+            headlessTranscriber: dependencies.headless,
+            stdout: { standardOutput.append($0) },
+            stderr: { _ in XCTFail("Transcription should not fail.") }
+        )
+
+        let exitCode = await entrypoint.run(arguments: ["--transcribe-file", "/mock/audio.wav", "--text"])
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(String(decoding: standardOutput, as: UTF8.self), transcript + "\n")
+    }
+
+    func testOutputFlagWritesTheResultToAFileInsteadOfStdout() async throws {
+        let dependencies = makeDependencies(selectedModel: .small)
+        dependencies.transcriber.mockTranscriptionResult = VocaTranscription(
+            text: "Written to a file",
+            duration: 0.1,
+            detectedLanguage: "en",
+            audioLengthSeconds: 1,
+            modelUsed: .small
+        )
+        let entrypoint = CLIEntrypoint(
+            headlessTranscriber: dependencies.headless,
+            stdout: { _ in XCTFail("--output should leave stdout empty.") },
+            stderr: { _ in XCTFail("Transcription should not fail.") }
+        )
+
+        let textURL = temporaryURL(extension: "txt")
+        var exitCode = await entrypoint.run(arguments: [
+            "--transcribe-file", "/mock/audio.wav", "--text", "--output", textURL.path,
+        ])
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(try String(contentsOf: textURL, encoding: .utf8), "Written to a file\n")
+
+        let jsonURL = temporaryURL(extension: "json")
+        exitCode = await entrypoint.run(arguments: [
+            "--transcribe-file", "/mock/audio.wav", "--json", "--output", jsonURL.path,
+        ])
+        XCTAssertEqual(exitCode, 0)
+        let response = try JSONDecoder().decode(CLITranscriptionResponse.self, from: Data(contentsOf: jsonURL))
+        XCTAssertEqual(response.text, "Written to a file")
+    }
+
+    func testUnwritableOutputFailsWithOutputFailed() async throws {
+        let dependencies = makeDependencies(selectedModel: .small)
+        var standardError = Data()
+        let entrypoint = CLIEntrypoint(
+            headlessTranscriber: dependencies.headless,
+            stdout: { _ in XCTFail("A failed write should not print a result.") },
+            stderr: { standardError.append($0) }
+        )
+        let missingDirectory = temporaryURL(extension: "dir").appendingPathComponent("out.txt")
+
+        let exitCode = await entrypoint.run(arguments: [
+            "--transcribe-file", "/mock/audio.wav", "--text", "--output", missingDirectory.path,
+        ])
+        XCTAssertEqual(exitCode, 6)
+        let response = try JSONDecoder().decode(CLIErrorResponse.self, from: standardError)
+        XCTAssertEqual(response.error, .outputFailed)
+    }
+
     // MARK: - Audio conversion
 
     func testStereoNon16kHzWAVConvertsToMono16kHzSamples() throws {

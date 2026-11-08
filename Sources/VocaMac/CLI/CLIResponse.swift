@@ -13,6 +13,7 @@ enum CLIErrorCategory: String, Codable {
     case modelNotDownloaded = "model_not_downloaded"
     case modelUnsupported = "model_unsupported"
     case transcriptionFailed = "transcription_failed"
+    case outputFailed = "output_failed"
 }
 
 /// A categorized error with a stable process exit code.
@@ -33,6 +34,7 @@ struct CLIError: LocalizedError {
         case .invalidAudio: return 3
         case .modelNotFound, .modelNotDownloaded, .modelUnsupported: return 4
         case .transcriptionFailed: return 5
+        case .outputFailed: return 6
         }
     }
 }

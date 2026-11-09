@@ -415,33 +415,60 @@ final class SherpaService: @unchecked Sendable {
         try Task.checkCancellation()
         request.decodeLock.lock()
         defer { request.decodeLock.unlock() }
+        // Where a cut fell inside running speech, the join is mended
+        // (`SeamRepair`); a cut in a pause joins as decoded.
+        let cutsInPause = segments.dropFirst().map { SeamRepair.isPause(at: $0.lowerBound, in: audioData) }
         return try decodeSegments(
-            segments.lazy.map { Array(audioData[$0]) }, language: language, recoversEmpty: recoversEmpty
+            segments.lazy.map { Array(audioData[$0]) }, language: language, recoversEmpty: recoversEmpty,
+            cutsInPause: cutsInPause
         ) { samples in
             try decode(samples: samples, recognizer: request.pointer, hotwords: hotwords)
         }
     }
 
     /// Application-level segment processing, shared by native decoding and regressions.
+    /// - Parameter cutsInPause: For each cut between segments, whether it
+    ///   fell in a pause; a seam inside running speech is mended
+    ///   (`SeamRepair`). Empty treats every cut as a pause.
     static func decodeSegments<Segments: Sequence>(
         _ segments: Segments,
         language: String?,
         recoversEmpty: Bool = true,
+        cutsInPause: [Bool] = [],
         decodeSegment: ([Float]) throws -> (text: String, lang: String)
     ) throws -> (text: String, lang: String) where Segments.Element == [Float] {
         try Task.checkCancellation()
         var pieces: [String] = []
+        // Whether the cut before each kept piece was in a pause. A segment
+        // that decoded to nothing makes the next join a pause: there is no
+        // sentence running across it to mend.
+        var pausesBefore: [Bool] = []
+        var nextJoinIsPause = true
         var detected = ""
-        for segment in segments {
+        for (index, segment) in segments.enumerated() {
             try Task.checkCancellation()
-            guard let result = try decode(segment, recoversEmpty: recoversEmpty, with: decodeSegment) else { continue }
+            if index > 0 {
+                let cutInPause = index - 1 < cutsInPause.count ? cutsInPause[index - 1] : true
+                nextJoinIsPause = nextJoinIsPause || cutInPause
+            }
+            guard let result = try decode(segment, recoversEmpty: recoversEmpty, with: decodeSegment) else {
+                nextJoinIsPause = true
+                continue
+            }
             try Task.checkCancellation()
             let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !piece.isEmpty { pieces.append(piece) }
+            if piece.isEmpty {
+                nextJoinIsPause = true
+            } else {
+                pieces.append(piece)
+                pausesBefore.append(nextJoinIsPause)
+                nextJoinIsPause = false
+            }
             if detected.isEmpty { detected = result.lang }
         }
         let joinLanguage = detected.isEmpty ? (language ?? "") : detected
-        return (joinTranscriptPieces(pieces, language: joinLanguage), detected)
+        let mended = SeamRepair.repair(pieces, cutsInPause: Array(pausesBefore.dropFirst()), language: joinLanguage)
+        return (joinTranscriptPieces(mended, language: joinLanguage), detected)
     }
 
     /// Decode one segment, retrying with a different silence layout when the

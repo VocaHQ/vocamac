@@ -38,6 +38,26 @@ struct VocaTranscription: Identifiable {
     /// own timeline — silence trimmed away before the decode is mapped back.
     var segments: [TimedSegment]
 
+    /// How sure the decoder was, when it reports per-segment scores
+    /// (Whisper, a verbose-JSON endpoint). Nil for the other engines.
+    var quality: DecodeQuality?
+
+    /// What the microphone level suggests telling the user, set by the
+    /// router from the recording it was given.
+    var inputLevelWarning: InputLevel.Warning?
+
+    /// This transcription with different text and everything else kept.
+    func replacingText(_ text: String, segments: [TimedSegment]? = nil) -> VocaTranscription {
+        var copy = VocaTranscription(
+            text: text, duration: duration, detectedLanguage: detectedLanguage,
+            audioLengthSeconds: audioLengthSeconds, modelUsed: modelUsed, timestamp: timestamp,
+            pieces: pieces, segments: segments ?? self.segments
+        )
+        copy.quality = quality
+        copy.inputLevelWarning = inputLevelWarning
+        return copy
+    }
+
     init(
         text: String,
         duration: TimeInterval,

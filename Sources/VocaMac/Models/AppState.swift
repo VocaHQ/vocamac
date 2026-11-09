@@ -2658,10 +2658,11 @@ final class AppState: ObservableObject {
         if let contextTask = screenContextTask {
             let customVocabulary = customVocabulary
             let replacementTargets = replacementTargets
+            let usage = termUsage
             Task { @MainActor in
                 let terms = await contextTask.value
                 vocabulary.update(Self.recognitionVocabulary(
-                    customVocabulary, replacementTargets: replacementTargets, contextTerms: terms
+                    customVocabulary, replacementTargets: replacementTargets, contextTerms: terms, usage: usage
                 ))
             }
         }
@@ -2994,7 +2995,7 @@ final class AppState: ObservableObject {
         let decodesWholeRecording = session == nil || session?.language != language
         if selectedEngine == .sherpaOnnx, decodesWholeRecording {
             let vocabulary = Self.recognitionVocabulary(
-                customVocabulary, replacementTargets: replacementTargets, contextTerms: []
+                customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
             )
             let transcriber = whisperService
             let translate = translatesSpeech
@@ -3023,7 +3024,7 @@ final class AppState: ObservableObject {
             // gets only the user's own Dictionary.
             let recognitionVocabulary = Self.recognitionVocabulary(
                 customVocabulary, replacementTargets: replacementTargets,
-                contextTerms: selectedEngine == .customEndpoint ? [] : contextTerms
+                contextTerms: selectedEngine == .customEndpoint ? [] : contextTerms, usage: termUsage
             )
             let result: VocaTranscription
             // A commit-mode session reads the vocabulary per piece, so context
@@ -3096,6 +3097,7 @@ final class AppState: ObservableObject {
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Set when nothing was heard and no overlay could say so.
             var heardNothing = false
+            var heardNothingBecauseQuiet = false
             if !trimmedText.isEmpty {
                 let target = frontmostAppResolver.currentFrontmostApp()
                     ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
@@ -3129,10 +3131,13 @@ final class AppState: ObservableObject {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
                     dictionary: dictionaryContext(
-                        contextTerms: contextTerms, language: result.detectedLanguage, segments: result.segments
+                        contextTerms: contextTerms, language: DictationOutputPipeline.languagePrior(
+                            reported: result.detectedLanguage, spoken: spokenLanguages, text: result.text
+                        ), segments: result.segments
                     ),
                     numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
+                    spokenLanguages: spokenLanguages,
                     // Cleaning piece by piece only pays off with answers from
                     // while recording; an endpoint would get one call per piece.
                     pieces: speculator == nil ? [] : result.pieces, speculator: speculator
@@ -3217,6 +3222,7 @@ final class AppState: ObservableObject {
                     }
                     statsManager.recordTranscription(result)
                     stampModelsInUseIfStale()
+                    recordTermUsage(in: output.text)
                 }
                 if injectResult {
                     let current = frontmostAppResolver.currentFrontmostApp()
@@ -3268,17 +3274,22 @@ final class AppState: ObservableObject {
                         segments: result.segments, keepAudio: historyKeepsAudio
                     )
                 }
+                // A mic turned too far down is the likeliest cause; say so.
+                let tooQuiet = result.inputLevelWarning == .tooQuiet
                 if injectResult {
-                    heardNothing = !showOverlayFailure("Didn't catch that.")
+                    heardNothing = !showOverlayFailure(tooQuiet ? "Didn't catch that. Your mic is very quiet." : "Didn't catch that.")
                 } else {
                     settingsTestResultText = nil
                 }
+                if tooQuiet { heardNothingBecauseQuiet = true }
             }
 
             cursorOverlay.hide()
             appStatus = .idle
             if heardNothing {
-                showTemporaryError("Didn't catch that. Nothing was typed.")
+                showTemporaryError(heardNothingBecauseQuiet
+                    ? "Didn't catch that. Your microphone level is very low; raise its input volume in System Settings → Sound."
+                    : "Didn't catch that. Nothing was typed.")
             }
         } catch {
             guard generation == recordingGeneration else {
@@ -4588,7 +4599,8 @@ final class AppState: ObservableObject {
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
             trailingSpace: false, preview: true,
             numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-            skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs
+            skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs,
+            spokenLanguages: spokenLanguages
         )
         return CleanupTryResult(
             input: text, text: output.text, summary: output.summary,
@@ -5043,10 +5055,13 @@ extension AppState {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace,
                     dictionary: dictionaryContext(
-                        contextTerms: [], language: result.detectedLanguage, segments: result.segments
+                        contextTerms: [], language: DictationOutputPipeline.languagePrior(
+                            reported: result.detectedLanguage, spoken: spokenLanguages, text: result.text
+                        ), segments: result.segments
                     ),
                     numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs
+                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
+                    spokenLanguages: spokenLanguages
                 )
             }
             historyStore.recordRetry(
@@ -6050,7 +6065,7 @@ extension AppState {
             profile: profile, snippetList: snippets,
             cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
             model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
-            cleanupLevel: transcriptCleanupLevel, language: language,
+            cleanupLevel: transcriptCleanupLevel, language: language, spokenLanguages: spokenLanguages,
             autoCapitalize: autoCapitalize, trailingSpace: appendTrailingSpace,
             preview: preview,
             dictionary: dictionaryContext(contextTerms: contextTerms, language: language),
@@ -6132,7 +6147,9 @@ extension AppState {
     /// Vocabulary and replacement targets as a recognition hint, for decodes
     /// with no screen context (live sessions, files, history retries).
     var recognitionHintVocabulary: String {
-        Self.recognitionVocabulary(customVocabulary, replacementTargets: replacementTargets, contextTerms: [])
+        Self.recognitionVocabulary(
+            customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
+        )
     }
 
     // MARK: - Vocabulary Boost
@@ -6601,10 +6618,14 @@ extension AppState {
     /// right before them. The budget here only bounds the list as a whole; a
     /// tighter one sized for Whisper left Apple Speech and Parakeet without
     /// screen terms once the user had about 40 words.
+    /// - Parameter usage: How recently each term was dictated; the user's
+    ///   terms are ordered by it so the ones said lately are kept when an
+    ///   engine trims the list from the front (`TermUsage`).
     static func recognitionVocabulary(
         _ vocabulary: String,
         replacementTargets: [String] = [],
-        contextTerms: [String]
+        contextTerms: [String],
+        usage: [String: TermUsage] = [:]
     ) -> String {
         // Replacement targets ("GitHub" for "get hub") are words the user
         // wants heard, so they join the vocabulary ahead of the user's terms.
@@ -6616,7 +6637,7 @@ extension AppState {
                 && !listed.contains($0.lowercased())
                 && targetSeen.insert($0.lowercased()).inserted
         }
-        userTerms = targets + userTerms
+        userTerms = TermUsage.ordered(targets + userTerms, by: usage)
         let known = Set(userTerms.map { $0.lowercased() })
         let characterBudget = max(0, recognitionPromptCharacterBudget - userTerms.joined(separator: ", ").count)
         var screenTerms: [String] = []
@@ -6631,6 +6652,21 @@ extension AppState {
         // Most relevant last among them, so a trim from the front drops the
         // least relevant first.
         return (screenTerms.reversed() + userTerms).joined(separator: ", ")
+    }
+
+    /// How recently each Dictionary term was dictated (`TermUsage`).
+    var termUsage: [String: TermUsage] {
+        TermUsage.decode(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermUsage))
+    }
+
+    /// Count the Dictionary terms that appear in a dictation's final text.
+    func recordTermUsage(in text: String) {
+        let terms = vocabularyTerms + replacementTargets
+        guard !terms.isEmpty else { return }
+        let usage = termUsage
+        let updated = TermUsage.recording(text, terms: terms, in: usage)
+        guard updated != usage else { return }
+        UserDefaults.standard.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
     }
 
     /// Enough for the 100 terms Apple Speech and Parakeet take.

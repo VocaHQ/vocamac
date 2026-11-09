@@ -139,18 +139,76 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
             throw CustomEndpointError.notConfigured(problem)
         }
 
+        // Verbose JSON carries the detected language and per-segment timing
+        // and scores, which the language rules and the hallucination guard
+        // use. An endpoint that refuses it is asked for plain JSON, and
+        // remembered so later dictations upload once.
+        let formatKey = "\(url.absoluteString)|\(configuration.resolvedModel)"
+        let wantsVerbose = Self.mayAcceptVerboseJSON(configuration)
+            && !verboseRefused.withLock { $0.contains(formatKey) }
+        let started = Date()
+        var (data, status) = try await upload(
+            audioData, to: url, configuration: configuration, language: language,
+            vocabulary: vocabulary, verbose: wantsVerbose
+        )
+        if wantsVerbose, Self.refusesVerboseJSON(status: status) {
+            VocaLogger.info(
+                .customEndpointService,
+                "Endpoint refused verbose JSON (HTTP \(status)); asking for plain JSON from now on"
+            )
+            verboseRefused.withLock { _ = $0.insert(formatKey) }
+            (data, status) = try await upload(
+                audioData, to: url, configuration: configuration, language: language,
+                vocabulary: vocabulary, verbose: false
+            )
+        }
+        guard (200..<300).contains(status) else {
+            // Keep any body snippet on the thrown error for callers; never
+            // write response bodies into logs (they can carry prompt text or
+            // other sensitive detail from the user's server).
+            let detail = String(data: data.prefix(240), encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            VocaLogger.warning(
+                .customEndpointService,
+                "Endpoint rejected the recording with HTTP \(status)"
+            )
+            throw CustomEndpointError.endpointRejected(status: status, detail: detail)
+        }
+
+        let answer = try Self.response(from: data)
+        var transcription = VocaTranscription(
+            text: answer.text,
+            duration: Date().timeIntervalSince(started),
+            detectedLanguage: language ?? answer.language ?? "auto",
+            audioLengthSeconds: Double(audioData.count) / Double(Self.sampleRate),
+            modelUsed: .customEndpoint,
+            segments: answer.segments
+        )
+        transcription.quality = answer.quality
+        return transcription
+    }
+
+    /// Endpoints that refused verbose JSON, by URL and model.
+    private let verboseRefused = OSAllocatedUnfairLock(initialState: Set<String>())
+
+    /// Upload the recording once; the answer's body and HTTP status.
+    private func upload(
+        _ audioData: [Float], to url: URL, configuration: SpeechEndpointConfiguration,
+        language: String?, vocabulary: String, verbose: Bool
+    ) async throws -> (Data, Int) {
         var form = MultipartForm()
         let wav = WAVEncoder.pcm16Mono(from: audioData, sampleRate: Self.sampleRate)
         form.appendFile("file", filename: "audio.wav", contentType: "audio/wav", data: wav)
+        let format = verbose ? "verbose_json" : "json"
         switch configuration.kind {
         case .openAICompatible:
             form.appendField("model", configuration.resolvedModel)
-            form.appendField("response_format", "json")
+            form.appendField("response_format", format)
             if let language { form.appendField("language", language) }
         case .whisperCpp:
             form.appendField("temperature", "0")
             form.appendField("temperature_inc", "0.2")
-            form.appendField("response_format", "json")
+            form.appendField("response_format", format)
             if let language { form.appendField("language", language) }
         }
         if let prompt = Self.prompt(for: vocabulary) { form.appendField("prompt", prompt) }
@@ -166,32 +224,27 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
         }
         request.httpBody = form.body
 
-        let started = Date()
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CustomEndpointError.unexpectedResponse
         }
-        guard (200..<300).contains(http.statusCode) else {
-            // Keep any body snippet on the thrown error for callers; never
-            // write response bodies into logs (they can carry prompt text or
-            // other sensitive detail from the user's server).
-            let detail = String(data: data.prefix(240), encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            VocaLogger.warning(
-                .customEndpointService,
-                "Endpoint rejected the recording with HTTP \(http.statusCode)"
-            )
-            throw CustomEndpointError.endpointRejected(status: http.statusCode, detail: detail)
-        }
+        return (data, http.statusCode)
+    }
 
-        let text = try Self.transcript(from: data)
-        return VocaTranscription(
-            text: text,
-            duration: Date().timeIntervalSince(started),
-            detectedLanguage: language ?? "auto",
-            audioLengthSeconds: Double(audioData.count) / Double(Self.sampleRate),
-            modelUsed: .customEndpoint
-        )
+    /// Whether to ask for verbose JSON at all. OpenAI's GPT-4o transcribe
+    /// models accept only plain JSON or text, so they are never asked.
+    static func mayAcceptVerboseJSON(_ configuration: SpeechEndpointConfiguration) -> Bool {
+        switch configuration.kind {
+        case .whisperCpp:
+            return true
+        case .openAICompatible:
+            return !configuration.resolvedModel.lowercased().hasPrefix("gpt-")
+        }
+    }
+
+    /// The statuses a server answers an unsupported `response_format` with.
+    static func refusesVerboseJSON(status: Int) -> Bool {
+        status == 400 || status == 415 || status == 422
     }
 
     /// Longest glossary sent, in characters. OpenAI reads only the last 224
@@ -212,28 +265,118 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
         return kept.isEmpty ? nil : "Glossary: " + kept.joined(separator: ", ")
     }
 
+    /// What a 2xx answer says.
+    struct Answer: Equatable {
+        var text: String
+        /// ISO 639-1 code, when the answer names a language.
+        var language: String?
+        var segments: [TimedSegment] = []
+        var quality: DecodeQuality?
+    }
+
     /// Pull the transcript out of a 2xx answer. `text` is the documented
     /// shape for both contracts; the fallbacks cover the variants VocaLinux
     /// accepts so an endpoint behaves the same on either app.
     static func transcript(from data: Data) throws -> String {
+        try response(from: data).text
+    }
+
+    /// The transcript and, from a verbose answer, its language, segment
+    /// timings and Whisper scores.
+    static func response(from data: Data) throws -> Answer {
         struct Response: Decodable {
-            struct Segment: Decodable { let text: String? }
+            struct Word: Decodable {
+                let word: String?
+                let start: Double?
+                let end: Double?
+                let probability: Double?
+            }
+            struct Segment: Decodable {
+                let text: String?
+                let start: Double?
+                let end: Double?
+                let tokens: [Int]?
+                let avgLogprob: Double?
+                let compressionRatio: Double?
+                let noSpeechProb: Double?
+                let words: [Word]?
+
+                enum CodingKeys: String, CodingKey {
+                    case text, start, end, tokens, words
+                    case avgLogprob = "avg_logprob"
+                    case compressionRatio = "compression_ratio"
+                    case noSpeechProb = "no_speech_prob"
+                }
+            }
             let text: String?
             let transcript: String?
             let transcription: String?
+            let language: String?
             let segments: [Segment]?
         }
         guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else {
             throw CustomEndpointError.unexpectedResponse
         }
-        if let text = decoded.text ?? decoded.transcript ?? decoded.transcription {
-            return text
+        let segments = decoded.segments ?? []
+        let text: String
+        if let whole = decoded.text ?? decoded.transcript ?? decoded.transcription {
+            text = whole
+        } else if decoded.segments != nil {
+            text = segments.compactMap(\.text).joined(separator: " ")
+        } else {
+            throw CustomEndpointError.unexpectedResponse
         }
-        if let segments = decoded.segments {
-            return segments.compactMap(\.text).joined(separator: " ")
+        let timed = segments.compactMap { segment -> TimedSegment? in
+            guard let start = segment.start, let end = segment.end, let segmentText = segment.text else { return nil }
+            let words = (segment.words ?? []).compactMap { word -> TimedWord? in
+                guard let text = word.word, let start = word.start, let end = word.end else { return nil }
+                return TimedWord(
+                    word: text.trimmingCharacters(in: .whitespaces), start: start, end: end,
+                    probability: word.probability
+                )
+            }
+            return TimedSegment(
+                start: start, end: end, text: segmentText.trimmingCharacters(in: .whitespaces), words: words
+            )
         }
-        throw CustomEndpointError.unexpectedResponse
+        let scored = segments.compactMap { segment -> DecodeQuality.Segment? in
+            guard let logProbability = segment.avgLogprob else { return nil }
+            return DecodeQuality.Segment(
+                averageLogProbability: logProbability,
+                compressionRatio: segment.compressionRatio ?? 1,
+                noSpeechProbability: segment.noSpeechProb,
+                weight: segment.tokens?.count ?? segment.text?.count ?? 1
+            )
+        }
+        return Answer(
+            text: text, language: languageCode(decoded.language), segments: timed,
+            quality: DecodeQuality(segments: scored)
+        )
     }
+
+    /// An ISO 639-1 code for a reported language: OpenAI and whisper.cpp
+    /// write the English name ("english", "german"), others a code.
+    static func languageCode(_ reported: String?) -> String? {
+        guard let reported = reported?.trimmingCharacters(in: .whitespaces).lowercased(),
+              !reported.isEmpty else { return nil }
+        if reported.count <= 3, reported.allSatisfy(\.isLetter) { return reported }
+        if reported.count > 3, reported.contains("-") || reported.contains("_") {
+            return String(reported.prefix { $0.isLetter })
+        }
+        return languageCodesByName[reported]
+    }
+
+    /// ISO 639-1 codes by English language name.
+    private static let languageCodesByName: [String: String] = {
+        let english = Locale(identifier: "en")
+        var codes: [String: String] = [:]
+        for code in Locale.LanguageCode.isoLanguageCodes where code.identifier.count == 2 {
+            if let name = english.localizedString(forLanguageCode: code.identifier)?.lowercased() {
+                codes[name] = codes[name] ?? code.identifier
+            }
+        }
+        return codes
+    }()
 }
 
 /// A `multipart/form-data` request body, built by hand so the service stays

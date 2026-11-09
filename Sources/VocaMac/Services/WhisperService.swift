@@ -416,7 +416,9 @@ final class WhisperService: @unchecked Sendable {
             // time, with or without the prompt. Sampling once at a slightly
             // higher temperature, Whisper's own escape from a loop, usually
             // finishes the sentence instead.
+            var sampledWarmer = false
             if TranscriptRepetition.containsLoop(fullText, audioSeconds: audioLengthSeconds) {
+                sampledWarmer = true
                 VocaLogger.warning(
                     .whisperService,
                     "Transcription repeated itself for \(loadedModelName ?? "unknown model"); retrying at temperature \(Self.loopRetryTemperature)"
@@ -438,6 +440,43 @@ final class WhisperService: @unchecked Sendable {
                     VocaLogger.warning(
                         .whisperService,
                         "Warmer retry failed (\(error.localizedDescription)); keeping the first transcription"
+                    )
+                }
+            }
+            // A decode Whisper itself would have sampled again (low
+            // confidence, or text that compresses like a loop) gets one
+            // retry at the loop retry's temperature, kept only when it scores
+            // better. Dictation-length audio only: a long file would decode
+            // every chunk twice.
+            if !sampledWarmer, audioData.count <= Self.chunkingThresholdSamples,
+               let quality = Self.quality(of: results), Self.shouldRetryLowConfidence(fullText, quality: quality) {
+                VocaLogger.info(
+                    .whisperService,
+                    "Low-confidence decode (log-probability \(String(format: "%.2f", quality.averageLogProbability)), compression \(String(format: "%.2f", quality.compressionRatio))); retrying at temperature \(Self.loopRetryTemperature)"
+                )
+                var warmer = options
+                warmer.temperature = Self.loopRetryTemperature
+                do {
+                    let retried = try await Self.transcribeInChunks(kit: kit, audioData: audioData, options: warmer)
+                    let retriedRaw = retried.map { $0.text }.joined(separator: " ")
+                    let retriedText = Self.filterHallucinationTokens(retriedRaw)
+                    if let retriedQuality = Self.quality(of: retried),
+                       Self.acceptsLowConfidenceRetry(
+                           retriedText, quality: retriedQuality, original: quality, audioSeconds: audioLengthSeconds
+                       ) {
+                        results = retried
+                        rawText = retriedRaw
+                        fullText = retriedText
+                        VocaLogger.info(.whisperService, "Kept the retry: log-probability \(String(format: "%.2f", retriedQuality.averageLogProbability))")
+                    } else {
+                        VocaLogger.info(.whisperService, "The retry scored no better; keeping the first transcription")
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    VocaLogger.warning(
+                        .whisperService,
+                        "Low-confidence retry failed (\(error.localizedDescription)); keeping the first transcription"
                     )
                 }
             }
@@ -468,7 +507,7 @@ final class WhisperService: @unchecked Sendable {
             VocaLogger.info(.whisperService, "Transcription completed in \(String(format: "%.2f", elapsed))s")
             VocaLogger.info(.whisperService, "Result: \(fullText.count) characters")
 
-            return VocaTranscription(
+            var transcription = VocaTranscription(
                 text: fullText,
                 duration: elapsed,
                 detectedLanguage: detectedLanguage,
@@ -480,6 +519,8 @@ final class WhisperService: @unchecked Sendable {
                     audioSeconds: audioLengthSeconds
                 )
             )
+            transcription.quality = Self.quality(of: results)
+            return transcription
         } catch is CancellationError {
             // Cancelling a dictation is not a model failure; wrapped, the
             // router would count it toward reloading the model.
@@ -557,12 +598,31 @@ final class WhisperService: @unchecked Sendable {
                 ordered[finished] = results
             }
         }
+        mendChunkSeams(ordered, chunks: chunks, audioData: audioData, language: options.language)
         // Every result above is a success (a failure throws): shift each
         // chunk's segment and word times onto the recording's timeline.
         return chunker.updateSeekOffsetsForResults(
             chunkedResults: ordered.map { .success($0) },
             audioChunks: chunks
         )
+    }
+
+    /// Mend the text where one chunk ends and the next begins when the
+    /// chunker had to cut inside running speech (`SeamRepair`). Chunks
+    /// decode with no overlap, so the join is all there is to fix.
+    private static func mendChunkSeams(
+        _ ordered: [[TranscriptionResult]], chunks: [AudioChunk], audioData: [Float], language: String?
+    ) {
+        guard ordered.count > 1 else { return }
+        for index in 1..<ordered.count {
+            guard let left = ordered[index - 1].last, let right = ordered[index].first else { continue }
+            let cutInPause = SeamRepair.isPause(at: chunks[index].seekOffsetIndex, in: audioData)
+            let mended = SeamRepair.repair(
+                left: left.text, right: right.text, cutInPause: cutInPause, language: language ?? left.language
+            )
+            if mended.left != left.text.trimmingCharacters(in: .whitespacesAndNewlines) { left.text = mended.left }
+            if mended.right != right.text.trimmingCharacters(in: .whitespacesAndNewlines) { right.text = mended.right }
+        }
     }
 
     /// The segments of `results` as engine-neutral timings for the
@@ -951,6 +1011,33 @@ final class WhisperService: @unchecked Sendable {
     /// WhisperKit steps its own fallback by 0.2; one step is enough to leave
     /// a loop without letting the decoder wander.
     static let loopRetryTemperature: Float = 0.2
+
+    /// The decode's scores across every segment, weighted by tokens.
+    static func quality(of results: [TranscriptionResult]) -> DecodeQuality? {
+        DecodeQuality(segments: results.flatMap(\.segments).map { segment in
+            DecodeQuality.Segment(
+                averageLogProbability: Double(segment.avgLogprob),
+                compressionRatio: Double(segment.compressionRatio),
+                // WhisperKit 1.1 never computes it and always reports 0.
+                noSpeechProbability: segment.noSpeechProb > 0 ? Double(segment.noSpeechProb) : nil,
+                weight: segment.tokens.count
+            )
+        })
+    }
+
+    /// Whether a decode is worth one warmer retry: Whisper's own fallback
+    /// test, on a transcript that has words to improve.
+    static func shouldRetryLowConfidence(_ text: String, quality: DecodeQuality) -> Bool {
+        quality.needsRetry && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Whether a low-confidence retry replaces the first decode: it has
+    /// text, no loop, and scores better.
+    static func acceptsLowConfidenceRetry(
+        _ text: String, quality: DecodeQuality, original: DecodeQuality, audioSeconds: Double
+    ) -> Bool {
+        isLoopFreeRetry(text, audioSeconds: audioSeconds) && quality.isBetter(than: original)
+    }
 
     /// Whether a retry of a looped transcription can replace it: it has text
     /// and no loop of its own.

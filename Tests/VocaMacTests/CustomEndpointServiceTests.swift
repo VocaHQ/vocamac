@@ -383,7 +383,7 @@ final class CustomEndpointServiceTests: XCTestCase {
         XCTAssertTrue(body.contains("name=\"file\"; filename=\"audio.wav\""))
         XCTAssertTrue(body.contains("Content-Type: audio/wav"))
         XCTAssertTrue(body.contains("name=\"model\"\r\n\r\nlarge-v3"))
-        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\njson"))
+        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\nverbose_json"))
         XCTAssertTrue(body.contains("name=\"language\"\r\n\r\nen"))
         XCTAssertTrue(body.hasSuffix("--\r\n"))
     }
@@ -409,9 +409,83 @@ final class CustomEndpointServiceTests: XCTestCase {
         let body = try XCTUnwrap(capturedBody)
         XCTAssertTrue(body.contains("name=\"temperature\"\r\n\r\n0"))
         XCTAssertTrue(body.contains("name=\"temperature_inc\"\r\n\r\n0.2"))
-        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\njson"))
+        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\nverbose_json"))
         XCTAssertTrue(body.contains("name=\"language\"\r\n\r\nde"))
         XCTAssertFalse(body.contains("name=\"model\""))
+    }
+
+    // MARK: - Verbose JSON
+
+    func testGPT4oModelsAreAskedForPlainJSON() async throws {
+        let service = configuredService(model: "gpt-4o-transcribe")
+        _ = try await transcribe(service)
+        let body = try XCTUnwrap(capturedBody)
+        XCTAssertTrue(body.contains("name=\"response_format\"\r\n\r\njson"))
+        XCTAssertEqual(requestBox.requests.count, 1)
+    }
+
+    func testARefusedVerboseRequestIsSentAgainAsPlainJSONAndRemembered() async throws {
+        let service = configuredService(model: "my-model")
+        try await service.loadModel(name: ModelSize.customEndpoint.rawValue)
+        StubEndpointURLProtocol.install { [requestBox] request in
+            requestBox.put(request)
+            let body = StubEndpointURLProtocol.bodyData(from: request).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let verbose = body.contains("verbose_json")
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: verbose ? 400 : 200, httpVersion: nil, headerFields: nil
+            )!
+            return (response, Data((verbose ? #"{"error": "unsupported"}"# : #"{"text": "hello"}"#).utf8))
+        }
+        let audio = [Float](repeating: 0.5, count: 32_000)
+        let first = try await service.transcribe(audioData: audio, language: nil, translate: false, vocabulary: "")
+        XCTAssertEqual(first.text, "hello")
+        XCTAssertEqual(requestBox.requests.count, 2, "verbose refused, then plain JSON")
+
+        requestBox.clear()
+        _ = try await service.transcribe(audioData: audio, language: nil, translate: false, vocabulary: "")
+        XCTAssertEqual(requestBox.requests.count, 1, "the refusal is remembered")
+    }
+
+    func testAServerErrorIsNotRetriedAsPlainJSON() async throws {
+        let service = configuredService()
+        do {
+            _ = try await transcribe(service, body: "{}", status: 500)
+            XCTFail("expected endpointRejected")
+        } catch let error as CustomEndpointError {
+            XCTAssertEqual(error, .endpointRejected(status: 500, detail: "{}"))
+        }
+        XCTAssertEqual(requestBox.requests.count, 1)
+    }
+
+    func testAVerboseAnswerCarriesLanguageSegmentsAndScores() async throws {
+        let body = #"""
+        {"text": " Hallo Welt", "language": "german", "segments": [
+          {"start": 0.0, "end": 1.2, "text": " Hallo Welt", "tokens": [1, 2, 3],
+           "avg_logprob": -0.2, "compression_ratio": 1.1, "no_speech_prob": 0.01}
+        ]}
+        """#
+        let result = try await transcribe(configuredService(kind: .whisperCpp), body: body)
+        XCTAssertEqual(result.text, " Hallo Welt")
+        XCTAssertEqual(result.detectedLanguage, "de")
+        XCTAssertEqual(result.segments, [TimedSegment(start: 0, end: 1.2, text: "Hallo Welt")])
+        XCTAssertEqual(result.quality?.averageLogProbability ?? 0, -0.2, accuracy: 0.0001)
+        XCTAssertEqual(result.quality?.noSpeechProbability ?? 0, 0.01, accuracy: 0.0001)
+    }
+
+    func testTheRequestedLanguageWinsOverTheReportedOne() async throws {
+        let result = try await transcribe(
+            configuredService(kind: .whisperCpp), body: #"{"text": "hi", "language": "english"}"#, language: "de"
+        )
+        XCTAssertEqual(result.detectedLanguage, "de")
+    }
+
+    func testReportedLanguageNamesBecomeCodes() {
+        XCTAssertEqual(CustomEndpointService.languageCode("english"), "en")
+        XCTAssertEqual(CustomEndpointService.languageCode("German"), "de")
+        XCTAssertEqual(CustomEndpointService.languageCode("fr"), "fr")
+        XCTAssertEqual(CustomEndpointService.languageCode("pt-BR"), "pt")
+        XCTAssertNil(CustomEndpointService.languageCode(""))
+        XCTAssertNil(CustomEndpointService.languageCode("klingonese"))
     }
 
     func testVocabularyGoesAsAGlossaryPrompt() async throws {

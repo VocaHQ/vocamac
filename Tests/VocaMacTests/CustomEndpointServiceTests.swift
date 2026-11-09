@@ -446,6 +446,35 @@ final class CustomEndpointServiceTests: XCTestCase {
         XCTAssertEqual(requestBox.requests.count, 1, "the refusal is remembered")
     }
 
+    func testARequestBothFormatsRejectDoesNotTurnOffVerboseJSON() async throws {
+        let service = configuredService(model: "my-model")
+        try await service.loadModel(name: ModelSize.customEndpoint.rawValue)
+        StubEndpointURLProtocol.install { [requestBox] request in
+            requestBox.put(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 400, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"error": "bad audio"}"#.utf8))
+        }
+        let audio = [Float](repeating: 0.5, count: 32_000)
+        do {
+            _ = try await service.transcribe(audioData: audio, language: nil, translate: false, vocabulary: "")
+            XCTFail("expected endpointRejected")
+        } catch is CustomEndpointError {}
+        XCTAssertEqual(requestBox.requests.count, 2, "verbose, then plain JSON")
+
+        requestBox.clear()
+        StubEndpointURLProtocol.install { [requestBox] request in
+            requestBox.put(request)
+            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            return (response, Data(#"{"text": "hello", "language": "en"}"#.utf8))
+        }
+        _ = try await service.transcribe(audioData: audio, language: nil, translate: false, vocabulary: "")
+        let body = try XCTUnwrap(requestBox.requests.first.flatMap(StubEndpointURLProtocol.bodyData(from:)))
+        XCTAssertTrue(
+            String(decoding: body, as: UTF8.self).contains("verbose_json"),
+            "a failure in both formats is not remembered as a verbose refusal"
+        )
+    }
+
     func testAServerErrorIsNotRetriedAsPlainJSON() async throws {
         let service = configuredService()
         do {

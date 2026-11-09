@@ -616,12 +616,46 @@ final class WhisperService: @unchecked Sendable {
         guard ordered.count > 1 else { return }
         for index in 1..<ordered.count {
             guard let left = ordered[index - 1].last, let right = ordered[index].first else { continue }
-            let cutInPause = SeamRepair.isPause(at: chunks[index].seekOffsetIndex, in: audioData)
-            let mended = SeamRepair.repair(
-                left: left.text, right: right.text, cutInPause: cutInPause, language: language ?? left.language
+            mendSeam(
+                left: left, right: right,
+                cutInPause: SeamRepair.isPause(at: chunks[index].seekOffsetIndex, in: audioData),
+                language: language ?? left.language
             )
-            if mended.left != left.text.trimmingCharacters(in: .whitespacesAndNewlines) { left.text = mended.left }
-            if mended.right != right.text.trimmingCharacters(in: .whitespacesAndNewlines) { right.text = mended.right }
+        }
+    }
+
+    /// Mend one seam: the results' text, and the boundary segments and
+    /// words with it, so History's Timestamps shows the same sentence break
+    /// as the transcript.
+    static func mendSeam(left: TranscriptionResult, right: TranscriptionResult, cutInPause: Bool, language: String?) {
+        let mended = SeamRepair.repair(
+            left: left.text, right: right.text, cutInPause: cutInPause, language: language
+        )
+        // `repair` hands back its inputs untouched when there is nothing to
+        // mend, so any difference is a mend.
+        if mended.left != left.text {
+            left.text = mended.left
+            if let last = left.segments.indices.last {
+                var segment = left.segments[last]
+                segment.text = SeamRepair.droppingFinalStop(segment.text)
+                if var words = segment.words, let lastWord = words.indices.last {
+                    words[lastWord].word = SeamRepair.droppingFinalStop(words[lastWord].word)
+                    segment.words = words
+                }
+                left.segments[last] = segment
+            }
+        }
+        if mended.right != right.text {
+            right.text = mended.right
+            if let first = right.segments.indices.first {
+                var segment = right.segments[first]
+                segment.text = SeamRepair.lowercasingFirstLetter(segment.text)
+                if var words = segment.words, let firstWord = words.indices.first {
+                    words[firstWord].word = SeamRepair.lowercasingFirstLetter(words[firstWord].word)
+                    segment.words = words
+                }
+                right.segments[first] = segment
+            }
         }
     }
 

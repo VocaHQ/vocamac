@@ -4,6 +4,7 @@
 // The rules that keep noise, a quiet mic, a seam between decoded pieces, or
 // a guessed language from reaching the text.
 
+import WhisperKit
 import XCTest
 @testable import VocaMac
 
@@ -80,6 +81,45 @@ final class HallucinationGuardDetectorTests: XCTestCase {
         XCTAssertNil(on(.noSpeech))
         XCTAssertEqual(on(.keep)?.detector, .confirmed)
     }
+}
+
+// MARK: - Guard on other scripts and pieces
+
+final class GuardScriptsAndPiecesTests: XCTestCase {
+
+    func testHindiStockPhrasesKeepTheirVowelSignsAndMatch() {
+        XCTAssertEqual(HallucinationGuard.key("धन्यवाद"), "धन्यवाद", "vowel signs and the virama are letters")
+        XCTAssertTrue(HallucinationGuard.isStockPhrase("धन्यवाद।", language: "hi"))
+        XCTAssertTrue(HallucinationGuard.isStockPhrase("देखने के लिए धन्यवाद", language: "hi"))
+        XCTAssertEqual(HallucinationGuard.filter("धन्यवाद", speechUnconfirmed: true, language: "hi"), "")
+    }
+
+    func testAQuietPieceIsLiftedForTheDecode() async throws {
+        let quiet = (0..<16_000).map { Float(sin(Double($0) * 0.3)) * 0.01 }
+        let decoded = DecodedSamples()
+        _ = try await TranscriptionRouter.guardedPieceDecode(quiet, decide: { _ in .keep }, decode: { samples in
+            decoded.peak = samples.map(abs).max() ?? 0
+            return VocaTranscription(text: "hello", duration: 0, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny)
+        })
+        XCTAssertGreaterThan(decoded.peak, 0.09, "the decoder hears the lifted piece")
+    }
+
+    func testAPieceWithSpeechOnlyAfterTheLiftIsUnconfirmed() async throws {
+        let quiet = (0..<16_000).map { Float(sin(Double($0) * 0.3)) * 0.01 }
+        // Speech only in the lifted copy: the detector says no speech at the
+        // original level.
+        let result = try await TranscriptionRouter.guardedPieceDecode(quiet, decide: { samples in
+            (samples.map(abs).max() ?? 0) > 0.05 ? .keep : .noSpeech
+        }, decode: { _ in
+            VocaTranscription(text: "Thank you.", duration: 0, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny)
+        })
+        XCTAssertEqual(result.text, "", "a stock phrase over lifted-only speech is dropped")
+    }
+}
+
+private final class DecodedSamples: @unchecked Sendable {
+    // Test-only: written once by the decode closure, read after it returns.
+    var peak: Float = 0
 }
 
 // MARK: - Input level
@@ -314,6 +354,46 @@ final class SeamRepairTests: XCTestCase {
             [[0.1], [0.2], [0.3]], language: "en", recoversEmpty: false, cutsInPause: [false, true]
         ) { _ in (texts.removeFirst(), "") }
         XCTAssertEqual(decoded.text, "We should move the meeting to Friday. And then lunch.")
+    }
+
+    func testStopAndCapitalHelpersSkipWhisperTokens() {
+        XCTAssertEqual(SeamRepair.droppingFinalStop("<|0.00|> the meeting.<|5.00|>"), "<|0.00|> the meeting<|5.00|>")
+        XCTAssertEqual(SeamRepair.droppingFinalStop(" meeting. "), " meeting ")
+        XCTAssertEqual(SeamRepair.droppingFinalStop("meeting?"), "meeting?")
+        XCTAssertEqual(SeamRepair.lowercasingFirstLetter("<|5.00|> To Friday.<|8.00|>"), "<|5.00|> to Friday.<|8.00|>")
+        XCTAssertEqual(SeamRepair.lowercasingFirstLetter(" To"), " to")
+        XCTAssertEqual(SeamRepair.lowercasingFirstLetter("<|5.00|>"), "<|5.00|>")
+    }
+
+    func testAMendedWhisperSeamCarriesIntoSegmentsAndWords() {
+        func result(_ text: String, words: [String]) -> TranscriptionResult {
+            let timed = words.enumerated().map { index, word in
+                WordTiming(word: word, tokens: [], start: Float(index), end: Float(index) + 0.5, probability: 0.9)
+            }
+            let segment = TranscriptionSegment(text: "<|0.00|>\(text)<|5.00|>", words: timed)
+            return TranscriptionResult(text: text, segments: [segment], language: "en", timings: TranscriptionTimings())
+        }
+        let left = result(" We should move the meeting.", words: [" We", " should", " move", " the", " meeting."])
+        let right = result(" To Friday afternoon.", words: [" To", " Friday", " afternoon."])
+        WhisperService.mendSeam(left: left, right: right, cutInPause: false, language: "en")
+        XCTAssertEqual(left.text, "We should move the meeting")
+        XCTAssertEqual(right.text, "to Friday afternoon.")
+        XCTAssertEqual(left.segments.last?.text, "<|0.00|> We should move the meeting<|5.00|>")
+        XCTAssertEqual(left.segments.last?.words?.last?.word, " meeting")
+        XCTAssertEqual(right.segments.first?.text, "<|0.00|> to Friday afternoon.<|5.00|>")
+        XCTAssertEqual(right.segments.first?.words?.first?.word, " to")
+    }
+
+    func testAWhisperSeamInAPauseLeavesSegmentsAlone() {
+        let segment = TranscriptionSegment(text: "<|0.00|> We met.<|5.00|>")
+        let left = TranscriptionResult(text: " We met.", segments: [segment], language: "en", timings: TranscriptionTimings())
+        let right = TranscriptionResult(
+            text: " And then left.", segments: [TranscriptionSegment(text: " And then left.")],
+            language: "en", timings: TranscriptionTimings()
+        )
+        WhisperService.mendSeam(left: left, right: right, cutInPause: true, language: "en")
+        XCTAssertEqual(left.segments.last?.text, "<|0.00|> We met.<|5.00|>")
+        XCTAssertEqual(right.segments.first?.text, " And then left.")
     }
 
     func testAnEmptySegmentBreaksTheSeam() throws {

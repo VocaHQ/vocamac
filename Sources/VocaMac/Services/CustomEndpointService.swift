@@ -142,7 +142,10 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
         // Verbose JSON carries the detected language and per-segment timing
         // and scores, which the language rules and the hallucination guard
         // use. An endpoint that refuses it is asked for plain JSON, and
-        // remembered so later dictations upload once.
+        // remembered so later dictations upload once — but only once the
+        // plain-JSON answer is usable, so a request both formats reject for
+        // another reason (bad audio, a wrong field) does not cost later
+        // dictations their richer answers.
         let formatKey = "\(url.absoluteString)|\(configuration.resolvedModel)"
         let wantsVerbose = Self.mayAcceptVerboseJSON(configuration)
             && !verboseRefused.withLock { $0.contains(formatKey) }
@@ -151,12 +154,13 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
             audioData, to: url, configuration: configuration, language: language,
             vocabulary: vocabulary, verbose: wantsVerbose
         )
+        var fellBackToPlainJSON = false
         if wantsVerbose, Self.refusesVerboseJSON(status: status) {
             VocaLogger.info(
                 .customEndpointService,
-                "Endpoint refused verbose JSON (HTTP \(status)); asking for plain JSON from now on"
+                "Endpoint refused verbose JSON (HTTP \(status)); asking for plain JSON"
             )
-            verboseRefused.withLock { _ = $0.insert(formatKey) }
+            fellBackToPlainJSON = true
             (data, status) = try await upload(
                 audioData, to: url, configuration: configuration, language: language,
                 vocabulary: vocabulary, verbose: false
@@ -176,6 +180,10 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
         }
 
         let answer = try Self.response(from: data)
+        if fellBackToPlainJSON {
+            VocaLogger.info(.customEndpointService, "Plain JSON worked; asking this endpoint for it from now on")
+            verboseRefused.withLock { _ = $0.insert(formatKey) }
+        }
         var transcription = VocaTranscription(
             text: answer.text,
             duration: Date().timeIntervalSince(started),

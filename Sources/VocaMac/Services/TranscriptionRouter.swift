@@ -612,7 +612,9 @@ extension TranscriptionRouter: SpeechTranscribing {
         let decodeOnly = transcribe
         let detector = voiceActivity
         let guardedTranscribe: @Sendable ([Float]) async throws -> VocaTranscription = { samples in
-            try await Self.guardedPieceDecode(samples, detector: detector, decode: decodeOnly)
+            try await Self.guardedPieceDecode(
+                samples, decide: { await detector.decision(for: $0) }, decode: decodeOnly
+            )
         }
         return RecordingTranscription(language: language) { [self] chunks in
             try await runSession { [self] in
@@ -774,9 +776,32 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// skipped, but the detector still runs so the hallucination guard knows
     /// whether anyone spoke.
     private func audioWithoutSilence(_ audioData: [Float]) async -> SpeechOnlyAudio? {
+        let interval = PerformanceTrace.begin("VoiceActivityTrim")
+        defer { PerformanceTrace.end(interval) }
+        let detector = voiceActivity
+        let lifted = await Self.liftedForDecode(audioData) { await detector.decision(for: $0) }
+        var prepared = Self.speechOnlyAudio(
+            lifted.samples, decision: lifted.decision, trimsSilence: skipSilenceProvider(),
+            sampleCount: audioData.count
+        )
+        prepared?.rms = lifted.level.rms
+        prepared?.levelWarning = lifted.warning
+        return prepared
+    }
+
+    /// Audio lifted for the detector and the decode, with the detector's
+    /// verdict on it. A quiet recording (or piece) gets `InputLevel`'s
+    /// bounded gain; speech the detector finds only once the level was
+    /// lifted is not confirmed, since the lift may have made noise look like
+    /// speech. Shared by whole recordings and pieces decoded while speaking.
+    static func liftedForDecode(
+        _ audioData: [Float],
+        logs: Bool = true,
+        decide: ([Float]) async -> SpeechActivityTrimmer.Decision
+    ) async -> LiftedAudio {
         let level = InputLevel.measure(audioData)
         let warning = InputLevel.warning(for: level)
-        if let warning {
+        if logs, let warning {
             VocaLogger.warning(
                 .general,
                 "Microphone level: \(warning == .clipping ? "clipping" : "very quiet") (peak \(String(format: "%.1f", level.peakDecibels)) dBFS)"
@@ -784,23 +809,22 @@ extension TranscriptionRouter: SpeechTranscribing {
         }
         let gain = InputLevel.gain(for: level)
         let samples = InputLevel.applying(gain, to: audioData)
-        if gain != 1 {
+        if logs, gain != 1 {
             VocaLogger.info(.general, "Quiet recording: lifted by \(String(format: "%.1f", InputLevel.decibels(gain))) dB")
         }
-        let interval = PerformanceTrace.begin("VoiceActivityTrim")
-        defer { PerformanceTrace.end(interval) }
-        var decision = await voiceActivity.decision(for: samples)
-        // Speech the detector finds only once the level was lifted is not
-        // confirmed: the lift may have made noise look like speech.
-        if gain != 1, Self.isSpeech(decision), !Self.isSpeech(await voiceActivity.decision(for: audioData)) {
+        var decision = await decide(samples)
+        if gain != 1, isSpeech(decision), !isSpeech(await decide(audioData)) {
             decision = .unsure
         }
-        var prepared = Self.speechOnlyAudio(
-            samples, decision: decision, trimsSilence: skipSilenceProvider(), sampleCount: audioData.count
-        )
-        prepared?.rms = level.rms
-        prepared?.levelWarning = warning
-        return prepared
+        return LiftedAudio(samples: samples, decision: decision, level: level, warning: warning)
+    }
+
+    /// `liftedForDecode`'s result.
+    struct LiftedAudio {
+        var samples: [Float]
+        var decision: SpeechActivityTrimmer.Decision
+        var level: InputLevel.Measurement
+        var warning: InputLevel.Warning?
     }
 
     private static func isSpeech(_ decision: SpeechActivityTrimmer.Decision) -> Bool {
@@ -848,20 +872,22 @@ extension TranscriptionRouter: SpeechTranscribing {
     }
 
     /// A piece decoded while the user is still speaking, given the same
-    /// hallucination guard as a whole recording: the detector judges the
-    /// piece, and a stock phrase over a piece with no confirmed speech is
+    /// level lift and hallucination guard as a whole recording: a quiet
+    /// piece is lifted for the detector and the decode, the detector judges
+    /// the piece, and a stock phrase over a piece with no confirmed speech is
     /// dropped. The piece is always decoded — a short piece is too little
     /// for the detector to skip it on.
     static func guardedPieceDecode(
         _ samples: [Float],
-        detector: VoiceActivityDetector,
+        decide: ([Float]) async -> SpeechActivityTrimmer.Decision,
         decode: ([Float]) async throws -> VocaTranscription
     ) async throws -> VocaTranscription {
-        let decision = await detector.decision(for: samples)
-        var prepared = speechOnlyAudio(samples, decision: decision, trimsSilence: false, sampleCount: samples.count)
-            ?? SpeechOnlyAudio(samples: samples, speechUnconfirmed: true)
-        prepared.rms = InputLevel.measure(samples).rms
-        let result = try await decode(samples)
+        let lifted = await liftedForDecode(samples, logs: false, decide: decide)
+        var prepared = speechOnlyAudio(
+            lifted.samples, decision: lifted.decision, trimsSilence: false, sampleCount: samples.count
+        ) ?? SpeechOnlyAudio(samples: lifted.samples, speechUnconfirmed: true)
+        prepared.rms = lifted.level.rms
+        let result = try await decode(lifted.samples)
         let guarded = guardedText(result, prepared: prepared)
         return guarded == result.text ? result : result.replacingText(guarded, segments: [])
     }

@@ -92,6 +92,45 @@ enum SeamRepair {
         return mended
     }
 
+    /// `text` without its final full stop, skipping trailing whitespace and
+    /// Whisper's special tokens (`<|5.00|>`). Used to carry a mended seam
+    /// into segment and word text, which still hold the decoder's tokens.
+    static func droppingFinalStop(_ text: String) -> String {
+        var end = text.endIndex
+        while end > text.startIndex {
+            let before = text[..<end]
+            if let last = before.last, last.isWhitespace {
+                end = text.index(before: end)
+            } else if before.hasSuffix("|>"), let open = before.range(of: "<|", options: .backwards) {
+                end = open.lowerBound
+            } else {
+                break
+            }
+        }
+        guard end > text.startIndex else { return text }
+        let stop = text.index(before: end)
+        guard text[stop] == "." else { return text }
+        return String(text[..<stop]) + text[end...]
+    }
+
+    /// `text` with its first letter lowercased, skipping leading whitespace
+    /// and Whisper's special tokens.
+    static func lowercasingFirstLetter(_ text: String) -> String {
+        var index = text.startIndex
+        while index < text.endIndex {
+            let rest = text[index...]
+            if let first = rest.first, first.isWhitespace {
+                index = text.index(after: index)
+            } else if rest.hasPrefix("<|"), let close = rest.range(of: "|>") {
+                index = close.upperBound
+            } else {
+                break
+            }
+        }
+        guard index < text.endIndex, text[index].isUppercase else { return text }
+        return String(text[..<index]) + text[index].lowercased() + text[text.index(after: index)...]
+    }
+
     private static func isEnglishOrUnknown(_ language: String?) -> Bool {
         guard let code = DictationOutputPipeline.knownLanguage(
             language?.replacingOccurrences(of: "<|", with: "").replacingOccurrences(of: "|>", with: "")

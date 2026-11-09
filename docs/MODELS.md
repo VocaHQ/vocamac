@@ -31,14 +31,19 @@ Synthetic speech is a weak stand-in for real voices. FluidAudio's published numb
 
 OpenAI Whisper models via WhisperKit's CoreML format. The only engine that supports **translation to English**. Dictionary vocabulary is a recognition hint for Whisper, Apple Speech, Qwen3 ASR, and Parakeet (through a ~98 MB vocabulary boost model, fetched on its own once the Dictionary has words); every engine gets the spelling fixes after transcription. The app auto-detects your hardware and recommends a variant.
 
-| Model | Parameters | Size | Speed | Quality | Best For |
-|-------|-----------|------|-------|---------|----------|
-| **Tiny** | 39M | ~0.4 GB | ⚡⚡⚡⚡⚡ | Good | Quick notes, older Macs |
-| **Base** | 74M | ~0.8 GB | ⚡⚡⚡⚡ | Better | Daily use on 8GB Macs |
-| **Small** | 244M | ~1.5 GB | ⚡⚡⚡ | Great | 16GB+ Apple Silicon |
-| **Medium** | 769M | ~2.5 GB | ⚡⚡ | Excellent | 24GB+ for high accuracy |
-| **Large v3** | 1550M | ~4.8 GB | ⚡ | Best | Maximum accuracy |
-| **Voca Hinglish** | 809M | ~0.8 GB | ⚡⚡⚡ | Best for Hindi | Hindi speech written in Roman script ([Oriserve's Hindi2Hinglish Apex](https://huggingface.co/Oriserve/Whisper-Hindi2Hinglish-Apex) fine-tune of Large v3 Turbo, 8-bit compressed and [hosted by VocaHQ](https://huggingface.co/VocaHQ/whisperkit-coreml)) |
+| Model | Size | Memory | Quality | Best For |
+|-------|------|--------|---------|----------|
+| **Tiny** | 77 MB | ~0.5 GB | Good | Fastest; short commands and quick notes. Ships with the app |
+| **Base** | 147 MB | ~1 GB | Better | A small step up in accuracy for very little extra weight |
+| **Small** | 487 MB | ~1.5 GB | Great | A sensible default on 8 GB Macs |
+| **Large v3 Turbo (Compact)** | 646 MB | ~2 GB | Excellent | The best accuracy-per-second trade-off for most people |
+| **Distil Large v3 (Compact)** | 595 MB | ~2 GB | Excellent | Distilled for speed, English-focused |
+| **Distil Large v3 Turbo** | 607 MB | ~2 GB | Excellent | The fastest of the distilled variants |
+| **Large v3 Latest (Compact)** | 627 MB | ~2 GB | Best | Full large-model accuracy, compressed |
+| **Large v3 Latest** | 1.6 GB | ~3.5 GB | Best | Highest accuracy, largest download |
+| **Voca Hinglish** | 824 MB | ~1.5 GB | Best for Hindi | Hindi speech written in Roman script ([Oriserve's Hindi2Hinglish Apex](https://huggingface.co/Oriserve/Whisper-Hindi2Hinglish-Apex) fine-tune of Large v3 Turbo, 8-bit compressed and [hosted by VocaHQ](https://huggingface.co/VocaHQ/whisperkit-coreml)) |
+
+Sizes are on disk; memory is the app's own estimate for a load from CoreML's cache (`ModelSize.fileSizeBytes` and `ramRequiredGB`). A first load on a new macOS build compiles the model for the Neural Engine and needs more. Medium, Large v3 and the uncompressed Turbo builds are still accepted from older preferences but are no longer listed.
 
 Voca Hinglish always decodes as English, which is how it was trained to write romanized Hindi, so it ignores the language setting.
 
@@ -52,12 +57,12 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 
 | Model | Size | Best For |
 |-------|------|----------|
-| **Moonshine v2 Tiny** | ~60 MB | Very low-RAM Macs, English |
-| **Moonshine v2 Base** | ~190 MB | Low-RAM Macs, English |
-| **SenseVoice** | ~240 MB | Chinese, Japanese, Korean, Cantonese, English |
-| **GigaAM v3** | ~270 MB | Russian, with punctuation |
-| **Canary 180M Flash** | ~320 MB | English, Spanish, German, French |
-| **Qwen3 ASR 0.6B** | ~973 MB | Accurate transcription across 30 languages and Chinese dialects |
+| **Moonshine v2 Tiny** | ~44 MB | Very low-RAM Macs, English |
+| **Moonshine v2 Base** | ~142 MB | Low-RAM Macs, English |
+| **SenseVoice** | ~241 MB | Chinese, Japanese, Korean, Cantonese, English |
+| **GigaAM v3** | ~225 MB | Russian, with punctuation |
+| **Canary 180M Flash** | ~207 MB | English, Spanish, German, French |
+| **Qwen3 ASR 0.6B** | ~1 GB | Accurate transcription across 30 languages and Chinese dialects |
 | **Cohere Transcribe** | ~2.9 GB | The most accurate model on the set above (1.2 % word error rate, 0.40 s per sentence), in 14 languages: Arabic, Chinese, Dutch, English, French, German, Greek, Italian, Japanese, Korean, Polish, Portuguese, Spanish, Vietnamese. Needs about 4.5 GB of memory and takes about 5 s to load. |
 
 Cohere Transcribe has no language detection: it transcribes in the language chosen in Settings, or English when that is Automatic or a language it doesn't know. It is only suggested to someone who speaks exactly one of its languages.

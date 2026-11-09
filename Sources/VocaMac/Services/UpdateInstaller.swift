@@ -296,40 +296,23 @@ struct UpdateInstaller: Sendable {
 
     // MARK: Processes
 
-    /// Run a tool to completion. Waits on its termination handler rather
-    /// than `waitUntilExit`, which can miss the exit when called from a
-    /// concurrency thread and block forever. Errors go to a file, so a
-    /// chatty tool can't fill a pipe and stall.
+    /// Run a tool to completion (`ToolProcess.run`), mapping a launch
+    /// failure or non-zero exit to `failure`.
     private static func run(
         _ tool: String,
         _ arguments: [String],
         failure: @escaping (String) -> UpdateInstallError
     ) async throws {
-        let errorFile = FileManager.default.temporaryDirectory
-            .appendingPathComponent("VocaMac-update-\(UUID().uuidString).log")
-        FileManager.default.createFile(atPath: errorFile.path, contents: nil)
-        defer { try? FileManager.default.removeItem(at: errorFile) }
-        let errors = try FileHandle(forWritingTo: errorFile)
-        defer { try? errors.close() }
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = errors
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: failure(error.localizedDescription))
-            }
+        let outcome: ToolProcess.Outcome
+        do {
+            outcome = try await ToolProcess.run(tool, arguments)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw failure(error.localizedDescription)
         }
-        guard status == 0 else {
-            let message = (try? String(contentsOf: errorFile, encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            throw failure(message.isEmpty ? "\(URL(fileURLWithPath: tool).lastPathComponent) exited with \(status)" : message)
+        guard outcome.status == 0 else {
+            throw failure(outcome.failureReason(tool: tool))
         }
     }
 }

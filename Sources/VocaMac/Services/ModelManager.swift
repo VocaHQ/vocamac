@@ -715,7 +715,7 @@ final class ModelManager: @unchecked Sendable {
 
             // Check the archive against its known digest before unpacking it:
             // everything inside is handed to native ONNX code.
-            let digest = try Self.sha256Hex(ofFileAt: archiveDestination)
+            let digest = try await Self.sha256HexInBackground(ofFileAt: archiveDestination)
             guard digest.caseInsensitiveCompare(spec.sha256) == .orderedSame else {
                 throw ModelManagerError.checksumMismatch(
                     model: size.rawValue,
@@ -724,7 +724,7 @@ final class ModelManager: @unchecked Sendable {
                 )
             }
 
-            try Self.extractTarArchive(at: archiveDestination, into: staging)
+            try await Self.extractTarArchive(at: archiveDestination, into: staging)
             try? fileManager.removeItem(at: archiveDestination)
 
             let extracted = staging.appendingPathComponent(spec.directoryName, isDirectory: true)
@@ -821,11 +821,19 @@ final class ModelManager: @unchecked Sendable {
 
     /// Extract a .tar.bz2 archive using the system tar. The App Store build
     /// can't start programs from outside its bundle, so it unpacks in-process.
-    static func extractTarArchive(at archive: URL, into directory: URL) throws {
+    /// Cancelling the caller stops the extraction.
+    static func extractTarArchive(at archive: URL, into directory: URL) async throws {
         try Task.checkCancellation()
 #if APP_STORE
-        do {
+        let task = Task.detached(priority: .utility) {
             try TarArchive.extractBZip2(at: archive, into: directory)
+        }
+        do {
+            try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
         } catch is CancellationError {
             throw CancellationError()
         } catch {
@@ -834,15 +842,11 @@ final class ModelManager: @unchecked Sendable {
             )
         }
 #else
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
-        process.arguments = ["xjf", archive.path, "-C", directory.path]
-        try process.run()
-        process.waitUntilExit()
-        try Task.checkCancellation()
-        guard process.terminationStatus == 0 else {
+        let tool = "/usr/bin/tar"
+        let outcome = try await ToolProcess.run(tool, ["xjf", archive.path, "-C", directory.path])
+        guard outcome.status == 0 else {
             throw ModelManagerError.downloadFailed(
-                reason: "Archive extraction failed (tar exited with \(process.terminationStatus))"
+                reason: "Archive extraction failed (\(outcome.failureReason(tool: tool)))"
             )
         }
 #endif

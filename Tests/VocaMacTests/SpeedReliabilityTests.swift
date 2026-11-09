@@ -86,12 +86,29 @@ final class TranscriptionDeadlineTests: XCTestCase {
     }
 
     func testCancellationWrappedByAnEngineIsNotAModelFailure() {
-        let wrapped = WhisperError.transcriptionFailed(reason: CancellationError().localizedDescription)
+        let wrapped = WhisperError.transcriptionFailed(
+            reason: CancellationError().localizedDescription, underlying: CancellationError()
+        )
         XCTAssertFalse(TranscriptionRouter.isModelFailure(wrapped))
         XCTAssertFalse(TranscriptionRouter.isModelFailure(
-            ParakeetError.transcriptionFailed(reason: CancellationError().localizedDescription)
+            ParakeetError.transcriptionFailed(reason: "cancelled", underlying: CancellationError())
         ))
         XCTAssertTrue(TranscriptionRouter.isModelFailure(WhisperError.transcriptionFailed(reason: "MPS error")))
+        let modelFault = NSError(domain: "com.apple.CoreML", code: 0)
+        XCTAssertTrue(TranscriptionRouter.isModelFailure(
+            ParakeetError.transcriptionFailed(reason: "fault", underlying: modelFault)
+        ))
+    }
+
+    func testCustomEndpointAndNetworkFailuresAreNotModelFailures() {
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(CustomEndpointError.endpointRejected(status: 500, detail: nil)))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(CustomEndpointError.unexpectedResponse))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(CustomEndpointError.notConfigured("No URL")))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(URLError(.timedOut)))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(
+            NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        ))
+        XCTAssertTrue(TranscriptionRouter.isModelFailure(SherpaError.transcriptionFailed(reason: "no result")))
     }
 }
 

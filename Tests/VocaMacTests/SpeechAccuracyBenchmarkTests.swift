@@ -140,6 +140,10 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         let models: [ModelResult]
         let skippedModels: [String]
         var baselineRegressions: [String]?
+        /// Why the baseline was not compared, when it was skipped on purpose.
+        var baselineNote: String?
+        /// Models whose vocabulary hints could not take effect, and why.
+        var hintsNotTested: [String]?
     }
 
     struct CorpusEntry {
@@ -193,6 +197,9 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
 
         var results: [ModelResult] = []
         var skipped: [String] = []
+        var hintsNotTested: [String] = []
+        let hasBoostTerms = !RecognitionHints.boostTerms(from: vocabulary).isEmpty
+            || entries.contains { !RecognitionHints.boostTerms(from: Self.vocabulary(vocabulary, adding: $0.terms)).isEmpty }
         for name in modelNames {
             guard let model = ModelSize(rawValue: name) else {
                 XCTFail("Unknown model \(name)")
@@ -204,6 +211,16 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                     continue
                 }
                 try await modelManager.downloadModel(size: model) { _ in }
+            }
+            // Parakeet applies hints through a separate boost model. Without
+            // it the hinted and unhinted decodes are the same, so a paired
+            // run would wrongly show that hints change nothing.
+            if model.engine == .parakeet, hasBoostTerms, !TranscriptionRouter.isVocabularyBoostDownloaded {
+                if allowDownload {
+                    try await TranscriptionRouter.downloadVocabularyBoost()
+                } else {
+                    hintsNotTested.append("\(name): Parakeet vocabulary boost model is not downloaded")
+                }
             }
             var result = try await measure(
                 model: model, entries: entries, audio: audio, language: language,
@@ -224,9 +241,12 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
             cleanupModel: finalCleanup?.kind.rawValue, cleanupLevel: finalCleanup?.level.rawValue,
             models: results, skippedModels: skipped
         )
+        report.hintsNotTested = hintsNotTested.isEmpty ? nil : hintsNotTested
         let measured = Dictionary(uniqueKeysWithValues: results.map { ($0.model, $0.baselineEntry) })
-        let regressions = try Self.baselineRegressions(measured, corpusID: corpusID, environment: environment)
+        let comparison = try Self.baselineRegressions(measured, corpusID: corpusID, environment: environment)
+        let regressions = comparison.regressions
         report.baselineRegressions = regressions.map(\.description)
+        report.baselineNote = comparison.note
 
         let outputURL = Self.outputURL(environment["VOCAMAC_ACCURACY_OUTPUT"])
         let encoder = JSONEncoder()
@@ -255,7 +275,6 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
 
     // MARK: - Measuring
 
-    // swiftlint:disable:next function_parameter_count
     private func measure(
         model: ModelSize,
         entries: [CorpusEntry],
@@ -275,10 +294,16 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
             for (entry, samples) in zip(entries, audio) {
                 let hints = Self.vocabulary(vocabulary, adding: entry.terms)
                 let terms = RecognitionHints.terms(from: hints)
+                // The hinted decode is the one the app makes, so it is timed
+                // first: the first file's time stays the first decode after
+                // the load. The paired decode without hints follows, untimed.
+                let start = ProcessInfo.processInfo.systemUptime
+                let result = try await router.transcribe(
+                    audioData: samples, language: language, translate: false, vocabulary: hints
+                )
+                let decodeSeconds = ProcessInfo.processInfo.systemUptime - start
                 var unhinted: Unhinted?
                 if paired, !hints.isEmpty {
-                    // Decoded first, so the timed decode below stays the one
-                    // the app makes.
                     let plain = try await router.transcribe(
                         audioData: samples, language: language, translate: false, vocabulary: ""
                     )
@@ -293,11 +318,6 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                         )
                     )
                 }
-                let start = ProcessInfo.processInfo.systemUptime
-                let result = try await router.transcribe(
-                    audioData: samples, language: language, translate: false, vocabulary: hints
-                )
-                let decodeSeconds = ProcessInfo.processInfo.systemUptime - start
                 var file = Self.scored(
                     entry: entry, hypothesis: result.text, terms: terms,
                     audioSeconds: Double(samples.count) / 16_000, decodeSeconds: decodeSeconds
@@ -478,15 +498,14 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
 
     static func baselineRegressions(
         _ measured: [String: AccuracyBaseline.Entry], corpusID: String?, environment: [String: String]
-    ) throws -> [AccuracyBaseline.Regression] {
-        guard let path = environment["VOCAMAC_ACCURACY_BASELINE"], !path.isEmpty else { return [] }
+    ) throws -> (regressions: [AccuracyBaseline.Regression], note: String?) {
+        guard let path = environment["VOCAMAC_ACCURACY_BASELINE"], !path.isEmpty else { return ([], nil) }
         let baseline = try AccuracyBaseline.load(from: URL(fileURLWithPath: path))
         if let recorded = baseline.corpus, let corpusID, recorded != corpusID {
-            print("Baseline was recorded on corpus \(recorded), not \(corpusID); not compared.")
-            return []
+            return ([], "Baseline was recorded on corpus \(recorded), not \(corpusID); not compared.")
         }
         let tolerance = environment["VOCAMAC_ACCURACY_TOLERANCE"].flatMap(Double.init)
-        return baseline.regressions(in: measured, tolerance: tolerance)
+        return (baseline.regressions(in: measured, tolerance: tolerance), nil)
     }
 
     // MARK: - Corpus and report
@@ -577,6 +596,12 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         }
         if !report.skippedModels.isEmpty {
             lines.append("skipped (not downloaded): \(report.skippedModels.joined(separator: ", "))")
+        }
+        for note in report.hintsNotTested ?? [] {
+            lines.append("hints not tested: \(note); set VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1")
+        }
+        if let note = report.baselineNote {
+            lines.append(note)
         }
         for regression in report.baselineRegressions ?? [] {
             lines.append("REGRESSION: \(regression)")

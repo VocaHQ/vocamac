@@ -66,6 +66,11 @@ final class TranscriptScoringTests: XCTestCase {
         XCTAssertEqual(formatting.capitalization, TranscriptScoring.MarkAgreement(
             referenceMarks: 3, hypothesisMarks: 1, agreements: 1
         ))
+        // Marks on both sides that never agree are a score of 0, not "n/a".
+        XCTAssertEqual(formatting.punctuation.f1, 0)
+        XCTAssertEqual(TranscriptScoring.MarkAgreement(referenceMarks: 2).f1, 0)
+        XCTAssertEqual(TranscriptScoring.MarkAgreement(hypothesisMarks: 1).f1, 0)
+        XCTAssertNil(TranscriptScoring.MarkAgreement().f1)
         XCTAssertEqual(formatting.capitalization.precision, 1)
         XCTAssertEqual(formatting.capitalization.recall ?? 0, 1.0 / 3.0, accuracy: 1e-9)
 
@@ -105,5 +110,26 @@ final class TranscriptScoringTests: XCTestCase {
             hypothesis: "open Visual Studio Code then visual studio code again"
         )
         XCTAssertEqual(recall, TranscriptScoring.TermRecall(expected: 2, recalled: 1, falseInsertions: 0))
+    }
+
+    func testTermsKeepTheirSymbols() {
+        // "C" is not "C++", and "C#" is a different term again.
+        let wrong = TranscriptScoring.termRecall(
+            terms: ["C++", "C#"], reference: "I write C++ and C# daily.", hypothesis: "I write C and C daily."
+        )
+        XCTAssertEqual(wrong, TranscriptScoring.TermRecall(expected: 2, recalled: 0, falseInsertions: 0))
+
+        // Sentence punctuation, quotes and brackets around a term still match.
+        let right = TranscriptScoring.termRecall(
+            terms: ["C++", ".NET", "Node.js"],
+            reference: "Use C++, then (.NET) and Node.js.",
+            hypothesis: "Use \"C++\" then .NET, and Node.js!"
+        )
+        XCTAssertEqual(right, TranscriptScoring.TermRecall(expected: 3, recalled: 3, falseInsertions: 0))
+
+        let lowered = TranscriptScoring.termRecall(
+            terms: ["Node.js"], reference: "run Node.js", hypothesis: "run node.js"
+        )
+        XCTAssertEqual(lowered, TranscriptScoring.TermRecall(expected: 1, recalled: 0, falseInsertions: 0))
     }
 }

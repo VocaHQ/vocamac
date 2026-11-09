@@ -52,7 +52,7 @@ swift test --filter SpeechAccuracyBenchmarkTests
 | `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` | Download missing speech and cleanup models; otherwise they are skipped. |
 | `VOCAMAC_ACCURACY_LANGUAGE` | Language code; unset or `auto` detects. |
 | `VOCAMAC_ACCURACY_VOCABULARY` | Comma-separated Dictionary terms for every file (each file's `.terms.txt` is added). |
-| `VOCAMAC_ACCURACY_VOCABULARY_PAIRED=1` | Decode each file with and without the vocabulary and report WER and term recall for both, to see what hints buy on each engine and what they pull in where they were not said. |
+| `VOCAMAC_ACCURACY_VOCABULARY_PAIRED=1` | Decode each file with and without the vocabulary and report WER and term recall for both, to see what hints buy on each engine and what they pull in where they were not said. Parakeet applies hints through a separate boost model: with `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` it is downloaded, otherwise the report lists the model under "hints not tested". |
 | `VOCAMAC_ACCURACY_FINAL=1` | Also score the text after the output rules, with Smart Cleanup off. |
 | `VOCAMAC_ACCURACY_CLEANUP_MODEL` | A cleanup model id (for example `qwen25_0_5b_q4_k_m`) or the path to its `.gguf`. Implies FINAL and runs the real model, skipped when the rules left nothing to do, as the app does by default. |
 | `VOCAMAC_ACCURACY_CLEANUP_LEVEL` | `light`, `medium` (default), `grammar` or `high`. |

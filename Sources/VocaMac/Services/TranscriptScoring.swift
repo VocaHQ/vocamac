@@ -136,8 +136,12 @@ enum TranscriptScoring {
 
         var precision: Double? { hypothesisMarks == 0 ? nil : Double(agreements) / Double(hypothesisMarks) }
         var recall: Double? { referenceMarks == 0 ? nil : Double(agreements) / Double(referenceMarks) }
+        /// `nil` only when neither text marks a shared word, so there is
+        /// nothing to score. Marks on one side with no agreement score 0, so
+        /// a transcript that misses every mark is not hidden as "n/a".
         var f1: Double? {
-            guard let precision, let recall, precision + recall > 0 else { return nil }
+            guard referenceMarks > 0 || hypothesisMarks > 0 else { return nil }
+            guard agreements > 0, let precision, let recall else { return 0 }
             return 2 * precision * recall / (precision + recall)
         }
 
@@ -216,23 +220,52 @@ enum TranscriptScoring {
     }
 
     static func termRecall(terms: [String], reference: String, hypothesis: String) -> TermRecall {
-        let referenceWords = WordErrorRate.surfaceWords(reference).map { $0.text.lowercased() }
-        let hypothesisSurface = WordErrorRate.surfaceWords(hypothesis).map(\.text)
-        let hypothesisWords = hypothesisSurface.map { $0.lowercased() }
+        let plainReference = WordErrorRate.surfaceWords(reference).map { $0.text.lowercased() }
+        let plainHypothesis = WordErrorRate.surfaceWords(hypothesis).map(\.text)
+        let symbolReference = symbolTokens(reference).map { $0.lowercased() }
+        let symbolHypothesis = symbolTokens(hypothesis)
         var result = TermRecall()
         var seen = Set<String>()
         for term in terms {
-            let exact = WordErrorRate.surfaceWords(term).map(\.text)
+            // "C++", "C#" and ".NET" are told apart by their symbols, which
+            // the word tokenizer drops; such terms match whole tokens instead.
+            let keepsSymbols = hasMeaningfulSymbols(term)
+            let exact = keepsSymbols ? symbolTokens(term) : WordErrorRate.surfaceWords(term).map(\.text)
             let lowered = exact.map { $0.lowercased() }
             guard !lowered.isEmpty, seen.insert(lowered.joined(separator: " ")).inserted else { continue }
+            let referenceWords = keepsSymbols ? symbolReference : plainReference
+            let hypothesisSurface = keepsSymbols ? symbolHypothesis : plainHypothesis
             let said = occurrences(of: lowered, in: referenceWords)
             let heardExactly = occurrences(of: exact, in: hypothesisSurface)
-            let heardAny = occurrences(of: lowered, in: hypothesisWords)
+            let heardAny = occurrences(of: lowered, in: hypothesisSurface.map { $0.lowercased() })
             result.expected += said
             result.recalled += min(said, heardExactly)
             result.falseInsertions += max(0, heardAny - said)
         }
         return result
+    }
+
+    /// Whether a term holds a character other than letters, digits, spaces,
+    /// apostrophes and hyphens ("C++", "C#", "Node.js", ".NET").
+    static func hasMeaningfulSymbols(_ term: String) -> Bool {
+        term.contains { character in
+            !(character.isLetter || character.isNumber || character.isWhitespace
+                || "'\u{2019}-".contains(character))
+        }
+    }
+
+    /// Whitespace-separated tokens with the sentence punctuation, quotes and
+    /// brackets around them removed, keeping symbols inside or ending a term:
+    /// "use C++." → ["use", "C++"], "(.NET)" → [".NET"].
+    static func symbolTokens(_ text: String) -> [String] {
+        let leading = CharacterSet(charactersIn: "\"'\u{2018}\u{201C}([{")
+        let trailing = CharacterSet(charactersIn: ".,;:!?\"'\u{2019}\u{201D})]}")
+        return text.split(whereSeparator: \.isWhitespace).compactMap { raw in
+            var token = Substring(raw)
+            while let first = token.unicodeScalars.first, leading.contains(first) { token = token.dropFirst() }
+            while let last = token.unicodeScalars.last, trailing.contains(last) { token = token.dropLast() }
+            return token.isEmpty ? nil : String(token)
+        }
     }
 
     /// Non-overlapping occurrences of `phrase` in `words`.

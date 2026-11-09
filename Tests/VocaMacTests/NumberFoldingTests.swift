@@ -44,6 +44,9 @@ final class NumberFoldingTests: XCTestCase {
 
     func testDecimalPoint() {
         XCTAssertEqual(fold("three point five"), "3 5")
+        // Digits after the point are read one by one and join, as in "3.14".
+        XCTAssertEqual(fold("three point one four"), "3 14")
+        XCTAssertEqual(fold("pi is three point one four one five nine"), "pi is 3 14159")
         XCTAssertEqual(fold("the point is"), "the point is")
     }
 }

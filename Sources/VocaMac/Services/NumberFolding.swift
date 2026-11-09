@@ -160,14 +160,29 @@ enum NumberFolding {
     }
 
     /// "3 point 5" → "3 5": the tokenizer already splits "3.5" that way.
+    /// Decimals are read digit by digit, so the single digits after "point"
+    /// join into one fractional token: "3 point 1 4" → "3 14", as "3.14".
     private static func droppingDecimalPoints(_ words: [String]) -> [String] {
         var output: [String] = []
-        for (index, word) in words.enumerated() {
+        var index = 0
+        while index < words.count {
+            let word = words[index]
             if word == "point", index > 0, index + 1 < words.count,
                isDigits(words[index - 1]), isDigits(words[index + 1]) {
+                var fraction = words[index + 1]
+                var next = index + 2
+                if fraction.count == 1 {
+                    while next < words.count, words[next].count == 1, isDigits(words[next]) {
+                        fraction += words[next]
+                        next += 1
+                    }
+                }
+                output.append(fraction)
+                index = next
                 continue
             }
             output.append(word)
+            index += 1
         }
         return output
     }

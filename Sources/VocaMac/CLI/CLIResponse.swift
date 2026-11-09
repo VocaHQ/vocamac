@@ -47,6 +47,9 @@ struct CLITranscriptionResponse: Codable, Equatable {
     let detectedLanguage: String
     let durationSeconds: Double
     let audioLengthSeconds: Double
+    /// How many `--vocabulary` terms the engine was given; absent without
+    /// the flag.
+    var vocabularyTerms: Int?
 
     enum CodingKeys: String, CodingKey {
         case text
@@ -55,6 +58,7 @@ struct CLITranscriptionResponse: Codable, Equatable {
         case detectedLanguage = "detected_language"
         case durationSeconds = "duration_seconds"
         case audioLengthSeconds = "audio_length_seconds"
+        case vocabularyTerms = "vocabulary_terms"
     }
 }
 

@@ -80,7 +80,7 @@ final class CLIEntrypoint {
                     options: options
                 )
             }
-        case .transcribeFile(let path, let model, let language, let output):
+        case .transcribeFile(let path, let model, let language, let output, let vocabulary):
             return await runOperation(
                 outputPath: output.path,
                 render: { response in
@@ -93,7 +93,8 @@ final class CLIEntrypoint {
                     try await self.headlessTranscriber.transcribe(
                         fileURL: URL(fileURLWithPath: path),
                         modelOverride: model,
-                        languageOverride: language
+                        languageOverride: language,
+                        vocabulary: try CLIVocabulary.resolve(vocabulary)
                     )
                 }
             )
@@ -237,9 +238,10 @@ final class CLIEntrypoint {
 
     Usage:
       VocaMac --transcribe-file <audio-path> (--json | --text) [--output <file>]
-          [--model <id>] [--language <code>]
+          [--model <id>] [--language <code>] [--vocabulary <file-or-list>]
       VocaMac --transcribe-file <audio-path> --json --pieces [--cleanup <cleanup-model-id>]
           [--pause-seconds <s>] [--min-piece-seconds <s>] [--model <id>] [--language <code>]
+          [--vocabulary <file-or-list>]
       VocaMac --list-models --json
       VocaMac --help
 
@@ -250,6 +252,9 @@ final class CLIEntrypoint {
     --pieces compares decoding the whole file with decoding it piece by piece at pauses, as
     "Process while speaking" does while recording, and reports both texts and timings.
     --cleanup also cleans both with a downloaded cleanup model.
+    --vocabulary gives the engine recognition hints, as the app's Dictionary does: a file
+    with one term per line (or comma-separated), or a comma-separated list such as
+    "GitHub, Kubernetes". The app's own Dictionary is never read headlessly.
     """ + "\n"
 }
 

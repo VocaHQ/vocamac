@@ -2,7 +2,7 @@
 title: "Apple Silicon Native"
 seoTitle: "On-Device Speech to Text for Apple Silicon Macs | VocaMac"
 subtitle: "A native macOS app with on-device speech engines built for Apple Silicon."
-description: "VocaMac is a native Apple Silicon app that runs Whisper, Parakeet and other speech models locally on CoreML and the Neural Engine, so dictation stays on your Mac after a one-time model download."
+description: "VocaMac is a native Apple Silicon app. Whisper and Parakeet use CoreML and the Neural Engine; specialized ONNX models run locally on the CPU. Dictation stays on your Mac after a one-time model download."
 keywords: "apple silicon speech recognition, coreml voice to text, whisperkit macOS, local dictation mac, hardware accelerated transcription mac"
 icon: "⚡"
 related: ["speech-engines", "smart-model-selection", "custom-endpoint"]

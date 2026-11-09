@@ -135,7 +135,9 @@ typed. Raw style returns it untouched. Otherwise:
 
 ### 5.1 Rule stages (`prepare`, no model)
 
-In this order, each only where the style cleans up:
+In this order. Stages 1–6 run only where the style cleans up and the cleanup
+level allows them. Stages 7–8 also run with "Formatting only, no AI", subject
+to their own settings:
 
 1. Hesitations ("um", "uh"); other languages lose only sounds that are a word
    nowhere, plus their own when the language is known.
@@ -228,7 +230,9 @@ Command Mode works on selected text (`AccessibilitySelectedTextService`).
    `CommandOutputCheck`, one retry. The model is a local slot, Apple
    Intelligence, or an endpoint (`TextTransforming`).
 
-Results that replace text are shown in `CommandReviewPanel` for approval.
+Model results that replace text are shown in `CommandReviewPanel` only when
+`commandModeReview` asks for approval; it defaults to `.never`. Rule edits
+always apply directly without review.
 
 ## 8. CLI
 
@@ -259,7 +263,7 @@ Everything lives under `~/Library/Application Support/VocaMac/`:
 | Path | Contents |
 |------|----------|
 | `models/` | Whisper, Parakeet, sherpa-onnx (`models/sherpa-onnx/`) and cleanup (`models/cleanup/`) models |
-| `History/` | Dictation history (on by default). Audio is written for crash recovery and deleted after the dictation unless "Keep audio" is on |
+| `History/` | Dictation history (on by default). Audio is written for crash recovery. Successful dictations with text delete their audio unless "Keep audio" is on; failed, cancelled, interrupted and empty dictations keep it for recovery |
 | `logs/` | Rotated logs (`VocaLogger`); log lines carry character counts, not transcript text. `logs/failed-audio/` only when the `vocamac.debug.saveFailedAudio` default is set |
 
 Network use: model downloads (Hugging Face, sherpa-onnx releases), the daily

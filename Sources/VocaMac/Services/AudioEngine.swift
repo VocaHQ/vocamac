@@ -222,6 +222,14 @@ final class AudioEngine: @unchecked Sendable {
     /// recording that silently transcribes nothing. Written from the render
     /// thread, so it must use the same realtime-safe state as `capturePhase`.
     private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
+    /// Tap callbacks between their phase check and the end of their append.
+    /// `stopRecording` hands the audio back before the tap is removed, so it
+    /// waits for this to reach zero first: a callback that passed the check
+    /// just before the stop would otherwise append after the buffer was
+    /// emptied, and its samples (often the end of the last word) would be
+    /// lost. Counted before the phase is read, so once the stop has set the
+    /// phase and seen zero, any later callback sees the stopped phase.
+    private let buffersInFlight = OSAllocatedUnfairLock(initialState: 0)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Zero-based input channel chosen by the user for multi-channel devices.
     /// Read by the input tap, so it lives in `captureSettings`.
@@ -886,6 +894,7 @@ final class AudioEngine: @unchecked Sendable {
 
             collectInputTail()
             setRecordingActive(false)
+            waitForBuffersInFlight()
 
             // Hand the audio back first: once the phase is `.stopped` the tap
             // keeps nothing more, so removing it and stopping the engine
@@ -907,6 +916,20 @@ final class AudioEngine: @unchecked Sendable {
             }
 
             return samples
+        }
+    }
+
+    /// Longest a stop waits for a tap callback already appending.
+    static let inFlightBufferWait: TimeInterval = 0.25
+
+    /// Waits until no tap callback is between its phase check and its
+    /// append, so the samples handed back include everything it accepted.
+    /// Bounded, so a stalled render thread can't hold the stop.
+    /// Must be called on `lifecycleQueue` after the phase is stopped.
+    private func waitForBuffersInFlight() {
+        let deadline = Date().addingTimeInterval(Self.inFlightBufferWait)
+        while buffersInFlight.withLock({ $0 }) > 0, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.001)
         }
     }
 
@@ -1366,7 +1389,10 @@ final class AudioEngine: @unchecked Sendable {
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
         // Deliberately not `isCurrentlyRecording`: that reads through
         // `lifecycleQueue.sync`, which deadlocks the render thread. See
-        // `capturePhase`.
+        // `capturePhase`. Counted in flight before the phase is read; see
+        // `buffersInFlight`.
+        buffersInFlight.withLock { $0 += 1 }
+        defer { buffersInFlight.withLock { $0 -= 1 } }
         guard capturePhase.withLock({ $0.acceptsInputBuffers }) else { return }
 
         // Record that the HAL is really pulling from this route, before any

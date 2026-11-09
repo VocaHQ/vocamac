@@ -378,6 +378,17 @@ extension TranscriptionRouter: SpeechTranscribing {
         return stream
     }
 
+    /// Finish and release the stream of a recording that will not be
+    /// decoded, so its worker, detector reference and pending audio are not
+    /// held until the next recording replaces it.
+    func cancelVoiceActivityStream() {
+        let stream = state.withLock { state -> VoiceActivityStream? in
+            defer { state.voiceActivityStream = nil }
+            return state.voiceActivityStream
+        }
+        stream?.cancel()
+    }
+
     /// Say whether a dictation is waiting on the model load in progress, so
     /// the load skips its warm-up decode and hands the model over sooner.
     func setRecordingWaitingForLoad(_ waiting: Bool) {
@@ -886,6 +897,7 @@ extension TranscriptionRouter: SpeechTranscribing {
         await appleSpeech.unloadModel()
         sherpa.unloadModel()
         customEndpoint.unloadModel()
+        cancelVoiceActivityStream()
         await voiceActivity.unload()
         consecutiveFailures = 0
     }

@@ -270,9 +270,16 @@ final class TextInjector: @unchecked Sendable {
             let preparation = snapshotPreparation
             preparedSnapshot = nil
             preparingSnapshot = Task { @MainActor [self] in
+                // The count is read once, before the copy, and the copy is
+                // kept only if the board still holds that generation after
+                // it. Reading the count again after the copy could pair old
+                // contents with a newer count, and the paste would then
+                // restore them over what the user just copied.
+                let generation = self.pasteboard.changeCount
                 guard let snapshot = try? await self.captureStableSnapshot(self.pasteboard),
-                      !Task.isCancelled, preparation == self.snapshotPreparation else { return }
-                self.preparedSnapshot = (self.pasteboard.changeCount, snapshot)
+                      !Task.isCancelled, preparation == self.snapshotPreparation,
+                      self.pasteboard.changeCount == generation else { return }
+                self.preparedSnapshot = (generation, snapshot)
             }
         }
         if Thread.isMainThread { prepare() }

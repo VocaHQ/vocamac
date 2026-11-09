@@ -88,6 +88,31 @@ final class StopToTextLatencyTests: XCTestCase {
     }
 }
 
+// MARK: - Abandoned silence streams
+
+@MainActor
+final class AbandonedVoiceActivityStreamTests: XCTestCase {
+
+    func testACancelledRecordingReleasesItsSilenceStream() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.isRecording = true
+        appState.appStatus = .recording
+
+        await appState.cancelRecording()
+
+        XCTAssertEqual(mocks.whisperService.cancelVoiceActivityStreamCallCount, 1)
+    }
+
+    func testForceRecoveryReleasesTheSilenceStream() {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.isRecording = true
+
+        appState.forceRecovery()
+
+        XCTAssertEqual(mocks.whisperService.cancelVoiceActivityStreamCallCount, 1)
+    }
+}
+
 // MARK: - Clipboard copied at key-up
 
 @MainActor

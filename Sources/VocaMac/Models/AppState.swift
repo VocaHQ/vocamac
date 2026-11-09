@@ -2258,6 +2258,7 @@ final class AppState: ObservableObject {
 
         // Reset UI state
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         cursorOverlay.hide()
         appStatus = .idle
@@ -2437,12 +2438,14 @@ final class AppState: ObservableObject {
                     await self?.warmCleanupModel(for: target)
                 }
             }
+            // A dictation is waiting: the load hands the model over without
+            // its warm-up decode, which this dictation would only wait for.
+            // Set before waiting on the launch load too, so a dictation that
+            // starts while that load runs skips its warm-up as well.
+            whisperService.setRecordingWaitingForLoad(true)
             if let startupModelPreparation {
                 await startupModelPreparation.value
             }
-            // A dictation is waiting: the load hands the model over without
-            // its warm-up decode, which this dictation would only wait for.
-            whisperService.setRecordingWaitingForLoad(true)
             await ensureModelLoaded()
             whisperService.setRecordingWaitingForLoad(false)
             isLoadingModelForRecording = false
@@ -3462,6 +3465,7 @@ final class AppState: ObservableObject {
     /// would be taken as an editing command for the stale selection.
     private func discardRecordingState() {
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         screenContextTask?.cancel()
         screenContextTask = nil

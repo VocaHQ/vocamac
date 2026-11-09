@@ -297,6 +297,9 @@ protocol SpeechTranscribing: AnyObject, Sendable {
     /// Start detecting speech in the recording about to be made, for the
     /// next batch decode to reuse. Nil when there is nothing to run.
     func startVoiceActivityStream() -> VoiceActivityStream?
+    /// Finish and release a stream no decode will take: the recording was
+    /// cancelled or ended without a transcript.
+    func cancelVoiceActivityStream()
 }
 
 extension SpeechTranscribing {
@@ -307,6 +310,8 @@ extension SpeechTranscribing {
     func setRecordingWaitingForLoad(_ waiting: Bool) {}
     /// Conformances that do not skip silence have nothing to start.
     func startVoiceActivityStream() -> VoiceActivityStream? { nil }
+    /// Conformances with no stream have nothing to release.
+    func cancelVoiceActivityStream() {}
 
     /// Conformances whose engines all need the vocabulary up front wait for it.
     func transcribe(

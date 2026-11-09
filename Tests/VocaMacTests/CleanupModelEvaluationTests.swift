@@ -231,23 +231,12 @@ final class CleanupModelEvaluationTests: XCTestCase {
 }
 
 enum CleanupEvaluationMetrics {
-    /// Case/punctuation-normalized word error rate against an explicit reference.
+    /// Word error rate against an explicit reference, normalized as
+    /// `WordErrorRate` normalizes (case, punctuation, number spelling).
     /// This metric is not a semantic score and does not measure punctuation.
     static func wer(_ text: String, reference: String) -> Double {
-        func words(_ text: String) -> [String] {
-            text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "'" && $0 != "’" }.map(String.init)
-        }
-        let actual = words(text), expected = words(reference)
-        var previous = Array(0...actual.count)
-        for (index, word) in expected.enumerated() {
-            var row = [index + 1]
-            for (column, candidate) in actual.enumerated() {
-                row.append(min(previous[column + 1] + 1, row[column] + 1,
-                               previous[column] + (word == candidate ? 0 : 1)))
-            }
-            previous = row
-        }
-        return Double(previous.last ?? 0) / Double(max(1, expected.count))
+        let measured = WordErrorRate.measure(reference: reference, hypothesis: text)
+        return Double(measured.errors) / Double(max(1, measured.referenceWords))
     }
 }
 

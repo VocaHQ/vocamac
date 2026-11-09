@@ -62,11 +62,13 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 
 Cohere Transcribe has no language detection: it transcribes in the language chosen in Settings, or English when that is Automatic or a language it doesn't know. It is only suggested to someone who speaks exactly one of its languages.
 
+When the transcription language is Automatic and you list two or more languages that Cohere Transcribe or Canary support (Settings › Language), VocaMac picks one of them for each dictation with Whisper Tiny's language detection on the first 10 seconds, choosing only among your languages. This needs Whisper Tiny on the Mac (it ships with the app) and is skipped for recordings under a second, for the live overlay, and for Process while speaking pieces, which keep the language the model loaded with. The first dictation after the model loads may still use that language while language detection loads.
+
 Not offered yet: Qwen3 ASR 1.7B and Moonshine v2 Small and Medium have no sherpa-onnx release export (only community uploads, which VocaMac does not pin to). Moonshine Tiny and Base above are already the v2 builds.
 
 Recordings longer than a model's single-pass limit are split at natural pauses and decoded segment by segment, since these models — unlike Whisper and Parakeet — do not chunk internally.
 
-> **Note:** SenseVoice, Canary and Cohere Transcribe fix their language when the model loads, so changing the transcription language reloads the active model. Whisper and Parakeet take the language per transcription.
+> **Note:** SenseVoice, Canary and Cohere Transcribe fix their language when the model loads, so changing the transcription language reloads the active model (Canary and Cohere can still be switched per dictation by the language detection above). Whisper and Parakeet take the language per transcription.
 
 > **Note:** Of these, only Qwen3 ASR takes Dictionary words as a recognition hint. Moonshine, SenseVoice, GigaAM, and Canary have no way to listen for a word, so for them the Dictionary only fixes spellings after transcription: a near-miss of a listed term, or a run of words that sounds exactly like one.
 

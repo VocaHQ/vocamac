@@ -80,6 +80,10 @@ final class TranscriptionRouter: @unchecked Sendable {
     /// catch an auto-detected language outside them.
     private let spokenLanguagesProvider: () -> [String]
 
+    /// Picks the language for models that must be told it (Canary, Cohere
+    /// Transcribe) when the user speaks more than one they support.
+    private let languageIdentifier: SpokenLanguageIdentifying
+
     init(
         languagePreferenceProvider: @escaping () -> String? = {
             let stored = UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
@@ -93,8 +97,10 @@ final class TranscriptionRouter: @unchecked Sendable {
                 stored: UserDefaults.standard.string(forKey: PreferenceKey.spokenLanguages),
                 selectedLanguage: UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
             )
-        }
+        },
+        languageIdentifier: SpokenLanguageIdentifying = WhisperLanguageIdentifier()
     ) {
+        self.languageIdentifier = languageIdentifier
         self.languagePreferenceProvider = languagePreferenceProvider
         self.skipSilenceProvider = skipSilenceProvider
         self.spokenLanguagesProvider = spokenLanguagesProvider
@@ -292,6 +298,7 @@ extension TranscriptionRouter: SpeechTranscribing {
         }
         if engine != .sherpaOnnx {
             sherpa.unloadModel()
+            languageIdentifier.unload()
         }
         if engine != .customEndpoint {
             customEndpoint.unloadModel()
@@ -310,6 +317,11 @@ extension TranscriptionRouter: SpeechTranscribing {
                 language: languagePreference,
                 onPhaseChange: onPhaseChange
             )
+            if languagePreference == nil, languageCandidates(forSherpaModel: name) != nil {
+                languageIdentifier.prepare()
+            } else {
+                languageIdentifier.unload()
+            }
         case .customEndpoint:
             try await customEndpoint.loadModel(name: name, onPhaseChange: onPhaseChange)
         }
@@ -705,7 +717,13 @@ extension TranscriptionRouter: SpeechTranscribing {
         case .appleSpeech:
             return try await appleSpeech.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)
         case .sherpaOnnx:
-            return try await sherpa.transcribe(audioData: audioData, language: language, vocabulary: vocabulary)
+            var decodeLanguage: String?
+            if language == nil, let candidates = languageCandidates(forSherpaModel: sherpa.loadedModelName) {
+                decodeLanguage = await languageIdentifier.identify(audioData, among: candidates)
+            }
+            return try await sherpa.transcribe(
+                audioData: audioData, language: language, vocabulary: vocabulary, decodeLanguage: decodeLanguage
+            )
         case .customEndpoint:
             return try await customEndpoint.transcribe(
                 audioData: audioData, language: language, translate: translate, vocabulary: vocabulary
@@ -778,7 +796,16 @@ extension TranscriptionRouter: SpeechTranscribing {
     }
 
     /// Must run inside `operationSerializer`.
+    /// The user's languages a fixed-language sherpa model can be pointed at,
+    /// when there are at least two to choose between.
+    private func languageCandidates(forSherpaModel name: String?) -> [String]? {
+        guard let size = name.flatMap(ModelSize.init(rawValue:)),
+              let supported = SherpaModelCatalog.spec(for: size)?.fixedLanguageChoices else { return nil }
+        return LanguageIdentification.candidates(spoken: spokenLanguagesProvider(), supported: supported)
+    }
+
     private func unloadAllEngines() async {
+        languageIdentifier.unload()
         whisper.unloadModel()
         await parakeet.unloadModelAndWait()
         await appleSpeech.unloadModel()

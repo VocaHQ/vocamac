@@ -92,6 +92,18 @@ struct SherpaModelSpec: Sendable {
 
     /// All files that must exist for the model to count as downloaded,
     /// relative to the model directory.
+    /// Languages a model decodes when told which one, for models that
+    /// cannot detect it themselves (Canary, Cohere Transcribe). Nil for
+    /// models that detect the language or speak only one.
+    var fixedLanguageChoices: Set<String>? {
+        switch kind {
+        case .canary(_, _, let languages), .cohereTranscribe(_, _, let languages):
+            return languages
+        case .moonshine, .senseVoice, .nemoCtc, .qwen3Asr:
+            return nil
+        }
+    }
+
     var requiredFiles: [String] {
         switch kind {
         case .moonshine(let encoder, let mergedDecoder):

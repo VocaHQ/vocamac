@@ -1,0 +1,8 @@
+{
+  "corpus" : null,
+  "models" : {
+
+  },
+  "note" : "Placeholder: no baseline recorded yet. See docs/ACCURACY.md, Recording a baseline. Until models are listed here, the nightly accuracy run reports numbers but never fails.",
+  "tolerance" : 0.01
+}

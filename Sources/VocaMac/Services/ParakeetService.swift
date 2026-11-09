@@ -320,6 +320,17 @@ final class ParakeetService: @unchecked Sendable {
         language: String? = nil,
         vocabulary: String = ""
     ) async throws -> VocaTranscription {
+        try await transcribe(audioData: audioData, language: language, vocabularyAfterDecode: { vocabulary })
+    }
+
+    /// Transcribe, reading the Dictionary terms only once the decode is done:
+    /// they are used for the boost after it, so a caller still gathering them
+    /// (the screen's terms) need not hold the decode back.
+    func transcribe(
+        audioData: [Float],
+        language: String?,
+        vocabularyAfterDecode: @Sendable () async -> String
+    ) async throws -> VocaTranscription {
         let loaded = state.withLock { state in state.manager.flatMap { manager in state.loadedSize.map { (manager, $0) } } }
         guard let (manager, size) = loaded else {
             throw ParakeetError.modelNotLoaded
@@ -359,7 +370,7 @@ final class ParakeetService: @unchecked Sendable {
             }
 
             var text = decodedText.trimmingCharacters(in: .whitespacesAndNewlines)
-            let boostTerms = RecognitionHints.boostTerms(from: vocabulary)
+            let boostTerms = RecognitionHints.boostTerms(from: await vocabularyAfterDecode())
             if !text.isEmpty, !boostTerms.isEmpty,
                let boosted = await vocabularyBoost.boost(
                    text: text, tokenTimings: tokenTimings, audio: audioData, terms: boostTerms,

@@ -279,18 +279,45 @@ protocol SpeechTranscribing: AnyObject, Sendable {
         commit: StreamingCommitOptions?
     ) -> RecordingTranscription?
     func transcribe(audioData: [Float], language: String?, translate: Bool, vocabulary: String) async throws -> VocaTranscription
+    /// Transcribe while the vocabulary is still being gathered: an engine
+    /// that needs it only after decoding starts at once.
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool,
+        vocabularyAfterDecode: @escaping @Sendable () async -> String
+    ) async throws -> VocaTranscription
     func _loadModel(name: String?, folder: URL?, onPhaseChange: (@Sendable (String) -> Void)?) async throws
     /// Release the currently loaded model (and any sibling engines) to free memory.
     func unloadModel() async
     /// Discard stored state that retired engine code left behind, so callers
     /// never reach past this facade into an individual engine to do it.
     func removeRetiredEngineState()
+    /// Whether a dictation is waiting on the model load in progress, so the
+    /// load can skip its warm-up decode.
+    func setRecordingWaitingForLoad(_ waiting: Bool)
+    /// Start detecting speech in the recording about to be made, for the
+    /// next batch decode to reuse. Nil when there is nothing to run.
+    func startVoiceActivityStream() -> VoiceActivityStream?
 }
 
 extension SpeechTranscribing {
     /// Conformances with no retired state to clear — the mocks, and the
     /// individual engines — need do nothing.
     func removeRetiredEngineState() {}
+    /// Conformances that do not warm up after a load ignore it.
+    func setRecordingWaitingForLoad(_ waiting: Bool) {}
+    /// Conformances that do not skip silence have nothing to start.
+    func startVoiceActivityStream() -> VoiceActivityStream? { nil }
+
+    /// Conformances whose engines all need the vocabulary up front wait for it.
+    func transcribe(
+        audioData: [Float], language: String?, translate: Bool,
+        vocabularyAfterDecode: @escaping @Sendable () async -> String
+    ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate,
+            vocabulary: await vocabularyAfterDecode()
+        )
+    }
 
     func startStreaming(
         language: String?,
@@ -331,6 +358,17 @@ protocol TextInjecting: AnyObject {
     /// uses this after revalidating its captured selection so a delayed paste
     /// cannot land in a different app.
     func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t)
+    /// Copy the clipboard ahead of a paste that may follow, so the copy is
+    /// not part of the wait once the text is ready.
+    func prepareClipboardSnapshot()
+    /// Drop the copy from `prepareClipboardSnapshot()` when nothing will be
+    /// pasted after all.
+    func releasePreparedClipboardSnapshot()
+}
+
+extension TextInjecting {
+    func prepareClipboardSnapshot() {}
+    func releasePreparedClipboardSnapshot() {}
 }
 
 // MARK: - FrontmostAppResolving

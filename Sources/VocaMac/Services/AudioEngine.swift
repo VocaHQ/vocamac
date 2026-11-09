@@ -886,9 +886,12 @@ final class AudioEngine: @unchecked Sendable {
 
             collectInputTail()
             setRecordingActive(false)
-            removeInputTap(reason: "stop recording")
-            engine?.stop()
 
+            // Hand the audio back first: once the phase is `.stopped` the tap
+            // keeps nothing more, so removing it and stopping the engine
+            // (which waits for the render thread) need not hold up the
+            // transcription. The teardown runs next on this serial queue, so
+            // a later start or reset still sees a stopped engine.
             let samples = capturedSamplesAndResetBuffer()
             let duration = Double(samples.count) / Self.whisperFormat.sampleRate
             VocaLogger.info(
@@ -896,13 +899,27 @@ final class AudioEngine: @unchecked Sendable {
                 "Captured \(samples.count) samples (\(String(format: "%.2f", duration))s)"
             )
 
-            // Keep the stopped engine briefly so rapid push-to-talk recordings
-            // don't cold-reacquire a silent input route, then release it so we
-            // don't keep forcing Bluetooth headsets into HFP while idle.
-            scheduleEngineRelease()
+            lifecycleQueue.async { [self] in
+                // Defensive: the queue is serial, so a later start runs after
+                // this, but never tear down an engine that is recording again.
+                guard !_isCurrentlyRecording else { return }
+                tearDownStoppedCapture()
+            }
 
             return samples
         }
+    }
+
+    /// Removes the tap and stops the engine after a recording stops.
+    /// Must be called on `lifecycleQueue`.
+    private func tearDownStoppedCapture() {
+        removeInputTap(reason: "stop recording")
+        engine?.stop()
+
+        // Keep the stopped engine briefly so rapid push-to-talk recordings
+        // don't cold-reacquire a silent input route, then release it so we
+        // don't keep forcing Bluetooth headsets into HFP while idle.
+        scheduleEngineRelease()
     }
 
     /// Longest a stop waits for the tap's next buffer.

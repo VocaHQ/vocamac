@@ -35,6 +35,10 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     private let modelsDirectory: URL
     private var activeLLM: LLM?
+    /// Token count of the last system prompt encoded, keyed by the model
+    /// instance and the prompt itself. The prompt is byte-stable per level,
+    /// so this spares re-encoding about 1,000 tokens on every pass.
+    private var promptTokenCountCache: PromptTokenCountCache?
     private var activeKind: CleanupModelKind?
 
     /// The load in flight, so overlapping `load` calls join it instead of
@@ -370,7 +374,15 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             // Count actual tokens in the selected model, including fences.
             // Reserve space for the chat template and a slightly longer answer.
             let context = Int(activeKind?.descriptor.maxTokenCount ?? 4096)
-            let promptTokens = await llm.encode(activePrompt).count
+            let promptTokens: Int
+            if let cached = promptTokenCountCache?.count(model: ObjectIdentifier(llm), prompt: activePrompt) {
+                promptTokens = cached
+            } else {
+                promptTokens = await llm.encode(activePrompt).count
+                promptTokenCountCache = PromptTokenCountCache(
+                    model: ObjectIdentifier(llm), prompt: activePrompt, count: promptTokens
+                )
+            }
             let chunks = await CleanupContext.chunks(
                 trimmed, contextTokens: context, promptTokens: promptTokens,
                 allowsSplitting: !allowsTransform || transform.allowsSplitting,
@@ -744,6 +756,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         modelState = .loading(kind: kind)
         consecutiveFailures = 0
         activeLLM = nil
+
+        promptTokenCountCache = nil
         activeKind = nil
         cachedPrompt = nil
 
@@ -795,6 +809,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // its own reference; ask it to stop so the weights are actually freed.
         activeLLM?.stop()
         activeLLM = nil
+
+        promptTokenCountCache = nil
         activeKind = nil
         cachedPrompt = nil
         // The straggler belongs to the model just dropped; leaving the handle
@@ -855,6 +871,8 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         loaded.updateThinking = { (_: String?) in }
         loaded.historyLimit = 0
         activeLLM = loaded
+
+        promptTokenCountCache = nil
         activeKind = kind
         modelState = .ready
         VocaLogger.info(.transcriptCleanup, "Ready: \(descriptor.displayName)")
@@ -964,6 +982,19 @@ enum CleanupInferenceError: Error {
 /// the raw transcript was pasted. Both show in the first words or the length,
 /// so the pass is stopped as soon as either is clear. Also carries the text
 /// so far to a live preview.
+/// One prompt's token count for one loaded model. A new model instance or
+/// a different prompt misses, so a reload or a prompt change is re-counted.
+struct PromptTokenCountCache: Equatable {
+    let model: ObjectIdentifier
+    let prompt: String
+    let count: Int
+
+    /// The cached count if it belongs to this model and prompt.
+    func count(model: ObjectIdentifier, prompt: String) -> Int? {
+        model == self.model && prompt == self.prompt ? count : nil
+    }
+}
+
 final class GenerationMonitor: @unchecked Sendable {
     enum StopReason: Equatable {
         /// Asked to stop at the first word: the prompt was only being read ahead.

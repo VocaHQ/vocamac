@@ -144,6 +144,16 @@ enum SettingsSearchIndex {
                 "process while speaking",
             ]
         ),
+        SettingsSearchEntry(
+            id: "transcribe-as-you-speak",
+            page: .dictation,
+            title: "Transcribe as you speak",
+            subtitle: "Parakeet Unified and Nemotron Unified decode while you talk",
+            keywords: [
+                "streaming", "live", "real time", "realtime", "faster", "latency", "parakeet", "nemotron",
+                "transcribe as you speak",
+            ]
+        ),
 
         // Writing Styles
         SettingsSearchEntry(

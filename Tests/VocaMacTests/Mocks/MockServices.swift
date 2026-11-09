@@ -526,7 +526,8 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
+             .senseVoiceNeuralEngine, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B, .cohereTranscribe, .customEndpoint:
             return size.rawValue

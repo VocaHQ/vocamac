@@ -45,6 +45,9 @@ enum PreferenceKey {
     /// When each downloaded model was last in use (`ModelUsageLog`).
     static let modelUsageLog = "vocamac.models.usageLog"
     static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
+    /// Bool: Parakeet Unified and Nemotron Unified transcribe while the
+    /// user speaks, through their streaming export (default off).
+    static let parakeetLiveStreaming = "vocamac.dictation.parakeetLiveStreaming"
     static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
     static let speechEndpoint = "vocamac.speech.endpoint"
     static let historyEnabled = "vocamac.history.enabled"

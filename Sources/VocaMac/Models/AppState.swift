@@ -504,6 +504,12 @@ final class AppState: ObservableObject {
     /// Decode (and clean up) each finished sentence while recording, so long
     /// dictations paste sooner. Off by default until measured on more Macs.
     @UserDefault(PreferenceKey.processWhileSpeaking) var processWhileSpeaking: Bool = false
+    /// Parakeet Unified and Nemotron Unified load their streaming export and
+    /// transcribe while the user speaks, so the text is ready about two
+    /// seconds after they stop. Off by default: the streaming export is a
+    /// second download, and NVIDIA reports it slightly less accurate than
+    /// the batch export (6.14 % against 5.91 % average WER).
+    @UserDefault(PreferenceKey.parakeetLiveStreaming) var parakeetLiveStreaming: Bool = false
     @UserDefault(PreferenceKey.cleanupEndpoint) var cleanupEndpointJSON: String = ""
     @UserDefault(PreferenceKey.speechEndpoint) var speechEndpointJSON: String = ""
     @UserDefault(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
@@ -2682,6 +2688,9 @@ final class AppState: ObservableObject {
         guard processWhileSpeaking, injectResult, activeCommandTarget == nil,
               let model = ModelSize(rawValue: selectedModelSize),
               model.engine != .customEndpoint,
+              // A streaming export transcribes the whole recording as it
+              // comes; pieces would decode it twice.
+              !(parakeetLiveStreaming && model.transcribesWhileSpeaking),
               !(model.engine == .whisperKit && translatesSpeech) else { return nil }
         let engine = model.engine
         guard !isPowerConstrained() else {
@@ -3792,9 +3801,22 @@ final class AppState: ObservableObject {
         availableModels[idx].loadingStatus = "Loading…"
     }
 
+    /// Reload the active model when "Transcribe as you speak" changes and
+    /// the model has a streaming export, which is a different encoder.
+    func reloadModelForLiveStreamingChangeIfNeeded() async {
+        guard let size = currentModel?.size,
+              size.transcribesWhileSpeaking,
+              whisperService.isModelLoaded else {
+            return
+        }
+        VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
+        await loadModel(size)
+    }
+
     /// Reload the active model when the transcription language changes and
-    /// the engine bakes that language into the loaded model (sherpa-onnx).
-    /// Other engines take the language per transcription and need no reload.
+    /// the engine bakes that language into the loaded model (sherpa-onnx,
+    /// Nemotron Unified, SenseVoice on the Neural Engine). Other engines
+    /// take the language per transcription and need no reload.
     func reloadModelForLanguageChangeIfNeeded() async {
         guard let size = currentModel?.size,
               size.bindsLanguageAtLoadTime,

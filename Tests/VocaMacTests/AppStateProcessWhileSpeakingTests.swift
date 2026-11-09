@@ -220,6 +220,37 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await app.cancelRecording()
     }
 
+    func testStreamingExportSkipsPiecesForModelsThatStream() async {
+        let (app, mocks) = AppState.makeTestState()
+        let originalModel = app.selectedModelSize
+        defer {
+            app.selectedModelSize = originalModel
+            app.parakeetLiveStreaming = false
+        }
+        XCTAssertFalse(app.parakeetLiveStreaming, "off by default")
+        app.processWhileSpeaking = true
+        app.parakeetLiveStreaming = true
+
+        // The streaming export transcribes the whole recording as it comes.
+        app.selectedModelSize = ModelSize.parakeetUnified.rawValue
+        await app.startRecording()
+        XCTAssertNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertGreaterThan(mocks.whisperService.streamingStartCount, 0, "a live session still starts")
+        await app.cancelRecording()
+
+        // A model without one keeps processing while speaking.
+        app.selectedModelSize = ModelSize.parakeetV3.rawValue
+        await app.startRecording()
+        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit)
+        await app.cancelRecording()
+    }
+
+    func testStreamingSettingIsSearchableAndArchived() {
+        let entry = SettingsSearchIndex.matches(query: "realtime").first { $0.id == "transcribe-as-you-speak" }
+        XCTAssertNotNil(entry)
+        XCTAssertTrue(SettingsArchiveService.keys.contains(PreferenceKey.parakeetLiveStreaming))
+    }
+
     func testEarlyDecodeQuietFitsTheSilenceBeforeStop() {
         XCTAssertEqual(AppState.earlyDecodeQuietSeconds(silenceDuration: 0.5), 0.3)
         XCTAssertEqual(AppState.earlyDecodeQuietSeconds(silenceDuration: 1.5), 0.5, accuracy: 0.001)

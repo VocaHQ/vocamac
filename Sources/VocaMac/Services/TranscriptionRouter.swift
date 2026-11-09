@@ -80,6 +80,10 @@ final class TranscriptionRouter: @unchecked Sendable {
     /// catch an auto-detected language outside them.
     private let spokenLanguagesProvider: () -> [String]
 
+    /// Whether Parakeet Unified and Nemotron Unified load their streaming
+    /// export and transcribe while the user speaks (Settings → System).
+    private let liveStreamingProvider: () -> Bool
+
     init(
         languagePreferenceProvider: @escaping () -> String? = {
             let stored = UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
@@ -93,11 +97,15 @@ final class TranscriptionRouter: @unchecked Sendable {
                 stored: UserDefaults.standard.string(forKey: PreferenceKey.spokenLanguages),
                 selectedLanguage: UserDefaults.standard.string(forKey: PreferenceKey.selectedLanguage) ?? "auto"
             )
+        },
+        liveStreamingProvider: @escaping () -> Bool = {
+            UserDefaults.standard.bool(forKey: PreferenceKey.parakeetLiveStreaming)
         }
     ) {
         self.languagePreferenceProvider = languagePreferenceProvider
         self.skipSilenceProvider = skipSilenceProvider
         self.spokenLanguagesProvider = spokenLanguagesProvider
+        self.liveStreamingProvider = liveStreamingProvider
     }
 
     // MARK: - Engine Capabilities
@@ -301,7 +309,13 @@ extension TranscriptionRouter: SpeechTranscribing {
         case .whisperKit:
             try await whisper.loadModel(name: name, folder: folder, onPhaseChange: onPhaseChange)
         case .parakeet:
-            try await parakeet.loadModel(name: name, onPhaseChange: onPhaseChange)
+            let size = name.flatMap(ModelSize.init(rawValue:))
+            try await parakeet.loadModel(
+                name: name,
+                language: Self.loadLanguage(selected: languagePreference, spoken: spokenLanguagesProvider()),
+                streaming: liveStreamingProvider() && size.map(ParakeetService.supportsStreaming) == true,
+                onPhaseChange: onPhaseChange
+            )
         case .appleSpeech:
             try await appleSpeech.loadModel(language: languagePreference, onPhaseChange: onPhaseChange)
         case .sherpaOnnx:
@@ -345,6 +359,13 @@ extension TranscriptionRouter: SpeechTranscribing {
         languagePreferenceProvider()
     }
 
+    /// The language a model that binds it at load is given: the one the
+    /// user picked, or their only spoken language, or nil to detect it.
+    static func loadLanguage(selected: String?, spoken: [String]) -> String? {
+        if let selected { return selected }
+        return spoken.count == 1 ? spoken.first : nil
+    }
+
     /// Keep the normal operation serializer for the whole live session, so a
     /// model switch cannot unload an analyzer that is still consuming audio.
     func startStreaming(
@@ -354,6 +375,14 @@ extension TranscriptionRouter: SpeechTranscribing {
         onPartial: (@Sendable (String) -> Void)?,
         commit: StreamingCommitOptions?
     ) -> RecordingTranscription? {
+        // A Unified checkpoint's streaming export decodes as the user speaks
+        // and its transcript is the result, so it needs no pieces and no
+        // preview consumer: at stop only the last window is left.
+        if isModelLoaded, activeEngine == .parakeet, parakeet.isStreamingLoaded {
+            return startParakeetStreaming(
+                language: language, vocabulary: vocabulary, liveVocabulary: liveVocabulary, onPartial: onPartial
+            )
+        }
         // Apple Speech streams natively; in commit mode its finalized results
         // become the pieces, with no segmenter.
         if let commit, isModelLoaded, activeEngine != .appleSpeech {
@@ -443,6 +472,40 @@ extension TranscriptionRouter: SpeechTranscribing {
                 }
             }
         }
+    }
+
+    /// A live session on a Unified checkpoint's streaming export.
+    private func startParakeetStreaming(
+        language: String?,
+        vocabulary: String,
+        liveVocabulary: LiveVocabulary?,
+        onPartial: (@Sendable (String) -> Void)?
+    ) -> RecordingTranscription {
+        RecordingTranscription(language: language) { [self] chunks in
+            try await runSession { [self] in
+                guard activeEngine == .parakeet, parakeet.isStreamingLoaded else {
+                    throw RecordingTranscription.StreamError.incomplete
+                }
+                return try await parakeet.transcribe(
+                    chunks: chunks,
+                    language: language,
+                    vocabulary: { liveVocabulary?.read() ?? vocabulary },
+                    onPartial: onPartial,
+                    screenText: { [self] audio, text in await streamedTextScreened(audio, text: text) }
+                )
+            }
+        }
+    }
+
+    /// The batch path's silence check and hallucination guard, for a
+    /// transcript decoded while the user spoke: nothing when the recording
+    /// held no speech, and stock phrases dropped when speech is unconfirmed.
+    private func streamedTextScreened(_ audio: [Float], text: String) async -> String {
+        guard let prepared = await audioWithoutSilence(audio) else {
+            VocaLogger.info(.general, "No speech detected; dropping the streamed transcript")
+            return ""
+        }
+        return HallucinationGuard.filter(text, speechUnconfirmed: prepared.speechUnconfirmed)
     }
 
     /// The final decode of a live preview session, given the same silence

@@ -60,11 +60,15 @@ enum LanguageIdentification {
 /// Language ID with a separate Whisper Tiny, loaded from the copy VocaMac
 /// installs (it ships in the app). Never downloads anything.
 ///
-/// Unchecked: `kit` and `loadTask` are only touched under `lock`.
+/// Unchecked: `kit`, `loadTask` and `generation` are only touched under `lock`.
 final class WhisperLanguageIdentifier: SpokenLanguageIdentifying, @unchecked Sendable {
     private let lock = NSLock()
     private var kit: WhisperKit?
     private var loadTask: Task<Void, Never>?
+    /// Bumped by every `prepare()` that starts a load and by `unload()`. A
+    /// load publishes its model only while its generation is current, so an
+    /// `unload()` during the load is never undone when the load finishes.
+    private var generation = 0
     private let modelFolder: @Sendable () -> URL?
 
     init(modelFolder: @escaping @Sendable () -> URL? = { ModelManager().modelFolder(for: .tiny) }) {
@@ -74,9 +78,12 @@ final class WhisperLanguageIdentifier: SpokenLanguageIdentifying, @unchecked Sen
     func prepare() {
         lock.withLock {
             guard kit == nil, loadTask == nil else { return }
+            generation += 1
+            let loadGeneration = generation
             loadTask = Task.detached(priority: .utility) { [self] in
                 let loaded = await Self.load(folder: modelFolder())
                 lock.withLock {
+                    guard generation == loadGeneration else { return }
                     kit = loaded
                     loadTask = nil
                 }
@@ -110,6 +117,7 @@ final class WhisperLanguageIdentifier: SpokenLanguageIdentifying, @unchecked Sen
 
     func unload() {
         lock.withLock {
+            generation += 1
             loadTask?.cancel()
             loadTask = nil
             kit = nil

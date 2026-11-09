@@ -327,8 +327,7 @@ final class TextInjector: @unchecked Sendable {
         if text.isEmpty {
             Task { @MainActor [self] in
                 defer { completion() }
-                guard samePasteTarget(targetPID, frontmostPIDProvider()) else { return }
-                await pressReturn()
+                await pressReturn(targetPID: targetPID)
             }
             return
         }
@@ -336,7 +335,7 @@ final class TextInjector: @unchecked Sendable {
             Task { @MainActor [self] in
                 defer { completion() }
                 if await typeText(text, targetPID: targetPID), options.pressesReturn {
-                    await pressReturn()
+                    await pressReturn(targetPID: targetPID)
                 }
             }
             return
@@ -350,8 +349,7 @@ final class TextInjector: @unchecked Sendable {
                 }
                 Task { @MainActor [self] in
                     defer { completion() }
-                    guard self.samePasteTarget(targetPID, self.frontmostPIDProvider()) else { return }
-                    await self.pressReturn()
+                    await self.pressReturn(targetPID: targetPID)
                 }
             } else if result == .uncertain {
                 onFailure?("The target app did not confirm text insertion. Check the field before retrying; your transcript is available in VocaMac.")
@@ -640,7 +638,9 @@ final class TextInjector: @unchecked Sendable {
     private func waitForPaste(_ receipt: PasteReceipt?, changeCount: Int) async throws -> PasteOutcome {
         guard let receipt else {
             try await Task.sleep(nanoseconds: UInt64(clipboardRestoreDelay * 1_000_000_000))
-            return .unobserved
+            // Another app replaced the board during the wait: what Cmd+V
+            // pasted is unknown, so Return must not follow.
+            return pasteboard.changeCount == changeCount ? .unobserved : .boardTaken
         }
         let start = ProcessInfo.processInfo.systemUptime
         let limit = receipt.wasReadBeforePaste ? unobservedPasteDelay : pasteReceiptTimeout
@@ -650,7 +650,7 @@ final class TextInjector: @unchecked Sendable {
                 let wait = max(pasteReceiptSettle, clipboardRestoreDelay - elapsed)
                 try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
                 PerformanceTrace.event("PasteReceipt")
-                return .confirmed
+                return pasteboard.changeCount == changeCount ? .confirmed : .boardTaken
             }
             // Someone else took the board; the restore will be skipped.
             if pasteboard.changeCount != changeCount { return .boardTaken }
@@ -679,11 +679,11 @@ final class TextInjector: @unchecked Sendable {
             VocaLogger.info(.textInjector, "The app didn't take the paste; typing the text instead")
             PerformanceTrace.event("PasteNotReadTyping")
             if await typeText(request.text, targetPID: request.targetPID), request.options.pressesReturn {
-                await pressReturn()
+                await pressReturn(targetPID: request.targetPID)
             }
         case .confirmed, .unobserved:
-            guard request.options.pressesReturn, samePasteTarget(request.targetPID, frontmostPIDProvider()) else { return }
-            await pressReturn()
+            guard request.options.pressesReturn else { return }
+            await pressReturn(targetPID: request.targetPID)
         case .boardTaken:
             // Something else wrote the clipboard mid-paste; whether the
             // text landed is unknown, so Return is not pressed.
@@ -732,8 +732,7 @@ final class TextInjector: @unchecked Sendable {
             return false
         }
         if secureInputProvider() {
-            VocaLogger.warning(.textInjector, "Secure input is on; not typing the transcript")
-            onFailure?("A password field or another secure input is active, so the text wasn't typed. It's available in VocaMac.")
+            reportSecureInputBlocksTyping()
             return false
         }
         guard text.count <= TextDeliveryPlan.maxTypedCharacters else {
@@ -741,12 +740,8 @@ final class TextInjector: @unchecked Sendable {
             onFailure?("That dictation is too long to type. It's available in VocaMac to copy.")
             return false
         }
-        if let typeTextOverride {
-            typeTextOverride(text)
-            return true
-        }
         // A test that fakes ⌘V must never type on the machine running it.
-        guard pasteActionOverride == nil else { return true }
+        if typeTextOverride == nil, pasteActionOverride != nil { return true }
 
         let interval = PerformanceTrace.begin("TextTyping")
         defer { PerformanceTrace.end(interval) }
@@ -759,8 +754,15 @@ final class TextInjector: @unchecked Sendable {
                     onFailure?("The active app changed while typing, so only part of the text went in. The whole dictation is available in VocaMac.")
                     return false
                 }
+                // A password field can take focus inside the same app.
+                if secureInputProvider() {
+                    reportSecureInputBlocksTyping()
+                    return false
+                }
             }
-            if chunk == "\n" {
+            if let typeTextOverride {
+                typeTextOverride(chunk)
+            } else if chunk == "\n" {
                 postKey(CGKeyCode(kVK_Return), flags: .maskShift, source: source)
             } else {
                 postUnicode(chunk, source: source)
@@ -768,6 +770,11 @@ final class TextInjector: @unchecked Sendable {
         }
         VocaLogger.info(.textInjector, "Typed \(text.count) characters")
         return true
+    }
+
+    private func reportSecureInputBlocksTyping() {
+        VocaLogger.warning(.textInjector, "Secure input is on; not typing the transcript")
+        onFailure?("A password field or another secure input is active, so the text wasn't typed. It's available in VocaMac.")
     }
 
     private func postUnicode(_ chunk: String, source: CGEventSource?) {
@@ -798,10 +805,16 @@ final class TextInjector: @unchecked Sendable {
         }
     }
 
-    /// Press Return once (Auto Send).
+    /// Press Return once (Auto Send), only if the dictation's app is still
+    /// frontmost after the wait — checked right before the key is posted, so
+    /// switching to a terminal during the wait never runs its command.
     @MainActor
-    private func pressReturn() async {
+    private func pressReturn(targetPID: pid_t?) async {
         try? await Task.sleep(nanoseconds: UInt64(returnKeyDelay * 1_000_000_000))
+        guard samePasteTarget(targetPID, frontmostPIDProvider()) else {
+            VocaLogger.warning(.textInjector, "Focus changed before Auto Send; Return not pressed")
+            return
+        }
         if let returnKeyOverride {
             returnKeyOverride()
             return

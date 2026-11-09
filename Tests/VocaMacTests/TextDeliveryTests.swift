@@ -227,6 +227,62 @@ final class TextInjectorDeliveryTests: XCTestCase {
         XCTAssertNotNil(failure)
     }
 
+    func testReturnIsNotPressedWhenFocusMovesAfterTyping() async {
+        var frontmost: pid_t = 123
+        var typed: [String] = []
+        var returns = 0
+        let injector = TextInjector(
+            accessibilityTrustedOverride: true, frontmostPIDProvider: { frontmost },
+            typeTextOverride: { typed.append($0); frontmost = 456 }, returnKeyOverride: { returns += 1 },
+            secureInputProvider: { false }
+        )
+        injector.inject(text: "ls -la", preserveClipboard: true,
+                        options: TextDeliveryOptions(typesText: true, pressesReturn: true))
+        await TextInjector.waitForInjectionQueueIdleForTesting()
+        XCTAssertEqual(typed, ["ls -la"])
+        XCTAssertEqual(returns, 0, "Return must go only to the app the text went into")
+    }
+
+    func testClipboardReplacedDuringTheWaitWithholdsReturn() async {
+        let board = board()
+        defer { board.releaseGlobally() }
+        var returns = 0
+        let injector = TextInjector(
+            pasteboard: board, accessibilityTrustedOverride: true, accessibilityInjectionOverride: { _ in false },
+            pasteActionOverride: {
+                board.clearContents()
+                board.setString("copied elsewhere", forType: .string)
+            },
+            frontmostPIDProvider: { 123 }, returnKeyOverride: { returns += 1 }, secureInputProvider: { false }
+        )
+        injector.inject(text: "dictation", preserveClipboard: false, options: TextDeliveryOptions(pressesReturn: true))
+        await TextInjector.waitForInjectionQueueIdleForTesting()
+        XCTAssertEqual(returns, 0)
+    }
+
+    func testTypingStopsWhenSecureInputStartsMidway() async {
+        var secureChecks = 0
+        var typed: [String] = []
+        var returns = 0
+        var failure: String?
+        let injector = TextInjector(
+            accessibilityTrustedOverride: true, frontmostPIDProvider: { 123 },
+            typeTextOverride: { typed.append($0) }, returnKeyOverride: { returns += 1 },
+            secureInputProvider: {
+                secureChecks += 1
+                return secureChecks > 1
+            }
+        )
+        injector.onFailure = { failure = $0 }
+        let text = String(repeating: "a", count: TextInjector.typedChunkUnits * 3)
+        injector.inject(text: text, preserveClipboard: true,
+                        options: TextDeliveryOptions(typesText: true, pressesReturn: true))
+        await TextInjector.waitForInjectionQueueIdleForTesting()
+        XCTAssertEqual(typed.count, 1, "only the chunk before the password field took focus")
+        XCTAssertEqual(returns, 0)
+        XCTAssertNotNil(failure)
+    }
+
     func testOnlyAPromiseNobodyReadIsAFailedPaste() {
         XCTAssertEqual(TextInjector.outcomeWithoutReceipt(readBeforePaste: false, readAfterPaste: false), .notRead)
         XCTAssertEqual(TextInjector.outcomeWithoutReceipt(readBeforePaste: true, readAfterPaste: false), .unobserved)

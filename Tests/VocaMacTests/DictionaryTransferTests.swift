@@ -119,6 +119,32 @@ final class DictionaryTransferTests: XCTestCase {
         let long = String(repeating: "x", count: DictionaryTransfer.maxEntryLength + 1)
         let contents = try DictionaryTransfer.parse("Kubernetes\nkubernetes\n\(long)\nVocaMac", format: .plainText)
         XCTAssertEqual(contents.words, ["Kubernetes", "VocaMac"])
+        XCTAssertEqual(contents.skippedCount, 1, "an overlong entry is counted, not dropped silently")
+    }
+
+    func testTabSeparatedCellsMayHoldCommas() throws {
+        let contents = try DictionaryTransfer.parse("heard\treplacement\nget hub, git hub\tGitHub\n", format: .csv)
+        XCTAssertEqual(contents.replacements, [DictionaryTransferReplacement(heard: "get hub, git hub", replacement: "GitHub")])
+        XCTAssertTrue(contents.words.isEmpty)
+    }
+
+    func testLongReplacementSurvivesExportAndImport() throws {
+        let signature = String(repeating: "Best regards, ", count: 30)
+        let exported = DictionaryTransfer.csv(DictionaryTransferContents(
+            replacements: [DictionaryTransferReplacement(heard: "my signature", replacement: signature)]
+        ))
+        let contents = try DictionaryTransfer.parse(exported, format: .csv)
+        XCTAssertEqual(contents.replacements.first?.replacement, signature.trimmingCharacters(in: .whitespaces))
+        XCTAssertEqual(contents.skippedCount, 0)
+    }
+
+    func testEntriesPastTheLimitAreCountedAndShownInThePlan() throws {
+        let words = (0...DictionaryTransfer.maxEntries).map { "term\($0)" }.joined(separator: "\n")
+        let contents = try DictionaryTransfer.parse(words, format: .plainText)
+        XCTAssertEqual(contents.words.count, DictionaryTransfer.maxEntries)
+        XCTAssertEqual(contents.skippedCount, 1)
+        let plan = DictionaryTransfer.plan(importing: contents, existingWords: [], existingReplacements: [])
+        XCTAssertEqual(plan.skippedCount, 1)
     }
 
     // MARK: Plan

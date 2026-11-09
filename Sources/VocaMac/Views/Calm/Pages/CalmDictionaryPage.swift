@@ -245,6 +245,7 @@ struct CalmDictionaryPendingImport: Identifiable {
     var summary: String {
         guard !plan.isEmpty else {
             return "Everything in that file is already in your dictionary (\(plan.duplicateCount) entr\(plan.duplicateCount == 1 ? "y" : "ies"))."
+                + skippedNote
         }
         var parts: [String] = []
         if !plan.newWords.isEmpty { parts.append(Self.count(plan.newWords.count, "new word")) }
@@ -253,7 +254,16 @@ struct CalmDictionaryPendingImport: Identifiable {
         if plan.duplicateCount > 0 {
             text += " \(plan.duplicateCount) already in your dictionary will be left as they are."
         }
-        return text
+        return text + skippedNote
+    }
+
+    /// Entries the file has that can't be imported, said before anything is
+    /// added so nothing goes missing unnoticed.
+    private var skippedNote: String {
+        guard plan.skippedCount > 0 else { return "" }
+        let entries = plan.skippedCount == 1 ? "1 entry" : "\(plan.skippedCount) entries"
+        return " \(entries) will be skipped: longer than \(DictionaryTransfer.maxEntryLength) characters, "
+            + "or past the \(DictionaryTransfer.maxEntries.formatted()) entry limit."
     }
 
     var doneMessage: String {

@@ -19,6 +19,9 @@ struct DictionaryTransferReplacement: Equatable, Codable {
 struct DictionaryTransferContents: Equatable {
     var words: [String] = []
     var replacements: [DictionaryTransferReplacement] = []
+    /// Entries in the file that were left out: longer than
+    /// `DictionaryTransfer.maxEntryLength` or past `maxEntries`.
+    var skippedCount = 0
 
     var isEmpty: Bool { words.isEmpty && replacements.isEmpty }
 }
@@ -31,6 +34,9 @@ struct DictionaryImportPlan: Equatable {
     var newReplacements: [DictionaryTransferReplacement]
     /// Entries in the file the dictionary already has.
     var duplicateCount: Int
+    /// Entries in the file that can't be imported (too long, or past the
+    /// entry limit), so the confirmation can say so.
+    var skippedCount = 0
 
     var isEmpty: Bool { newWords.isEmpty && newReplacements.isEmpty }
 }
@@ -81,8 +87,11 @@ enum DictionaryTransferError: Error, Equatable {
 
 enum DictionaryTransfer {
     /// Longest word or replacement accepted from a file. Longer cells are a
-    /// pasted paragraph, not a dictionary entry.
-    static let maxEntryLength = 200
+    /// pasted document, not a dictionary entry. Generous enough that a
+    /// replacement typed into Settings (which has no limit of its own)
+    /// survives an export and re-import; anything longer is counted as
+    /// skipped and shown before the import, never dropped silently.
+    static let maxEntryLength = 2_000
 
     /// Most entries one import adds, so a wrong file can't flood the
     /// recognition hints.
@@ -176,7 +185,10 @@ enum DictionaryTransfer {
                 heard: free.joined(separator: ", "), replacement: replacement.replacement
             ))
         }
-        return DictionaryImportPlan(newWords: newWords, newReplacements: newReplacements, duplicateCount: duplicates)
+        return DictionaryImportPlan(
+            newWords: newWords, newReplacements: newReplacements,
+            duplicateCount: duplicates, skippedCount: contents.skippedCount
+        )
     }
 
     // MARK: - CSV
@@ -187,7 +199,7 @@ enum DictionaryTransfer {
     ]
 
     private static func parseCSV(_ text: String) -> DictionaryTransferContents {
-        let separator: Character = text.contains("\t") && !text.contains(",") ? "\t" : ","
+        let separator = csvSeparator(for: text)
         var rows = csvRows(text, separator: separator)
         guard let first = rows.first else { return DictionaryTransferContents() }
         let isHeader = !first.isEmpty && first.allSatisfy {
@@ -217,6 +229,15 @@ enum DictionaryTransfer {
             }
         }
         return contents
+    }
+
+    /// Tab when the first line has a tab, else comma. Decided from the
+    /// header (or first row) only: cells of a tab-separated file may hold
+    /// commas, such as several spoken forms of one replacement.
+    static func csvSeparator(for text: String) -> Character {
+        let firstLine = text.split(whereSeparator: \.isNewline)
+            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
+        return firstLine.contains("\t") ? "\t" : ","
     }
 
     /// RFC 4180 rows: quoted fields may hold the separator, quotes ("") and
@@ -344,31 +365,47 @@ enum DictionaryTransfer {
     /// Trimmed, length-checked entries with duplicates inside the file
     /// itself dropped, capped at `maxEntries`.
     private static func sanitized(_ contents: DictionaryTransferContents) -> DictionaryTransferContents {
-        func clean(_ value: String) -> String? {
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        func normalized(_ value: String) -> String {
+            value.trimmingCharacters(in: .whitespacesAndNewlines)
                 .components(separatedBy: .newlines).joined(separator: " ")
-            guard !trimmed.isEmpty, trimmed.count <= maxEntryLength else { return nil }
-            return trimmed
         }
+        func fits(_ value: String) -> Bool { value.count <= maxEntryLength }
+
+        var skipped = 0
         var seenWords = Set<String>()
         var seenReplacements = Set<String>()
         var result = DictionaryTransferContents()
         for word in contents.words {
             // A word file may separate words with commas on one line.
             for part in RecognitionHints.vocabularyTerms(from: word) {
-                guard let cleaned = clean(part), seenWords.insert(cleaned.lowercased()).inserted else { continue }
+                let cleaned = normalized(part)
+                guard !cleaned.isEmpty else { continue }
+                guard fits(cleaned) else {
+                    skipped += 1
+                    continue
+                }
+                guard seenWords.insert(cleaned.lowercased()).inserted else { continue }
                 result.words.append(cleaned)
             }
         }
         for replacement in contents.replacements {
-            guard let heard = clean(replacement.heard), let written = clean(replacement.replacement) else { continue }
+            let heard = normalized(replacement.heard)
+            let written = normalized(replacement.replacement)
+            guard !heard.isEmpty, !written.isEmpty else { continue }
+            guard fits(heard), fits(written) else {
+                skipped += 1
+                continue
+            }
             let key = heard.lowercased() + "\u{1F}" + written
             guard seenReplacements.insert(key).inserted else { continue }
             result.replacements.append(DictionaryTransferReplacement(heard: heard, replacement: written))
         }
         let wordBudget = min(result.words.count, maxEntries)
+        let replacementBudget = max(0, maxEntries - wordBudget)
+        skipped += (result.words.count - wordBudget) + max(0, result.replacements.count - replacementBudget)
         result.words = Array(result.words.prefix(wordBudget))
-        result.replacements = Array(result.replacements.prefix(max(0, maxEntries - wordBudget)))
+        result.replacements = Array(result.replacements.prefix(replacementBudget))
+        result.skippedCount = skipped
         return result
     }
 }

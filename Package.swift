@@ -24,11 +24,12 @@ let package = Package(
         .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", .upToNextMinor(from: "1.1.0")),
         // FluidAudio — NVIDIA Parakeet TDT models as CoreML on the Neural Engine
         // https://github.com/FluidInference/FluidAudio
-        // Held to 0.17.x: this is the version the engine is tested against, and
+        // Held to 0.18.x: this is the version the engine is tested against, and
         // the APIs used here (AsrManager.loadModels, throwing TdtDecoderState,
-        // the transcribe language hint) do not all exist in earlier releases.
+        // the transcribe language hint, Nemotron Unified, the Unified
+        // streaming manager) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.17.5")),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.18.3")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
         // Pin the release and its matching binary xcframework for reproducible builds.

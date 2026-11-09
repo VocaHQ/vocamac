@@ -18,14 +18,14 @@ No single speech model is best at everything. Whisper knows many languages, Para
 
 | Engine | Runs on | Good at | Models |
 |---|---|---|---|
-| **Whisper** (WhisperKit) | CoreML on Apple Silicon | The widest language coverage, translation to English | Tiny to Large v3, Distil variants, Voca Hinglish |
+| **Whisper** (WhisperKit) | CoreML on Apple Silicon | The widest language coverage, translation to English | Tiny to Large v3 Latest, Distil variants, Voca Hinglish |
 | **Parakeet** (NVIDIA, via FluidAudio) | CoreML on the Neural Engine | Speed; English and 25 European languages | Parakeet 110M, v2, v3, Ultra, Unified |
 | **Apple Speech** | macOS 26 system engine | No model download; assets managed by macOS | Apple Speech |
 | **Specialized ONNX** (sherpa-onnx) | CPU only | Compact models for specific languages and low-memory Macs | Moonshine, SenseVoice, GigaAM v3, Canary 180M Flash, Qwen3 ASR 0.6B |
 
 ### Whisper
 
-OpenAI's Whisper, compiled to CoreML by WhisperKit, is the generalist. It has the most selectable languages, can [translate speech into English](/features/translation/), and comes in sizes from Tiny (77 MB) to Large v3 (1.6 GB). Voca Hinglish is a Whisper model fine-tuned to write Hindi speech in Roman script.
+OpenAI's Whisper, compiled to CoreML by WhisperKit, is the generalist. It has the most selectable languages, can [translate speech into English](/features/translation/), and comes in sizes from Tiny (77 MB) to Large v3 Latest (1.6 GB). Voca Hinglish is a Whisper model fine-tuned to write Hindi speech in Roman script.
 
 ### Parakeet
 

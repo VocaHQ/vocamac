@@ -205,6 +205,15 @@ engine = "sherpa-onnx"
 size = "1 GB"
 note = "CPU-only. 30 languages, including Hindi, Arabic, and Thai."
 
+# Apple's built-in dictation, for the FAQ comparison. Re-verify on each macOS
+# release. Source: 9to5Mac, 2026-06-12 ("Mac (M3 chip) or later with at least
+# 12 GB RAM"; runs on the on-device model).
+[appleDictation]
+name = "Advanced Dictation"
+os = "macOS 27"
+requirement = "an M3 chip or later with at least 12 GB of memory"
+source = "https://9to5mac.com/2026/06/12/ai-advanced-dictation-preview-ios-27-beta/"
+
 [links]
 repo = "https://github.com/VocaHQ/vocamac"
 issues = "https://github.com/VocaHQ/vocamac/issues"

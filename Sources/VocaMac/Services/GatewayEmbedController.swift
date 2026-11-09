@@ -42,11 +42,17 @@ enum GatewayPaths {
         macOSLogDirectory.appendingPathComponent("gateway.log", isDirectory: false)
     }
 
-    /// Common install locations checked after PATH.
-    static var commonBinaryCandidates: [String] {
+    /// Fixed Homebrew install locations, checked before PATH: neither is
+    /// writable without an admin or Homebrew prefix, unlike a PATH entry.
+    static let preferredBinaryCandidates = [
+        "/opt/homebrew/bin/vocagateway",
+        "/usr/local/bin/vocagateway",
+    ]
+
+    /// Per-user install locations, checked last because anything running as
+    /// the user can write to them.
+    static var userBinaryCandidates: [String] {
         [
-            "/opt/homebrew/bin/vocagateway",
-            "/usr/local/bin/vocagateway",
             "\(NSHomeDirectory())/.local/bin/vocagateway",
             "\(NSHomeDirectory())/.cargo/bin/vocagateway",
         ]
@@ -55,12 +61,18 @@ enum GatewayPaths {
 
 /// Resolves a `vocagateway` executable without spawning it.
 enum GatewayBinaryResolver {
-    /// Returns an absolute path to `vocagateway` when found on PATH or common locations.
+    /// Returns an absolute path to `vocagateway`: a fixed Homebrew location
+    /// first, then PATH, then per-user install folders. Settings shows the
+    /// path found, so the user can see which program VocaMac would start.
     static func resolveExecutablePath(
         fileManager: FileManager = .default,
         pathEnvironment: String? = ProcessInfo.processInfo.environment["PATH"],
-        commonCandidates: [String] = GatewayPaths.commonBinaryCandidates
+        preferredCandidates: [String] = GatewayPaths.preferredBinaryCandidates,
+        userCandidates: [String] = GatewayPaths.userBinaryCandidates
     ) -> String? {
+        if let preferred = preferredCandidates.first(where: { fileManager.isExecutableFile(atPath: $0) }) {
+            return preferred
+        }
         if let fromPath = findOnPATH(
             named: "vocagateway",
             pathEnvironment: pathEnvironment,
@@ -68,12 +80,7 @@ enum GatewayBinaryResolver {
         ) {
             return fromPath
         }
-        for candidate in commonCandidates {
-            if fileManager.isExecutableFile(atPath: candidate) {
-                return candidate
-            }
-        }
-        return nil
+        return userCandidates.first { fileManager.isExecutableFile(atPath: $0) }
     }
 
     static func findOnPATH(
@@ -285,6 +292,21 @@ final class GatewayEmbedController: ObservableObject {
     func fetchPairing() async {
         guard isLive else { return }
 
+        // The admin token goes only to a gateway this Mac's user is running:
+        // the one VocaMac started, or a listener whose program is the
+        // installed `vocagateway` (or Docker, for the container fallback).
+        // Anything else on the port, such as another account's process or a
+        // sandboxed app, would otherwise be handed the token.
+        guard isTrustedListener() else {
+            pairingPayload = nil
+            pairingPayloadRaw = nil
+            let message = "Something other than VocaGateway is answering on port \(GatewayPaths.defaultPort), so VocaMac didn't send it the pairing token."
+            VocaLogger.warning(.general, "Gateway pairing skipped: the listener on port \(GatewayPaths.defaultPort) isn't a known VocaGateway")
+            status = .error(message)
+            lastErrorMessage = message
+            return
+        }
+
         guard let token = readBootstrapToken() else {
             let message = "Gateway is live but ~/.config/vocagateway/token is missing."
             status = .error(message)
@@ -411,6 +433,18 @@ final class GatewayEmbedController: ObservableObject {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Whether the process listening on the gateway port may receive the
+    /// admin token (see `fetchPairing`).
+    private func isTrustedListener() -> Bool {
+        let ownPID = process?.isRunning == true ? process?.processIdentifier : nil
+        guard let listener = LocalPortOwner.listeningProcessID(port: GatewayPaths.defaultPort) else {
+            return false
+        }
+        if listener == ownPID { return true }
+        guard let executable = LocalPortOwner.executablePath(of: listener) else { return false }
+        return GatewayListenerTrust.isTrusted(executablePath: executable, resolvedBinaryPath: binaryPath)
+    }
+
     /// True while this controller still owns a child `Process` (running or not yet reaped).
     var hasManagedProcess: Bool { process != nil }
 
@@ -532,5 +566,81 @@ final class GatewayEmbedController: ObservableObject {
         } catch {
             return false
         }
+    }
+}
+
+// MARK: - Listener Trust
+
+/// Which programs may be sent the gateway's admin token.
+enum GatewayListenerTrust {
+    /// Docker Desktop forwards a container's port from its own backend.
+    static let dockerBundlePrefixes = ["/Applications/Docker.app/"]
+
+    static func isTrusted(executablePath: String, resolvedBinaryPath: String?) -> Bool {
+        let executable = canonical(executablePath)
+        var trusted = GatewayPaths.preferredBinaryCandidates + GatewayPaths.userBinaryCandidates
+        if let resolvedBinaryPath { trusted.append(resolvedBinaryPath) }
+        if trusted.map(canonical).contains(executable) { return true }
+        return dockerBundlePrefixes.contains { executable.hasPrefix($0) }
+    }
+
+    private static func canonical(_ path: String) -> String {
+        URL(fileURLWithPath: path).resolvingSymlinksInPath().path
+    }
+}
+
+/// Finds which local process listens on a TCP port, through libproc.
+///
+/// Only processes this user may inspect are seen, so a port held by another
+/// account (or root) reports no owner, which callers treat as untrusted.
+enum LocalPortOwner {
+
+    /// The process listening on `port` on any local address, if one of this
+    /// user's processes is.
+    static func listeningProcessID(port: Int) -> pid_t? {
+        for pid in allProcessIDs() where pid > 0 && listens(pid: pid, port: port) {
+            return pid
+        }
+        return nil
+    }
+
+    /// The executable a process is running, if it can be read.
+    static func executablePath(of pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
+        guard length > 0 else { return nil }
+        return String(cString: buffer)
+    }
+
+    private static func allProcessIDs() -> [pid_t] {
+        let estimate = proc_listallpids(nil, 0)
+        guard estimate > 0 else { return [] }
+        // Room for processes started between the two calls.
+        var pids = [pid_t](repeating: 0, count: Int(estimate) + 64)
+        let byteCount = Int32(pids.count * MemoryLayout<pid_t>.stride)
+        let count = proc_listallpids(&pids, byteCount)
+        guard count > 0 else { return [] }
+        return Array(pids.prefix(Int(count)))
+    }
+
+    private static func listens(pid: pid_t, port: Int) -> Bool {
+        let bufferBytes = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, nil, 0)
+        guard bufferBytes > 0 else { return false }
+        let fdCount = Int(bufferBytes) / MemoryLayout<proc_fdinfo>.stride
+        var fds = [proc_fdinfo](repeating: proc_fdinfo(), count: fdCount)
+        let filled = proc_pidinfo(pid, PROC_PIDLISTFDS, 0, &fds, bufferBytes)
+        guard filled > 0 else { return false }
+        let filledCount = Int(filled) / MemoryLayout<proc_fdinfo>.stride
+        for fd in fds.prefix(filledCount) where fd.proc_fdtype == UInt32(PROX_FDTYPE_SOCKET) {
+            var info = socket_fdinfo()
+            let size = Int32(MemoryLayout<socket_fdinfo>.stride)
+            guard proc_pidfdinfo(pid, fd.proc_fd, PROC_PIDFDSOCKETINFO, &info, size) == size else { continue }
+            guard info.psi.soi_kind == Int32(SOCKINFO_TCP) else { continue }
+            let tcp = info.psi.soi_proto.pri_tcp
+            guard tcp.tcpsi_state == Int32(TSI_S_LISTEN) else { continue }
+            let localPort = Int(UInt16(bigEndian: UInt16(truncatingIfNeeded: tcp.tcpsi_ini.insi_lport)))
+            if localPort == port { return true }
+        }
+        return false
     }
 }

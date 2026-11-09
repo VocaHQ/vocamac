@@ -34,30 +34,46 @@ final class GatewayBinaryResolverTests: XCTestCase {
         XCTAssertEqual(
             GatewayBinaryResolver.resolveExecutablePath(
                 pathEnvironment: try XCTUnwrap(directory).path,
-                commonCandidates: []
+                preferredCandidates: [],
+                userCandidates: []
             ),
             path
         )
     }
 
-    func testPrefersPATHOverCommonInstallLocations() throws {
-        let pathBinary = try makeExecutable(named: "vocagateway")
-        let candidate = try makeExecutable(named: "injected-vocagateway")
+    func testPrefersFixedHomebrewLocationOverPATH() throws {
+        _ = try makeExecutable(named: "vocagateway")
+        let homebrew = try makeExecutable(named: "homebrew-vocagateway")
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
             pathEnvironment: try XCTUnwrap(directory).path,
-            commonCandidates: [candidate]
+            preferredCandidates: [homebrew],
+            userCandidates: []
+        )
+
+        XCTAssertEqual(resolved, homebrew)
+    }
+
+    func testPrefersPATHOverUserInstallLocations() throws {
+        let pathBinary = try makeExecutable(named: "vocagateway")
+        let userBinary = try makeExecutable(named: "user-vocagateway")
+
+        let resolved = GatewayBinaryResolver.resolveExecutablePath(
+            pathEnvironment: try XCTUnwrap(directory).path,
+            preferredCandidates: [],
+            userCandidates: [userBinary]
         )
 
         XCTAssertEqual(resolved, pathBinary)
     }
 
-    func testFallsBackToInjectedCommonCandidate() throws {
+    func testFallsBackToUserInstallLocation() throws {
         let candidate = try makeExecutable(named: "injected-vocagateway")
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
             pathEnvironment: try XCTUnwrap(directory).path,
-            commonCandidates: [candidate]
+            preferredCandidates: [],
+            userCandidates: [candidate]
         )
 
         XCTAssertEqual(resolved, candidate)
@@ -68,7 +84,8 @@ final class GatewayBinaryResolverTests: XCTestCase {
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
             pathEnvironment: try XCTUnwrap(directory).path,
-            commonCandidates: []
+            preferredCandidates: [],
+            userCandidates: []
         )
 
         XCTAssertNil(resolved)
@@ -81,7 +98,8 @@ final class GatewayBinaryResolverTests: XCTestCase {
 
         let resolved = GatewayBinaryResolver.resolveExecutablePath(
             pathEnvironment: try XCTUnwrap(directory).path,
-            commonCandidates: []
+            preferredCandidates: [],
+            userCandidates: []
         )
 
         XCTAssertNotEqual(resolved, url.path)
@@ -106,5 +124,54 @@ final class GatewayBinaryResolverTests: XCTestCase {
             ?? fromStart.endIndex
         let section = String(fromStart[..<sectionEnd])
         XCTAssertFalse(section.contains("waitUntilExit"))
+    }
+
+    // MARK: Listener trust
+
+    func testTrustsTheResolvedGatewayAndDocker() {
+        XCTAssertTrue(GatewayListenerTrust.isTrusted(
+            executablePath: "/opt/homebrew/bin/vocagateway", resolvedBinaryPath: nil
+        ))
+        XCTAssertTrue(GatewayListenerTrust.isTrusted(
+            executablePath: "/some/where/vocagateway", resolvedBinaryPath: "/some/where/vocagateway"
+        ))
+        XCTAssertTrue(GatewayListenerTrust.isTrusted(
+            executablePath: "/Applications/Docker.app/Contents/MacOS/com.docker.backend", resolvedBinaryPath: nil
+        ))
+    }
+
+    func testDoesNotTrustAnotherProgramOnThePort() {
+        XCTAssertFalse(GatewayListenerTrust.isTrusted(
+            executablePath: "/Applications/Squatter.app/Contents/MacOS/Squatter",
+            resolvedBinaryPath: "/opt/homebrew/bin/vocagateway"
+        ))
+        XCTAssertFalse(GatewayListenerTrust.isTrusted(
+            executablePath: "/tmp/vocagateway", resolvedBinaryPath: "/opt/homebrew/bin/vocagateway"
+        ))
+    }
+
+    func testFindsTheProcessListeningOnAPort() throws {
+        let socket = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(socket, 0)
+        defer { close(socket) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        address.sin_port = 0
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        XCTAssertEqual(bound, 0)
+        XCTAssertEqual(Darwin.listen(socket, 1), 0)
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        _ = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(socket, $0, &length) }
+        }
+        let port = Int(UInt16(bigEndian: address.sin_port))
+
+        XCTAssertEqual(LocalPortOwner.listeningProcessID(port: port), getpid())
+        XCTAssertNotNil(LocalPortOwner.executablePath(of: getpid()))
     }
 }

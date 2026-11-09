@@ -331,6 +331,10 @@ protocol TextInjecting: AnyObject {
     /// uses this after revalidating its captured selection so a delayed paste
     /// cannot land in a different app.
     func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t)
+    /// Deliver a dictation with per-dictation options: typed instead of
+    /// pasted, and Return pressed afterwards. Text may be empty when the
+    /// only thing to do is press Return ("send it" said on its own).
+    func inject(text: String, preserveClipboard: Bool, options: TextDeliveryOptions)
 }
 
 // MARK: - FrontmostAppResolving
@@ -379,6 +383,10 @@ extension TextInjecting {
     }
 
     func inject(text: String, preserveClipboard: Bool, expectedProcessID: pid_t) {
+        inject(text: text, preserveClipboard: preserveClipboard)
+    }
+
+    func inject(text: String, preserveClipboard: Bool, options: TextDeliveryOptions) {
         inject(text: text, preserveClipboard: preserveClipboard)
     }
 }

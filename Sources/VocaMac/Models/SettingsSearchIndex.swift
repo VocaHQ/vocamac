@@ -550,6 +550,34 @@ enum SettingsSearchIndex {
             keywords: ["clipboard", "paste", "preserve clipboard"]
         ),
         SettingsSearchEntry(
+            id: "insertion-method",
+            page: .application,
+            title: "Insert text by",
+            subtitle: "Paste, or type key by key for apps that ignore ⌘V",
+            keywords: ["type", "typing", "keystrokes", "paste", "insert", "remote desktop", "paste not working", "insert text by"]
+        ),
+        SettingsSearchEntry(
+            id: "typed-insertion-apps",
+            page: .application,
+            title: "Always type in these apps",
+            subtitle: "Type instead of paste in chosen apps",
+            keywords: ["type", "typing", "apps", "paste", "remote desktop", "game", "always type"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send",
+            page: .application,
+            title: "Auto Send",
+            subtitle: "Press Return after dictating, or when you say “send it”",
+            keywords: ["send", "send it", "return", "enter", "press enter", "submit", "chat", "message", "auto send"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send-apps",
+            page: .application,
+            title: "Auto Send in terminals and editors",
+            subtitle: "Let Auto Send press Return in chosen terminals or editors",
+            keywords: ["send", "terminal", "editor", "return", "enter", "auto send apps"]
+        ),
+        SettingsSearchEntry(
             id: "cursor-overlay",
             page: .dictation,
             title: "While you talk",

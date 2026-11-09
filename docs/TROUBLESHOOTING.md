@@ -55,3 +55,10 @@ Release builds of VocaMac are **Developer ID signed and notarized** by Apple. Ac
 | **Re-grant manually** | System Settings → Privacy & Security after each rebuild | Per rebuild |
 
 > **💡 Developer tip:** Add your Terminal app (Terminal.app or iTerm2) to both Accessibility and Input Monitoring in System Settings. Then run VocaMac directly from Terminal. Permissions are inherited and never reset.
+
+## Dictation doesn't appear in an app, or the wrong text is pasted
+
+Some apps ignore ⌘V or paste something else: remote desktop clients, some games and terminals, and web apps that block pasting. When an app never reads what VocaMac put on the clipboard, VocaMac types the text key by key instead. If an app reads the clipboard but still drops the text, choose **Settings › System › Putting text in apps › Always type in** and add it, or set **Insert text by** to **Type**.
+
+Typing is never used while a password field or another secure input is active, and dictations longer than 4,000 characters are not typed; they stay in History and the menu bar to copy.
+

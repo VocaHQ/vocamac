@@ -3231,7 +3231,20 @@ final class AppState: ObservableObject {
                         showTemporaryError("The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want.")
                         return
                     }
-                    textInjector.inject(text: (leadingSpace ? " " : "") + output.text, preserveClipboard: preserveClipboard)
+                    let delivery = Self.textDelivery(
+                        spoken: result.text, text: output.text, app: current,
+                        isCodeOrTerminal: Self.isCodeOrTerminal(current, resolved: resolved),
+                        method: insertionMethod, typingApps: typedInsertionApps,
+                        autoSendMode: autoSendMode, autoSendApps: autoSendApps
+                    )
+                    if delivery.text != output.text {
+                        // "Send it" asked for Return; it isn't part of the text.
+                        output = DictationOutputResult(original: output.original, text: delivery.text, summary: output.summary)
+                        lastOutput = output
+                    }
+                    let deliveredText = output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "" : (leadingSpace ? " " : "") + output.text
+                    textInjector.inject(text: deliveredText, preserveClipboard: preserveClipboard, options: delivery.options)
                     saveResult()
                     if onboardingVerification.mode == .insertion,
                        !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -245,6 +245,65 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await app.cancelRecording()
     }
 
+    func testStreamingReloadTargetOnlyWhenEncoderDisagrees() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.parakeetUnified]
+        let whisperService = MockWhisperService()
+        whisperService.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
+        let (app, _) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        // Loading writes the shared model choice; put it back for later tests.
+        let originalModel = app.selectedModelSize
+        defer {
+            app.selectedModelSize = originalModel
+            app.parakeetLiveStreaming = false
+        }
+        app.parakeetLiveStreaming = false
+
+        await app.loadModel(.parakeetUnified)
+        XCTAssertEqual(app.currentModel?.size, .parakeetUnified)
+        XCTAssertNil(app.liveStreamingReloadTarget(), "batch encoder matches the setting")
+
+        app.parakeetLiveStreaming = true
+        XCTAssertEqual(app.liveStreamingReloadTarget(), .parakeetUnified)
+
+        whisperService.isLiveStreamingLoaded = true
+        XCTAssertNil(app.liveStreamingReloadTarget(), "streaming encoder matches the setting")
+    }
+
+    func testStreamingChangeDuringLoadIsAppliedAfterIt() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.parakeetUnified]
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = nil
+        whisperService.isModelLoaded = false
+        whisperService.loadResponses = [
+            .success(ModelSize.parakeetUnified.rawValue),
+            .success(ModelSize.parakeetUnified.rawValue),
+        ]
+        let gate = StepGate()
+        whisperService.loadGate = gate
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        // Loading writes the shared model choice; put it back for later tests.
+        let originalModel = app.selectedModelSize
+        defer {
+            app.selectedModelSize = originalModel
+            app.parakeetLiveStreaming = false
+        }
+        app.parakeetLiveStreaming = false
+
+        // The load starts with the batch encoder; the switch flips mid-load.
+        let load = Task { await app.loadModel(.parakeetUnified) }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        app.parakeetLiveStreaming = true
+        let reload = Task { await app.reloadModelForLiveStreamingChangeIfNeeded() }
+        gate.open()
+        await load.value
+        await reload.value
+
+        XCTAssertEqual(mocks.whisperService.loadRequests.count, 2, "the change is applied, not dropped")
+    }
+
     func testStreamingSettingIsSearchableAndArchived() {
         let entry = SettingsSearchIndex.matches(query: "realtime").first { $0.id == "transcribe-as-you-speak" }
         XCTAssertNotNil(entry)

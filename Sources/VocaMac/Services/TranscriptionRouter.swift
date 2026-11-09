@@ -162,6 +162,10 @@ final class TranscriptionRouter: @unchecked Sendable {
         case .customEndpoint: return customEndpoint.isModelLoaded
         }
     }
+
+    var isLiveStreamingLoaded: Bool {
+        isModelLoaded && activeEngine == .parakeet && parakeet.isStreamingLoaded
+    }
 }
 
 // MARK: - SpeechTranscribing Conformance

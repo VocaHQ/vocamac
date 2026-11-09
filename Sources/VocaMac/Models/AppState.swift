@@ -3801,16 +3801,30 @@ final class AppState: ObservableObject {
         availableModels[idx].loadingStatus = "Loading…"
     }
 
-    /// Reload the active model when "Transcribe as you speak" changes and
-    /// the model has a streaming export, which is a different encoder.
+    /// Reload the active model when "Transcribe as you speak" no longer
+    /// matches the loaded encoder (a Unified checkpoint's streaming export is
+    /// a different model).
+    ///
+    /// Queued behind any model operation in progress and decided only once it
+    /// has finished: a change made while a load is under way is compared
+    /// with what that load actually produced, so it is never dropped.
     func reloadModelForLiveStreamingChangeIfNeeded() async {
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            guard let size = liveStreamingReloadTarget() else { return }
+            VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
+            await performLoadModel(size)
+        }
+    }
+
+    /// The loaded model, when its encoder disagrees with the setting.
+    func liveStreamingReloadTarget() -> ModelSize? {
         guard let size = currentModel?.size,
               size.transcribesWhileSpeaking,
-              whisperService.isModelLoaded else {
-            return
+              whisperService.isModelLoaded,
+              whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {
+            return nil
         }
-        VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
-        await loadModel(size)
+        return size
     }
 
     /// Reload the active model when the transcription language changes and
@@ -4654,6 +4668,11 @@ final class AppState: ObservableObject {
         syncShortcutConfiguration()
         syncLaunchAtLogin()
         refreshActiveWritingStyle()
+        // An imported "Transcribe as you speak" only takes effect with the
+        // matching encoder; a no-op when the loaded one already matches.
+        Task { @MainActor [weak self] in
+            await self?.reloadModelForLiveStreamingChangeIfNeeded()
+        }
         objectWillChange.send()
     }
 

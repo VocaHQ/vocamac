@@ -604,6 +604,7 @@ final class MockWhisperService: SpeechTranscribing {
     }
     var loadedModelName: String? = "openai_whisper-tiny"
     var isModelLoaded: Bool = true
+    var isLiveStreamingLoaded = false
     var lastTranscribedAudioData: [Float]?
     var lastLanguage: String?
     var lastTranslate: Bool?

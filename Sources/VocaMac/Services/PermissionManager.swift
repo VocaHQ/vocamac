@@ -449,8 +449,9 @@ final class PermissionManager: ObservableObject {
 
     /// Creating the tap can fail for a moment right after a permission is
     /// granted, while macOS still reports it as granted. About 30 s of 3 s
-    /// polls (inside the fast phase below) covers that; past it, app activation, wake and the Accessibility
-    /// notification still re-check.
+    /// polls covers that (recovery polls always run at the fast interval);
+    /// past it, app activation, wake and the Accessibility notification
+    /// still re-check.
     static let maxHotKeyRestartPolls = 10
 
     private var hotKeyRestartPolls = 0
@@ -475,8 +476,13 @@ final class PermissionManager: ObservableObject {
     static let fastPermissionPollCount = 40
 
     /// Seconds to wait before the poll that follows `pollsSoFar` polls.
-    static func permissionPollInterval(afterPolls pollsSoFar: Int) -> TimeInterval {
-        pollsSoFar < fastPermissionPollCount ? fastPermissionPollInterval : slowPermissionPollInterval
+    ///
+    /// While every permission is granted but the hotkey tap is still
+    /// unhealthy, polls stay fast however long the wait for the grant was,
+    /// so the `maxHotKeyRestartPolls` recovery window keeps its ~30 s length.
+    static func permissionPollInterval(afterPolls pollsSoFar: Int, recoveringHotKey: Bool = false) -> TimeInterval {
+        if recoveringHotKey { return fastPermissionPollInterval }
+        return pollsSoFar < fastPermissionPollCount ? fastPermissionPollInterval : slowPermissionPollInterval
     }
 
     private var permissionPollCount = 0
@@ -497,7 +503,10 @@ final class PermissionManager: ObservableObject {
     }
 
     private func schedulePermissionPoll() {
-        let interval = Self.permissionPollInterval(afterPolls: permissionPollCount)
+        let interval = Self.permissionPollInterval(
+            afterPolls: permissionPollCount,
+            recoveringHotKey: allPermissionsGranted && !isHotKeyTapHealthy
+        )
         permissionPollTimer?.invalidate()
         permissionPollGeneration += 1
         let generation = permissionPollGeneration

@@ -67,6 +67,15 @@ enum ToolProcess {
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return Outcome(status: status, errorOutput: message)
     }
+
+    /// Run cleanup work (such as detaching a disk image) to completion even
+    /// when the calling task is cancelled: a detached task does not inherit
+    /// the caller's cancellation, so `run` inside it still launches tools.
+    static func withoutCancellation<T: Sendable>(
+        _ operation: @escaping @Sendable () async -> T
+    ) async -> T {
+        await Task.detached(operation: operation).value
+    }
 }
 
 /// Lets the cancellation handler, which may run on any thread, stop the tool.

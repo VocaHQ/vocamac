@@ -111,7 +111,9 @@ struct UpdateInstaller: Sendable {
         } catch {
             result = .failure(error)
         }
-        await Self.detach(mountPoint)
+        // Detach even when staging was cancelled: `run` refuses to launch a
+        // tool from a cancelled task, which would leave the volume mounted.
+        await ToolProcess.withoutCancellation { await Self.detach(mountPoint) }
         return try result.get()
     }
 

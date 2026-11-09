@@ -174,4 +174,61 @@ final class GatewayBinaryResolverTests: XCTestCase {
         XCTAssertEqual(LocalPortOwner.listeningProcessID(port: port), getpid())
         XCTAssertNotNil(LocalPortOwner.executablePath(of: getpid()))
     }
+
+    func testOnlyListenersReachableAtIPv4LoopbackCount() {
+        let loopback: UInt32 = 0x7F00_0001
+        XCTAssertTrue(LocalPortOwner.reachesIPv4Loopback(isIPv4: true, ipv4Address: loopback, ipv6Address: []))
+        XCTAssertTrue(LocalPortOwner.reachesIPv4Loopback(isIPv4: true, ipv4Address: 0, ipv6Address: []))
+        XCTAssertFalse(LocalPortOwner.reachesIPv4Loopback(isIPv4: true, ipv4Address: 0xC0A8_0105, ipv6Address: []))
+
+        let any = [UInt8](repeating: 0, count: 16)
+        var ipv6Loopback = any
+        ipv6Loopback[15] = 1
+        var mappedLoopback = any
+        mappedLoopback[10] = 0xff
+        mappedLoopback[11] = 0xff
+        mappedLoopback[12] = 127
+        mappedLoopback[15] = 1
+        var mappedLAN = mappedLoopback
+        mappedLAN[12] = 192
+        XCTAssertTrue(LocalPortOwner.reachesIPv4Loopback(isIPv4: false, ipv4Address: 0, ipv6Address: any))
+        XCTAssertTrue(LocalPortOwner.reachesIPv4Loopback(isIPv4: false, ipv4Address: 0, ipv6Address: mappedLoopback))
+        XCTAssertFalse(LocalPortOwner.reachesIPv4Loopback(isIPv4: false, ipv4Address: 0, ipv6Address: ipv6Loopback))
+        XCTAssertFalse(LocalPortOwner.reachesIPv4Loopback(isIPv4: false, ipv4Address: 0, ipv6Address: mappedLAN))
+    }
+
+    func testAmbiguousOwnershipIsNotTrusted() {
+        XCTAssertNil(LocalPortOwner.soleOwner([]))
+        XCTAssertEqual(LocalPortOwner.soleOwner([42, 42]), 42)
+        XCTAssertNil(LocalPortOwner.soleOwner([42, 43]))
+    }
+
+    func testIgnoresAListenerOnlyOnIPv6Loopback() throws {
+        let socket = Darwin.socket(AF_INET6, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(socket, 0)
+        defer { close(socket) }
+        var yes: Int32 = 1
+        setsockopt(socket, IPPROTO_IPV6, IPV6_V6ONLY, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var address = sockaddr_in6()
+        address.sin6_family = sa_family_t(AF_INET6)
+        address.sin6_len = UInt8(MemoryLayout<sockaddr_in6>.size)
+        address.sin6_addr = in6addr_loopback
+        address.sin6_port = 0
+        let bound = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.bind(socket, $0, socklen_t(MemoryLayout<sockaddr_in6>.size))
+            }
+        }
+        XCTAssertEqual(bound, 0)
+        XCTAssertEqual(Darwin.listen(socket, 1), 0)
+        var length = socklen_t(MemoryLayout<sockaddr_in6>.size)
+        _ = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.getsockname(socket, $0, &length) }
+        }
+        let port = Int(UInt16(bigEndian: address.sin6_port))
+
+        // A connection to 127.0.0.1 can't reach this socket, so it must not
+        // vouch for whoever holds 127.0.0.1 on the same port.
+        XCTAssertNil(LocalPortOwner.listeningProcessID(port: port))
+    }
 }

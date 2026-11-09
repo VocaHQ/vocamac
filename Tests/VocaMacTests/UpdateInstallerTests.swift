@@ -297,3 +297,35 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(try stagedLeftovers(), ["VocaMac.app"], "The staged copy is removed")
     }
 }
+
+#if !APP_STORE
+final class ToolProcessCancellationTests: XCTestCase {
+
+    func testCancelledTaskRefusesToLaunchATool() async {
+        let task = Task { () -> Bool in
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try await ToolProcess.run("/usr/bin/true", [])
+                return false
+            } catch {
+                return error is CancellationError
+            }
+        }
+        let refused = await task.value
+        XCTAssertTrue(refused)
+    }
+
+    func testCleanupStillRunsFromACancelledTask() async {
+        // Mirrors `UpdateInstaller.stage`: the detach after a cancelled copy
+        // must still launch hdiutil.
+        let task = Task { () -> Int32? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await ToolProcess.withoutCancellation {
+                try? await ToolProcess.run("/usr/bin/true", []).status
+            }
+        }
+        let status = await task.value
+        XCTAssertEqual(status, 0)
+    }
+}
+#endif

@@ -135,6 +135,18 @@ final class PermissionPollingDecisionTests: XCTestCase {
             .giveUpOnHotKey
         )
     }
+
+    func testPollsQuicklyAtFirstThenBacksOff() {
+        XCTAssertEqual(PermissionManager.permissionPollInterval(afterPolls: 0), 3)
+        XCTAssertEqual(
+            PermissionManager.permissionPollInterval(afterPolls: PermissionManager.fastPermissionPollCount - 1), 3
+        )
+        XCTAssertEqual(
+            PermissionManager.permissionPollInterval(afterPolls: PermissionManager.fastPermissionPollCount), 15
+        )
+        // The hot-key retry window must fit inside the fast phase.
+        XCTAssertLessThan(PermissionManager.maxHotKeyRestartPolls, PermissionManager.fastPermissionPollCount)
+    }
 }
 
 // MARK: - Relaunch Advice

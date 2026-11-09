@@ -99,7 +99,10 @@ enum AutoPauseMatching {
 final class AutoPauseMonitor: ObservableObject {
 
     nonisolated static let defaultPollIntervalSeconds: TimeInterval = 5
-    nonisolated static let minPollIntervalSeconds: TimeInterval = 1
+    /// Five seconds, the app's polling floor (AGENTS.md). App launches and
+    /// quits are also seen at once through workspace notifications, so the
+    /// poll only has to catch command-line processes.
+    nonisolated static let minPollIntervalSeconds: TimeInterval = 5
     nonisolated static let maxPollIntervalSeconds: TimeInterval = 60
 
     /// Called once when the match set becomes non-empty.
@@ -129,6 +132,9 @@ final class AutoPauseMonitor: ObservableObject {
     private var lastConfiguration: Configuration?
     /// nonisolated(unsafe): see `timer`.
     nonisolated(unsafe) private var configurationObserver: NSObjectProtocol?
+    /// App launch and quit observers on the workspace notification center.
+    /// nonisolated(unsafe): see `timer`.
+    nonisolated(unsafe) private var workspaceObservers: [NSObjectProtocol] = []
     var isPolling: Bool { timer != nil }
     private var lastPollInterval: TimeInterval = defaultPollIntervalSeconds
 
@@ -149,6 +155,7 @@ final class AutoPauseMonitor: ObservableObject {
     deinit {
         timer?.invalidate()
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
     }
 
     /// Start periodic polling. Safe to call if already started.
@@ -160,6 +167,13 @@ final class AutoPauseMonitor: ObservableObject {
         ) { [weak self] _ in
             Task { @MainActor in self?.configurationDidChange() }
         }
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        workspaceObservers = [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification]
+            .map { name in
+                workspaceCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor in self?.runningAppsDidChange() }
+                }
+            }
         configurationDidChange()
         VocaLogger.info(.general, "Auto-pause monitor started")
     }
@@ -170,6 +184,8 @@ final class AutoPauseMonitor: ObservableObject {
         lastConfiguration = nil
         if let configurationObserver { NotificationCenter.default.removeObserver(configurationObserver) }
         configurationObserver = nil
+        for observer in workspaceObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        workspaceObservers = []
         timer?.invalidate()
         timer = nil
         VocaLogger.info(.general, "Auto-pause monitor stopped")
@@ -247,6 +263,12 @@ final class AutoPauseMonitor: ObservableObject {
         // Allow firing while UI tracking runs (settings window scroll, etc.).
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+    }
+
+    /// An app launched or quit: check now rather than at the next poll.
+    private func runningAppsDidChange() {
+        guard isRunning, isPolling else { return }
+        checkOnce()
     }
 
     private func pollFromTimer() {

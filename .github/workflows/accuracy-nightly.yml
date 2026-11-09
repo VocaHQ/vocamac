@@ -1,0 +1,128 @@
+name: Accuracy (nightly)
+
+# Opt-in: scores recorded speech with the shipped default models and compares
+# the result with .github/accuracy/baseline.json. Does nothing but leave a
+# notice until the ACCURACY_CORPUS_URL secret is set. See docs/ACCURACY.md.
+
+on:
+  schedule:
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'Comma-separated model ids (blank: the ACCURACY_MODELS variable, or the defaults)'
+        required: false
+        default: ''
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: accuracy-nightly
+  cancel-in-progress: true
+
+jobs:
+  accuracy:
+    name: Speech accuracy
+    # Forks have no corpus; only the upstream repository runs on schedule.
+    if: github.event_name == 'workflow_dispatch' || github.repository == 'VocaHQ/vocamac'
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check for a corpus
+        id: corpus
+        env:
+          CORPUS_URL: ${{ secrets.ACCURACY_CORPUS_URL }}
+        run: |
+          if [ -z "${CORPUS_URL}" ]; then
+            echo "::notice title=Accuracy corpus not configured::Set the ACCURACY_CORPUS_URL secret to measure accuracy nightly. See docs/ACCURACY.md."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.corpus.outputs.configured == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache SPM dependencies
+        if: steps.corpus.outputs.configured == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          restore-keys: |
+            spm-debug-${{ runner.os }}-
+
+      - name: Select Xcode 26
+        if: steps.corpus.outputs.configured == 'true'
+        run: ./scripts/select-xcode-26.sh
+
+      - name: Fetch the corpus
+        id: fetch
+        if: steps.corpus.outputs.configured == 'true'
+        env:
+          CORPUS_URL: ${{ secrets.ACCURACY_CORPUS_URL }}
+          CORPUS_SHA256: ${{ vars.ACCURACY_CORPUS_SHA256 }}
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/corpus.tar.gz"
+          root="${RUNNER_TEMP}/corpus"
+          curl --fail --silent --show-error --location --proto '=https' --retry 3 \
+            --output "${archive}" "${CORPUS_URL}"
+          if [ -n "${CORPUS_SHA256}" ]; then
+            echo "${CORPUS_SHA256}  ${archive}" | shasum -a 256 -c -
+          fi
+          mkdir -p "${root}"
+          tar -xzf "${archive}" -C "${root}" --no-same-owner --no-same-permissions
+          dir="${root}"
+          # The pairs may sit inside one top-level folder.
+          if ! compgen -G "${dir}/*.wav" > /dev/null; then
+            subdirs=("${root}"/*/)
+            if [ "${#subdirs[@]}" -eq 1 ] && [ -d "${subdirs[0]}" ]; then
+              dir="${subdirs[0]%/}"
+            fi
+          fi
+          count=$(find "${dir}" -maxdepth 1 -iname '*.wav' | wc -l | tr -d ' ')
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::The corpus archive has no .wav files at its root or in one top-level folder."
+            exit 1
+          fi
+          echo "Corpus: ${count} recordings"
+          echo "dir=${dir}" >> "$GITHUB_OUTPUT"
+
+      - name: Measure
+        if: steps.corpus.outputs.configured == 'true'
+        env:
+          VOCAMAC_ACCURACY_CORPUS: ${{ steps.fetch.outputs.dir }}
+          INPUT_MODELS: ${{ inputs.models }}
+          VARIABLE_MODELS: ${{ vars.ACCURACY_MODELS }}
+          VOCAMAC_ACCURACY_LANGUAGE: ${{ vars.ACCURACY_LANGUAGE }}
+          VOCAMAC_ACCURACY_CLEANUP_MODEL: ${{ vars.ACCURACY_CLEANUP_MODEL }}
+          VOCAMAC_ACCURACY_TOLERANCE: ${{ vars.ACCURACY_TOLERANCE }}
+          VOCAMAC_ACCURACY_CORPUS_ID: ${{ vars.ACCURACY_CORPUS_ID }}
+          VOCAMAC_ACCURACY_ALLOW_DOWNLOAD: '1'
+          VOCAMAC_ACCURACY_FINAL: '1'
+          VOCAMAC_ACCURACY_BASELINE: .github/accuracy/baseline.json
+        run: |
+          set -euo pipefail
+          models="${INPUT_MODELS:-${VARIABLE_MODELS:-parakeet-unified-en-0.6b,tiny}}"
+          mkdir -p accuracy-output
+          export VOCAMAC_ACCURACY_MODELS="${models}"
+          export VOCAMAC_ACCURACY_OUTPUT="${PWD}/accuracy-output/accuracy-report.json"
+          export VOCAMAC_ACCURACY_WRITE_BASELINE="${PWD}/accuracy-output/accuracy-baseline.json"
+          swift test --filter SpeechAccuracyBenchmarkTests
+
+      - name: Upload the report
+        if: always() && steps.corpus.outputs.configured == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: accuracy-report
+          path: accuracy-output/
+          if-no-files-found: ignore
+          retention-days: 30

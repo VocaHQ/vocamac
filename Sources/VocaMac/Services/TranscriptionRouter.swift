@@ -746,6 +746,15 @@ extension TranscriptionRouter: SpeechTranscribing {
         try await ParakeetVocabularyBoost.downloadModel()
     }
 
+    /// Wait, up to `timeout`, for the loaded Parakeet model's vocabulary
+    /// boost to be ready. False when Parakeet is not the active engine or
+    /// the boost model is missing or failed to load. For measurement only:
+    /// dictation never waits for the boost.
+    func waitForVocabularyBoost(timeout: TimeInterval) async -> Bool {
+        guard activeEngine == .parakeet else { return false }
+        return await parakeet.waitForVocabularyBoost(timeout: timeout)
+    }
+
     /// Delete Parakeet's vocabulary boost model, turning the boost off.
     static func removeVocabularyBoost() throws {
         try ParakeetVocabularyBoost.removeModel()

@@ -222,19 +222,18 @@ enum TranscriptScoring {
     static func termRecall(terms: [String], reference: String, hypothesis: String) -> TermRecall {
         let plainReference = WordErrorRate.surfaceWords(reference).map { $0.text.lowercased() }
         let plainHypothesis = WordErrorRate.surfaceWords(hypothesis).map(\.text)
-        let symbolReference = symbolTokens(reference).map { $0.lowercased() }
-        let symbolHypothesis = symbolTokens(hypothesis)
         var result = TermRecall()
         var seen = Set<String>()
         for term in terms {
             // "C++", "C#" and ".NET" are told apart by their symbols, which
             // the word tokenizer drops; such terms match whole tokens instead.
             let keepsSymbols = hasMeaningfulSymbols(term)
-            let exact = keepsSymbols ? symbolTokens(term) : WordErrorRate.surfaceWords(term).map(\.text)
+            let exact = keepsSymbols ? symbolTokens(term, keeping: term) : WordErrorRate.surfaceWords(term).map(\.text)
             let lowered = exact.map { $0.lowercased() }
             guard !lowered.isEmpty, seen.insert(lowered.joined(separator: " ")).inserted else { continue }
-            let referenceWords = keepsSymbols ? symbolReference : plainReference
-            let hypothesisSurface = keepsSymbols ? symbolHypothesis : plainHypothesis
+            let referenceWords = keepsSymbols
+                ? symbolTokens(reference, keeping: term).map { $0.lowercased() } : plainReference
+            let hypothesisSurface = keepsSymbols ? symbolTokens(hypothesis, keeping: term) : plainHypothesis
             let said = occurrences(of: lowered, in: referenceWords)
             let heardExactly = occurrences(of: exact, in: hypothesisSurface)
             let heardAny = occurrences(of: lowered, in: hypothesisSurface.map { $0.lowercased() })
@@ -254,13 +253,16 @@ enum TranscriptScoring {
         }
     }
 
-    /// Whitespace-separated tokens with the sentence punctuation, quotes and
+    /// Tokens split at whitespace and at separators ("/", "|", dashes) the
+    /// term itself does not use, with the sentence punctuation, quotes and
     /// brackets around them removed, keeping symbols inside or ending a term:
-    /// "use C++." → ["use", "C++"], "(.NET)" → [".NET"].
-    static func symbolTokens(_ text: String) -> [String] {
+    /// "use C++." → ["use", "C++"], "(.NET)" → [".NET"],
+    /// "Node.js/TypeScript" → ["Node.js", "TypeScript"].
+    static func symbolTokens(_ text: String, keeping term: String) -> [String] {
         let leading = CharacterSet(charactersIn: "\"'\u{2018}\u{201C}([{")
         let trailing = CharacterSet(charactersIn: ".,;:!?\"'\u{2019}\u{201D})]}")
-        return text.split(whereSeparator: \.isWhitespace).compactMap { raw in
+        let separators = Set("/|\u{2013}\u{2014}").subtracting(term)
+        return text.split { $0.isWhitespace || separators.contains($0) }.compactMap { raw in
             var token = Substring(raw)
             while let first = token.unicodeScalars.first, leading.contains(first) { token = token.dropFirst() }
             while let last = token.unicodeScalars.last, trailing.contains(last) { token = token.dropLast() }

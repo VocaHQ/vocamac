@@ -47,6 +47,9 @@ final class NumberFoldingTests: XCTestCase {
         // Digits after the point are read one by one and join, as in "3.14".
         XCTAssertEqual(fold("three point one four"), "3 14")
         XCTAssertEqual(fold("pi is three point one four one five nine"), "pi is 3 14159")
+        // Adjacent decimals keep their boundary, as "3.5, 6.2" does.
+        XCTAssertEqual(fold("three point five six point two"), "3 5 6 2")
+        XCTAssertEqual(fold("one point two five three point five"), "1 25 3 5")
         XCTAssertEqual(fold("the point is"), "the point is")
     }
 }

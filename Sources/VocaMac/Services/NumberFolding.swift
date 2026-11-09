@@ -172,7 +172,10 @@ enum NumberFolding {
                 var fraction = words[index + 1]
                 var next = index + 2
                 if fraction.count == 1 {
-                    while next < words.count, words[next].count == 1, isDigits(words[next]) {
+                    // A digit followed by "point" starts the next decimal
+                    // ("three point five six point two" is 3.5 and 6.2).
+                    while next < words.count, words[next].count == 1, isDigits(words[next]),
+                          !(next + 1 < words.count && words[next + 1] == "point") {
                         fraction += words[next]
                         next += 1
                     }

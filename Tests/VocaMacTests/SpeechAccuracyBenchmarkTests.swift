@@ -113,6 +113,8 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         var finalCorpusWER: Double?
         var finalFormatting: TranscriptScoring.Formatting?
         var finalTerms: TranscriptScoring.TermRecall?
+        /// Why the hints could not take effect on this model, when they could not.
+        var hintsNotTested: String?
 
         /// Share of word-scored files that lost their first or last word.
         var edgeDropRate: Double? {
@@ -198,8 +200,7 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         var results: [ModelResult] = []
         var skipped: [String] = []
         var hintsNotTested: [String] = []
-        let hasBoostTerms = !RecognitionHints.boostTerms(from: vocabulary).isEmpty
-            || entries.contains { !RecognitionHints.boostTerms(from: Self.vocabulary(vocabulary, adding: $0.terms)).isEmpty }
+        let hasBoostTerms = Self.hasBoostTerms(vocabulary, entries: entries)
         for name in modelNames {
             guard let model = ModelSize(rawValue: name) else {
                 XCTFail("Unknown model \(name)")
@@ -230,6 +231,9 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
                 result = await Self.scoringFinalText(
                     result, entries: entries, language: language, vocabulary: vocabulary, cleanup: finalCleanup
                 )
+            }
+            if let reason = result.hintsNotTested {
+                hintsNotTested.append("\(name): \(reason)")
             }
             results.append(result)
         }
@@ -288,6 +292,14 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         let loadStart = ProcessInfo.processInfo.systemUptime
         try await router.loadModel(name: modelManager.modelIdentifier(for: model), folder: modelManager.modelFolder(for: model))
         let loadSeconds = ProcessInfo.processInfo.systemUptime - loadStart
+        // The boost model loads in the background after the speech model;
+        // decodes before it is ready keep the plain transcript, so wait for it
+        // (its first load compiles it, which can take a while).
+        var boostNotReady = false
+        if model.engine == .parakeet, Self.hasBoostTerms(vocabulary, entries: entries),
+           TranscriptionRouter.isVocabularyBoostDownloaded {
+            boostNotReady = await !router.waitForVocabularyBoost(timeout: 600)
+        }
 
         var files: [FileResult] = []
         do {
@@ -330,7 +342,17 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
             throw error
         }
         await router.unloadModel()
-        return Self.summarized(model: model.rawValue, files: files, loadSeconds: loadSeconds)
+        var result = Self.summarized(model: model.rawValue, files: files, loadSeconds: loadSeconds)
+        if boostNotReady {
+            result.hintsNotTested = "Parakeet vocabulary boost model did not load"
+        }
+        return result
+    }
+
+    /// Whether the run gives Parakeet's boost anything to rescore.
+    static func hasBoostTerms(_ vocabulary: String, entries: [CorpusEntry]) -> Bool {
+        !RecognitionHints.boostTerms(from: vocabulary).isEmpty
+            || entries.contains { !RecognitionHints.boostTerms(from: Self.vocabulary(vocabulary, adding: $0.terms)).isEmpty }
     }
 
     /// One file's recognition scores.

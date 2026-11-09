@@ -127,6 +127,14 @@ final class TranscriptScoringTests: XCTestCase {
         )
         XCTAssertEqual(right, TranscriptScoring.TermRecall(expected: 3, recalled: 3, falseInsertions: 0))
 
+        // Separators the term does not use split tokens, whatever the spacing.
+        let slashed = TranscriptScoring.termRecall(
+            terms: ["Node.js", "TCP/IP"],
+            reference: "Use Node.js/TypeScript over TCP/IP",
+            hypothesis: "Use Node.js / TypeScript over TCP/IP"
+        )
+        XCTAssertEqual(slashed, TranscriptScoring.TermRecall(expected: 2, recalled: 2, falseInsertions: 0))
+
         let lowered = TranscriptScoring.termRecall(
             terms: ["Node.js"], reference: "run Node.js", hypothesis: "run node.js"
         )

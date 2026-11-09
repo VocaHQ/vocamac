@@ -304,6 +304,30 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         XCTAssertEqual(mocks.whisperService.loadRequests.count, 2, "the change is applied, not dropped")
     }
 
+    func testImportedStreamingChangeKeepsTheImportedModelChoice() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.parakeetUnified]
+        let whisperService = MockWhisperService()
+        whisperService.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let originalModel = app.selectedModelSize
+        defer {
+            app.selectedModelSize = originalModel
+            app.parakeetLiveStreaming = false
+        }
+        app.parakeetLiveStreaming = false
+        await app.loadModel(.parakeetUnified)
+
+        // A backup turns streaming on and picks another model.
+        app.parakeetLiveStreaming = true
+        app.selectedModelSize = ModelSize.parakeetV3.rawValue
+        app.reloadImportedSettings()
+        await app.reloadModelForLiveStreamingChangeIfNeeded()
+
+        XCTAssertEqual(app.selectedModelSize, ModelSize.parakeetV3.rawValue)
+        XCTAssertEqual(mocks.whisperService.loadRequests.count, 1, "the old model is not reloaded")
+    }
+
     func testStreamingSettingIsSearchableAndArchived() {
         let entry = SettingsSearchIndex.matches(query: "realtime").first { $0.id == "transcribe-as-you-speak" }
         XCTAssertNotNil(entry)

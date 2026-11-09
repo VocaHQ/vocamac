@@ -3817,8 +3817,13 @@ final class AppState: ObservableObject {
     }
 
     /// The loaded model, when its encoder disagrees with the setting.
+    ///
+    /// Nil when the chosen model is not the loaded one (an imported backup
+    /// can pick another): reloading the old model would save it over that
+    /// choice, and the next load applies the setting anyway.
     func liveStreamingReloadTarget() -> ModelSize? {
         guard let size = currentModel?.size,
+              ModelSize(rawValue: selectedModelSize) == size,
               size.transcribesWhileSpeaking,
               whisperService.isModelLoaded,
               whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {

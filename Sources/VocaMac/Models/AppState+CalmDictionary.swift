@@ -231,3 +231,41 @@ extension AppState {
         }
     }
 }
+
+// MARK: - Import and export
+
+extension AppState {
+    /// The whole dictionary, ready to write to a file.
+    var dictionaryTransferContents: DictionaryTransferContents {
+        DictionaryTransferContents(
+            words: vocabularyTerms,
+            replacements: wordReplacements.filter(\.isValid).map {
+                DictionaryTransferReplacement(heard: $0.heardForms.joined(separator: ", "), replacement: $0.replacement)
+            }
+        )
+    }
+
+    /// What importing `contents` would add, for the confirmation.
+    func dictionaryImportPlan(for contents: DictionaryTransferContents) -> DictionaryImportPlan {
+        DictionaryTransfer.plan(
+            importing: contents, existingWords: vocabularyTerms, existingReplacements: wordReplacements
+        )
+    }
+
+    /// Add what `plan` found new. Existing entries are never changed.
+    func applyDictionaryImport(_ plan: DictionaryImportPlan) {
+        if !plan.newWords.isEmpty {
+            setVocabularyTerms(vocabularyTerms + plan.newWords)
+        }
+        guard !plan.newReplacements.isEmpty else { return }
+        var replacements = wordReplacements
+        for entry in plan.newReplacements {
+            replacements.append(WordReplacement(heard: entry.heard, replacement: entry.replacement))
+        }
+        wordReplacements = replacements
+        VocaLogger.info(
+            .appState,
+            "Imported \(plan.newWords.count) word(s) and \(plan.newReplacements.count) replacement(s) into the Dictionary"
+        )
+    }
+}

@@ -409,6 +409,13 @@ enum SettingsSearchIndex {
             keywords: ["learn", "auto", "suggest", "correction", "edit", "learn from my corrections"]
         ),
         SettingsSearchEntry(
+            id: "dictionary-import-export",
+            page: .dictionary,
+            title: "Import or export the dictionary",
+            subtitle: "Move words and replacements in or out as CSV, JSON or a word list",
+            keywords: ["import", "export", "csv", "json", "dictionary", "words", "backup", "transfer", "other app"]
+        ),
+        SettingsSearchEntry(
             id: "screen-context",
             page: .dictionary,
             title: "Spell names from the screen",

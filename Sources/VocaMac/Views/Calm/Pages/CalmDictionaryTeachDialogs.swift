@@ -17,40 +17,19 @@ struct CalmTeachWordRequest: Identifiable {
 
 /// Say a word up to three times; each take is decoded without hints and
 /// the ways it was misheard are offered as spoken forms of the word. Nothing
-/// is saved until Save.
+/// is saved until Save. The take flow lives in `WordTeachingSession`.
 struct CalmTeachWordDialog: View {
-    let term: String
-
-    @EnvironmentObject private var appState: AppState
+    @StateObject private var session: WordTeachingSession
     @Environment(\.calmDismissDialog) private var dismissDialog
 
-    private enum Phase: Equatable {
-        case ready
-        case listening
-        case decoding
+    init(term: String, appState: AppState) {
+        _session = StateObject(wrappedValue: WordTeachingSession(term: term, appState: appState))
     }
 
-    @State private var phase: Phase = .ready
-    @State private var takes = 0
-    @State private var transcripts: [String] = []
-    @State private var selected: Set<String> = []
-    @State private var offered: Set<String> = []
-    @State private var notice: String?
-    @State private var autoStop: Task<Void, Never>?
-
-    private var heard: [WordTeaching.Heard] {
-        WordTeaching.review(
-            term: term, transcripts: transcripts, replacements: appState.wordReplacements,
-            isKnownWord: { appState.isKnownWord($0, appState.spellingLanguage) }
-        )
-    }
-
-    private var chosenForms: [String] {
-        heard.filter { $0.isLearnable && selected.contains($0.form) }.map(\.form)
-    }
+    private var term: String { session.term }
 
     var body: some View {
-        let heard = heard
+        let heard = session.heard
         CalmDialog(
             "Say “\(term)”",
             description: "Say the word the way you usually do. VocaMac listens without any hints and remembers "
@@ -58,7 +37,7 @@ struct CalmTeachWordDialog: View {
             width: CalmMetrics.dialogListWidth
         ) {
             status
-            if let notice {
+            if let notice = session.notice {
                 CalmInlineNotice(notice, tone: .warning)
             }
             if !heard.isEmpty {
@@ -71,20 +50,19 @@ struct CalmTeachWordDialog: View {
         } footer: {
             CalmDialogFooter(
                 primaryTitle: "Save",
-                isPrimaryEnabled: phase == .ready && !chosenForms.isEmpty,
+                isPrimaryEnabled: session.canSave,
                 onCancel: cancel,
-                onPrimary: save
+                onPrimary: session.save
             ) {
-                Button(takes == 0 ? "Say it" : "Say it again", action: startTake)
-                    .calmButton(.secondary)
-                    .disabled(phase != .ready || takes >= WordTeaching.maximumTakes || !appState.canTeachWord)
+                Button(session.takes == 0 ? "Say it" : "Say it again") {
+                    Task { await session.startTake() }
+                }
+                .calmButton(.secondary)
+                .disabled(!session.canStartTake)
             }
         }
         .onDisappear {
-            autoStop?.cancel()
-            if phase == .listening {
-                Task { await appState.cancelTeachingTake() }
-            }
+            Task { await session.cancel() }
         }
     }
 
@@ -92,7 +70,7 @@ struct CalmTeachWordDialog: View {
 
     @ViewBuilder
     private var status: some View {
-        switch phase {
+        switch session.phase {
         case .ready:
             Text(readyMessage)
                 .font(CalmFont.description)
@@ -105,7 +83,7 @@ struct CalmTeachWordDialog: View {
                     .font(CalmFont.body)
                     .foregroundStyle(CalmColor.ink)
                 Spacer(minLength: 0)
-                Button("Done") { Task { await finishTake() } }
+                Button("Done") { Task { await session.finishTake() } }
                     .calmButton(.secondary, size: .small)
             }
         case .decoding:
@@ -119,10 +97,11 @@ struct CalmTeachWordDialog: View {
     }
 
     private var readyMessage: String {
+        let takes = session.takes
         if takes >= WordTeaching.maximumTakes {
             return "That’s \(WordTeaching.maximumTakes) takes. Choose what to save."
         }
-        if !appState.canTeachWord {
+        if !session.canStartTake {
             return "VocaMac is busy with a dictation. Say it once that finishes."
         }
         return takes == 0
@@ -133,21 +112,18 @@ struct CalmTeachWordDialog: View {
     // MARK: Rows
 
     private func row(_ item: WordTeaching.Heard) -> some View {
-        CalmListRow(padding: .compact, alignment: .center) {
+        let isOn = session.selected.contains(item.form)
+        return CalmListRow(padding: .compact, alignment: .center) {
             HStack(spacing: 10) {
                 if item.isLearnable {
                     Button {
-                        if selected.contains(item.form) {
-                            selected.remove(item.form)
-                        } else {
-                            selected.insert(item.form)
-                        }
+                        session.toggle(item.form)
                     } label: {
-                        CalmCheckCircle(isOn: selected.contains(item.form))
+                        CalmCheckCircle(isOn: isOn)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Save “\(item.form)” as a way of hearing \(term)")
-                    .accessibilityValue(selected.contains(item.form) ? "On" : "Off")
+                    .accessibilityValue(isOn ? "On" : "Off")
                 }
                 Text("“\(item.form)”")
                     .font(CalmFont.body)
@@ -182,58 +158,9 @@ struct CalmTeachWordDialog: View {
         }
     }
 
-    // MARK: Actions
-
-    private func startTake() {
-        notice = nil
-        phase = .listening
-        Task { @MainActor in
-            guard await appState.startTeachingTake() else {
-                phase = .ready
-                notice = "The microphone isn’t free right now. Try again in a moment."
-                return
-            }
-            autoStop = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(WordTeaching.takeSeconds * 1_000_000_000))
-                guard !Task.isCancelled else { return }
-                await finishTake()
-            }
-        }
-    }
-
-    private func finishTake() async {
-        guard phase == .listening else { return }
-        autoStop?.cancel()
-        autoStop = nil
-        phase = .decoding
-        let text = await appState.finishTeachingTake()
-        phase = .ready
-        takes += 1
-        guard let text else {
-            notice = "The speech model couldn’t run. Check Settings › Models."
-            return
-        }
-        guard !WordTeaching.spokenForm(of: text).isEmpty else {
-            notice = "Nothing was heard. Say it again, a little closer to the microphone."
-            return
-        }
-        transcripts.append(text)
-        // New ways of hearing it start chosen; a choice the user changed stays.
-        for item in heard where item.isLearnable && offered.insert(item.form).inserted {
-            selected.insert(item.form)
-        }
-    }
-
     private func cancel() {
-        autoStop?.cancel()
-        if phase == .listening {
-            Task { await appState.cancelTeachingTake() }
-        }
+        Task { await session.cancel() }
         dismissDialog?()
-    }
-
-    private func save() {
-        appState.teachWord(term, heardForms: chosenForms)
     }
 }
 

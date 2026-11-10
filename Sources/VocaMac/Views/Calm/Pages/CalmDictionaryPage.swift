@@ -78,7 +78,7 @@ struct CalmDictionaryPage: View {
             CalmDictionarySuggestionsDialog()
         }
         .calmDialog(item: $teaching) { request in
-            CalmTeachWordDialog(term: request.term)
+            CalmTeachWordDialog(term: request.term, appState: appState)
         }
         .calmDialog(isPresented: $showsUnused) {
             CalmDictionaryUnusedDialog()

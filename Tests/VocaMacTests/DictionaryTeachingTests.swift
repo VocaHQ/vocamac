@@ -229,6 +229,57 @@ final class WordTeachingTests: XCTestCase {
         XCTAssertTrue(state.canTeachWord)
     }
 
+    /// The timer that ends a take must not cancel the decode it starts.
+    @MainActor
+    func testTakeEndedByTheTimerIsStillDecoded() async {
+        let (state, mocks) = AppState.makeTestState()
+        defer { state.wordReplacements = [] }
+        mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.1, count: 16_000)
+        // A cancelled task throws out of this sleep, as the router rejects it.
+        mocks.whisperService.transcribeDelayNanoseconds = 20_000_000
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "Cooper netties", duration: 0.2, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
+        )
+        let session = WordTeachingSession(term: "Kubernetes", appState: state, takeSeconds: 0.02)
+        await session.startTake()
+        XCTAssertEqual(session.phase, .listening)
+
+        let deadline = Date().addingTimeInterval(5)
+        while session.takes == 0, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertEqual(session.transcripts, ["Cooper netties"])
+        XCTAssertNil(session.notice)
+        XCTAssertEqual(session.chosenForms, ["cooper netties"], "a new mishearing starts chosen")
+        XCTAssertEqual(session.phase, .ready)
+    }
+
+    /// Cancel while the microphone is still opening waits for the start,
+    /// then closes it: it never stays open after the dialog has gone.
+    @MainActor
+    func testCancelWhileTheMicrophoneOpensClosesIt() async {
+        let (state, mocks) = AppState.makeTestState()
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
+        let session = WordTeachingSession(term: "Kubernetes", appState: state)
+
+        let start = Task { await session.startTake() }
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
+        let cancel = Task { await session.cancel() }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(state.isTeachingWord, "the stop waits for the start")
+        gate.open()
+        await cancel.value
+        await start.value
+
+        XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording, "the microphone opened, then was closed")
+        XCTAssertFalse(state.isTeachingWord)
+        XCTAssertEqual(session.phase, .ready)
+        XCTAssertNil(session.notice, "a cancelled start isn't reported as a busy microphone")
+        XCTAssertTrue(state.canTeachWord)
+    }
+
     @MainActor
     func testMicrophoneThatWontOpenEndsTheTake() async {
         let (state, mocks) = AppState.makeTestState()
@@ -268,6 +319,52 @@ final class UnusedDictionaryTermTests: XCTestCase {
         )
         XCTAssertEqual(unused, ["PyTorch", "Priya"],
                        "used lately or listed lately stays; a term with no record is never called unused")
+    }
+
+    func testWordAddedAgainCountsFromItsReturn() {
+        // Last said 90 days ago, removed, then added again five days ago.
+        let unused = TermUsage.unused(
+            ["Kubernetes"],
+            usage: ["kubernetes": TermUsage(count: 3, lastUsed: daysAgo(90))],
+            firstSeen: ["kubernetes": daysAgo(5)],
+            now: now
+        )
+        XCTAssertEqual(unused, [])
+    }
+
+    func testListedTermsKeepTheirUsageRecords() {
+        // More records than the cap: unlisted ones go, listed ones stay.
+        var usage: [String: TermUsage] = [:]
+        for index in 0..<TermUsage.maximumEntries {
+            usage["old\(index)"] = TermUsage(count: 1, lastUsed: daysAgo(Double(400 - index % 300)))
+        }
+        usage["kubernetes"] = TermUsage(count: 1, lastUsed: daysAgo(500))
+        let listed = ["Kubernetes"] + (0..<10).map { "old\($0)" }
+        let updated = TermUsage.recording("new term here", terms: listed + ["new"], in: usage, now: now)
+        XCTAssertEqual(updated.count, TermUsage.maximumEntries)
+        XCTAssertNotNil(updated["kubernetes"], "a listed term's record is never the one dropped")
+        XCTAssertNotNil(updated["new"])
+        for index in 0..<10 { XCTAssertNotNil(updated["old\(index)"]) }
+    }
+
+    @MainActor
+    func testRemovingAndAddingAWordRestartsItsClock() {
+        let (state, _) = AppState.makeTestState()
+        defer {
+            state.setVocabularyTerms([])
+            UserDefaults.standard.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
+        }
+        state.setVocabularyTerms(["Kubernetes"])
+        UserDefaults.standard.set(
+            TermUsage.encodeDates(["kubernetes": Date(timeIntervalSinceNow: -200 * 86_400)]),
+            forKey: PreferenceKey.dictionaryTermFirstSeen
+        )
+        state.setVocabularyTerms([])
+        XCTAssertNil(state.dictionaryTermFirstSeen["kubernetes"], "a removed word is forgotten at once")
+        state.addVocabularyTerm("Kubernetes")
+        let seen = state.dictionaryTermFirstSeen["kubernetes"]
+        XCTAssertNotNil(seen)
+        XCTAssertLessThan(abs(seen?.timeIntervalSinceNow ?? -1_000), 60)
     }
 
     func testUnusedItemsCoverWordsAndReplacements() {

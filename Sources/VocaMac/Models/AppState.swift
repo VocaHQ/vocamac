@@ -343,6 +343,9 @@ final class AppState: ObservableObject {
     /// The microphone is recording, or the model decoding, a take of a
     /// Dictionary word being taught (`startTeachingTake`).
     @Published private(set) var isTeachingWord = false
+    /// The microphone start of the current take, awaited before the take
+    /// is stopped so a stop can never run ahead of it and leave it open.
+    private var teachingStart: Task<Bool, Never>?
 
     /// Optional, session-only checks for onboarding.
     @Published var onboardingVerification = OnboardingVerification()
@@ -917,7 +920,11 @@ final class AppState: ObservableObject {
     @Published var snippets: [Snippet] = []
 
     /// Spoken forms rewritten to the user's text, for every engine.
-    @Published var wordReplacements: [WordReplacement] = []
+    @Published var wordReplacements: [WordReplacement] = [] {
+        // A replacement added again starts its "not said in a while"
+        // clock afresh (`TermUsage.noting`).
+        didSet { noteDictionaryTermsSeen() }
+    }
 
     /// Corrections noticed in dictated text, waiting for the user to accept.
     @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
@@ -5184,12 +5191,28 @@ final class AppState: ObservableObject {
         guard canTeachWord else { return false }
         isTeachingWord = true
         audioEngine.onAudioSamples = nil
-        let started = await startConfiguredAudioEngine()
+        let start = Task { @MainActor [weak self] () -> Bool in
+            await self?.startConfiguredAudioEngine() ?? false
+        }
+        teachingStart = start
+        let started = await start.value
+        if teachingStart == start { teachingStart = nil }
+        // Cancelled or finished while the microphone was opening: that call
+        // waited for this start and has already closed it.
+        guard isTeachingWord else { return false }
         if !started {
             isTeachingWord = false
             VocaLogger.warning(.dictionary, "Could not open the microphone to teach a word")
         }
         return started
+    }
+
+    /// Wait for a take's microphone start still under way, so the stop that
+    /// follows closes it rather than running first on the audio queue.
+    private func settleTeachingStart() async {
+        guard let start = teachingStart else { return }
+        _ = await start.value
+        teachingStart = nil
     }
 
     /// End the take and decode it without recognition hints, so the result
@@ -5198,6 +5221,7 @@ final class AppState: ObservableObject {
     func finishTeachingTake() async -> String? {
         guard isTeachingWord else { return nil }
         defer { isTeachingWord = false }
+        await settleTeachingStart()
         let samples = await stopAudioEngine()
         // Under a quarter of a second at 16 kHz is a click, not a word.
         guard samples.count >= 4_000 else { return "" }
@@ -5220,6 +5244,7 @@ final class AppState: ObservableObject {
     /// Close the microphone without decoding (the dialog closed mid-take).
     func cancelTeachingTake() async {
         guard isTeachingWord else { return }
+        await settleTeachingStart()
         _ = await stopAudioEngine()
         isTeachingWord = false
     }
@@ -6561,6 +6586,7 @@ extension AppState {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         customVocabulary = cleaned.joined(separator: "\n")
+        noteDictionaryTermsSeen()
         downloadVocabularyBoostIfUseful()
     }
 

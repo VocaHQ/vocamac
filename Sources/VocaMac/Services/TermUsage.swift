@@ -47,7 +47,9 @@ struct TermUsage: Equatable, Sendable {
         usage.mapValues(\.stored)
     }
 
-    /// Most terms remembered; the least recently used go first.
+    /// Most records kept for terms no longer listed; the least recently
+    /// used go first. A listed term's record is never dropped, since
+    /// "not said in a while" reads it (`unused`).
     static let maximumEntries = 500
 
     /// `usage` with every term of `terms` found in `text` counted once more.
@@ -64,7 +66,9 @@ struct TermUsage: Equatable, Sendable {
             updated[key] = TermUsage(count: count, lastUsed: now)
         }
         if updated.count > maximumEntries {
-            let oldest = updated.sorted { $0.value.lastUsed < $1.value.lastUsed }
+            let listed = Set(terms.map { $0.lowercased() })
+            let oldest = updated.filter { !listed.contains($0.key) }
+                .sorted { $0.value.lastUsed < $1.value.lastUsed }
                 .prefix(updated.count - maximumEntries).map(\.key)
             for key in oldest { updated.removeValue(forKey: key) }
         }
@@ -112,9 +116,10 @@ struct TermUsage: Equatable, Sendable {
         return updated
     }
 
-    /// The terms of `terms` neither dictated nor added in the last `days`:
-    /// last used that long ago, or never used and listed at least that long.
-    /// A term with no record either way is left out.
+    /// The terms of `terms` neither dictated nor listed in the last `days`:
+    /// the later of its last use and when it was (last) first seen listed is
+    /// that long ago. A word removed and added again counts from its return,
+    /// not its old use. A term with no record either way is left out.
     static func unused(
         _ terms: [String],
         usage: [String: TermUsage],
@@ -127,7 +132,8 @@ struct TermUsage: Equatable, Sendable {
         return terms.filter { term in
             let key = term.lowercased()
             guard seen.insert(key).inserted,
-                  let reference = usage[key]?.lastUsed ?? firstSeen[key] else { return false }
+                  let reference = [usage[key]?.lastUsed, firstSeen[key]].compactMap({ $0 }).max()
+            else { return false }
             return reference <= cutoff
         }
     }

@@ -712,10 +712,11 @@ final class CommandModePromptTests: XCTestCase {
     @MainActor
     func testClipboardFallbackNeedsConsent() {
         XCTAssertTrue(SelectionCaptureFailure.needsClipboardFallback.message.contains("Copy the selection"))
-        let service = AccessibilitySelectedTextService(textInjector: MockTextInjector())
+        let service = AccessibilitySelectedTextService(textInjector: MockTextInjector(), defaults: TestDefaults.store)
         TestDefaults.store.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
-        let allowed = service.allowsClipboardFallback()
-        XCTAssertFalse(allowed, "Off until the user turns it on")
+        XCTAssertFalse(service.allowsClipboardFallback(), "Off until the user turns it on")
+        TestDefaults.store.set(true, forKey: PreferenceKey.commandModeClipboardFallback)
+        XCTAssertTrue(service.allowsClipboardFallback(), "The setting the app stores turns it on")
     }
 
     func testSelectionRevalidationToleratesFreshElementsButNotChangedText() {

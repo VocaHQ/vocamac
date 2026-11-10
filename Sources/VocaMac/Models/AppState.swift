@@ -1266,7 +1266,7 @@ final class AppState: ObservableObject {
         self.screenContextReader = screenContextReader ?? (skipSystemIntegration ? nil : ScreenContextReader())
         self.correctionObserver = correctionObserver ?? (skipSystemIntegration ? nil : CorrectionObserver())
         self.selectedTextService = selectedTextService
-            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService(textInjector: textInjector))
+            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService(textInjector: textInjector, defaults: userDefaults))
         self.commandModelSlot = commandModelSlot
         self.voiceActionPerformer = voiceActionPerformer ?? (skipSystemIntegration ? nil : SystemVoiceActionPerformer())
         self.commandReviewPresenter = commandReviewPresenter

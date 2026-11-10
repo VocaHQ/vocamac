@@ -99,15 +99,18 @@ final class AppStateRecordingTests: XCTestCase {
 
     func testStartSoundIsNotPlayedIfRecordingStopsDuringAudioStart() async throws {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.3
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let task = Task {
             await appState.startRecording()
         }
 
         // Stop while the audio engine is still starting.
-        await eventually { appState.dictationPhase == .startingAudio }
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
         await appState.stopRecordingAndTranscribe()
+        gate.open()
         await task.value
 
         XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0)
@@ -1045,11 +1048,13 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testStopWhileMicrophoneIsConnectingDoesNotBlock() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        // Let startRecording reach its await on the audio engine.
-        await eventually { appState.dictationPhase == .startingAudio }
+        // The audio engine is negotiating the input route and holds there.
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         let stopBegan = Date()
         await appState.stopRecordingAndTranscribe()
@@ -1060,6 +1065,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1,
             "the engine should be told to abandon the start it is still negotiating")
 
+        gate.open()
         await start.value
 
         XCTAssertFalse(appState.isRecording)
@@ -1074,14 +1080,17 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testCancelWhileMicrophoneIsConnectingEndsQuietly() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        await eventually { appState.dictationPhase == .startingAudio }
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         await appState.cancelRecording()
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1)
 
+        gate.open()
         await start.value
 
         XCTAssertFalse(appState.isRecording)
@@ -1093,10 +1102,12 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testOverlayOnlyClaimsToListenOnceTheMicrophoneIsLive() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        await eventually { appState.dictationPhase == .startingAudio }
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         XCTAssertEqual(mocks.cursorOverlay.showCallCount, 1,
             "the overlay appears immediately so the hotkey feels responsive")
@@ -1104,6 +1115,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
             "but it must not claim to be listening while the route is still coming up")
 
         await appState.stopRecordingAndTranscribe()
+        gate.open()
         await start.value
 
         XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 0,

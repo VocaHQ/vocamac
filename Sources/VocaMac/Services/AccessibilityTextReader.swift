@@ -176,7 +176,7 @@ enum AccessibilityTextReader {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &ref) == .success
         else { return nil }
-        return AXCast.payload(ref, as: .cfRange, default: CFRange())
+        return AXCast.range(ref)
     }
 
     static func caretLocation(of element: AXUIElement) -> Int? {
@@ -221,8 +221,8 @@ enum AccessibilityTextReader {
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
-              let position = AXCast.payload(positionRef, as: .cgPoint, default: CGPoint.zero),
-              let size = AXCast.payload(sizeRef, as: .cgSize, default: CGSize.zero) else { return nil }
+              let position = AXCast.point(positionRef),
+              let size = AXCast.size(sizeRef) else { return nil }
         return CGRect(origin: position, size: size)
     }
 

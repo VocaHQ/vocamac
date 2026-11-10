@@ -16,13 +16,30 @@ final class KeychainCredentialStoreTests: XCTestCase {
         store = KeychainCredentialStore(
             service: "com.vocamac.tests.keychain-\(UUID().uuidString)", account: "api-key"
         )
-        // CI runners and sandboxes may have no usable login Keychain.
-        do {
-            try store.saveAPIKey("probe")
-            try store.deleteAPIKey()
-        } catch {
-            throw XCTSkip("No writable Keychain here: \(error.localizedDescription)")
+        try Self.skipUnlessKeychainIsWritable()
+    }
+
+    /// Skips only when the Keychain itself is unusable here (no login
+    /// Keychain, locked, or no entitlement), probed with a plain query of
+    /// its own. Any failure from the store under test still fails the test.
+    private static func skipUnlessKeychainIsWritable() throws {
+        let item: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.vocamac.tests.keychain-probe-\(UUID().uuidString)",
+            kSecAttrAccount as String: "probe",
+        ]
+        var add = item
+        add[kSecValueData as String] = Data("probe".utf8)
+        let status = SecItemAdd(add as CFDictionary, nil)
+        SecItemDelete(item as CFDictionary)
+        let unavailable: Set<OSStatus> = [
+            errSecNotAvailable, errSecNoSuchKeychain, errSecInteractionNotAllowed,
+            errSecMissingEntitlement, errSecNoDefaultKeychain, errSecAuthFailed,
+        ]
+        if unavailable.contains(status) {
+            throw XCTSkip("No writable Keychain here (OSStatus \(status))")
         }
+        XCTAssertEqual(status, errSecSuccess, "Keychain probe failed with OSStatus \(status)")
     }
 
     override func tearDownWithError() throws {

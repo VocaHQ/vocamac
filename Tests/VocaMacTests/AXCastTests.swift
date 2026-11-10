@@ -25,19 +25,22 @@ final class AXCastTests: XCTestCase {
         XCTAssertNil(AXCast.value(42 as CFNumber))
     }
 
-    func testPayloadReadsTheMatchingTypeOnly() {
+    func testTypedReadersReadTheMatchingTypeOnly() {
         var point = CGPoint(x: 3, y: 4)
         let pointValue = AXValueCreate(.cgPoint, &point)
-        XCTAssertEqual(AXCast.payload(pointValue, as: .cgPoint, default: CGPoint.zero), CGPoint(x: 3, y: 4))
-        XCTAssertNil(AXCast.payload(pointValue, as: .cgSize, default: CGSize.zero), "A point is not a size")
+        XCTAssertEqual(AXCast.point(pointValue), CGPoint(x: 3, y: 4))
+        XCTAssertNil(AXCast.size(pointValue), "A point is not a size")
+        XCTAssertNil(AXCast.range(pointValue), "A point is not a range")
+
+        var size = CGSize(width: 5, height: 6)
+        XCTAssertEqual(AXCast.size(AXValueCreate(.cgSize, &size)), CGSize(width: 5, height: 6))
 
         var range = CFRange(location: 5, length: 2)
-        let rangeValue = AXValueCreate(.cfRange, &range)
-        let read = AXCast.payload(rangeValue, as: .cfRange, default: CFRange())
+        let read = AXCast.range(AXValueCreate(.cfRange, &range))
         XCTAssertEqual(read?.location, 5)
         XCTAssertEqual(read?.length, 2)
 
-        XCTAssertNil(AXCast.payload(AXUIElementCreateSystemWide(), as: .cgPoint, default: CGPoint.zero))
-        XCTAssertNil(AXCast.payload(nil, as: .cgPoint, default: CGPoint.zero))
+        XCTAssertNil(AXCast.point(AXUIElementCreateSystemWide()))
+        XCTAssertNil(AXCast.point(nil))
     }
 }

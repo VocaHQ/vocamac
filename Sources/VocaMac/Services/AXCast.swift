@@ -26,13 +26,28 @@ enum AXCast {
         return unsafeBitCast(ref, to: AXValue.self)
     }
 
-    /// The `CGPoint`, `CGSize`, `CFRange` or other payload of an `AXValue`
-    /// of the given type, or nil when the value is missing, of another CF
-    /// type, or holds a different payload.
-    static func payload<T>(_ ref: CFTypeRef?, as type: AXValueType, default initial: T) -> T? {
-        guard let value = value(ref) else { return nil }
-        var result = initial
-        let read = withUnsafeMutablePointer(to: &result) { AXValueGetValue(value, type, $0) }
-        return read ? result : nil
+    /// The point an `AXValue` of type `.cgPoint` holds, or nil.
+    static func point(_ ref: CFTypeRef?) -> CGPoint? {
+        var point = CGPoint.zero
+        return read(ref, .cgPoint, into: &point) ? point : nil
+    }
+
+    /// The size an `AXValue` of type `.cgSize` holds, or nil.
+    static func size(_ ref: CFTypeRef?) -> CGSize? {
+        var size = CGSize.zero
+        return read(ref, .cgSize, into: &size) ? size : nil
+    }
+
+    /// The range an `AXValue` of type `.cfRange` holds, or nil.
+    static func range(_ ref: CFTypeRef?) -> CFRange? {
+        var range = CFRange()
+        return read(ref, .cfRange, into: &range) ? range : nil
+    }
+
+    // Private so each AXValueType is only ever read into its own Swift
+    // type: AXValueGetValue writes the payload's size into the pointer.
+    private static func read(_ ref: CFTypeRef?, _ type: AXValueType, into storage: UnsafeMutableRawPointer) -> Bool {
+        guard let value = value(ref) else { return false }
+        return AXValueGetValue(value, type, storage)
     }
 }

@@ -94,7 +94,7 @@ final class SpeechActivityTrimmerTests: XCTestCase {
         var decision = SpeechActivityTrimmer.Decision.keep
         for _ in 0..<50 {
             decision = await detector.decision(for: recording)
-            if decision != .keep, decision != .unsure { break }
+            if decision != .keep, decision != .unsure, decision != .unchecked { break }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
         guard case .trim(let ranges) = decision else {

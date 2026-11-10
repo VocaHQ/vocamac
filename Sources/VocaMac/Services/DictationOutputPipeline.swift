@@ -43,6 +43,9 @@ struct DictationOutputOptions {
     var customPrompt: String
     var cleanupLevel: CleanupLevel = .medium
     var language: String?
+    /// The languages the user says they speak: the prior for a dictation
+    /// whose engine reported none (`languagePrior`).
+    var spokenLanguages: [String] = []
     var autoCapitalize: Bool
     var trailingSpace: Bool
     var preview: Bool = false
@@ -110,6 +113,7 @@ struct DictationOutputPipeline {
         spokenEmoji: Bool = false,
         skipWhenClean: Bool = false,
         laysOutParagraphs: Bool = false,
+        spokenLanguages: [String] = [],
         pieces: [TranscribedPiece] = [],
         speculator: CleanupSpeculator? = nil
     ) async -> DictationOutputResult {
@@ -118,7 +122,8 @@ struct DictationOutputPipeline {
             options: DictationOutputOptions(
                 profile: profile, snippetList: snippetList, cleanupEnabled: cleanupEnabled,
                 rewritingEnabled: rewritingEnabled, model: model, customPrompt: customPrompt,
-                cleanupLevel: cleanupLevel, language: language, autoCapitalize: autoCapitalize,
+                cleanupLevel: cleanupLevel, language: language, spokenLanguages: spokenLanguages,
+                autoCapitalize: autoCapitalize,
                 trailingSpace: trailingSpace, preview: preview, dictionary: dictionary,
                 numbersAsDigits: numbersAsDigits, numbers: numbers, numberSymbols: numberSymbols,
                 spokenEmoji: spokenEmoji, skipWhenClean: skipWhenClean, laysOutParagraphs: laysOutParagraphs
@@ -430,10 +435,11 @@ struct DictationOutputPipeline {
         let effectiveLevel = profile.cleanupLevel ?? options.cleanupLevel
         var input = original.trimmingCharacters(in: .whitespacesAndNewlines)
         // Parakeet and Apple Speech report "auto" when no language was chosen;
-        // that says nothing about the text, so judge the text instead.
+        // that says nothing about the text, so the languages the user speaks
+        // and the text itself decide (`languagePrior`, `isEnglishText`).
+        let language = Self.languagePrior(reported: options.language, spoken: options.spokenLanguages, text: input)
         let isEnglishText = knownEnglish
-            ?? Self.knownLanguage(options.language).map(Self.isEnglish)
-            ?? RewriteValidation.likelyEnglish(input)
+            ?? Self.isEnglishText(input, language: language, spoken: options.spokenLanguages)
 
         // "um" and "uh" go without a model, in every style that cleans up —
         // including Code and Terminal, which never reach the model, and when a
@@ -450,7 +456,7 @@ struct DictationOutputPipeline {
                 // Other languages lose only sounds that are a word nowhere
                 // ("uhm", "hmm"), plus their own when the language is known.
                 (input, removedHesitations) = WritingStyleEngine.removeOtherLanguageHesitations(
-                    input, language: Self.knownLanguage(options.language), prose: profile.format.supportsWording
+                    input, language: language, prose: profile.format.supportsWording
                 )
             }
         }
@@ -489,7 +495,7 @@ struct DictationOutputPipeline {
         // Other languages need their own spell checker, so only a known
         // language other than English; one the Mac has no checker for counts
         // every piece as a word, which removes nothing.
-        let cutOffLanguage = isEnglishText ? "en" : Self.knownLanguage(options.language)
+        let cutOffLanguage = isEnglishText ? "en" : language
         if profile.cleanup == .inherit, effectiveLevel.removesHesitations, let cutOffLanguage {
             let terms = (options.dictionary?.vocabulary ?? []) + (options.dictionary?.contextTerms ?? [])
                 + (options.dictionary?.replacements ?? []).flatMap { [$0.heard, $0.replacement] }
@@ -968,6 +974,7 @@ struct DictationOutputPipeline {
             allowsEnglishGrammar: allowsEnglishWordEdits,
             names: protected.nameWords,
             glossary: plan.glossary,
+            lowConfidenceWords: dictionary?.lowConfidenceWords,
             isKnownWord: isKnownWord
         )
         // The merger never respells a name, so one missing from its text
@@ -1253,9 +1260,46 @@ struct DictationOutputPipeline {
         return { SpellingOracle.shared.isKnownWord($0, language: language) }
     }
 
+    /// Above this confidence the text's own language overrules a single
+    /// spoken language: someone who listed only English can still dictate a
+    /// German sentence to a multilingual model.
+    nonisolated static let textLanguageOverrule = 0.8
+
+    /// The dictation's language: the engine's, or when it reported none
+    /// ("auto"), the one language the user speaks, unless the text is
+    /// confidently in another. Nil when neither says.
+    nonisolated static func languagePrior(reported: String?, spoken: [String], text: String) -> String? {
+        if let known = knownLanguage(reported) { return known }
+        let codes = spoken.compactMap(knownLanguage)
+        guard codes.count == 1, let only = codes.first else { return nil }
+        if let (textLanguage, confidence) = RewriteValidation.dominantLanguage(text),
+           confidence >= textLanguageOverrule, baseCode(textLanguage) != baseCode(only) {
+            return nil
+        }
+        return only
+    }
+
+    /// Whether to treat the text as English for the English-only rules
+    /// ("um" removal, single-word repeats, number words). A known language
+    /// decides. Otherwise someone who speaks no English never gets English
+    /// rules, and someone who also speaks other languages gets them only
+    /// when the text doesn't lean towards one of those.
+    nonisolated static func isEnglishText(_ text: String, language: String?, spoken: [String]) -> Bool {
+        if let known = knownLanguage(language) { return isEnglish(known) }
+        let codes = spoken.compactMap(knownLanguage)
+        guard !codes.isEmpty else { return RewriteValidation.likelyEnglish(text) }
+        guard codes.contains(where: isEnglish) else { return false }
+        return RewriteValidation.likelyEnglish(text, otherLanguages: codes.filter { !isEnglish($0) })
+    }
+
+    /// "pt" for "pt-BR", "zh" for "zh-Hans".
+    nonisolated static func baseCode(_ code: String) -> String {
+        code.lowercased().split(whereSeparator: { $0 == "-" || $0 == "_" }).first.map(String.init) ?? code.lowercased()
+    }
+
     /// A language code that actually names a language; nil for the "auto",
     /// "und", or empty placeholders engines report when none was chosen.
-    static func knownLanguage(_ language: String?) -> String? {
+    nonisolated static func knownLanguage(_ language: String?) -> String? {
         guard let language = language?.trimmingCharacters(in: .whitespaces).lowercased(),
               !language.isEmpty, language != "auto", language != "und" else { return nil }
         return language
@@ -1383,18 +1427,50 @@ enum RewriteValidation {
     /// without them. Only a confident call for another language says no:
     /// "wir treffen uns um 5 Uhr" is German at 100%, while "git status" is a
     /// weak guess that shouldn't block cleanup.
-    static func likelyEnglish(_ text: String) -> Bool {
-        guard let expression = try? NSRegularExpression(pattern: #"(?i)\b(?:u+m+|u+h+m*|e+r+m+|h+m+)\b"#) else {
-            return false
-        }
-        let words = expression.stringByReplacingMatches(
-            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " "
-        )
+    ///
+    /// - Parameter otherLanguages: Other languages the user speaks. A lean
+    ///   towards one of them (`spokenLanguageLean`) is enough to say no:
+    ///   a short German "um 5 Uhr" from someone who speaks German is German.
+    static func likelyEnglish(_ text: String, otherLanguages: [String] = []) -> Bool {
+        guard let words = withoutHesitations(text) else { return false }
         let recognizer = NLLanguageRecognizer()
         recognizer.processString(words)
         let hypotheses = recognizer.languageHypotheses(withMaximum: 2)
         guard let top = hypotheses.max(by: { $0.value < $1.value }) else { return true }
+        if top.key != .english, top.value >= spokenLanguageLean,
+           otherLanguages.contains(where: {
+               DictationOutputPipeline.baseCode($0) == DictationOutputPipeline.baseCode(top.key.rawValue)
+           }) {
+            return false
+        }
         return top.key == .english || top.value < 0.5
+    }
+
+    /// How strongly the text must lean towards another language the user
+    /// speaks to count as that language.
+    static let spokenLanguageLean = 0.3
+
+    /// `text` with "um", "uh", "erm" and "hmm" blanked out: they mislead
+    /// the recognizer ("hello world um um" reads as Portuguese).
+    private static func withoutHesitations(_ text: String) -> String? {
+        guard let expression = try? NSRegularExpression(pattern: #"(?i)\b(?:u+m+|u+h+m*|e+r+m+|h+m+)\b"#) else {
+            return nil
+        }
+        return expression.stringByReplacingMatches(
+            in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " "
+        )
+    }
+
+    /// The text's most likely language (hesitations left out) and its
+    /// confidence.
+    static func dominantLanguage(_ text: String) -> (String, Double)? {
+        guard let words = withoutHesitations(text) else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(words)
+        guard let top = recognizer.languageHypotheses(withMaximum: 1).max(by: { $0.value < $1.value }) else {
+            return nil
+        }
+        return (top.key.rawValue, top.value)
     }
 
     static func prompt(intent: WritingIntent, customCleanup: String) -> String {

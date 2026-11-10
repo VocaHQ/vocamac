@@ -265,6 +265,9 @@ extension ModelManaging {
 protocol SpeechTranscribing: AnyObject, Sendable {
     var loadedModelName: String? { get }
     var isModelLoaded: Bool { get }
+    /// Whether the loaded model is a Unified checkpoint's streaming export
+    /// ("Transcribe as you speak"). False for every other model.
+    var isLiveStreamingLoaded: Bool { get }
     /// Start a live session. With `commit`, finished pieces are decoded while
     /// recording (see `StreamingCommitOptions`); without it, a session exists
     /// only for engines that stream natively or to show partial words.
@@ -323,6 +326,9 @@ extension SpeechTranscribing {
             vocabulary: await vocabularyAfterDecode()
         )
     }
+
+    /// Only the router can load a streaming export.
+    var isLiveStreamingLoaded: Bool { false }
 
     func startStreaming(
         language: String?,

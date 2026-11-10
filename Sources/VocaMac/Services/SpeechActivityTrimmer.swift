@@ -26,6 +26,20 @@ struct SpeechOnlyAudio: Sendable {
     /// The detector found speech-like frames but no stretch of speech
     /// (`SpeechActivityTrimmer.Decision.unsure`).
     var speechUnconfirmed = false
+    /// The detector did not run (not loaded yet, failed, or the recording
+    /// is too long for it), so nothing confirms speech either way.
+    var speechUnchecked = false
+    /// The recording's RMS before any gain, when measured: near-digital
+    /// silence is evidence no one spoke (`HallucinationGuard`).
+    var rms: Float?
+    /// What the microphone level suggests telling the user.
+    var levelWarning: InputLevel.Warning?
+
+    /// What the detector said, for `HallucinationGuard`.
+    var detector: HallucinationGuard.Detector {
+        if speechUnconfirmed { return .unconfirmed }
+        return speechUnchecked ? .unchecked : .confirmed
+    }
 }
 
 enum SpeechActivityTrimmer {
@@ -59,6 +73,10 @@ enum SpeechActivityTrimmer {
         case unsure
         /// Nothing was said; skip the decode.
         case noSpeech
+        /// The detector did not run: not loaded yet, failed, or the
+        /// recording is longer than it is used for. Decode as recorded, with
+        /// nothing confirming speech either way.
+        case unchecked
     }
 
     /// Decide what to decode from the detector's speech ranges.
@@ -270,8 +288,8 @@ actor VoiceActivityDetector {
     /// The loaded detector, for a `VoiceActivityStream`; nil until loaded.
     func loadedManager() -> VadManager? { manager }
 
-    /// What to decode from `samples`. Returns `.keep` whenever the detector
-    /// is not ready yet, so trimming never waits on a download.
+    /// What to decode from `samples`. Returns `.unchecked` whenever the
+    /// detector is not ready yet, so trimming never waits on a download.
     ///
     /// - Parameter stream: Probabilities computed while `samples` was being
     ///   recorded. When they match its start, only the rest is processed
@@ -282,11 +300,11 @@ actor VoiceActivityDetector {
     ) async -> SpeechActivityTrimmer.Decision {
         let progress = await stream?.finish()
         guard Double(samples.count) / Double(SpeechActivityTrimmer.sampleRate) <= Self.maximumSeconds else {
-            return .keep
+            return .unchecked
         }
         guard let manager else {
             prepare()
-            return .keep
+            return .unchecked
         }
         do {
             let results: [VadResult]
@@ -314,7 +332,7 @@ actor VoiceActivityDetector {
             return SpeechActivityTrimmer.decide(speech: ranges, peakProbability: peak, totalSamples: samples.count)
         } catch {
             VocaLogger.warning(.general, "Voice activity detection failed: \(error.localizedDescription)")
-            return .keep
+            return .unchecked
         }
     }
 

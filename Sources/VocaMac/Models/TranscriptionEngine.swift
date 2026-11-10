@@ -45,6 +45,9 @@ enum PreferenceKey {
     /// When each downloaded model was last in use (`ModelUsageLog`).
     static let modelUsageLog = "vocamac.models.usageLog"
     static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
+    /// Bool: Parakeet Unified and Nemotron Unified transcribe while the
+    /// user speaks, through their streaming export (default off).
+    static let parakeetLiveStreaming = "vocamac.dictation.parakeetLiveStreaming"
     static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
     static let speechEndpoint = "vocamac.speech.endpoint"
     static let historyEnabled = "vocamac.history.enabled"
@@ -79,6 +82,9 @@ enum PreferenceKey {
     static let personalFillers = "vocamac.dictionary.personalFillers"
     /// [String: Int]: dictations each filler was deleted from, until learned.
     static let personalFillerCounts = "vocamac.dictionary.personalFillerCounts"
+    /// [String: [Double]]: per lowercased dictionary term, [dictations it
+    /// appeared in, last one as seconds since 1970] (`TermUsage`).
+    static let dictionaryTermUsage = "vocamac.dictionary.termUsage"
     /// [String]: fillers the user took back; never learned again.
     static let rejectedPersonalFillers = "vocamac.dictionary.rejectedPersonalFillers"
     /// JSON `[LearnedLowercaseApp]`: apps where dictation starts in lowercase.

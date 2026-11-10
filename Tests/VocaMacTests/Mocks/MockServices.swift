@@ -691,11 +691,19 @@ final class MockTextInjector: TextInjecting {
     var injectCallCount = 0
     var lastInjectedText: String?
     var lastPreserveClipboard: Bool?
+    /// Options of the last delivery; `.standard` for the plain call.
+    var lastDeliveryOptions: TextDeliveryOptions?
 
     func inject(text: String, preserveClipboard: Bool) {
         injectCallCount += 1
         lastInjectedText = text
         lastPreserveClipboard = preserveClipboard
+        lastDeliveryOptions = .standard
+    }
+
+    func inject(text: String, preserveClipboard: Bool, options: TextDeliveryOptions) {
+        inject(text: text, preserveClipboard: preserveClipboard)
+        lastDeliveryOptions = options
     }
 }
 

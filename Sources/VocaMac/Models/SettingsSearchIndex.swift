@@ -419,6 +419,13 @@ enum SettingsSearchIndex {
             keywords: ["learn", "auto", "suggest", "correction", "edit", "learn from my corrections"]
         ),
         SettingsSearchEntry(
+            id: "dictionary-import-export",
+            page: .dictionary,
+            title: "Import or export the dictionary",
+            subtitle: "Move words and replacements in or out as CSV, JSON or a word list",
+            keywords: ["import", "export", "csv", "json", "dictionary", "words", "backup", "transfer", "other app"]
+        ),
+        SettingsSearchEntry(
             id: "screen-context",
             page: .dictionary,
             title: "Spell names from the screen",
@@ -551,6 +558,34 @@ enum SettingsSearchIndex {
             page: .application,
             title: "Restore clipboard after typing",
             keywords: ["clipboard", "paste", "preserve clipboard"]
+        ),
+        SettingsSearchEntry(
+            id: "insertion-method",
+            page: .application,
+            title: "Insert text by",
+            subtitle: "Paste, or type key by key for apps that ignore ⌘V",
+            keywords: ["type", "typing", "keystrokes", "paste", "insert", "remote desktop", "paste not working", "insert text by"]
+        ),
+        SettingsSearchEntry(
+            id: "typed-insertion-apps",
+            page: .application,
+            title: "Always type in these apps",
+            subtitle: "Type instead of paste in chosen apps",
+            keywords: ["type", "typing", "apps", "paste", "remote desktop", "game", "always type"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send",
+            page: .application,
+            title: "Auto Send",
+            subtitle: "Press Return after dictating, or when you say “send it”",
+            keywords: ["send", "send it", "return", "enter", "press enter", "submit", "chat", "message", "auto send"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send-apps",
+            page: .application,
+            title: "Auto Send in terminals and editors",
+            subtitle: "Let Auto Send press Return in chosen terminals or editors",
+            keywords: ["send", "terminal", "editor", "return", "enter", "auto send apps"]
         ),
         SettingsSearchEntry(
             id: "cursor-overlay",

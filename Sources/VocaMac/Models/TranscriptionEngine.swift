@@ -54,6 +54,15 @@ enum PreferenceKey {
     static let historyKeepsAudio = "vocamac.history.keepAudio"
     static let historyRetention = "vocamac.history.retention"
     static let historyExcludedApps = "vocamac.history.excludedApps"
+    /// `InsertionMethod` raw value: paste (with typing as fallback) or type.
+    static let insertionMethod = "vocamac.insertion.method"
+    /// `[AutoPauseAppEntry]` JSON: apps whose dictations are always typed.
+    static let typedInsertionApps = "vocamac.insertion.typedApps"
+    /// `AutoSendMode` raw value.
+    static let autoSendMode = "vocamac.autoSend.mode"
+    /// `[AutoPauseAppEntry]` JSON: apps where Auto Send may press Return
+    /// even though they are a terminal or code editor.
+    static let autoSendApps = "vocamac.autoSend.apps"
     static let escapeCancelsDictation = "vocamac.shortcuts.escapeCancels"
     static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
     static let handsFreeShortcut = "vocamac.shortcuts.handsFree"

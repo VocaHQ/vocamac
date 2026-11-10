@@ -7,6 +7,7 @@
 // it. Adding and editing happen in `CalmDictionaryEditor`. “Spell names
 // from the screen” lives in Settings › Privacy and History.
 
+import AppKit
 import SwiftUI
 
 /// Dictionary: vocabulary, replacements and suggestions.
@@ -21,6 +22,8 @@ struct CalmDictionaryPage: View {
     @FocusState private var isSearchFocused: Bool
     @State private var editor: CalmDictionaryEditorRequest?
     @State private var showsSuggestions = false
+    @State private var pendingImport: CalmDictionaryPendingImport?
+    @State private var notice: CalmStylesNotice?
 
     /// The feature card's dismissal key.
     static let heroKey = "dictionary"
@@ -37,8 +40,12 @@ struct CalmDictionaryPage: View {
                     CalmButtonLabel("Add new", icon: .plus)
                 }
                 .calmButton(.primary)
+                transferMenu
             }
             tabBar
+            if let notice {
+                CalmInlineNotice(notice.message, tone: notice.tone).padding(.leading, 2)
+            }
             if isSearching {
                 searchField
             }
@@ -63,11 +70,82 @@ struct CalmDictionaryPage: View {
         .calmDialog(isPresented: $showsSuggestions) {
             CalmDictionarySuggestionsDialog()
         }
+        .calmDialog(item: $pendingImport) { pending in
+            CalmDialog("Import into your dictionary?", description: pending.summary) {
+                CalmDialogFooter(primaryTitle: "Import", isPrimaryEnabled: !pending.plan.isEmpty) {
+                    appState.applyDictionaryImport(pending.plan)
+                    notice = CalmStylesNotice(pending.doneMessage, tone: .success)
+                }
+            }
+        }
         .onChange(of: searchTarget, initial: true) { _, target in
             // A search result for vocabulary or replacements opens its tab.
             guard let tab = DictionaryListFilter.forSearchTarget(target) else { return }
             closeSearch()
             filter = tab
+        }
+    }
+
+    // MARK: Import and export
+
+    private var transferMenu: some View {
+        Menu {
+            Button("Import…") { importDictionary() }
+            Divider()
+            Button("Export as CSV…") { exportDictionary(.csv) }
+                .disabled(appState.dictionaryTransferContents.isEmpty)
+            Button("Export as JSON…") { exportDictionary(.json) }
+                .disabled(appState.dictionaryTransferContents.isEmpty)
+        } label: {
+            CalmIconMenuLabel("Dictionary options", icon: .more, size: 18, weight: 2.4)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(CalmIconButtonStyle())
+        .focusEffectDisabled()
+        .fixedSize()
+        .help("Import or export your dictionary")
+        .settingsTarget("dictionary-import-export")
+    }
+
+    private func exportDictionary(_ format: DictionaryTransferFormat) {
+        let panel = NSSavePanel()
+        panel.title = "Export Dictionary"
+        panel.nameFieldStringValue = "vocamac-dictionary.\(format.fileExtension)"
+        panel.allowedContentTypes = [format.contentType]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let contents = appState.dictionaryTransferContents
+        let text = format == .json ? DictionaryTransfer.json(contents) : DictionaryTransfer.csv(contents)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            notice = CalmStylesNotice(
+                "Exported \(contents.words.count) word(s) and \(contents.replacements.count) replacement(s).", tone: .success
+            )
+        } catch {
+            VocaLogger.warning(.appState, "Could not export the dictionary: \(error.localizedDescription)")
+            notice = CalmStylesNotice("Could not write that file: \(error.localizedDescription)", tone: .warning)
+        }
+    }
+
+    private func importDictionary() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Dictionary"
+        panel.message = "Choose a CSV or JSON dictionary, or a text file with one word per line."
+        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .json, .plainText]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            notice = CalmStylesNotice("Could not read that file.", tone: .warning)
+            return
+        }
+        do {
+            let contents = try DictionaryTransfer.parse(text, format: .forFile(url))
+            pendingImport = CalmDictionaryPendingImport(plan: appState.dictionaryImportPlan(for: contents))
+            notice = nil
+        } catch let error as DictionaryTransferError {
+            notice = CalmStylesNotice(error.message, tone: .warning)
+        } catch {
+            notice = CalmStylesNotice(DictionaryTransferError.unreadable.message, tone: .warning)
         }
     }
 
@@ -153,6 +231,50 @@ struct CalmDictionaryPage: View {
         case .word(let term): editor = .editWord(term)
         case .replacement(let replacement): editor = .editReplacement(replacement)
         }
+    }
+}
+
+// MARK: - Import confirmation
+
+/// An import read from a file, waiting for the user to confirm.
+struct CalmDictionaryPendingImport: Identifiable {
+    let id = UUID()
+    let plan: DictionaryImportPlan
+
+    /// “12 new words and 3 new replacements. 4 are already in your dictionary.”
+    var summary: String {
+        guard !plan.isEmpty else {
+            return "Everything in that file is already in your dictionary (\(plan.duplicateCount) entr\(plan.duplicateCount == 1 ? "y" : "ies"))."
+                + skippedNote
+        }
+        var parts: [String] = []
+        if !plan.newWords.isEmpty { parts.append(Self.count(plan.newWords.count, "new word")) }
+        if !plan.newReplacements.isEmpty { parts.append(Self.count(plan.newReplacements.count, "new replacement")) }
+        var text = parts.joined(separator: " and ") + "."
+        if plan.duplicateCount > 0 {
+            text += " \(plan.duplicateCount) already in your dictionary will be left as they are."
+        }
+        return text + skippedNote
+    }
+
+    /// Entries the file has that can't be imported, said before anything is
+    /// added so nothing goes missing unnoticed.
+    private var skippedNote: String {
+        guard plan.skippedCount > 0 else { return "" }
+        let entries = plan.skippedCount == 1 ? "1 entry" : "\(plan.skippedCount) entries"
+        return " \(entries) will be skipped: longer than \(DictionaryTransfer.maxEntryLength) characters, "
+            + "or past the \(DictionaryTransfer.maxEntries.formatted()) entry limit."
+    }
+
+    var doneMessage: String {
+        "Imported " + [
+            plan.newWords.isEmpty ? nil : Self.count(plan.newWords.count, "word"),
+            plan.newReplacements.isEmpty ? nil : Self.count(plan.newReplacements.count, "replacement"),
+        ].compactMap { $0 }.joined(separator: " and ") + "."
+    }
+
+    private static func count(_ value: Int, _ noun: String) -> String {
+        "\(value) \(noun)\(value == 1 ? "" : "s")"
     }
 }
 

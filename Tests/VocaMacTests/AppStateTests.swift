@@ -653,12 +653,12 @@ final class AppStateModelLoadingTests: XCTestCase {
         modelManager.downloadDelayNanoseconds = 50_000_000
         let (appState, _) = AppState.makeTestState(modelManager: modelManager)
 
-        async let firstDownload: Void = appState.downloadModel(.small)
-        try await Task.sleep(nanoseconds: 5_000_000)
-        async let secondDownload: Void = appState.downloadModel(.medium)
+        let firstDownload = Task { await appState.downloadModel(.small) }
+        await eventually { modelManager.downloadRequests.count == 1 }
+        let secondDownload = Task { await appState.downloadModel(.medium) }
 
-        await firstDownload
-        await secondDownload
+        await firstDownload.value
+        await secondDownload.value
 
         XCTAssertEqual(modelManager.downloadRequests, [.small, .medium])
         XCTAssertEqual(modelManager.maxConcurrentDownloadCount, 1)
@@ -674,7 +674,7 @@ final class AppStateModelLoadingTests: XCTestCase {
         let (appState, _) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
 
         let load = Task { await appState.loadModel(.small) }
-        try await Task.sleep(nanoseconds: 20_000_000)
+        await eventually { transcriber.loadRequests.count == 1 }
         let started = Date()
         await appState.downloadModel(.medium)
 
@@ -690,11 +690,11 @@ final class AppStateModelLoadingTests: XCTestCase {
         modelManager.downloadDelayNanoseconds = 50_000_000
         let (appState, _) = AppState.makeTestState(modelManager: modelManager)
 
-        async let first: Void = appState.downloadModel(.small)
-        try await Task.sleep(nanoseconds: 5_000_000)
-        async let second: Void = appState.downloadModel(.small)
-        await first
-        await second
+        let first = Task { await appState.downloadModel(.small) }
+        await eventually { modelManager.downloadRequests.count == 1 }
+        let second = Task { await appState.downloadModel(.small) }
+        await first.value
+        await second.value
 
         XCTAssertEqual(modelManager.downloadRequests, [.small], "The files are fetched once")
     }
@@ -710,12 +710,12 @@ final class AppStateModelLoadingTests: XCTestCase {
             transcriber: transcriber
         )
 
-        async let firstLoad: Void = appState.loadModel(.small)
-        try await Task.sleep(nanoseconds: 5_000_000)
-        async let secondLoad: Void = appState.loadModel(.medium)
+        let firstLoad = Task { await appState.loadModel(.small) }
+        await eventually { transcriber.loadRequests.count == 1 }
+        let secondLoad = Task { await appState.loadModel(.medium) }
 
-        await firstLoad
-        await secondLoad
+        await firstLoad.value
+        await secondLoad.value
 
         XCTAssertEqual(
             transcriber.loadRequests.map { $0.name },
@@ -851,9 +851,7 @@ final class AppStateModelLoadingTests: XCTestCase {
         let englishPreparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
         }
-        for _ in 0..<100 where modelManager.downloadRequests.isEmpty {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { !modelManager.downloadRequests.isEmpty }
         XCTAssertEqual(modelManager.downloadRequests.first, .parakeetUnified)
 
         appState.setOnboardingSpokenLanguages(["ru"])
@@ -880,15 +878,11 @@ final class AppStateModelLoadingTests: XCTestCase {
         appState.setOnboardingSpokenLanguages(["en"])
 
         let unrelatedLoad = Task { @MainActor in await appState.loadModel(.medium) }
-        for _ in 0..<100 where transcriber.loadRequests.isEmpty {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { !transcriber.loadRequests.isEmpty }
         let onboardingPreparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
         }
-        for _ in 0..<100 where !appState.isPreparingOnboardingModel {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { appState.isPreparingOnboardingModel }
 
         appState.cancelOnboardingModelPreparation()
         await unrelatedLoad.value
@@ -912,15 +906,11 @@ final class AppStateModelLoadingTests: XCTestCase {
         appState.setOnboardingSpokenLanguages(["en"])
 
         let unrelatedLoad = Task { @MainActor in await appState.loadModel(.medium) }
-        for _ in 0..<100 where transcriber.loadRequests.isEmpty {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { !transcriber.loadRequests.isEmpty }
         let onboardingPreparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
         }
-        for _ in 0..<100 where !appState.isPreparingOnboardingModel {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { appState.isPreparingOnboardingModel }
 
         onboardingPreparation.cancel()
         await onboardingPreparation.value
@@ -974,9 +964,7 @@ final class AppStateModelLoadingTests: XCTestCase {
         let preparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
         }
-        for _ in 0..<100 where transcriber.loadRequests.count == loadsBeforeOnboarding {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { transcriber.loadRequests.count != loadsBeforeOnboarding }
 
         appState.cancelOnboardingModelPreparation()
         await preparation.value
@@ -1003,9 +991,7 @@ final class AppStateModelLoadingTests: XCTestCase {
         let preparation = Task { @MainActor in
             await appState.prepareOnboardingRecommendedModel()
         }
-        for _ in 0..<100 where transcriber.loadRequests.isEmpty {
-            try await Task.sleep(nanoseconds: 1_000_000)
-        }
+        await eventually { !transcriber.loadRequests.isEmpty }
 
         appState.cancelOnboardingModelPreparation()
         await preparation.value

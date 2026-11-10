@@ -105,8 +105,8 @@ final class AppStateRecordingTests: XCTestCase {
             await appState.startRecording()
         }
 
-        await Task.yield()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Stop while the audio engine is still starting.
+        await eventually { appState.dictationPhase == .startingAudio }
         await appState.stopRecordingAndTranscribe()
         await task.value
 
@@ -1049,7 +1049,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
 
         let start = Task { await appState.startRecording() }
         // Let startRecording reach its await on the audio engine.
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        await eventually { appState.dictationPhase == .startingAudio }
 
         let stopBegan = Date()
         await appState.stopRecordingAndTranscribe()
@@ -1077,7 +1077,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         mocks.audioEngine.startRecordingDelay = 0.6
 
         let start = Task { await appState.startRecording() }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        await eventually { appState.dictationPhase == .startingAudio }
 
         await appState.cancelRecording()
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1)
@@ -1096,7 +1096,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         mocks.audioEngine.startRecordingDelay = 0.6
 
         let start = Task { await appState.startRecording() }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        await eventually { appState.dictationPhase == .startingAudio }
 
         XCTAssertEqual(mocks.cursorOverlay.showCallCount, 1,
             "the overlay appears immediately so the hotkey feels responsive")

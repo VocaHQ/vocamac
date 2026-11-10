@@ -247,8 +247,8 @@ final class VocaLoggerTests: XCTestCase {
         VocaLogger.warning(.general, "test-warning-\(UUID().uuidString)")
         VocaLogger.error(.general, "test-error-\(UUID().uuidString)")
 
-        // Allow file write to complete
-        Thread.sleep(forTimeInterval: 0.2)
+        // Wait for the log queue to write them.
+        eventuallyBlocking { VocaLogger.logEntryCount >= countBefore + 4 }
 
         let countAfter = VocaLogger.logEntryCount
         XCTAssertGreaterThanOrEqual(countAfter, countBefore + 4,
@@ -267,11 +267,11 @@ final class VocaLoggerTests: XCTestCase {
         VocaLogger.info(.general, "should-not-appear-\(marker)")
         VocaLogger.warning(.general, "should-not-appear-\(marker)")
 
-        Thread.sleep(forTimeInterval: 0.2)
-
         VocaLogger.error(.general, "should-appear-\(marker)")
 
-        Thread.sleep(forTimeInterval: 0.2)
+        // One queue writes the log in order: once the error is there,
+        // anything logged before it would be too.
+        eventuallyBlocking { VocaLogger.exportLogs(lastLines: 1000).contains("should-appear-\(marker)") }
 
         // The installed app and background tasks can write to this same log.
         // Assert this test's messages, not a process-global line-count delta.

@@ -158,7 +158,7 @@ final class CleanupSpeculatorTests: XCTestCase {
             await waitUntil { releases.count == 1 }
             releases.removeFirst().resume()
         }
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await eventually { cleaner.speculatedTexts.count == 3 }
 
         XCTAssertEqual(cleaner.speculatedTexts, [parts[0].text, parts[2].text, parts[3].text],
                        "the oldest waiting piece is left for the final pass")
@@ -182,7 +182,7 @@ final class CleanupSpeculatorTests: XCTestCase {
             await waitUntil { releases.count == 1 }
             releases.removeFirst().resume()
         }
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await eventually { cleaner.speculatedTexts.count == 3 }
         XCTAssertEqual(cleaner.speculatedTexts, [parts[0].text, corrected.text, parts[1].text])
     }
 }

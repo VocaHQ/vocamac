@@ -796,7 +796,7 @@ final class CommandModeAutomationTests: XCTestCase {
 
         XCTAssertTrue(fixture.app.usesSeparateCommandSlot(for: .qwen3_4b_instruct_2507_q4_k_m))
         await say("rewrite", fixture)
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await eventually { fixture.selection.replacement == "Other text." }
 
         XCTAssertEqual(fixture.selection.replacement, "Other text.")
         XCTAssertEqual(slot.loadedKind, .qwen3_4b_instruct_2507_q4_k_m)

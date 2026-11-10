@@ -431,6 +431,9 @@ final class AppState: ObservableObject {
     @UserDefault("vocamac.selectedAudioChannelDeviceID") var selectedAudioChannelDeviceID: String = ""
     @UserDefault("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @UserDefault(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
+    /// Whether the user picked the speech model. The startup load saves its
+    /// default into `selectedModelSize` too, so a stored value proves nothing.
+    @UserDefault(PreferenceKey.speechModelChosen) var speechModelChosen: Bool = false
     @UserDefault(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
     /// Languages the user dictates in, which steer the model picker. Nil
     /// until they choose, so the picker can start from a guess.
@@ -1117,7 +1120,8 @@ final class AppState: ObservableObject {
     private var onboardingRequestedModel: ModelSize?
     /// Non-nil only while onboarding itself owns the serialized engine load.
     private var onboardingLoadingRequestGeneration: UInt64?
-    /// The language whose change `languageDidChange()` has already reacted to.
+    /// The language setting `languageDidChange()` has already reacted to
+    /// (`languageChangeKey`).
     private var handledLanguageChange: String?
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
@@ -4006,6 +4010,14 @@ final class AppState: ObservableObject {
         await loadModel(size)
     }
 
+    /// What a language change is judged by: the recognition language, and
+    /// the language a model that binds it at load would be given.
+    var languageChangeKey: String {
+        let pinned = selectedLanguage == TranscriptionLanguage.auto.code ? nil : selectedLanguage
+        let loadLanguage = TranscriptionRouter.loadLanguage(selected: pinned, spoken: spokenLanguages)
+        return "\(selectedLanguage)|\(loadLanguage ?? TranscriptionLanguage.auto.code)"
+    }
+
     // MARK: - Spoken Languages
 
     /// The languages the user dictates in: their saved choice, or a guess
@@ -4042,6 +4054,7 @@ final class AppState: ObservableObject {
         // The same recommendation onboarding shows, so the button prepares
         // the model named on screen.
         guard let recommendation = speechModelRecommendation else { return }
+        speechModelChosen = true
 
         onboardingModelRequestGeneration &+= 1
         let generation = onboardingModelRequestGeneration
@@ -4148,9 +4161,15 @@ final class AppState: ObservableObject {
     /// arrives twice. Handling it twice would cancel and restart the download
     /// the first call just started, so later calls for the same language are
     /// dropped.
+    ///
+    /// The spoken languages count too: with recognition on Auto, a model
+    /// that binds its language at load (Nemotron Unified) is given the only
+    /// spoken language, so going from one spoken language to two changes
+    /// what it should load with although `selectedLanguage` stays "auto".
     func languageDidChange() async {
-        guard handledLanguageChange != selectedLanguage else { return }
-        handledLanguageChange = selectedLanguage
+        let key = languageChangeKey
+        guard handledLanguageChange != key else { return }
+        handledLanguageChange = key
 
         let shouldPrepareUpdatedRecommendation = isPreparingOnboardingModel
         cancelOnboardingModelPreparation()
@@ -4563,6 +4582,7 @@ final class AppState: ObservableObject {
 
         whisperService.removeRetiredEngineState()
         transcriptCleanup.pruneUnknownModels()
+        adoptRecommendedModelIfNeverChosen()
 
         // 4. Load the user's preferred model. The cleanup model loads with
         // llama.cpp on the GPU while the speech model loads on the Neural
@@ -4599,6 +4619,37 @@ final class AppState: ObservableObject {
         guard modelManager.isModelDownloaded(speech), transcriptCleanup.isDownloaded(cleanup) else { return false }
         let speechGB = CompiledModelRecord().hasLoaded(speech) ? speech.ramRequiredGB : speech.firstLoadRAMRequiredGB
         return parallelStartupFits(speechGB + cleanup.descriptor.ramRequiredGB + Self.parallelStartupMarginGB)
+    }
+
+    /// The model onboarding recommends, when the user has never picked a
+    /// speech model and that one is already on this Mac.
+    ///
+    /// "Set up later", or quitting before "Download & Use", leaves the
+    /// bundled Tiny as an unchosen default, which the startup load then
+    /// saves. Once the recommendation is on disk anyway (downloaded from
+    /// Settings, or left by an earlier install) there is no reason to stay
+    /// on Tiny. Only Tiny is replaced: a choice saved before
+    /// `speechModelChosen` existed was recorded without it, and anything
+    /// other than the default was picked by someone. Nothing is downloaded
+    /// here, and Apple Speech and Custom Endpoint are never picked for the
+    /// user: one may fetch system assets, the other uploads audio.
+    func recommendedModelForUnchosenDefault() -> ModelSize? {
+        guard !speechModelChosen,
+              selectedModelSize == ModelSize.tiny.rawValue,
+              let model = speechModelRecommendation?.model,
+              model != .tiny,
+              model.engine != .appleSpeech, model.engine != .customEndpoint,
+              modelManager.isModelSupported(model), modelManager.isModelDownloaded(model) else { return nil }
+        return model
+    }
+
+    /// Switch an unchosen default to the recommended model; see
+    /// `recommendedModelForUnchosenDefault`.
+    func adoptRecommendedModelIfNeverChosen() {
+        guard let model = recommendedModelForUnchosenDefault() else { return }
+        VocaLogger.info(.appState, "No speech model was ever chosen — using the recommended \(model.displayName), already downloaded")
+        selectedModelSize = model.rawValue
+        rebuildAvailableModels()
     }
 
     /// Headroom kept free when both models load together.

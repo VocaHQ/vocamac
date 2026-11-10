@@ -213,8 +213,11 @@ enum WritingStyleEngine {
     /// Hesitations that are only safe with evidence for the language.
     static func languageHesitations(for language: String?) -> [String] {
         switch language?.split(separator: "-").first.map(String.init) {
-        case "de": return ["öh"]
+        case "de": return ["öh", "öhm"]
         case "fr": return ["euh", "heu"]
+        // "hum" and "ãh" are not Portuguese words; "um" and "é" are, so
+        // they stay.
+        case "pt": return ["hum", "ãh", "hã"]
         default: return []
         }
     }

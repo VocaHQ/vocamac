@@ -38,6 +38,7 @@ final class CalmModelPicker {
     /// model in use keeps working until the new one is ready.
     func startSpeech(_ size: ModelSize, cancelling other: ModelSize?, appState: AppState) {
         if let other { cancelSpeechDownload(other, appState: appState) }
+        appState.speechModelChosen = true
         failedSpeech = nil
         cancelledSpeech.remove(size)
         pendingSpeech = size

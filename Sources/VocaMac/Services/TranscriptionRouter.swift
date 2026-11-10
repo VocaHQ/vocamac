@@ -342,12 +342,14 @@ extension TranscriptionRouter: SpeechTranscribing {
         case .appleSpeech:
             try await appleSpeech.loadModel(language: languagePreference, onPhaseChange: onPhaseChange)
         case .sherpaOnnx:
+            // Read once: the model and the language detector must agree.
+            let language = languagePreference
             try await sherpa.loadModel(
                 name: name,
-                language: languagePreference,
+                language: language,
                 onPhaseChange: onPhaseChange
             )
-            if languagePreference == nil, languageCandidates(forSherpaModel: name) != nil {
+            if language == nil, languageCandidates(forSherpaModel: name) != nil {
                 languageIdentifier.prepare()
             } else {
                 languageIdentifier.unload()

@@ -95,6 +95,7 @@ enum SettingsArchiveService {
         PreferenceKey.autoSendMode: .string, PreferenceKey.autoSendApps: .string,
         PreferenceKey.learnCorrectionsMode: .string, PreferenceKey.pasteLastShortcut: .string,
         PreferenceKey.selectedLanguage: .string, PreferenceKey.selectedModelSize: .string,
+        PreferenceKey.speechModelChosen: .bool,
         PreferenceKey.spokenLanguages: .string, PreferenceKey.modelRecommendationPriority: .string,
         PreferenceKey.transcriptCleanupLevel: .string, PreferenceKey.transcriptCleanupModel: .string,
         PreferenceKey.transcriptCleanupPrompt: .string, PreferenceKey.websiteStyleBindings: .string,

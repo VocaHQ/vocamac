@@ -327,31 +327,45 @@ final class TextInjectorTests: XCTestCase {
     ///
     /// This also guards against a regression where the fallback path is
     /// accidentally short-circuited after the AX strategy returns false.
-    func testClipboardFallbackWritesTextWhenAXStrategyFails() throws {
+    @MainActor
+    func testClipboardFallbackWritesTextWhenAXStrategyFails() async throws {
         guard AXIsProcessTrusted() else {
             throw XCTSkip("Accessibility permission is not granted; clipboard fallback cannot be triggered (AX is not even attempted).")
         }
 
-        let injector = TextInjector(frontmostPIDProvider: { 123 })
+        // A private pasteboard and a recorded paste keep the test from
+        // touching the user's clipboard or posting a real Cmd+V.
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
+        defer { pasteboard.releaseGlobally() }
+        pasteboard.clearContents()
+        pasteboard.setString("seed", forType: .string)
+
+        var pastedTexts: [String] = []
+        let pasteExpectation = expectation(description: "clipboard fallback paste")
         let expected = "fallback text after ax failure"
 
-        // Seed the pasteboard with a known value so we can detect a change.
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("seed", forType: .string)
+        // The real AX strategy runs: no focused field belongs to PID 123,
+        // so it reports unavailable and the clipboard path must take over.
+        let injector = TextInjector(
+            pasteboard: pasteboard,
+            pasteActionOverride: {
+                pastedTexts.append(pasteboard.string(forType: .string) ?? "")
+                pasteExpectation.fulfill()
+            },
+            frontmostPIDProvider: { 123 }
+        )
 
-        // With no focused text field in the test runner, the AX strategy
-        // will return false, and injectViaClipboard should write expected.
         injector.inject(text: expected, preserveClipboard: false)
 
-        // Give the async clipboard write a moment to settle.
-        let expectation = XCTestExpectation(description: "clipboard written")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            expectation.fulfill()
-        }
-        wait(for: [expectation], timeout: 1.0)
+        // Wait for the injection itself rather than a fixed delay: the AX
+        // query runs on a worker queue, and a busy CI runner can take longer
+        // than any short timer before the clipboard write happens.
+        await fulfillment(of: [pasteExpectation], timeout: 5.0)
+        await TextInjector.waitForInjectionQueueIdleForTesting()
 
+        XCTAssertEqual(pastedTexts, [expected])
         XCTAssertEqual(
-            NSPasteboard.general.string(forType: .string),
+            pasteboard.string(forType: .string),
             expected,
             "When the AX strategy fails, the clipboard fallback must write the text to the pasteboard"
         )

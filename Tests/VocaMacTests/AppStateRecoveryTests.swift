@@ -300,6 +300,76 @@ final class AppStateRecoveryTests: XCTestCase {
         await appState.cancelRecording()
     }
 
+    // MARK: Auto-pause during a dictation
+
+    func testAutoPauseWaitsForADictationThatIsStillTranscribing() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        let gate = StepGate()
+        mocks.whisperService.transcribeGate = gate
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+
+        appState.isAutoPaused = true
+        await appState.handleAutoPauseEntered()
+        XCTAssertEqual(mocks.whisperService.unloadCallCount, 0, "Unloading under the decode would fail the dictation")
+
+        gate.open()
+        await stop.value
+        XCTAssertEqual(mocks.textInjector.injectCallCount, 1, "The dictation is still delivered")
+        await waitUntil { mocks.whisperService.unloadCallCount == 1 }
+        XCTAssertEqual(mocks.whisperService.unloadCallCount, 1, "The pause unloads once the dictation is delivered")
+    }
+
+    func testAutoPauseThatEndsBeforeTheDictationFinishesKeepsTheModel() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+        let gate = StepGate()
+        mocks.whisperService.transcribeGate = gate
+
+        await appState.startRecording()
+        let stop = Task { await appState.stopRecordingAndTranscribe() }
+        _ = await gate.waitUntilReached()
+        appState.isAutoPaused = true
+        await appState.handleAutoPauseEntered()
+        await appState.handleAutoPauseCleared()
+
+        gate.open()
+        await stop.value
+        // The cleared pause dropped the deferred unload, so nothing is queued.
+        XCTAssertEqual(mocks.whisperService.unloadCallCount, 0)
+    }
+
+    func testAutoPauseDuringAColdModelLoadRefusesTheDictation() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny]
+        let whisperService = MockWhisperService()
+        whisperService.loadedModelName = nil
+        whisperService.isModelLoaded = false
+        let gate = StepGate()
+        whisperService.loadGate = gate
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let originalModel = appState.selectedModelSize
+        defer { appState.selectedModelSize = originalModel }
+        appState.selectedModelSize = ModelSize.tiny.rawValue
+
+        let start = Task { await appState.startRecording() }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        appState.isAutoPaused = true
+        await appState.handleAutoPauseEntered()
+        gate.open()
+        await start.value
+
+        XCTAssertFalse(appState.isRecording, "No recording starts while paused")
+        XCTAssertEqual(mocks.whisperService.unloadCallCount, 1, "The model that finished loading is unloaded again")
+        XCTAssertFalse(mocks.whisperService.isModelLoaded)
+        XCTAssertTrue(appState.errorMessage?.contains("paused") == true)
+    }
+
     func testHotKeyAfterAnErrorStartsRecordingInTheSamePress() async {
         let (appState, _) = AppState.makeTestState()
         appState.errorMessage = "Transcription failed: mock error"

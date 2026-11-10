@@ -15,7 +15,9 @@ import os
 enum ParakeetError: LocalizedError {
     case modelNotLoaded
     case initializationFailed(reason: String)
-    case transcriptionFailed(reason: String)
+    /// `underlying` is the error the engine threw, kept so the router can
+    /// tell a model fault from a cancellation without comparing messages.
+    case transcriptionFailed(reason: String, underlying: (any Error)? = nil)
     case emptyAudio
 
     var errorDescription: String? {
@@ -24,7 +26,7 @@ enum ParakeetError: LocalizedError {
             return "No Parakeet model is loaded. Please load a model first."
         case .initializationFailed(let reason):
             return "Failed to initialize Parakeet: \(reason)"
-        case .transcriptionFailed(let reason):
+        case .transcriptionFailed(let reason, _):
             return "Transcription failed: \(reason)"
         case .emptyAudio:
             return "No audio data to transcribe."
@@ -485,7 +487,7 @@ final class ParakeetService: @unchecked Sendable {
             // router would count it toward reloading the model.
             throw CancellationError()
         } catch {
-            throw ParakeetError.transcriptionFailed(reason: error.localizedDescription)
+            throw ParakeetError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
         }
     }
 }

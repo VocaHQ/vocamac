@@ -449,8 +449,9 @@ final class PermissionManager: ObservableObject {
 
     /// Creating the tap can fail for a moment right after a permission is
     /// granted, while macOS still reports it as granted. About 30 s of 3 s
-    /// polls covers that; past it, app activation, wake and the Accessibility
-    /// notification still re-check.
+    /// polls covers that (recovery polls always run at the fast interval);
+    /// past it, app activation, wake and the Accessibility notification
+    /// still re-check.
     static let maxHotKeyRestartPolls = 10
 
     private var hotKeyRestartPolls = 0
@@ -465,42 +466,86 @@ final class PermissionManager: ObservableObject {
         return hotKeyRestartPolls >= maxHotKeyRestartPolls ? .giveUpOnHotKey : .keepPolling
     }
 
-    /// Start polling permissions every 3 seconds until all are granted and
-    /// the hotkey tap is working.
+    /// Polls run every 3 s for the first two minutes, while someone is most
+    /// likely in System Settings granting access, then every 15 s. App
+    /// activation, wake and the Accessibility notification still re-check
+    /// at once, so the slower poll only covers a grant made with VocaMac in
+    /// the background.
+    static let fastPermissionPollInterval: TimeInterval = 3
+    static let slowPermissionPollInterval: TimeInterval = 15
+    static let fastPermissionPollCount = 40
+
+    /// Seconds to wait before the poll that follows `pollsSoFar` polls.
+    ///
+    /// While every permission is granted but the hotkey tap is still
+    /// unhealthy, polls stay fast however long the wait for the grant was,
+    /// so the `maxHotKeyRestartPolls` recovery window keeps its ~30 s length.
+    static func permissionPollInterval(afterPolls pollsSoFar: Int, recoveringHotKey: Bool = false) -> TimeInterval {
+        if recoveringHotKey { return fastPermissionPollInterval }
+        return pollsSoFar < fastPermissionPollCount ? fastPermissionPollInterval : slowPermissionPollInterval
+    }
+
+    private var permissionPollCount = 0
+    /// Bumped on every schedule, so a poll whose timer was replaced or
+    /// stopped before its task ran does nothing.
+    private var permissionPollGeneration = 0
+
+    /// Start polling permissions until all are granted and the hotkey tap is
+    /// working, backing off after two minutes (`permissionPollInterval`).
     func startPermissionPolling() {
         guard permissionPollTimer == nil else { return }
         guard !allPermissionsGranted || !isHotKeyTapHealthy else { return }
 
         VocaLogger.debug(.appState, "Starting permission polling")
         hotKeyRestartPolls = 0
-        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
+        permissionPollCount = 0
+        schedulePermissionPoll()
+    }
+
+    private func schedulePermissionPoll() {
+        let interval = Self.permissionPollInterval(
+            afterPolls: permissionPollCount,
+            recoveringHotKey: allPermissionsGranted && !isHotKeyTapHealthy
+        )
+        permissionPollTimer?.invalidate()
+        permissionPollGeneration += 1
+        let generation = permissionPollGeneration
+        permissionPollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
             Task { @MainActor in
-                guard let self = self else { return }
-                self.checkPermissions()
-
-                // Notify when the permissions are there but the hotkey tap
-                // is missing or was disabled by a revoke.
-                self.restoreHotKeyIfPossible()
-
-                if self.allPermissionsGranted && !self.isHotKeyTapHealthy {
-                    self.hotKeyRestartPolls += 1
-                }
-                switch Self.pollingDecision(
-                    allPermissionsGranted: self.allPermissionsGranted,
-                    isHotKeyTapHealthy: self.isHotKeyTapHealthy,
-                    hotKeyRestartPolls: self.hotKeyRestartPolls
-                ) {
-                case .keepPolling:
-                    break
-                case .stop:
-                    self.hotKeyStuckAfterGrant = false
-                    self.stopPermissionPolling()
-                case .giveUpOnHotKey:
-                    self.hotKeyStuckAfterGrant = true
-                    VocaLogger.warning(.appState, "Hotkey tap still couldn't be created with every permission granted; waiting for the next activation or permission change")
-                    self.stopPermissionPolling()
-                }
+                guard let self, self.permissionPollTimer != nil,
+                      self.permissionPollGeneration == generation else { return }
+                self.runPermissionPoll()
             }
+        }
+    }
+
+    private func runPermissionPoll() {
+        permissionPollCount += 1
+        checkPermissions()
+
+        // Notify when the permissions are there but the hotkey tap
+        // is missing or was disabled by a revoke.
+        restoreHotKeyIfPossible()
+
+        if allPermissionsGranted && !isHotKeyTapHealthy {
+            hotKeyRestartPolls += 1
+        }
+        switch Self.pollingDecision(
+            allPermissionsGranted: allPermissionsGranted,
+            isHotKeyTapHealthy: isHotKeyTapHealthy,
+            hotKeyRestartPolls: hotKeyRestartPolls
+        ) {
+        case .keepPolling:
+            // A check above may have stopped polling (a grant callback).
+            guard permissionPollTimer != nil else { return }
+            schedulePermissionPoll()
+        case .stop:
+            hotKeyStuckAfterGrant = false
+            stopPermissionPolling()
+        case .giveUpOnHotKey:
+            hotKeyStuckAfterGrant = true
+            VocaLogger.warning(.appState, "Hotkey tap still couldn't be created with every permission granted; waiting for the next activation or permission change")
+            stopPermissionPolling()
         }
     }
 
@@ -509,6 +554,7 @@ final class PermissionManager: ObservableObject {
         VocaLogger.debug(.appState, "Stopping permission polling — all permissions granted")
         permissionPollTimer?.invalidate()
         permissionPollTimer = nil
+        permissionPollGeneration += 1
     }
 }
 

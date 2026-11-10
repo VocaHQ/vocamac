@@ -906,23 +906,27 @@ extension TranscriptionRouter: SpeechTranscribing {
     /// Whether a failed decode says the loaded model may be in a bad state.
     ///
     /// A model that fails this way twice in a row is dropped and reloaded on
-    /// the next dictation. Cancellation, missing audio, and "not loaded" say
-    /// nothing about the model, so they never count.
+    /// the next dictation. Cancellation, missing audio, "not loaded", and a
+    /// network or server problem with the custom endpoint say nothing about
+    /// the model, so they never count.
     static func isModelFailure(_ error: Error) -> Bool {
-        if error is CancellationError { return false }
+        if error is CancellationError || error is URLError { return false }
         switch error {
-        case WhisperError.transcriptionFailed(let reason), ParakeetError.transcriptionFailed(let reason):
-            // An engine that wrapped a cancellation still says nothing about
-            // the model.
-            return reason != CancellationError().localizedDescription
+        case WhisperError.transcriptionFailed(_, let underlying?),
+             ParakeetError.transcriptionFailed(_, let underlying?):
+            // Judge the engine's own error: a wrapped cancellation still
+            // says nothing about the model.
+            return isModelFailure(underlying)
         case WhisperError.modelNotLoaded, WhisperError.emptyAudio,
              ParakeetError.modelNotLoaded, ParakeetError.emptyAudio,
              AppleSpeechError.modelNotLoaded, AppleSpeechError.emptyAudio,
              SherpaError.modelNotLoaded, SherpaError.emptyAudio,
-             CustomEndpointError.modelNotLoaded, CustomEndpointError.emptyAudio:
+             is CustomEndpointError:
             return false
         default:
-            return true
+            let nsError = error as NSError
+            // URLSession errors that arrive bridged rather than as URLError.
+            return nsError.domain != NSURLErrorDomain
         }
     }
 

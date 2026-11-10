@@ -135,6 +135,29 @@ final class PermissionPollingDecisionTests: XCTestCase {
             .giveUpOnHotKey
         )
     }
+
+    func testPollsQuicklyAtFirstThenBacksOff() {
+        XCTAssertEqual(PermissionManager.permissionPollInterval(afterPolls: 0), 3)
+        XCTAssertEqual(
+            PermissionManager.permissionPollInterval(afterPolls: PermissionManager.fastPermissionPollCount - 1), 3
+        )
+        XCTAssertEqual(
+            PermissionManager.permissionPollInterval(afterPolls: PermissionManager.fastPermissionPollCount), 15
+        )
+        // The hot-key retry window must fit inside the fast phase.
+        XCTAssertLessThan(PermissionManager.maxHotKeyRestartPolls, PermissionManager.fastPermissionPollCount)
+    }
+
+    func testHotKeyRecoveryStaysFastAfterALateGrant() {
+        // Granted after the two-minute fast phase, tap still failing: the
+        // ten recovery polls must stay 3 s apart, not 15 s.
+        let latePoll = PermissionManager.fastPermissionPollCount + 25
+        XCTAssertEqual(PermissionManager.permissionPollInterval(afterPolls: latePoll, recoveringHotKey: true), 3)
+        XCTAssertEqual(PermissionManager.permissionPollInterval(afterPolls: latePoll, recoveringHotKey: false), 15)
+        let window = Double(PermissionManager.maxHotKeyRestartPolls)
+            * PermissionManager.permissionPollInterval(afterPolls: latePoll, recoveringHotKey: true)
+        XCTAssertLessThanOrEqual(window, 30)
+    }
 }
 
 // MARK: - Relaunch Advice

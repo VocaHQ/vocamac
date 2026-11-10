@@ -88,6 +88,44 @@ final class TextDeliveryPlanTests: XCTestCase {
         XCTAssertFalse(deliver(spoken: "hi", text: "Hi", app: nil, mode: .always).options.pressesReturn)
     }
 
+    func testEmptyTextNeverSendsWithoutASpokenCue() {
+        // Cleanup removed a lone "um": the draft in the field must not go.
+        XCTAssertFalse(deliver(spoken: "Um.", text: "", app: slack, mode: .always).options.pressesReturn)
+        XCTAssertFalse(deliver(spoken: "Um.", text: "  ", app: slack, mode: .always).options.pressesReturn)
+        // "Send it" said on its own still sends.
+        let cueOnly = deliver(spoken: "Send it.", text: "Send it.", app: slack, mode: .always)
+        XCTAssertEqual(cueOnly.text, "")
+        XCTAssertTrue(cueOnly.options.pressesReturn)
+    }
+
+    func testMultilineTextIsNeverTypedWhereReturnIsRefused() {
+        let forced = deliver(spoken: "a b", text: "echo a\necho b", app: terminal, codeOrTerminal: true,
+                             method: .typing, mode: .off)
+        XCTAssertFalse(forced.options.typesText, "multiline text goes in by paste in a terminal")
+        XCTAssertFalse(forced.options.typesWhenPasteFails)
+        XCTAssertFalse(forced.options.typesLineBreaks)
+        let oneLine = deliver(spoken: "ls", text: "ls -la", app: terminal, codeOrTerminal: true, method: .typing, mode: .off)
+        XCTAssertTrue(oneLine.options.typesText)
+        XCTAssertFalse(oneLine.options.typesLineBreaks)
+        XCTAssertTrue(deliver(spoken: "a b", text: "a\nb", app: slack, method: .typing, mode: .off).options.typesLineBreaks)
+    }
+
+    func testCodingAgentAppsAreRefusedByIdentityWhateverTheirStyle() {
+        let codex = RunningAppSnapshot(displayName: "Codex", bundleIdentifier: "com.openai.codex")
+        let claude = RunningAppSnapshot(displayName: "Claude", bundleIdentifier: "com.anthropic.claudefordesktop")
+        let rider = RunningAppSnapshot(displayName: "Rider", bundleIdentifier: "com.jetbrains.rider")
+        for app in [codex, claude, rider] {
+            XCTAssertTrue(AppState.isCodeOrTerminal(app, resolved: .plain), app.displayName)
+            let result = deliver(spoken: "Fix it. Send it.", text: "Fix it. Send it.", app: app,
+                                 codeOrTerminal: AppState.isCodeOrTerminal(app, resolved: .plain), mode: .always)
+            XCTAssertFalse(result.options.pressesReturn, app.displayName)
+        }
+        let listed = [AutoPauseAppEntry.from(snapshot: codex)]
+        XCTAssertTrue(deliver(spoken: "Go. Send it.", text: "Go. Send it.", app: codex, codeOrTerminal: true,
+                              mode: .spokenCue, sendApps: listed).options.pressesReturn, "allowed once the user adds it")
+        XCTAssertFalse(AppState.isCodeOrTerminal(slack, resolved: .plain))
+    }
+
     func testListedTerminalMaySend() {
         let listed = [AutoPauseAppEntry.from(snapshot: terminal)]
         let result = deliver(
@@ -300,6 +338,25 @@ final class TextInjectorDeliveryTests: XCTestCase {
                         options: TextDeliveryOptions(typesText: true, pressesReturn: true))
         await TextInjector.waitForInjectionQueueIdleForTesting()
         XCTAssertEqual(typed.count, 1, "only the chunk before the password field took focus")
+        XCTAssertEqual(returns, 0)
+        XCTAssertNotNil(failure)
+    }
+
+    func testLineBreaksAreNeverTypedWhereRefused() async {
+        var typed: [String] = []
+        var returns = 0
+        var failure: String?
+        let injector = TextInjector(
+            accessibilityTrustedOverride: true, frontmostPIDProvider: { 123 },
+            typeTextOverride: { typed.append($0) }, returnKeyOverride: { returns += 1 },
+            secureInputProvider: { false }
+        )
+        injector.onFailure = { failure = $0 }
+        injector.inject(text: "echo a\nrm -rf build", preserveClipboard: true,
+                        options: TextDeliveryOptions(typesText: true, pressesReturn: true, typesLineBreaks: false))
+        await TextInjector.waitForInjectionQueueIdleForTesting()
+        XCTAssertEqual(typed, ["echo a"])
+        XCTAssertFalse(typed.contains("\n"))
         XCTAssertEqual(returns, 0)
         XCTAssertNotNil(failure)
     }

@@ -231,13 +231,26 @@ enum DictionaryTransfer {
         return contents
     }
 
-    /// Tab when the first line has a tab, else comma. Decided from the
-    /// header (or first row) only: cells of a tab-separated file may hold
-    /// commas, such as several spoken forms of one replacement.
+    /// Tab when the first row has a tab outside quotes, else comma.
+    /// Decided from the header (or first row) only: cells of a
+    /// tab-separated file may hold commas, such as several spoken forms of
+    /// one replacement, and a quoted CSV cell may hold a tab.
     static func csvSeparator(for text: String) -> Character {
-        let firstLine = text.split(whereSeparator: \.isNewline)
-            .first { !$0.trimmingCharacters(in: .whitespaces).isEmpty } ?? ""
-        return firstLine.contains("\t") ? "\t" : ","
+        var inQuotes = false
+        var sawContent = false
+        for character in text {
+            if character == "\"" {
+                inQuotes.toggle()
+            } else if !inQuotes {
+                if character == "\t" { return "\t" }
+                if character.isNewline {
+                    if sawContent { break }
+                    continue
+                }
+            }
+            if !character.isWhitespace { sawContent = true }
+        }
+        return ","
     }
 
     /// RFC 4180 rows: quoted fields may hold the separator, quotes ("") and

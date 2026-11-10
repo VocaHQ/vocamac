@@ -79,6 +79,10 @@ struct TextDeliveryOptions: Equatable, Sendable {
     var typesWhenPasteFails = true
     /// Press Return once the text is in (and only if it is known to be).
     var pressesReturn = false
+    /// Whether typed text may post line-break keys. Off where Return could
+    /// run something (terminals, code editors, coding agents the user has
+    /// not allowed Auto Send in): typing stops at the first line break.
+    var typesLineBreaks = true
 
     static let standard = TextDeliveryOptions()
 }
@@ -91,6 +95,31 @@ enum TextDeliveryPlan {
     /// Whether the dictation is typed rather than pasted.
     static func typesText(method: InsertionMethod, app: RunningAppSnapshot?, typingApps: [AutoPauseAppEntry]) -> Bool {
         method == .typing || listed(app, in: typingApps)
+    }
+
+    /// Coding agents and editors identified by bundle identifier, whatever
+    /// writing style they are given: Return there submits a prompt that can
+    /// run commands, so Auto Send stays off unless the user adds the app.
+    /// Terminals and editors in `WritingStyleCatalog` are caught there too.
+    static let codingAgentBundleIdentifiers: Set<String> = [
+        "com.openai.codex",
+        "com.anthropic.claudefordesktop",
+        "com.todesktop.230313mzl4w4u92", // Cursor
+        "com.exafunction.windsurf",
+        "dev.zed.Zed",
+        "com.microsoft.VSCode",
+        "com.microsoft.VSCodeInsiders",
+        "com.vscodium",
+        "com.apple.dt.Xcode",
+        "com.trae.app",
+        "com.google.android.studio",
+    ]
+
+    /// Whether `app` is a coding agent or code editor by its identity alone.
+    static func isCodingAgentApp(_ app: RunningAppSnapshot?) -> Bool {
+        guard let bundle = app?.bundleIdentifier?.lowercased() else { return false }
+        if bundle.hasPrefix("com.jetbrains.") { return true }
+        return codingAgentBundleIdentifiers.contains { $0.lowercased() == bundle }
     }
 
     /// Whether Return may be pressed in `app`.

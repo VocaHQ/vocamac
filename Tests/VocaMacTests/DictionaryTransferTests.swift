@@ -134,6 +134,14 @@ final class DictionaryTransferTests: XCTestCase {
         }
     }
 
+    func testQuotedTabInACSVCellDoesNotMakeItTSV() throws {
+        XCTAssertEqual(DictionaryTransfer.csvSeparator(for: "indent,\"first\tsecond\"\n"), ",")
+        let contents = try DictionaryTransfer.parse("indent,\"first\tsecond\"\nVocaMac\n", format: .csv)
+        XCTAssertEqual(contents.replacements, [DictionaryTransferReplacement(heard: "indent", replacement: "first\tsecond")])
+        XCTAssertEqual(contents.words, ["VocaMac"])
+        XCTAssertEqual(DictionaryTransfer.csvSeparator(for: "\nheard\treplacement\n"), "\t")
+    }
+
     func testTabSeparatedCellsMayHoldCommas() throws {
         let contents = try DictionaryTransfer.parse("heard\treplacement\nget hub, git hub\tGitHub\n", format: .csv)
         XCTAssertEqual(contents.replacements, [DictionaryTransferReplacement(heard: "get hub, git hub", replacement: "GitHub")])

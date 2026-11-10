@@ -420,7 +420,8 @@ final class TextInjector: @unchecked Sendable {
         if options.typesText {
             Task { @MainActor [self] in
                 defer { completion() }
-                if await typeText(text, targetPID: targetPID), options.pressesReturn {
+                if await typeText(text, targetPID: targetPID, typesLineBreaks: options.typesLineBreaks),
+                   options.pressesReturn {
                     await pressReturn(targetPID: targetPID)
                 }
             }
@@ -764,7 +765,9 @@ final class TextInjector: @unchecked Sendable {
             guard request.options.typesWhenPasteFails else { return }
             VocaLogger.info(.textInjector, "The app didn't take the paste; typing the text instead")
             PerformanceTrace.event("PasteNotReadTyping")
-            if await typeText(request.text, targetPID: request.targetPID), request.options.pressesReturn {
+            if await typeText(
+                request.text, targetPID: request.targetPID, typesLineBreaks: request.options.typesLineBreaks
+            ), request.options.pressesReturn {
                 await pressReturn(targetPID: request.targetPID)
             }
         case .confirmed, .unobserved:
@@ -811,8 +814,13 @@ final class TextInjector: @unchecked Sendable {
     /// key event. Stops when focus moves to another app, never types into a
     /// secure (password) field, and refuses text too long to type safely.
     /// Returns whether all of it was typed.
+    ///
+    /// Without `typesLineBreaks` (terminals, code editors, coding agents),
+    /// no line-break key is ever posted: typing stops at the first line
+    /// break and says so, since Return or Shift+Return there can run a
+    /// command.
     @MainActor
-    private func typeText(_ text: String, targetPID: pid_t?) async -> Bool {
+    private func typeText(_ text: String, targetPID: pid_t?, typesLineBreaks: Bool = true) async -> Bool {
         guard samePasteTarget(targetPID, frontmostPIDProvider()) else {
             reportPasteTargetMismatch(queued: targetPID, current: frontmostPIDProvider())
             return false
@@ -845,6 +853,11 @@ final class TextInjector: @unchecked Sendable {
                     reportSecureInputBlocksTyping()
                     return false
                 }
+            }
+            if chunk == "\n", !typesLineBreaks {
+                VocaLogger.warning(.textInjector, "Line break in a terminal or code editor; stopped typing")
+                onFailure?("Only the first line was typed: line breaks aren't typed into terminals or code editors, where they can run a command. The whole dictation is available in VocaMac.")
+                return false
             }
             if let typeTextOverride {
                 typeTextOverride(chunk)

@@ -144,7 +144,7 @@ final class TextDeliveryPlanTests: XCTestCase {
     func testAutoSendThroughADictation() async {
         let (appState, mocks) = AppState.makeTestState()
         appState.autoSendMode = .spokenCue
-        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.autoSendMode) }
+        defer { TestDefaults.store.removeObject(forKey: PreferenceKey.autoSendMode) }
         mocks.frontmostAppResolver.frontmostApp = slack
         mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "See you at five. Send it.", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
@@ -164,8 +164,8 @@ final class TextDeliveryPlanTests: XCTestCase {
         appState.autoSendMode = .spokenCue
         appState.historyEnabled = false
         defer {
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.autoSendMode)
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.historyEnabled)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.autoSendMode)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.historyEnabled)
         }
         mocks.frontmostAppResolver.frontmostApp = slack
         mocks.transcriber.mockTranscriptionResult = VocaTranscription(

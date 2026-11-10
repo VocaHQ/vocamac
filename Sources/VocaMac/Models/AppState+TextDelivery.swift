@@ -12,40 +12,40 @@ extension AppState {
 
     var insertionMethod: InsertionMethod {
         get {
-            UserDefaults.standard.string(forKey: PreferenceKey.insertionMethod)
+            userDefaultsStore.string(forKey: PreferenceKey.insertionMethod)
                 .flatMap(InsertionMethod.init(rawValue:)) ?? .defaultMethod
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: PreferenceKey.insertionMethod)
+            userDefaultsStore.set(newValue.rawValue, forKey: PreferenceKey.insertionMethod)
             objectWillChange.send()
         }
     }
 
     /// Apps whose dictations are always typed, whatever `insertionMethod` says.
     var typedInsertionApps: [AutoPauseAppEntry] {
-        get { AppListCoding.decode(UserDefaults.standard.string(forKey: PreferenceKey.typedInsertionApps)) }
+        get { AppListCoding.decode(userDefaultsStore.string(forKey: PreferenceKey.typedInsertionApps)) }
         set {
-            UserDefaults.standard.set(AppListCoding.encode(newValue), forKey: PreferenceKey.typedInsertionApps)
+            userDefaultsStore.set(AppListCoding.encode(newValue), forKey: PreferenceKey.typedInsertionApps)
             objectWillChange.send()
         }
     }
 
     var autoSendMode: AutoSendMode {
         get {
-            UserDefaults.standard.string(forKey: PreferenceKey.autoSendMode)
+            userDefaultsStore.string(forKey: PreferenceKey.autoSendMode)
                 .flatMap(AutoSendMode.init(rawValue:)) ?? .defaultMode
         }
         set {
-            UserDefaults.standard.set(newValue.rawValue, forKey: PreferenceKey.autoSendMode)
+            userDefaultsStore.set(newValue.rawValue, forKey: PreferenceKey.autoSendMode)
             objectWillChange.send()
         }
     }
 
     /// Terminals and code editors where Auto Send may still press Return.
     var autoSendApps: [AutoPauseAppEntry] {
-        get { AppListCoding.decode(UserDefaults.standard.string(forKey: PreferenceKey.autoSendApps)) }
+        get { AppListCoding.decode(userDefaultsStore.string(forKey: PreferenceKey.autoSendApps)) }
         set {
-            UserDefaults.standard.set(AppListCoding.encode(newValue), forKey: PreferenceKey.autoSendApps)
+            userDefaultsStore.set(AppListCoding.encode(newValue), forKey: PreferenceKey.autoSendApps)
             objectWillChange.send()
         }
     }

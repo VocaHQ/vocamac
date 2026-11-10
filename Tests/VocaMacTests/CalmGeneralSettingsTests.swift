@@ -183,17 +183,17 @@ final class CalmGeneralAppStateTests: XCTestCase {
     override func setUp() {
         super.setUp()
         for key in touchedKeys {
-            saved[key] = UserDefaults.standard.object(forKey: key)
-            UserDefaults.standard.removeObject(forKey: key)
+            saved[key] = TestDefaults.store.object(forKey: key)
+            TestDefaults.store.removeObject(forKey: key)
         }
     }
 
     override func tearDown() {
         for key in touchedKeys {
             if let value = saved[key] {
-                UserDefaults.standard.set(value, forKey: key)
+                TestDefaults.store.set(value, forKey: key)
             } else {
-                UserDefaults.standard.removeObject(forKey: key)
+                TestDefaults.store.removeObject(forKey: key)
             }
         }
         super.tearDown()

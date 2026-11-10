@@ -165,7 +165,8 @@ extension AppState {
     /// - Returns: False when it couldn't turn on because no keys are free;
     ///   the page then opens the recorder.
     @discardableResult
-    func setCommandModeOn(_ isOn: Bool, defaults: UserDefaults = .standard) -> Bool {
+    func setCommandModeOn(_ isOn: Bool, defaults: UserDefaults? = nil) -> Bool {
+        let defaults = defaults ?? userDefaultsStore
         if !isOn {
             if let current = shortcut(for: .commandMode) {
                 defaults.set(current.storageString, forKey: Self.calmCommandsLastShortcutKey)
@@ -181,7 +182,8 @@ extension AppState {
 
     /// The keys turning Command Mode on would use: the ones the switch
     /// turned off, while still free, else the suggested ones.
-    func commandModeOnCandidate(defaults: UserDefaults = .standard) -> HotKeyCombo? {
+    func commandModeOnCandidate(defaults: UserDefaults? = nil) -> HotKeyCombo? {
+        let defaults = defaults ?? userDefaultsStore
         let remembered = defaults.string(forKey: Self.calmCommandsLastShortcutKey).flatMap(HotKeyCombo.init(storageString:))
         return remembered.flatMap { combo in
             ShortcutValidation.problem(with: combo, action: .commandMode, appState: self) == nil ? combo : nil

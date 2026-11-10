@@ -1016,61 +1016,8 @@ extension AppState {
         commandReviewPresenter: (any CommandReviewPresenting)? = nil,
         crashReportFinder: CrashReportFinder? = nil
     ) -> (appState: AppState, mocks: TestMocks) {
-        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceID")
-        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioDeviceName")
-        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannel")
-        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelDeviceID")
-        UserDefaults.standard.removeObject(forKey: "vocamac.selectedAudioChannelCount")
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
-        UserDefaults.standard.removeObject(forKey: "vocamac.translationEnabled")
-        // Output polish defaults leak between test *processes* via
-        // UserDefaults, so reset them here rather than in each test.
-        // The model recommendation reads both; a leaked value changes which
-        // model onboarding prepares.
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.spokenLanguages)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedLanguage)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelRecommendationPriority)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.appendTrailingSpace)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoCapitalize)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.autoPauseEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelKeepAliveEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleDefault)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingStyleBindings)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.automaticWritingStyles)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.numbersAsDigits)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingIntent)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.writingRewriteEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.pauseSpotifyEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
-        for key in [
-            PreferenceKey.historyEnabled, PreferenceKey.historyKeepsAudio, PreferenceKey.historyRetention,
-            PreferenceKey.historyExcludedApps,
-            PreferenceKey.escapeCancelsDictation, PreferenceKey.pasteLastShortcut, PreferenceKey.handsFreeShortcut,
-            PreferenceKey.mouseTriggerButton, PreferenceKey.wordReplacements, PreferenceKey.dictionarySuggestions,
-            PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
-            PreferenceKey.learnModeDefaultSettled, PreferenceKey.personalFillers,
-            PreferenceKey.personalFillerCounts, PreferenceKey.rejectedPersonalFillers,
-            PreferenceKey.dictionaryTermUsage, PreferenceKey.dictionaryTermFirstSeen,
-            PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
-            PreferenceKey.rejectedLowercaseApps,
-            PreferenceKey.useScreenContext, "vocamac.customVocabulary",
-            PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,
-            PreferenceKey.speechEndpoint,
-            PreferenceKey.processWhileSpeaking,
-            PreferenceKey.commandModeShortcut, PreferenceKey.commandModeEngine,
-            PreferenceKey.commandModeClipboardFallback, PreferenceKey.websiteStyleBindings,
-            PreferenceKey.cleanupSkipsCleanText, PreferenceKey.commandModeReview,
-            PreferenceKey.savedCommands, PreferenceKey.voiceActionsEnabled,
-            PreferenceKey.voiceActionShortcuts, PreferenceKey.aiModelsKeptSeparate,
-            PreferenceKey.externalMicWhenLidClosed, "vocamac.scratchpad.text",
-        ] {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-
+        // Settings live in a store of the test's own, emptied after each
+        // test (`TestDefaults`), so nothing has to be cleared here.
         let audioEngine = MockAudioEngine()
         let soundManager = MockSoundManager()
         let audioDucker = MockAudioDucker()
@@ -1121,6 +1068,7 @@ extension AppState {
             voiceActionPerformer: voiceActionPerformer,
             commandReviewPresenter: commandReviewPresenter,
             crashReportFinder: crashReportFinder,
+            userDefaults: TestDefaults.store,
             skipSystemIntegration: true
         )
         // Spell checking depends on the machine's dictionaries; tests use a

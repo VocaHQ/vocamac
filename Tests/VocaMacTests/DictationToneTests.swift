@@ -108,13 +108,13 @@ final class DictationTonePreferenceTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.dictationTone)
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: PreferenceKey.dictationTone)
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.dictationTone)
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: PreferenceKey.dictationTone)
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
         super.tearDown()
     }
 
@@ -124,7 +124,7 @@ final class DictationTonePreferenceTests: XCTestCase {
     }
 
     func testAppStateKeepsSavedOffChoice() {
-        UserDefaults.standard.set("off", forKey: PreferenceKey.dictationTone)
+        TestDefaults.store.set("off", forKey: PreferenceKey.dictationTone)
         let (appState, _) = AppState.makeTestState()
         XCTAssertEqual(appState.dictationTone, .off)
     }

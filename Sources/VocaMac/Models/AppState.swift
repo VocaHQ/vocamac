@@ -569,14 +569,14 @@ final class AppState: ObservableObject {
     var websiteStyleBindings: [WebsiteStyleBinding] {
         get {
             // Decoded once per stored value: the Styles page reads this per row.
-            let json = UserDefaults.standard.string(forKey: PreferenceKey.websiteStyleBindings)
+            let json = userDefaultsStore.string(forKey: PreferenceKey.websiteStyleBindings)
             if let cached = calmDerived.websites, cached.json == json { return cached.bindings }
             let bindings = WebsiteStyleBindingStore.decode(json)
             calmDerived.websites = (json, bindings)
             return bindings
         }
         set {
-            UserDefaults.standard.set(WebsiteStyleBindingStore.encode(newValue), forKey: PreferenceKey.websiteStyleBindings)
+            userDefaultsStore.set(WebsiteStyleBindingStore.encode(newValue), forKey: PreferenceKey.websiteStyleBindings)
             objectWillChange.send()
         }
     }
@@ -584,9 +584,9 @@ final class AppState: ObservableObject {
     /// Apps whose dictations are never saved to History (password managers,
     /// banking, health). Same entry type and matching as the auto-pause list.
     var historyExcludedApps: [AutoPauseAppEntry] {
-        get { AppListCoding.decode(UserDefaults.standard.string(forKey: PreferenceKey.historyExcludedApps)) }
+        get { AppListCoding.decode(userDefaultsStore.string(forKey: PreferenceKey.historyExcludedApps)) }
         set {
-            UserDefaults.standard.set(AppListCoding.encode(newValue), forKey: PreferenceKey.historyExcludedApps)
+            userDefaultsStore.set(AppListCoding.encode(newValue), forKey: PreferenceKey.historyExcludedApps)
             objectWillChange.send()
         }
     }
@@ -610,8 +610,8 @@ final class AppState: ObservableObject {
 
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
-        get { UserDefaults.standard.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.autoPauseApps) }
+        get { userDefaultsStore.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
+        set { userDefaultsStore.set(newValue, forKey: PreferenceKey.autoPauseApps) }
     }
 
     /// Decoded auto-pause app list. Empty when unset or invalid JSON.
@@ -636,9 +636,9 @@ final class AppState: ObservableObject {
 
     /// JSON-encoded `WritingStyleBindingStore` (complex value not stored via `@AppStorage`).
     var writingStyleBindingsJSON: String {
-        get { UserDefaults.standard.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
+        get { userDefaultsStore.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
         set {
-            UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings)
+            userDefaultsStore.set(newValue, forKey: PreferenceKey.writingStyleBindings)
         }
     }
 
@@ -1069,7 +1069,7 @@ final class AppState: ObservableObject {
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
     /// When each downloaded model was last in use, for Settings › Models.
-    let modelUsageLog = ModelUsageLog()
+    let modelUsageLog: ModelUsageLog
     /// When `stampModelsInUseIfStale()` last wrote, so a dictation writes
     /// the usage log at most once an hour.
     var lastModelUsageStamp: Date?
@@ -1168,13 +1168,19 @@ final class AppState: ObservableObject {
     /// once even when SwiftUI instantiates multiple AppState objects (which it
     /// does during MenuBarExtra scene setup). Instance-level `hasStarted` guards
     /// re-entry on the same object; this static flag guards across all instances.
-    ///
-    /// Internal (not private) so test teardown can reset it between test cases.
-    static var hasStartedGlobally = false
+    /// Headless states (`skipSystemIntegration`, as in tests) neither read nor
+    /// set it: each is independent, so tests never have to reset it.
+    private(set) static var hasStartedGlobally = false
 
     /// Whether to skip system integration calls (SMAppService, etc.) during init.
     /// Set to `true` in tests to avoid side effects.
     let skipSystemIntegration: Bool
+
+    /// Where settings are stored: `UserDefaults.standard` in the app, a store
+    /// of its own in each test so parallel runs can't see each other's
+    /// settings. Every `@UserDefault` setting reads it
+    /// (`UserDefaultsStoreProviding`).
+    let userDefaultsStore: UserDefaults
 
     /// Pre-load memory gate. Production defaults to SystemInfo; tests stub this
     /// so CI free+inactive pages cannot flake medium/large mock loads.
@@ -1226,8 +1232,11 @@ final class AppState: ObservableObject {
         voiceActionPerformer: (any VoiceActionPerforming)? = nil,
         commandReviewPresenter: (any CommandReviewPresenting)? = nil,
         crashReportFinder: CrashReportFinder? = nil,
+        userDefaults: UserDefaults = .standard,
         skipSystemIntegration: Bool = false
     ) {
+        self.userDefaultsStore = userDefaults
+        self.modelUsageLog = ModelUsageLog(defaults: userDefaults)
         self.audioEngine = audioEngine
         self.transcriber = transcriber
         self.textInjector = textInjector
@@ -1268,7 +1277,7 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
         if !skipSystemIntegration {
-            SettingsConsistency.normalize(defaults: .standard)
+            SettingsConsistency.normalize(defaults: userDefaultsStore)
         }
         loadSnippets()
         loadDictionary()
@@ -1346,12 +1355,13 @@ final class AppState: ObservableObject {
     /// Safe to call multiple times and across multiple instances — only the
     /// first call across the entire process takes effect.
     func triggerStartupIfNeeded() {
-        guard !hasStarted, !AppState.hasStartedGlobally else {
+        let sharesProcessFlag = !skipSystemIntegration
+        guard !hasStarted, !(sharesProcessFlag && AppState.hasStartedGlobally) else {
             VocaLogger.debug(.appState, "triggerStartupIfNeeded called again — skipping (already started)")
             return
         }
         hasStarted = true
-        AppState.hasStartedGlobally = true
+        if sharesProcessFlag { AppState.hasStartedGlobally = true }
         Task {
             await performStartup()
         }
@@ -1631,8 +1641,8 @@ final class AppState: ObservableObject {
 
         $wordReplacements
             .dropFirst()
-            .sink { replacements in
-                Self.saveJSON(replacements, forKey: PreferenceKey.wordReplacements)
+            .sink { [weak self] replacements in
+                self?.saveJSON(replacements, forKey: PreferenceKey.wordReplacements)
             }
             .store(in: &cancellables)
 
@@ -2620,7 +2630,7 @@ final class AppState: ObservableObject {
             hotKeyManager.resetKeyState()
         }
         hasCompletedOnboarding = true
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep)
+        userDefaultsStore.removeObject(forKey: PreferenceKey.onboardingResumeStep)
         VocaLogger.info(.appState, "Onboarding completed")
     }
 
@@ -2628,18 +2638,19 @@ final class AppState: ObservableObject {
     /// was left on, so a Quit & Reopen for a permission (VocaMac's or
     /// macOS's own) lands back there; "Run setup again" starts over.
     var onboardingStartStep: OnboardingStep {
-        hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep()
+        hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep(defaults: userDefaultsStore)
     }
 
     /// Save the step onboarding is on, for `onboardingStartStep`.
     func recordOnboardingStep(_ step: OnboardingStep) {
-        UserDefaults.standard.set(step.rawValue, forKey: PreferenceKey.onboardingResumeStep)
+        userDefaultsStore.set(step.rawValue, forKey: PreferenceKey.onboardingResumeStep)
     }
 
     /// Repair completion state corrupted by the old manual "Set Up VocaMac"
     /// action. A genuine first launch has no stored value; the old action was
     /// the only production path that explicitly persisted `false`.
-    func repairLegacyOnboardingCompletionIfNeeded(defaults: UserDefaults = .standard) {
+    func repairLegacyOnboardingCompletionIfNeeded(defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? userDefaultsStore
         guard !hasCompletedOnboarding,
               defaults.object(forKey: PreferenceKey.onboardingCompleted) != nil else {
             return
@@ -2652,7 +2663,7 @@ final class AppState: ObservableObject {
     // MARK: - Snippets Management
 
     private func loadSnippets() {
-        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets") {
+        if let data = userDefaultsStore.data(forKey: "vocamac.snippets") {
             do {
                 snippets = try JSONDecoder().decode([Snippet].self, from: data)
             } catch {
@@ -2668,7 +2679,7 @@ final class AppState: ObservableObject {
     private func saveSnippets(_ snippets: [Snippet]) {
         do {
             let encoded = try JSONEncoder().encode(snippets)
-            UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")
+            userDefaultsStore.set(encoded, forKey: "vocamac.snippets")
         } catch {
             VocaLogger.error(.appState, "Failed to encode snippets: \(error)")
         }
@@ -3448,3 +3459,7 @@ extension AppState {
     }
 
 }
+
+// MARK: - Settings store
+
+extension AppState: UserDefaultsStoreProviding {}

@@ -27,7 +27,7 @@ final class AppStateWritingStyleTests: XCTestCase {
             PreferenceKey.spokenEmoji,
             PreferenceKey.automaticWritingStyles
         ] {
-            UserDefaults.standard.removeObject(forKey: key)
+            TestDefaults.store.removeObject(forKey: key)
         }
     }
 

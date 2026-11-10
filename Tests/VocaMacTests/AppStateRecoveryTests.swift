@@ -480,6 +480,7 @@ final class AppStateRecoveryTests: XCTestCase {
             transcriptCleanup: mocks.transcriptCleanup,
             permissionManager: mocks.permissionManager,
             frontmostAppResolver: mocks.frontmostAppResolver,
+            userDefaults: TestDefaults.store,
             skipSystemIntegration: true
         )
         appState.modelFitsInMemory = { _, _ in true }

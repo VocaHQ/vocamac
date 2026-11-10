@@ -383,8 +383,8 @@ extension AppState {
     /// Screen respellings seen before, by suggestion key, until one has
     /// been seen often enough to suggest.
     private var screenRespellingCounts: [String: Int] {
-        get { UserDefaults.standard.dictionary(forKey: PreferenceKey.screenRespellingCounts) as? [String: Int] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.screenRespellingCounts) }
+        get { userDefaultsStore.dictionary(forKey: PreferenceKey.screenRespellingCounts) as? [String: Int] ?? [:] }
+        set { userDefaultsStore.set(newValue, forKey: PreferenceKey.screenRespellingCounts) }
     }
 
     /// Times a screen term must replace the same words before it is
@@ -418,9 +418,9 @@ extension AppState {
     /// doesn't know that keep coming up, and suggest them.
     func suggestFrequentNamesIfDue(now: Date = Date()) {
         guard learnCorrectionsMode != .off else { return }
-        if let last = UserDefaults.standard.object(forKey: PreferenceKey.lastFrequentNameScan) as? Date,
+        if let last = userDefaultsStore.object(forKey: PreferenceKey.lastFrequentNameScan) as? Date,
            now.timeIntervalSince(last) < 24 * 60 * 60 { return }
-        UserDefaults.standard.set(now, forKey: PreferenceKey.lastFrequentNameScan)
+        userDefaultsStore.set(now, forKey: PreferenceKey.lastFrequentNameScan)
         // History keeps the newest first: these are the most recent.
         let entries = historyStore.entries.filter { $0.status == .completed && $0.commandOriginal == nil }
             .prefix(TermSuggestionFinder.maximumDictations)
@@ -631,7 +631,7 @@ extension AppState {
 
     /// How recently each Dictionary term was dictated (`TermUsage`).
     var termUsage: [String: TermUsage] {
-        TermUsage.decode(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermUsage))
+        TermUsage.decode(userDefaultsStore.dictionary(forKey: PreferenceKey.dictionaryTermUsage))
     }
 
     /// Count the Dictionary terms that appear in a dictation's final text.
@@ -642,12 +642,12 @@ extension AppState {
         let usage = termUsage
         let updated = TermUsage.recording(text, terms: terms, in: usage)
         guard updated != usage else { return }
-        UserDefaults.standard.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
+        userDefaultsStore.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
     }
 
     /// When VocaMac first saw each Dictionary term listed (`TermUsage.noting`).
     var dictionaryTermFirstSeen: [String: Date] {
-        TermUsage.decodeDates(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermFirstSeen))
+        TermUsage.decodeDates(userDefaultsStore.dictionary(forKey: PreferenceKey.dictionaryTermFirstSeen))
     }
 
     /// Start the clock for terms not seen before, and forget removed ones.
@@ -655,7 +655,7 @@ extension AppState {
         let firstSeen = dictionaryTermFirstSeen
         let updated = TermUsage.noting(vocabularyTerms + replacementTargets, in: firstSeen, now: now)
         guard updated != firstSeen else { return }
-        UserDefaults.standard.set(TermUsage.encodeDates(updated), forKey: PreferenceKey.dictionaryTermFirstSeen)
+        userDefaultsStore.set(TermUsage.encodeDates(updated), forKey: PreferenceKey.dictionaryTermFirstSeen)
     }
 
     /// Enough for the 100 terms Apple Speech and Parakeet take.
@@ -663,23 +663,23 @@ extension AppState {
     static let maximumRecognitionContextTerms = 100
 
     func loadDictionary() {
-        wordReplacements = Self.loadJSON([WordReplacement].self, forKey: PreferenceKey.wordReplacements) ?? []
-        personalFillers = Self.loadJSON([String].self, forKey: PreferenceKey.personalFillers) ?? []
-        learnedLowercaseApps = Self.loadJSON([LearnedLowercaseApp].self, forKey: PreferenceKey.learnedLowercaseApps) ?? []
-        dictionarySuggestions = Self.loadJSON([CorrectionSuggestion].self, forKey: PreferenceKey.dictionarySuggestions) ?? []
+        wordReplacements = loadJSON([WordReplacement].self, forKey: PreferenceKey.wordReplacements) ?? []
+        personalFillers = loadJSON([String].self, forKey: PreferenceKey.personalFillers) ?? []
+        learnedLowercaseApps = loadJSON([LearnedLowercaseApp].self, forKey: PreferenceKey.learnedLowercaseApps) ?? []
+        dictionarySuggestions = loadJSON([CorrectionSuggestion].self, forKey: PreferenceKey.dictionarySuggestions) ?? []
         dismissedSuggestionKeys = Set(
-            UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
+            userDefaultsStore.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
         )
         noteDictionaryTermsSeen()
     }
 
     private func saveSuggestions() {
-        Self.saveJSON(dictionarySuggestions, forKey: PreferenceKey.dictionarySuggestions)
-        UserDefaults.standard.set(Array(dismissedSuggestionKeys), forKey: PreferenceKey.dismissedDictionarySuggestions)
+        saveJSON(dictionarySuggestions, forKey: PreferenceKey.dictionarySuggestions)
+        userDefaultsStore.set(Array(dismissedSuggestionKeys), forKey: PreferenceKey.dismissedDictionarySuggestions)
     }
 
-    fileprivate static func loadJSON<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+    fileprivate func loadJSON<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
+        guard let data = userDefaultsStore.data(forKey: key) else { return nil }
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
@@ -689,16 +689,16 @@ extension AppState {
     }
 
     func savePersonalFillers() {
-        Self.saveJSON(personalFillers, forKey: PreferenceKey.personalFillers)
+        saveJSON(personalFillers, forKey: PreferenceKey.personalFillers)
     }
 
     func saveLearnedLowercaseApps() {
-        Self.saveJSON(learnedLowercaseApps, forKey: PreferenceKey.learnedLowercaseApps)
+        saveJSON(learnedLowercaseApps, forKey: PreferenceKey.learnedLowercaseApps)
     }
 
-    static func saveJSON<T: Encodable>(_ value: T, forKey key: String) {
+    func saveJSON<T: Encodable>(_ value: T, forKey key: String) {
         do {
-            UserDefaults.standard.set(try JSONEncoder().encode(value), forKey: key)
+            userDefaultsStore.set(try JSONEncoder().encode(value), forKey: key)
         } catch {
             VocaLogger.error(.dictionary, "Could not save \(key): \(error)")
         }

@@ -352,10 +352,10 @@ final class UnusedDictionaryTermTests: XCTestCase {
         let (state, _) = AppState.makeTestState()
         defer {
             state.setVocabularyTerms([])
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
         }
         state.setVocabularyTerms(["Kubernetes"])
-        UserDefaults.standard.set(
+        TestDefaults.store.set(
             TermUsage.encodeDates(["kubernetes": Date(timeIntervalSinceNow: -200 * 86_400)]),
             forKey: PreferenceKey.dictionaryTermFirstSeen
         )
@@ -408,7 +408,7 @@ final class UnusedDictionaryTermTests: XCTestCase {
         let (state, _) = AppState.makeTestState()
         defer {
             state.setVocabularyTerms([])
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
         }
         state.setVocabularyTerms(["Kubernetes"])
         state.recordTermUsage(in: "nothing relevant")

@@ -606,9 +606,9 @@ final class SettingsArchiveTests: XCTestCase {
     @MainActor
     func testDeclaredKindsMatchHowTheAppStoresSettings() {
         let keys = Array(SettingsArchiveService.keys)
-        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = keys.map { ($0, TestDefaults.store.object(forKey: $0)) }
         defer {
-            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+            for (key, value) in saved { TestDefaults.store.set(value, forKey: key) }
         }
         let (app, _) = AppState.makeTestState()
         app.hotKeyCode = 63
@@ -625,7 +625,7 @@ final class SettingsArchiveTests: XCTestCase {
         app.snippets = [Snippet(trigger: "sig", expansion: "Thanks")]
         app.saveSnippets()
 
-        let archive = SettingsArchiveService.make(defaults: .standard)
+        let archive = SettingsArchiveService.make(defaults: TestDefaults.store)
         XCTAssertGreaterThanOrEqual(archive.values.count, 12)
         for (key, value) in archive.values {
             guard let kind = SettingsArchiveService.kinds[key] else { return XCTFail("\(key) has no kind") }
@@ -691,9 +691,9 @@ final class CommandModePromptTests: XCTestCase {
     @MainActor
     func testCommandModelStaysLoadedUnlessIdleUnloadIsOn() {
         let keys = [PreferenceKey.modelKeepAliveEnabled, PreferenceKey.modelKeepAliveIdleTimeout]
-        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = keys.map { ($0, TestDefaults.store.object(forKey: $0)) }
         defer {
-            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+            for (key, value) in saved { TestDefaults.store.set(value, forKey: key) }
         }
         let (app, _) = AppState.makeTestState()
         app.modelKeepAliveEnabled = false
@@ -713,7 +713,7 @@ final class CommandModePromptTests: XCTestCase {
     func testClipboardFallbackNeedsConsent() {
         XCTAssertTrue(SelectionCaptureFailure.needsClipboardFallback.message.contains("Copy the selection"))
         let service = AccessibilitySelectedTextService(textInjector: MockTextInjector())
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
         let allowed = service.allowsClipboardFallback()
         XCTAssertFalse(allowed, "Off until the user turns it on")
     }

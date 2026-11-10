@@ -15,7 +15,7 @@ final class SettingsPolishStateTests: XCTestCase {
     private var mocks: TestMocks!
 
     override func setUp() async throws {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.selectedModelSize)
         let (state, testMocks) = AppState.makeTestState()
         appState = state
         mocks = testMocks
@@ -24,7 +24,7 @@ final class SettingsPolishStateTests: XCTestCase {
 
     override func tearDown() async throws {
         appState.setVocabularyTerms([])
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.selectedModelSize)
         appState = nil
         mocks = nil
     }

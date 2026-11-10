@@ -668,7 +668,7 @@ final class CustomEndpointServiceTests: XCTestCase {
     @MainActor
     func testAppStatePersistsTheEndpointSettings() {
         let (appState, _) = AppState.makeTestState()
-        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.speechEndpoint) }
+        defer { TestDefaults.store.removeObject(forKey: PreferenceKey.speechEndpoint) }
 
         var configuration = SpeechEndpointConfiguration()
         configuration.kind = .whisperCpp
@@ -677,7 +677,7 @@ final class CustomEndpointServiceTests: XCTestCase {
 
         XCTAssertEqual(
             SpeechEndpointConfiguration.decode(
-                UserDefaults.standard.string(forKey: PreferenceKey.speechEndpoint)
+                TestDefaults.store.string(forKey: PreferenceKey.speechEndpoint)
             ),
             configuration
         )

@@ -88,11 +88,11 @@ final class LaunchAtLoginTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
         super.tearDown()
     }
 
@@ -104,7 +104,7 @@ final class LaunchAtLoginTests: XCTestCase {
 
     @MainActor
     func testLaunchAtLoginPersistence() {
-        UserDefaults.standard.set(true, forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.set(true, forKey: "vocamac.launchAtLogin")
         let (appState, _) = AppState.makeTestState()
         XCTAssertTrue(appState.launchAtLogin)
     }
@@ -171,7 +171,7 @@ final class AppStateOnboardingTests: XCTestCase {
             "vocamac.hotKeyModifiers",
             "vocamac.doubleTapThreshold",
             "vocamac.maxRecordingDuration",
-        ].forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        ].forEach { TestDefaults.store.removeObject(forKey: $0) }
     }
 
     @MainActor
@@ -193,7 +193,7 @@ final class AppStateOnboardingTests: XCTestCase {
     @MainActor
     func testUnfinishedOnboardingReopensOnTheRecordedStep() {
         let (appState, _) = AppState.makeTestState()
-        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
+        defer { TestDefaults.store.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
 
         appState.recordOnboardingStep(.permissions)
 
@@ -203,12 +203,12 @@ final class AppStateOnboardingTests: XCTestCase {
     @MainActor
     func testFinishingOnboardingForgetsTheStepAndRerunsStartOver() {
         let (appState, _) = AppState.makeTestState()
-        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
+        defer { TestDefaults.store.removeObject(forKey: PreferenceKey.onboardingResumeStep) }
         appState.recordOnboardingStep(.quickTest)
 
         appState.completeOnboarding()
 
-        XCTAssertNil(UserDefaults.standard.object(forKey: PreferenceKey.onboardingResumeStep))
+        XCTAssertNil(TestDefaults.store.object(forKey: PreferenceKey.onboardingResumeStep))
         XCTAssertEqual(appState.onboardingStartStep, .welcome)
     }
 
@@ -274,7 +274,7 @@ final class AppStateOnboardingTests: XCTestCase {
 
     @MainActor
     func testOnboardingFlagPersistence() {
-        UserDefaults.standard.set(true, forKey: PreferenceKey.onboardingCompleted)
+        TestDefaults.store.set(true, forKey: PreferenceKey.onboardingCompleted)
 
         let (appState, _) = AppState.makeTestState()
 
@@ -283,7 +283,7 @@ final class AppStateOnboardingTests: XCTestCase {
 
     @MainActor
     func testLegacyExplicitFalseCompletionIsRepaired() {
-        UserDefaults.standard.set(false, forKey: PreferenceKey.onboardingCompleted)
+        TestDefaults.store.set(false, forKey: PreferenceKey.onboardingCompleted)
         let (appState, _) = AppState.makeTestState()
 
         appState.repairLegacyOnboardingCompletionIfNeeded()
@@ -298,7 +298,7 @@ final class AppStateOnboardingTests: XCTestCase {
         appState.repairLegacyOnboardingCompletionIfNeeded()
 
         XCTAssertFalse(appState.hasCompletedOnboarding)
-        XCTAssertNil(UserDefaults.standard.object(forKey: PreferenceKey.onboardingCompleted))
+        XCTAssertNil(TestDefaults.store.object(forKey: PreferenceKey.onboardingCompleted))
     }
 
     @MainActor
@@ -358,11 +358,11 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        Self.ownedDefaultsKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        Self.ownedDefaultsKeys.forEach { TestDefaults.store.removeObject(forKey: $0) }
     }
 
     override func tearDown() {
-        Self.ownedDefaultsKeys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        Self.ownedDefaultsKeys.forEach { TestDefaults.store.removeObject(forKey: $0) }
         super.tearDown()
     }
 
@@ -392,12 +392,12 @@ final class AppStateModelLoadingTests: XCTestCase {
     /// the picker only lists it for someone who already has it selected.
     @MainActor
     func testLegacyCanaryIsListedOnlyWhileSelected() {
-        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
         let (appState, _) = AppState.makeTestState(modelManager: MockModelManager())
         XCTAssertNil(appState.availableModels.first(where: { $0.size == .canary180mFlash }))
         XCTAssertNotNil(appState.availableModels.first(where: { $0.size == .parakeetV3 }))
 
-        UserDefaults.standard.set(ModelSize.canary180mFlash.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.canary180mFlash.rawValue, forKey: "vocamac.selectedModelSize")
         let (selecting, _) = AppState.makeTestState(modelManager: MockModelManager())
         XCTAssertEqual(
             selecting.availableModels.first(where: { $0.size == .canary180mFlash })?.isActive,
@@ -407,7 +407,7 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     @MainActor
     func testFailedModelSwitchShowsErrorAndRestoresPreviousModel() async {
-        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
 
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small, .medium]
@@ -452,7 +452,7 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     @MainActor
     func testLoadingWithNoSizeUsesTheStoredPreferenceNotEngineAutoSelect() async {
-        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
 
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small]
@@ -550,7 +550,7 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     @MainActor
     func testLowMemoryGateRefusesMediumBeforeWhisperWithoutTouchingLoadedModel() async {
-        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
 
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small, .medium]
@@ -727,7 +727,7 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     @MainActor
     func testStartupFallsBackFromUnsupportedMediumPreference() async {
-        UserDefaults.standard.set(ModelSize.medium.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.medium.rawValue, forKey: "vocamac.selectedModelSize")
 
         let modelManager = MockModelManager()
         modelManager.defaultModel = "openai_whisper-large-v3-v20240930"
@@ -757,7 +757,7 @@ final class AppStateModelLoadingTests: XCTestCase {
 
     @MainActor
     func testStartupFallbackStaysOnTheSameEngine() async {
-        UserDefaults.standard.set(ModelSize.medium.rawValue, forKey: "vocamac.selectedModelSize")
+        TestDefaults.store.set(ModelSize.medium.rawValue, forKey: "vocamac.selectedModelSize")
 
         // Apple Speech is supported and always counts as downloaded, and it
         // sits after the Whisper models in the catalog. A Whisper user whose

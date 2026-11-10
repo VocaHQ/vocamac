@@ -69,7 +69,7 @@ final class DictationPresentationTests: XCTestCase {
     override func tearDown() async throws {
         state = nil
         mocks = nil
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.modelRecommendationPriority)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.modelRecommendationPriority)
     }
 
     private func model(_ size: ModelSize, downloaded: Bool) -> WhisperModelInfo {

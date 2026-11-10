@@ -594,9 +594,9 @@ final class CleanupModelTests: XCTestCase {
 final class AppStateTranscriptCleanupTests: XCTestCase {
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
         super.tearDown()
     }
 

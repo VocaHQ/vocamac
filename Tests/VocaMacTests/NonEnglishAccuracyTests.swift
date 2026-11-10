@@ -102,12 +102,12 @@ final class UnchosenDefaultModelTests: XCTestCase {
     // `AppState` keeps its settings in the standard defaults.
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.speechModelChosen)
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.speechModelChosen)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.selectedModelSize)
         super.tearDown()
     }
 

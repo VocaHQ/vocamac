@@ -13,9 +13,9 @@ import XCTest
 final class AppStateSpotifyPauseTests: XCTestCase {
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.pauseSpotifyEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: PreferenceKey.pauseSpotifyEnabled)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.duckOtherAudioEnabled)
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
         super.tearDown()
     }
 

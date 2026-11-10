@@ -23,8 +23,8 @@ final class AIModelRoleTests: XCTestCase {
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.aiModelsKeptSeparate)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.commandModeEngine)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.aiModelsKeptSeparate)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.commandModeEngine)
         super.tearDown()
     }
 

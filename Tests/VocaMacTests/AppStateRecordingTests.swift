@@ -13,11 +13,11 @@ final class AppStateRecordingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
         super.tearDown()
     }
 
@@ -584,7 +584,7 @@ final class AppStateRecordingTests: XCTestCase {
     }
 
     func testDictationToneDefaultsToVoca() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.dictationTone)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.dictationTone)
         let (appState, _) = AppState.makeTestState()
 
         XCTAssertEqual(appState.dictationTone, .voca,
@@ -772,11 +772,7 @@ final class AppStateRecordingTests: XCTestCase {
     }
 
     func testTriggerStartupIdempotent() {
-        // Reset the global flag so this test is self-contained regardless of
-        // test execution order.
-        AppState.hasStartedGlobally = false
-        defer { AppState.hasStartedGlobally = false }
-
+        // Test states don't share the process-wide flag, so nothing to reset.
         let (appState, _) = AppState.makeTestState()
 
         appState.triggerStartupIfNeeded()
@@ -872,8 +868,8 @@ final class AppStateForceRecoveryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.hasCompletedOnboarding")
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.hasCompletedOnboarding")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
     }
 
     @MainActor
@@ -963,8 +959,8 @@ final class AppStateRecordingGuardTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.hasCompletedOnboarding")
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.hasCompletedOnboarding")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
     }
 
     @MainActor
@@ -1253,11 +1249,11 @@ final class AppStateTranslationTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        keys.forEach { TestDefaults.store.removeObject(forKey: $0) }
     }
 
     override func tearDown() {
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        keys.forEach { TestDefaults.store.removeObject(forKey: $0) }
         super.tearDown()
     }
 

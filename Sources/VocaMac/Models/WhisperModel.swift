@@ -220,10 +220,11 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// it keeps working for anyone who has it selected, but the picker and
     /// suggestions no longer offer it.
     ///
-    /// Canary 180M Flash lost to both Parakeet v3 and Nemotron Unified on
-    /// accuracy and speed in Spanish, German and French (synthetic speech,
-    /// 16 clips per language, M1 Pro, 2026-11-10: 8.0 % WER against 5.5 % and
-    /// 6.3 %, and the slowest in every language). See docs/MODELS.md.
+    /// Canary 180M Flash lost to both Parakeet v3 and Nemotron Unified across
+    /// Spanish, German and French together (synthetic speech, 16 clips per
+    /// language, M1 Pro, 2026-11-10: 8.0 % WER against 5.5 % and 6.3 %; in
+    /// French alone the three were within one error) and was the slowest in
+    /// every language. See docs/MODELS.md.
     var isLegacy: Bool {
         self == .medium || self == .canary180mFlash
     }

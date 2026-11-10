@@ -160,7 +160,7 @@ extension ModelSize {
         case .senseVoiceSmall:           return "Chinese, Cantonese, English, Japanese, and Korean."
         case .senseVoiceNeuralEngine:    return "SenseVoice on the Neural Engine: faster, and up to 100 s in one pass."
         case .gigaamV3:                  return "A Russian specialist that adds punctuation."
-        case .canary180mFlash:           return "Kept for older settings. Parakeet v3 is more accurate and faster in Spanish, German and French."
+        case .canary180mFlash:           return "Kept for older settings. Parakeet v3 is faster in Spanish, German and French, and more accurate across the three."
         case .qwen3Asr06B:               return "30 languages, including Hindi, Arabic, and Thai."
         case .cohereTranscribe:          return "14 languages, one at a time, and the most accurate model in VocaMac's tests. Large, and runs on the CPU."
         case .customEndpoint:            return "Your Whisper-compatible server — dictation goes to it over the network."

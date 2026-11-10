@@ -82,7 +82,7 @@ Community models via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx). These
 | **Moonshine v2 Base** | ~142 MB | Low-RAM Macs, English |
 | **SenseVoice** | ~241 MB | Chinese, Japanese, Korean, Cantonese, English |
 | **GigaAM v3** | ~225 MB | Russian, with punctuation |
-| **Canary 180M Flash** *(legacy)* | ~207 MB | Kept for anyone who already uses it; no longer listed. Parakeet v3 is more accurate and faster in Spanish, German and French |
+| **Canary 180M Flash** *(legacy)* | ~207 MB | Kept for anyone who already uses it; no longer listed. Parakeet v3 is faster in Spanish, German and French, and more accurate across the three (French alone was within one error) |
 | **Qwen3 ASR 0.6B** | ~1 GB | Accurate transcription across 30 languages and Chinese dialects |
 | **Cohere Transcribe** | ~2.9 GB | The most accurate model on the set above (1.2 % word error rate, 0.40 s per sentence), in 14 languages: Arabic, Chinese, Dutch, English, French, German, Greek, Italian, Japanese, Korean, Polish, Portuguese, Spanish, Vietnamese. Needs about 4.5 GB of memory and takes about 5 s to load. |
 

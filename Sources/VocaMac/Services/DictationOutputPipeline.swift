@@ -552,7 +552,8 @@ struct DictationOutputPipeline {
             snippets.expandMasked(in: input, using: options.snippetList + protectedTerms),
             emoji: options.spokenEmoji,
             numbers: (options.numbers ?? (options.numbersAsDigits ? .digits : .words)).mode(for: profile.format),
-            symbols: options.numberSymbols, language: options.language
+            symbols: options.numberSymbols, language: options.language,
+            figuresAsWords: isEnglishText && profile.format.supportsWording
         )
         return .prepared(PreparedDictation(
             masked: converted.masked, closingGlyph: converted.closingGlyph,
@@ -1207,7 +1208,7 @@ struct DictationOutputPipeline {
     /// - Returns: The converted mask, and the glyph when one ends the text.
     static func convertSpokenForms(
         _ masked: MaskedText, emoji: Bool, numbers: (digits: Bool, smallNumbersAsWords: Bool),
-        symbols: Bool = false, language: String?
+        symbols: Bool = false, language: String?, figuresAsWords: Bool = false
     ) -> (masked: MaskedText, closingGlyph: String?) {
         var text = masked.text
         var replacements = masked.replacements
@@ -1222,6 +1223,14 @@ struct DictationOutputPipeline {
         }
         if numbers.digits {
             text = SpokenNumbers.digits(in: text, symbols: symbols, smallNumbersAsWords: numbers.smallNumbersAsWords)
+        }
+        // Newspaper style asks for one to nine as words, so an engine that
+        // writes figures itself (Parakeet Unified: "2 ideas") reads the same
+        // as one that spells them out. "As spoken" (`NumberWriting.words`)
+        // keeps whatever the engine wrote. English prose only; see
+        // `SpokenNumbers.words(forFiguresIn:)`.
+        if figuresAsWords, numbers.digits, numbers.smallNumbersAsWords {
+            text = SpokenNumbers.words(forFiguresIn: text)
         }
         var closingGlyph: String?
         if let last = text.last(where: { !$0.isWhitespace }),

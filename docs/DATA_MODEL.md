@@ -551,6 +551,15 @@ strings convert after a cue ("my number is", "code", "room") or with an inner
 ninety nine" → 1999); times before am or pm ("seven thirty pm" → 7:30 pm).
 "two and a half" is 2.5; "three quarters" stays words.
 
+In newspaper style (Automatic numbers in prose), a figure an engine wrote
+itself gets the same treatment as a spoken one: Parakeet Unified's "2 ideas"
+becomes "two ideas", as Whisper's "two ideas" stays. Only a lone 1–9 in
+English running text: never one with a unit or a numbering word ("5 pm",
+"version 2"), paired with a larger number ("between 5 and 12"), inside a
+decimal, time, range, amount or code ("2.5", "3:30", "$5", "v2"), a list
+number ("1. Buy milk"), or after a capitalised word ("Python 3"). "As spoken"
+keeps whatever the engine wrote.
+
 One deliberate difference from VocaPhone: "second" after "twenty"–"ninety",
 "hundred", or a scale word stays an ordinal when no duration can be meant —
 after a month or possessive, at the end of a sentence, or before a

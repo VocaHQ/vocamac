@@ -52,6 +52,7 @@ swift test --filter SpeechAccuracyBenchmarkTests
 | `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` | Download missing speech and cleanup models; otherwise they are skipped. |
 | `VOCAMAC_ACCURACY_LANGUAGE` | Language code; unset or `auto` detects. |
 | `VOCAMAC_ACCURACY_VOCABULARY` | Comma-separated Dictionary terms for every file (each file's `.terms.txt` is added). |
+| `VOCAMAC_ACCURACY_SKIP_SILENCE=0` | Decode without trimming pauses (Skip Silence off), to see what the trim does. |
 | `VOCAMAC_ACCURACY_VOCABULARY_PAIRED=1` | Decode each file with and without the vocabulary and report WER and term recall for both, to see what hints buy on each engine and what they pull in where they were not said. Parakeet applies hints through a separate boost model: with `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` it is downloaded, otherwise the report lists the model under "hints not tested". |
 | `VOCAMAC_ACCURACY_FINAL=1` | Also score the text after the output rules, with Smart Cleanup off. |
 | `VOCAMAC_ACCURACY_CLEANUP_MODEL` | A cleanup model id (for example `qwen25_0_5b_q4_k_m`) or the path to its `.gguf`. Implies FINAL and runs the real model, skipped when the rules left nothing to do, as the app does by default. |
@@ -66,6 +67,14 @@ swift test --filter SpeechAccuracyBenchmarkTests
 To check one recording by hand, the CLI takes the same hints: `VocaMac --transcribe-file clip.wav --json --vocabulary terms.txt` (see [CLI.md](CLI.md#recognition-hints)).
 
 Stop other builds before collecting timings. Accuracy does not depend on load.
+
+## Checks already run
+
+Small, targeted runs whose results decide a setting. Rerun them when the thing they measured changes.
+
+**Skip Silence and punctuation** (2026-11-10, Parakeet Ultra, M1 Pro). Skip Silence cuts each pause to 0.4 s before decoding, and engines write a pause as a full stop, so the cut could change punctuation. Twelve synthetic English passages (`say`, Samantha) with 0.8–2.0 s pauses between sentences, after commas and in the middle of a clause, decoded with the trim on and off: all twelve transcripts were identical, word for word and mark for mark. Two mid-clause pauses ("I was going to call her … but the line was busy") came out as a full stop both ways, so the 0.4 s cap neither causes nor prevents that. The cap stays. Synthetic speech only; recorded speech may differ.
+
+**Cleanup probes in other languages** (2026-11-10, Qwen 2.5 1.5B, Medium). `CleanupModelEvaluationTests` has 24 probes in German, French, Spanish, Portuguese and Italian (`VOCAMAC_CLEANUP_EVALUATION_LANGUAGES=de,fr,es,pt,it` runs only those). In other languages the merge takes only punctuation and capitals from the model. All seven already-punctuated probes came back exactly as spoken: the model echoed six and translated one into English, which the merge refused. So `CleanupNeed` now skips the model for other-language text whose punctuation is already right. Over all 25 other-language probes (with the older German one) the model translated 7 into English; the merge kept the speaker's words each time, and the unpunctuated ones among them got no punctuation either. German "öhm" and Portuguese "hum" and "ãh" were left in by the model and are now removed by rule.
 
 ## The nightly workflow
 

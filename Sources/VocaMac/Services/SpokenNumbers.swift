@@ -829,6 +829,109 @@ enum SpokenNumbers {
         return words.token(position + 1) == .hundred
     }
 
+    // MARK: - Figures an engine wrote
+
+    /// Words for one to nine where an engine wrote figures, in newspaper
+    /// style (`NumberWriting.automatic` in prose): Parakeet Unified writes
+    /// "2 ideas" where Whisper writes "two ideas", and the setting asks for
+    /// the second. English only.
+    ///
+    /// Deliberately narrow, since a wrong word is worse than a kept figure:
+    /// only a lone digit in running text, and only where a spoken number
+    /// would also have stayed a word, so "5 pm", "version 2" and "between 5
+    /// and 12" keep their figures. Never part of a decimal, time, date,
+    /// range, code or amount ("2.5", "3:30", "1/2", "$5", "v2", "50%"), a
+    /// list number ("1. Buy milk"), or a name ("Python 3", "Windows 8").
+    static func words(forFiguresIn text: String) -> String {
+        guard let figurePattern, text.contains(where: \.isNumber) else { return text }
+        let ns = text as NSString
+        var result = text
+        // Back to front, so earlier ranges stay valid.
+        for match in figurePattern.matches(in: text, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let figure = ns.substring(with: match.range)
+            guard let value = Int(figure),
+                  let spelled = spelledOut(value) else { continue }
+            let before = ns.substring(to: match.range.location)
+            let after = ns.substring(from: match.range.upperBound)
+            let previous = lastWord(in: before), next = firstWord(in: after)
+            if let previous, previous.joinedBySpace, previous.isCapitalised, !previous.startsSentence { continue }
+            if let next, next.joinedBySpace, quantifyingUnits.contains(next.word.lowercased()) { continue }
+            if let previous, previous.joinedBySpace, numberingWords.contains(previous.word.lowercased()) { continue }
+            if pairsWithLargeNumber(before: before, after: after) { continue }
+            // "2 ideas" at the start of a sentence becomes "Two ideas", but
+            // "1. Buy milk" and "2) Call Sam" are list numbers.
+            let atSentenceStart = previous.map { $0.word.isEmpty && $0.startsSentence } ?? true
+            if atSentenceStart, after.first == "." || after.first == ")" { continue }
+            let replacement = atSentenceStart ? spelled.prefix(1).uppercased() + spelled.dropFirst() : spelled
+            if let range = Range(match.range, in: result) { result.replaceSubrange(range, with: replacement) }
+        }
+        return result
+    }
+
+    /// A digit from 1 to 9 not touching letters, other digits, or the marks
+    /// that make a figure part of something else (a decimal point, a time's
+    /// colon, a slash, a currency or percent sign, a hyphenated code).
+    private static let figurePattern = try? NSRegularExpression(
+        pattern: #"(?<![\p{L}\p{N}.,:/$€£¥#+\-–_@'’°%])[1-9](?![\p{L}\p{N}%°$€£¥:/_@'’+\-–]|[.,]\p{N})"#
+    )
+
+    /// "two", for 1–9.
+    private static func spelledOut(_ value: Int) -> String? {
+        units.first { $0.value == value }?.key
+    }
+
+    private struct Neighbour {
+        let word: String
+        /// Only a single space separates it from the figure.
+        let joinedBySpace: Bool
+        var isCapitalised: Bool { word.first?.isUppercase == true }
+        /// Nothing but sentence punctuation, or the start of the text, before
+        /// it. With no word (`word` empty), whether the figure starts one.
+        let startsSentence: Bool
+    }
+
+    /// The word right before the figure, with what sits between them.
+    private static func lastWord(in before: String) -> Neighbour? {
+        let trimmed = before.reversed().drop { $0 == " " }
+        let gap = before.count - trimmed.count
+        let word = String(trimmed.prefix { $0.isLetter || $0 == "'" || $0 == "’" }.reversed())
+        let rest = trimmed.dropFirst(word.count).drop { $0 == " " }
+        // No word right before: a sentence break, or the start of the text.
+        guard !word.isEmpty, gap == 1 else {
+            let start = trimmed.first.map { ".!?\n".contains($0) } ?? true
+            return Neighbour(word: "", joinedBySpace: false, startsSentence: start)
+        }
+        let startsSentence = rest.first.map { ".!?\n".contains($0) } ?? true
+        return Neighbour(word: word, joinedBySpace: true, startsSentence: startsSentence)
+    }
+
+    /// The word right after the figure.
+    private static func firstWord(in after: String) -> Neighbour? {
+        guard after.first == " " else { return nil }
+        let word = String(after.dropFirst().prefix { $0.isLetter || $0 == "'" || $0 == "’" })
+        guard !word.isEmpty else { return nil }
+        return Neighbour(word: word, joinedBySpace: true, startsSentence: false)
+    }
+
+    /// "between 5 and 12", "12 or 5": a small number paired with a large one
+    /// reads as figures.
+    private static func pairsWithLargeNumber(before: String, after: String) -> Bool {
+        let isLarge = { (word: Substring) in
+            (Int(word).map { $0 >= 10 } ?? false) || teens[word.lowercased()] != nil || tens[word.lowercased()] != nil
+        }
+        let following = after.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false)
+        if following.count >= 3, following[0].isEmpty, pairingWords.contains(following[1].lowercased()),
+           isLarge(following[2].prefix { $0.isLetter || $0.isNumber }) {
+            return true
+        }
+        let preceding = before.split(separator: " ", omittingEmptySubsequences: false).reversed().map { $0 }
+        if preceding.count >= 3, preceding[0].isEmpty, pairingWords.contains(preceding[1].lowercased()),
+           isLarge(preceding[2].drop { !($0.isLetter || $0.isNumber) }) {
+            return true
+        }
+        return false
+    }
+
     // MARK: - Words
 
     /// The words of a transcript, lower-cased once, with the text between them.

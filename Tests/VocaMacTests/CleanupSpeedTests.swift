@@ -68,8 +68,18 @@ final class CleanupNeedTests: XCTestCase {
         XCTAssertNotNil(reason("git status, like, right now", technical: true))
     }
 
-    func testOtherLanguagesAlwaysGoToTheModel() {
-        XCTAssertNotNil(reason("Das klingt gut, danke.", isEnglish: false))
+    func testOtherLanguagesGoToTheModelOnlyForPunctuation() {
+        // The model may only punctuate and capitalise other languages.
+        XCTAssertNil(reason("Das klingt gut, danke.", isEnglish: false))
+        XCTAssertNil(reason("Est-ce que tu peux m'envoyer le rapport avant vendredi ?", isEnglish: false))
+        XCTAssertNil(reason("¿Puedes enviarme el informe antes del viernes?", level: .grammar, isEnglish: false))
+        XCTAssertNotNil(reason("kannst du mir den bericht schicken", isEnglish: false))
+        XCTAssertNotNil(reason("Wir sind fertig. danach gehen wir", isEnglish: false))
+        // Sentence marks the check doesn't know still ask the model.
+        XCTAssertNotNil(reason("明天开会。", isEnglish: false))
+        XCTAssertNotNil(reason("कल deploy मत करना।", isEnglish: false))
+        // Code and Terminal never send other languages to the model.
+        XCTAssertNotNil(reason("git status ausführen.", technical: true, isEnglish: false))
     }
 
     func testPlaceholdersCountAsWordsAndSentenceEnds() {

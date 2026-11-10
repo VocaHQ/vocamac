@@ -894,7 +894,12 @@ final class AudioEngine: @unchecked Sendable {
 
             collectInputTail()
             setRecordingActive(false)
-            waitForBuffersInFlight()
+            // A callback still appending after the bounded wait (a stalled
+            // render thread) must not append after the hand-back: tear the
+            // capture down first then, as before this change, since
+            // stopping the engine waits for the render thread to finish.
+            let tornDown = !waitForBuffersInFlight()
+            if tornDown { tearDownStoppedCapture() }
 
             // Hand the audio back first: once the phase is `.stopped` the tap
             // keeps nothing more, so removing it and stopping the engine
@@ -908,11 +913,14 @@ final class AudioEngine: @unchecked Sendable {
                 "Captured \(samples.count) samples (\(String(format: "%.2f", duration))s)"
             )
 
-            lifecycleQueue.async { [self] in
-                // Defensive: the queue is serial, so a later start runs after
-                // this, but never tear down an engine that is recording again.
-                guard !_isCurrentlyRecording else { return }
-                tearDownStoppedCapture()
+            if !tornDown {
+                lifecycleQueue.async { [self] in
+                    // Defensive: the queue is serial, so a later start runs
+                    // after this, but never tear down an engine that is
+                    // recording again.
+                    guard !_isCurrentlyRecording else { return }
+                    tearDownStoppedCapture()
+                }
             }
 
             return samples
@@ -924,13 +932,19 @@ final class AudioEngine: @unchecked Sendable {
 
     /// Waits until no tap callback is between its phase check and its
     /// append, so the samples handed back include everything it accepted.
-    /// Bounded, so a stalled render thread can't hold the stop.
+    /// Bounded, so a stalled render thread can't hold the stop; false when
+    /// a callback was still in flight at the deadline.
     /// Must be called on `lifecycleQueue` after the phase is stopped.
-    private func waitForBuffersInFlight() {
+    private func waitForBuffersInFlight() -> Bool {
         let deadline = Date().addingTimeInterval(Self.inFlightBufferWait)
-        while buffersInFlight.withLock({ $0 }) > 0, Date() < deadline {
+        while buffersInFlight.withLock({ $0 }) > 0 {
+            guard Date() < deadline else {
+                VocaLogger.warning(.audioEngine, "An audio callback was still running at stop; stopping the engine before taking the audio")
+                return false
+            }
             Thread.sleep(forTimeInterval: 0.001)
         }
+        return true
     }
 
     /// Removes the tap and stops the engine after a recording stops.

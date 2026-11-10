@@ -68,6 +68,7 @@ enum SettingsArchiveService {
         PreferenceKey.historyKeepsAudio: .bool, PreferenceKey.modelKeepAliveEnabled: .bool,
         PreferenceKey.numbersAsDigits: .bool, PreferenceKey.numberSymbols: .bool,
         PreferenceKey.spokenEmoji: .bool, PreferenceKey.processWhileSpeaking: .bool,
+        PreferenceKey.parakeetLiveStreaming: .bool,
         PreferenceKey.transcriptCleanupEnabled: .bool, PreferenceKey.useScreenContext: .bool,
         PreferenceKey.aiModelsKeptSeparate: .bool, PreferenceKey.cleanupSkipsCleanText: .bool,
         PreferenceKey.writingRewriteEnabled: .bool, PreferenceKey.writingStyleEnabled: .bool,

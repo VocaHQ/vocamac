@@ -32,10 +32,12 @@ enum CalmModelText {
         case .parakeetV2: return "Parakeet v2"
         case .parakeetUnified: return "Parakeet Unified"
         case .parakeetTdtCtc110m: return "Parakeet 110M"
+        case .nemotronUnified: return "Nemotron Unified"
         case .appleSpeech: return "Apple Speech"
         case .moonshineTiny: return "Moonshine v2 Tiny"
         case .moonshineBase: return "Moonshine v2 Base"
         case .senseVoiceSmall: return "SenseVoice"
+        case .senseVoiceNeuralEngine: return "SenseVoice"
         case .gigaamV3: return "GigaAM v3"
         case .canary180mFlash: return "Canary 180M"
         case .qwen3Asr06B: return "Qwen3 ASR 0.6B"
@@ -54,11 +56,12 @@ enum CalmModelText {
         case .medium: return "Legacy"
         case .largeV3Latest, .largeV3LatestTurbo: return "Full precision"
         case .largeV3Turbo: return "Original"
-        case .parakeetUltra, .parakeetV3: return "Multilingual"
+        case .parakeetUltra, .parakeetV3, .nemotronUnified: return "Multilingual"
         case .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase,
              .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return "English"
         case .gigaamV3: return "Russian"
+        case .senseVoiceNeuralEngine: return "Neural Engine"
         case .vocaHinglish: return "Hindi + English"
         default: return nil
         }

@@ -215,6 +215,7 @@ enum CalmNavigation {
     static let entryOverrides: [String: CalmDestination] = [
         // Dictation page → General, except this App row in System.
         "process-while-speaking": .settings(.system),
+        "transcribe-as-you-speak": .settings(.system),
         // Audio's microphone controls live in General's Microphone picker.
         "microphone": .settings(.general),
         "closed-lid-microphone": .settings(.general),

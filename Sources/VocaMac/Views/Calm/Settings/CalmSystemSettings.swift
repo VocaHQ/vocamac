@@ -26,6 +26,19 @@ struct CalmSystemSettings: View {
         CalmOption(600, "10 minutes"), CalmOption(900, "15 minutes"), CalmOption(1800, "30 minutes"),
     ]
 
+    /// Switching reloads a model that has a streaming export: it is a
+    /// different encoder.
+    private var liveStreamingBinding: Binding<Bool> {
+        Binding(
+            get: { appState.parakeetLiveStreaming },
+            set: { isOn in
+                guard isOn != appState.parakeetLiveStreaming else { return }
+                appState.parakeetLiveStreaming = isOn
+                Task { await appState.reloadModelForLiveStreamingChangeIfNeeded() }
+            }
+        )
+    }
+
     var body: some View {
         CalmPage(.sheet) {
             CalmPageHeader("System")
@@ -40,6 +53,12 @@ struct CalmSystemSettings: View {
                         isOn: $appState.processWhileSpeaking
                     )
                     .settingsTarget("process-while-speaking")
+                    CalmToggleRow(
+                        "Transcribe as you speak",
+                        description: "Parakeet Unified and Nemotron Unified only. Text is ready about two seconds after you stop. A second download, slightly less accurate.",
+                        isOn: liveStreamingBinding
+                    )
+                    .settingsTarget("transcribe-as-you-speak")
                     CalmToggleRow(
                         "Restore clipboard after typing",
                         description: "Puts back what you had copied",

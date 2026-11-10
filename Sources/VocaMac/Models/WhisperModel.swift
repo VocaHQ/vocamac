@@ -204,7 +204,6 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .senseVoiceSmall,
         .senseVoiceNeuralEngine,
         .gigaamV3,
-        .canary180mFlash,
         .qwen3Asr06B,
         .cohereTranscribe,
         .customEndpoint,
@@ -217,9 +216,16 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         SherpaModelCatalog.spec(for: self)?.needsOneLanguage ?? false
     }
 
-    /// Whether this model is kept only for compatibility or explicit support.
+    /// Whether this model is kept only for compatibility or explicit support:
+    /// it keeps working for anyone who has it selected, but the picker and
+    /// suggestions no longer offer it.
+    ///
+    /// Canary 180M Flash lost to both Parakeet v3 and Nemotron Unified on
+    /// accuracy and speed in Spanish, German and French (synthetic speech,
+    /// 16 clips per language, M1 Pro, 2026-11-10: 8.0 % WER against 5.5 % and
+    /// 6.3 %, and the slowest in every language). See docs/MODELS.md.
     var isLegacy: Bool {
-        self == .medium
+        self == .medium || self == .canary180mFlash
     }
 
     /// Human-readable display name

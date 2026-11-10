@@ -1888,11 +1888,15 @@ final class AppState: ObservableObject {
     /// exact variants WhisperKit marks supported for the current device.
     /// Models whose engine cannot run on this system at all (e.g. Apple
     /// Speech before macOS 26, Parakeet on Intel) are excluded entirely.
+    /// Other engines report every model they can run as supported, so only
+    /// WhisperKit's list extends the catalog; otherwise a model left out of
+    /// it on purpose (Canary 180M Flash) would come straight back. A legacy
+    /// model still appears while it is the selected one.
     private func modelCatalog() -> [ModelSize] {
         var catalog = ModelSize.standardCatalog.filter { $0.isAvailableOnThisSystem }
 
         for size in ModelSize.allCases
-        where size.isAvailableOnThisSystem && modelManager.isModelSupported(size) {
+        where size.engine == .whisperKit && size.isAvailableOnThisSystem && modelManager.isModelSupported(size) {
             if !catalog.contains(size) {
                 catalog.append(size)
             }

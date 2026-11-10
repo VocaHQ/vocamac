@@ -57,7 +57,7 @@ enum OnboardingModelGuidance {
         // exactly one of its languages; otherwise every recording would be
         // decoded as one language.
         let covering = availableModels.filter {
-            $0.isSupported && !$0.size.isRemotelyHosted
+            $0.isSupported && !$0.size.isRemotelyHosted && !$0.size.isLegacy
                 && ($0.size.needsOneLanguage ? codes.count == 1 : true)
                 && ModelPickerCatalog.fit(of: $0.size, for: codes, systemLanguages: systemLanguages).coversAll
         }
@@ -155,17 +155,14 @@ enum OnboardingModelGuidance {
                 title: "East Asian language specialist",
                 explanation: "A compact model with explicit Chinese, Japanese, Korean, and English support."
             )]
-        case "es", "de", "fr":
-            specialists = [OnboardingModelRecommendation(
-                model: .canary180mFlash,
-                title: "Focused multilingual dictation",
-                explanation: "A compact model with explicit English, Spanish, German, and French support."
-            )]
         default:
-            // The rest of Parakeet's European languages: far faster than
-            // Whisper Small on the Neural Engine. v3 rather than Ultra: on
-            // synthetic Italian and Swedish speech Ultra was no better
-            // (Swedish 17 % against v3's 10 %).
+            // Parakeet's European languages: far faster than Whisper Small
+            // on the Neural Engine. v3 rather than Ultra: on synthetic
+            // Italian and Swedish speech Ultra was no better (Swedish 17 %
+            // against v3's 10 %). Spanish, German and French used to get
+            // Canary 180M Flash; on 16 synthetic clips each, v3 made 28
+            // errors in 512 words against Nemotron Unified's 32 and Canary's
+            // 41, and decoded fastest (0.12 s warm against 0.27 s and 0.44 s).
             if ModelSize.parakeetV3Languages.contains(languageCode) {
                 specialists = [OnboardingModelRecommendation(
                     model: .parakeetV3,

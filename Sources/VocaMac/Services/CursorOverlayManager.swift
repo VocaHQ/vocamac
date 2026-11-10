@@ -1754,7 +1754,7 @@ private enum CaretPositionQuery {
 
         var focusedElement: CFTypeRef?
         if AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedElement) == .success,
-           let element = axElement(focusedElement) {
+           let element = AXCast.element(focusedElement) {
             AXUIElementSetMessagingTimeout(element, 0.1)
 
             if let caretRect = getCaretRectFromElement(element, primaryScreenTop: primaryScreenTop) {
@@ -1795,7 +1795,7 @@ private enum CaretPositionQuery {
 
         var bounds: CFTypeRef?
         guard AXUIElementCopyParameterizedAttributeValue(element, kAXBoundsForRangeParameterizedAttribute as CFString, range, &bounds) == .success,
-              let boundsValue = axValue(bounds) else { return nil }
+              let boundsValue = AXCast.value(bounds) else { return nil }
 
         var rect = CGRect.zero
         guard AXValueGetValue(boundsValue, .cgRect, &rect) else { return nil }
@@ -1806,11 +1806,11 @@ private enum CaretPositionQuery {
     private static func getElementRect(_ element: AXUIElement) -> CGRect? {
         var positionRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
-              let positionValue = axValue(positionRef) else { return nil }
+              let positionValue = AXCast.value(positionRef) else { return nil }
 
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
-              let sizeValue = axValue(sizeRef) else { return nil }
+              let sizeValue = AXCast.value(sizeRef) else { return nil }
 
         var position = CGPoint.zero
         var size = CGSize.zero
@@ -1828,26 +1828,10 @@ private enum CaretPositionQuery {
             result = AXUIElementCopyAttributeValue(app, kAXMainWindowAttribute as CFString, &window)
         }
 
-        guard result == .success, let element = axElement(window) else { return nil }
+        guard result == .success, let element = AXCast.element(window) else { return nil }
         AXUIElementSetMessagingTimeout(element, 0.1)
         return getElementRect(element)
     }
-
-    // MARK: - Type-checked AX casts
-
-    // Other apps' Accessibility implementations can return nil or an
-    // unexpected CF type even when the call reports success.
-    // swiftlint:disable force_cast
-    private static func axElement(_ ref: CFTypeRef?) -> AXUIElement? {
-        guard let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
-        return (ref as! AXUIElement)
-    }
-
-    private static func axValue(_ ref: CFTypeRef?) -> AXValue? {
-        guard let ref, CFGetTypeID(ref) == AXValueGetTypeID() else { return nil }
-        return (ref as! AXValue)
-    }
-    // swiftlint:enable force_cast
 
     // MARK: - Coordinate Helpers
 

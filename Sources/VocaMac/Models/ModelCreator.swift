@@ -201,13 +201,14 @@ extension ModelSize {
             return .openAI
         case .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return .huggingFace
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .canary180mFlash:
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
+             .canary180mFlash:
             return .nvidia
         case .appleSpeech:
             return .apple
         case .moonshineTiny, .moonshineBase:
             return .usefulSensors
-        case .senseVoiceSmall:
+        case .senseVoiceSmall, .senseVoiceNeuralEngine:
             return .alibaba
         case .qwen3Asr06B:
             return .qwen

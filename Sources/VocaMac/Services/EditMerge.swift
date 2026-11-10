@@ -46,6 +46,7 @@ enum EditMerge {
         allowsEnglishGrammar: Bool = false,
         names: Set<String> = [],
         glossary: [String] = [],
+        lowConfidenceWords: Set<String>? = nil,
         isKnownWord: (String) -> Bool
     ) -> Result {
         let source = tokens(in: original)
@@ -66,7 +67,8 @@ enum EditMerge {
             for (sourcePart, targetPart) in zip(originals, candidates) {
                 let result = merge(original: sourcePart, candidate: targetPart, level: level,
                                    allowsEnglishGrammar: allowsEnglishGrammar, names: names,
-                                   glossary: glossary, isKnownWord: isKnownWord)
+                                   glossary: glossary, lowConfidenceWords: lowConfidenceWords,
+                                   isKnownWord: isKnownWord)
                 parts.append(TranscriptCleanup.preservingOuterWhitespace(of: sourcePart, in: result.text))
                 applied += result.applied
                 skipped += result.skipped
@@ -145,7 +147,9 @@ enum EditMerge {
                 && names.contains(hunk.removedWords[0].key)
             // A listed term is spelled the way the speaker said to spell it,
             // so it may respell even a name.
-            let respellsToListedTerm = level != .light && isGlossaryRespelling(hunk, glossary: glossary)
+            let respellsToListedTerm = level != .light && isGlossaryRespelling(
+                hunk, glossary: glossary, lowConfidenceWords: lowConfidenceWords, isKnownWord: isKnownWord
+            )
             if respellsToListedTerm || !respellsName && (isSafe(hunk, level: level, isKnownWord: isKnownWord)
                 || (level == .grammar && allowsEnglishGrammar && isGrammarRepair(hunk, isKnownWord: isKnownWord))) {
                 pendingLineBreak = deepestBreak(hunk.removed.map(\.leading) + [pendingLineBreak].compactMap { $0 })
@@ -196,7 +200,8 @@ enum EditMerge {
         // retry without grammar rather than applying half a grammatical rewrite.
         if level == .grammar, allowsEnglishGrammar, skipped > 0 {
             return merge(original: original, candidate: candidate, level: level,
-                         allowsEnglishGrammar: false, names: names, glossary: glossary, isKnownWord: isKnownWord)
+                         allowsEnglishGrammar: false, names: names, glossary: glossary,
+                         lowConfidenceWords: lowConfidenceWords, isKnownWord: isKnownWord)
         }
         return Result(text: render(output), applied: applied, skipped: skipped)
     }
@@ -415,7 +420,16 @@ enum EditMerge {
     /// words that were heard for it: spelled close ("cloud" → "Claude",
     /// "Prya" → "Priya") or the same letters ("open ai" → "OpenAI"). Even
     /// a name may be respelled this way: the speaker said how it is spelled.
-    private static func isGlossaryRespelling(_ hunk: Hunk, glossary: [String]) -> Bool {
+    ///
+    /// Respelling real words as a term that only sounds like them ("cloud"
+    /// → "Claude") needs the same evidence `DictionaryCorrector` asks for
+    /// when the engine reports confidence: one of the words was decoded
+    /// unsure (`lowConfidenceWords`). A word the engine was sure of stays.
+    /// With no confidence reported (nil), spelling closeness decides, as
+    /// before. The same letters ("open ai" → "OpenAI") never need it.
+    private static func isGlossaryRespelling(
+        _ hunk: Hunk, glossary: [String], lowConfidenceWords: Set<String>?, isKnownWord: (String) -> Bool
+    ) -> Bool {
         guard !glossary.isEmpty,
               (1...3).contains(hunk.removedWords.count), (1...3).contains(hunk.addedWords.count),
               !hunk.removed.contains(where: \.isProtected), !hunk.added.contains(where: \.isProtected),
@@ -434,7 +448,19 @@ enum EditMerge {
         }) else { return false }
         let heard = DictionaryCorrector.normalized(hunk.removedWords.map(\.text).joined())
         let listed = DictionaryCorrector.normalized(term)
-        return heard == listed || ParakeetVocabularyBoost.isSpelledClose(heard: heard, term: listed)
+        if heard == listed { return true }
+        guard ParakeetVocabularyBoost.isSpelledClose(heard: heard, term: listed) else { return false }
+        return hasMishearingEvidence(hunk.removedWords.map(\.text), lowConfidenceWords: lowConfidenceWords, isKnownWord: isKnownWord)
+    }
+
+    /// Whether `words` may have been misheard: the engine reports no
+    /// confidence, one of them isn't a word, or it was decoded unsure.
+    static func hasMishearingEvidence(
+        _ words: [String], lowConfidenceWords: Set<String>?, isKnownWord: (String) -> Bool
+    ) -> Bool {
+        guard let lowConfidenceWords else { return true }
+        let keys = words.map(DictionaryCorrector.normalized).filter { !$0.isEmpty }
+        return keys.contains { !isKnownWord($0) || lowConfidenceWords.contains($0) }
     }
 
     /// The mark the speaker dictated, when the model replaced the spoken word

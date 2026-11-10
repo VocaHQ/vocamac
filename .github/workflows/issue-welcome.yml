@@ -8,11 +8,12 @@ on: # zizmor: ignore[dangerous-triggers]
   pull_request_target:
     types: [opened]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   welcome:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     uses: VocaHQ/.github/.github/workflows/issue-welcome.yml@16b59fe0bc7cb17e55ada05d274628234b29529c # main

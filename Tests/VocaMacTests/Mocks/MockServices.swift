@@ -526,7 +526,8 @@ final class MockModelManager: ModelManaging {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .appleSpeech,
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
+             .senseVoiceNeuralEngine, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B, .cohereTranscribe, .customEndpoint:
             return size.rawValue
@@ -588,6 +589,10 @@ final class MockWhisperService: SpeechTranscribing {
     var lastStreamingCommit: StreamingCommitOptions?
     var streamingStartCount = 0
     var lastStreamingLiveVocabulary: LiveVocabulary?
+    var cancelVoiceActivityStreamCallCount = 0
+    func cancelVoiceActivityStream() {
+        cancelVoiceActivityStreamCallCount += 1
+    }
     func startStreaming(
         language: String?, vocabulary: String,
         liveVocabulary: LiveVocabulary?,
@@ -603,6 +608,7 @@ final class MockWhisperService: SpeechTranscribing {
     }
     var loadedModelName: String? = "openai_whisper-tiny"
     var isModelLoaded: Bool = true
+    var isLiveStreamingLoaded = false
     var lastTranscribedAudioData: [Float]?
     var lastLanguage: String?
     var lastTranslate: Bool?
@@ -1040,7 +1046,7 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.learnModeDefaultSettled, PreferenceKey.personalFillers,
             PreferenceKey.personalFillerCounts, PreferenceKey.rejectedPersonalFillers,
-            PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
+            PreferenceKey.dictionaryTermUsage, PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
             PreferenceKey.rejectedLowercaseApps,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,

@@ -1,8 +1,8 @@
 ---
 title: "Apple Silicon Native"
 seoTitle: "On-Device Speech to Text for Apple Silicon Macs | VocaMac"
-subtitle: "A native macOS app with local WhisperKit/CoreML transcription on Apple Silicon."
-description: "VocaMac is a native Apple Silicon app that runs Whisper speech recognition locally with CoreML, so dictation stays on your Mac after a one-time model download."
+subtitle: "A native macOS app with on-device speech engines built for Apple Silicon."
+description: "VocaMac is a native Apple Silicon app. Whisper and Parakeet use CoreML and the Neural Engine; specialized ONNX models run locally on the CPU. Dictation stays on your Mac after a one-time model download."
 keywords: "apple silicon speech recognition, coreml voice to text, whisperkit macOS, local dictation mac, hardware accelerated transcription mac"
 icon: "⚡"
 related: ["speech-engines", "smart-model-selection", "custom-endpoint"]
@@ -10,7 +10,7 @@ related: ["speech-engines", "smart-model-selection", "custom-endpoint"]
 
 ## Built for Apple Silicon
 
-VocaMac targets Apple Silicon Macs running macOS 14 Sonoma or later. The app is a native SwiftUI menu-bar client, with WhisperKit and CoreML providing the current release's speech-processing path.
+VocaMac targets Apple Silicon Macs running macOS 14 Sonoma or later. The app is a native SwiftUI menu-bar client. Whisper (WhisperKit) and Parakeet (FluidAudio) run on CoreML and the Neural Engine; see [Speech Engines](/features/speech-engines/) for every engine.
 
 ![VocaMac Settings showing the Speech Model page on Apple Silicon](/screenshots/settings-models.png)
 
@@ -18,13 +18,13 @@ The exact speed and memory profile depends on the selected model, recording leng
 
 ## Local Processing Boundary
 
-After the selected model is downloaded, the Whisper processing path runs on your Mac. Dictation audio is not sent to a Voca cloud endpoint. The first model download, release downloads, and update checks are separate network actions.
+After the selected model is downloaded, transcription runs on your Mac. Dictation audio is not sent to a Voca cloud endpoint. The first model download, release downloads, and update checks are separate network actions.
 
 This boundary makes VocaMac useful when you want local speech processing or need to work with sensitive notes. It does not make transcription instantaneous or set a fixed accuracy or latency across every Mac.
 
 ## Model Choices
 
-The stable catalog includes Tiny, Base, Small, compact Large v3, Distil Large, and Large v3 variants. Smaller models generally need less disk space and memory; larger models may improve accuracy while taking longer to download and process.
+The Whisper catalog includes Tiny, Base, Small, compact Large v3, Distil Large, and Large v3 Latest; Parakeet and the specialized models are listed under [Speech Engines](/features/speech-engines/). Smaller models generally need less disk space and memory; larger models may improve accuracy while taking longer to download and process.
 
 Start with a smaller model if you are checking the workflow or have limited disk space. Move up the catalog when accuracy matters and your Mac has enough headroom. The Settings screen shows the current download state and lets you switch the selected model.
 

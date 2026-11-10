@@ -180,6 +180,8 @@ enum IncrementalAudioTranscriber {
         private var samples: [Float] = []
         private var ended = false
         private var changes = ChangeSignal()
+        /// Run once when input ends: cancels the preview decode in flight.
+        private var onEnd: (@Sendable () -> Void)?
 
         func append(_ chunk: [Float]) {
             samples.append(contentsOf: chunk)
@@ -188,6 +190,18 @@ enum IncrementalAudioTranscriber {
         func finish() {
             ended = true
             changes.signal()
+            onEnd?()
+            onEnd = nil
+        }
+        /// Run `action` when input ends, or now if it already has. Returns
+        /// false when input had already ended.
+        func whenEnded(_ action: (@Sendable () -> Void)?) -> Bool {
+            guard !ended else {
+                action?()
+                return false
+            }
+            onEnd = action
+            return true
         }
         var version: Int { changes.version }
         /// Wait until audio arrives or input ends after `version`.
@@ -300,7 +314,24 @@ enum IncrementalAudioTranscriber {
         buffer: Buffer,
         transcribe: @escaping @Sendable ([Float]) async throws -> VocaTranscription
     ) async throws -> VocaTranscription? {
-        try await decodePreview(window, transcribe: transcribe) { await buffer.status().ended }
+        // Input may have ended while the window was copied: no preview then.
+        guard await buffer.whenEnded(nil) else { return nil }
+        let decode = Task { try await transcribe(window) }
+        // Cancelled the moment input ends, not on the next poll.
+        guard await buffer.whenEnded({ decode.cancel() }) else {
+            _ = await decode.result
+            return nil
+        }
+        let outcome = await withTaskCancellationHandler {
+            await decode.result
+        } onCancel: {
+            decode.cancel()
+        }
+        _ = await buffer.whenEnded(nil)
+        if decode.isCancelled, await buffer.status().ended {
+            return nil
+        }
+        return try outcome.get()
     }
 
     /// A preview decode that is abandoned (nil) once `shouldAbandon` says the

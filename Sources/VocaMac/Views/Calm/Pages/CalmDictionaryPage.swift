@@ -24,6 +24,8 @@ struct CalmDictionaryPage: View {
     @State private var showsSuggestions = false
     @State private var pendingImport: CalmDictionaryPendingImport?
     @State private var notice: CalmStylesNotice?
+    @State private var teaching: CalmTeachWordRequest?
+    @State private var showsUnused = false
 
     /// The feature card's dismissal key.
     static let heroKey = "dictionary"
@@ -56,10 +58,15 @@ struct CalmDictionaryPage: View {
                     CalmDictionarySuggestedStrip { showsSuggestions = true }
                 }
             }
+            if !isSearching, !appState.unusedDictionaryItems.isEmpty {
+                CalmDictionaryUnusedStrip(count: appState.unusedDictionaryItems.count) { showsUnused = true }
+            }
             CalmDictionaryList(
-                filter: filter, query: trimmedQuery, heroIsShowing: !isSearching && !isHeroDismissed, onEdit: edit
-            ) { query = "" }
-                .settingsTarget("vocabulary", aliases: ["word-replacements"])
+                filter: filter, query: trimmedQuery, heroIsShowing: !isSearching && !isHeroDismissed, onEdit: edit,
+                onTeach: { teaching = CalmTeachWordRequest(term: $0) },
+                onClearSearch: { query = "" }
+            )
+                .settingsTarget("vocabulary", aliases: ["word-replacements", "teach-word", "unused-dictionary-words"])
             if appState.showsVocabularyBoostOption {
                 CalmPanel { CalmVocabularyBoostRow() }
             }
@@ -69,6 +76,12 @@ struct CalmDictionaryPage: View {
         }
         .calmDialog(isPresented: $showsSuggestions) {
             CalmDictionarySuggestionsDialog()
+        }
+        .calmDialog(item: $teaching) { request in
+            CalmTeachWordDialog(term: request.term, appState: appState)
+        }
+        .calmDialog(isPresented: $showsUnused) {
+            CalmDictionaryUnusedDialog()
         }
         .calmDialog(item: $pendingImport) { pending in
             CalmDialog("Import into your dictionary?", description: pending.summary) {
@@ -130,7 +143,7 @@ struct CalmDictionaryPage: View {
     private func importDictionary() {
         let panel = NSOpenPanel()
         panel.title = "Import Dictionary"
-        panel.message = "Choose a CSV or JSON dictionary, or a text file with one word per line."
+        panel.message = "Choose a CSV or JSON dictionary, a VoiceInk dictionary or backup, or a text file with one word per line."
         panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .json, .plainText]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -242,7 +255,16 @@ struct CalmDictionaryPendingImport: Identifiable {
     let plan: DictionaryImportPlan
 
     /// “12 new words and 3 new replacements. 4 are already in your dictionary.”
+    /// A file from another app says which: “From VoiceInk: 12 new words.”
     var summary: String {
+        sourcePrefix + counts
+    }
+
+    private var sourcePrefix: String {
+        plan.source.map { "From \($0.displayName): " } ?? ""
+    }
+
+    private var counts: String {
         guard !plan.isEmpty else {
             return "Everything in that file is already in your dictionary (\(plan.duplicateCount) entr\(plan.duplicateCount == 1 ? "y" : "ies"))."
                 + skippedNote
@@ -492,6 +514,7 @@ private struct CalmDictionaryList: View {
     /// empty “All” list under it says nothing more.
     var heroIsShowing = false
     let onEdit: (DictionaryListItem) -> Void
+    let onTeach: (String) -> Void
     let onClearSearch: () -> Void
 
     @EnvironmentObject private var appState: AppState
@@ -509,9 +532,16 @@ private struct CalmDictionaryList: View {
             // Hundreds of words: rows are made as they scroll into view, a
             // page at a time.
             CalmPagedList(items, resetKey: ListKey(filter: filter, query: query)) { item in
-                CalmDictionaryRow(item: item) { onEdit(item) }
+                CalmDictionaryRow(item: item, onTeach: teachAction(for: item)) { onEdit(item) }
             }
         }
+    }
+
+    /// Words can be taught by saying them; replacements already say what
+    /// is heard.
+    private func teachAction(for item: DictionaryListItem) -> (() -> Void)? {
+        guard case .word(let term) = item else { return nil }
+        return { onTeach(term) }
     }
 
     @ViewBuilder
@@ -546,6 +576,7 @@ private struct CalmDictionaryList: View {
 /// edit button. Clicking the row also edits it.
 private struct CalmDictionaryRow: View {
     let item: DictionaryListItem
+    var onTeach: (() -> Void)?
     let onEdit: () -> Void
 
     var body: some View {
@@ -555,12 +586,22 @@ private struct CalmDictionaryRow: View {
                 .foregroundStyle(CalmColor.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } actions: {
-            Button(action: onEdit) {
-                CalmIcon(.edit, size: 15)
+            HStack(spacing: 2) {
+                if let onTeach {
+                    Button(action: onTeach) {
+                        CalmIcon(.mic, size: 15)
+                    }
+                    .calmIconButton()
+                    .help("Say it: teach VocaMac how the speech model hears this word")
+                    .accessibilityLabel("Say \(title)")
+                }
+                Button(action: onEdit) {
+                    CalmIcon(.edit, size: 15)
+                }
+                .calmIconButton()
+                .help("Edit")
+                .accessibilityLabel("Edit \(title)")
             }
-            .calmIconButton()
-            .help("Edit")
-            .accessibilityLabel("Edit \(title)")
         }
         .onTapGesture(perform: onEdit)
         .accessibilityElement(children: .contain)

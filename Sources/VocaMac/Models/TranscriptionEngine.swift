@@ -94,6 +94,9 @@ enum PreferenceKey {
     /// [String: [Double]]: per lowercased dictionary term, [dictations it
     /// appeared in, last one as seconds since 1970] (`TermUsage`).
     static let dictionaryTermUsage = "vocamac.dictionary.termUsage"
+    /// [String: Double]: per lowercased dictionary term, when VocaMac first
+    /// saw it listed, as seconds since 1970 (`TermUsage.noting`).
+    static let dictionaryTermFirstSeen = "vocamac.dictionary.termFirstSeen"
     /// [String]: fillers the user took back; never learned again.
     static let rejectedPersonalFillers = "vocamac.dictionary.rejectedPersonalFillers"
     /// JSON `[LearnedLowercaseApp]`: apps where dictation starts in lowercase.

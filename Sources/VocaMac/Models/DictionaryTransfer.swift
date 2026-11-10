@@ -15,10 +15,25 @@ struct DictionaryTransferReplacement: Equatable, Codable {
     var replacement: String
 }
 
+/// Another dictation app whose dictionary export VocaMac recognises.
+enum DictionaryTransferSource: String, Equatable, Sendable {
+    /// VoiceInk's dictionary file (`"format": "voiceink.dictionary"`) or the
+    /// dictionary inside its settings backup.
+    case voiceInk
+
+    var displayName: String {
+        switch self {
+        case .voiceInk: return "VoiceInk"
+        }
+    }
+}
+
 /// Words and replacements read from, or written to, a file.
 struct DictionaryTransferContents: Equatable {
     var words: [String] = []
     var replacements: [DictionaryTransferReplacement] = []
+    /// The app that wrote the file, when it isn't VocaMac's or a plain list.
+    var source: DictionaryTransferSource?
     /// Entries in the file that were left out: longer than
     /// `DictionaryTransfer.maxEntryLength` or past `maxEntries`.
     var skippedCount = 0
@@ -37,6 +52,8 @@ struct DictionaryImportPlan: Equatable {
     /// Entries in the file that can't be imported (too long, or past the
     /// entry limit), so the confirmation can say so.
     var skippedCount = 0
+    /// The app that wrote the file, named in the confirmation.
+    var source: DictionaryTransferSource?
 
     var isEmpty: Bool { newWords.isEmpty && newReplacements.isEmpty }
 }
@@ -128,7 +145,8 @@ enum DictionaryTransfer {
     ///
     /// - CSV: `type,heard,text` as exported; or two columns, what was heard
     ///   and what to type; or one column of words. A header row is skipped.
-    /// - JSON: the exported shape; or an array of words; or an array of
+    /// - JSON: the exported shape; VoiceInk's dictionary file or settings
+    ///   backup; or an array of words; or an array of
     ///   `{heard|from|original, replacement|to|text}` objects.
     /// - Plain text: one word per line, or `heard -> text` / `heard → text`
     ///   for a replacement. `#` starts a comment line.
@@ -187,7 +205,7 @@ enum DictionaryTransfer {
         }
         return DictionaryImportPlan(
             newWords: newWords, newReplacements: newReplacements,
-            duplicateCount: duplicates, skippedCount: contents.skippedCount
+            duplicateCount: duplicates, skippedCount: contents.skippedCount, source: contents.source
         )
     }
 
@@ -315,6 +333,9 @@ enum DictionaryTransfer {
               let object = try? JSONSerialization.jsonObject(with: data) else {
             throw DictionaryTransferError.unreadable
         }
+        if let dictionary = object as? [String: Any], let voiceInk = voiceInkContents(dictionary) {
+            return voiceInk
+        }
         var contents = DictionaryTransferContents()
         func take(_ items: [Any]) {
             for item in items {
@@ -342,6 +363,59 @@ enum DictionaryTransfer {
             }
         } else {
             throw DictionaryTransferError.unreadable
+        }
+        return contents
+    }
+
+    // MARK: - Other apps
+
+    /// VoiceInk's exports, or nil for any other JSON. Read from VoiceInk's
+    /// source (github.com/Beingpax/VoiceInk):
+    ///
+    /// - Dictionary file (`DictionaryArchive`, schema 1):
+    ///   `{"format": "voiceink.dictionary", "schemaVersion": 1,
+    ///   "vocabulary": [{"term"}], "replacements": [{"sources": [..],
+    ///   "replacement"}]}`. A source never holds a comma.
+    /// - Settings backup (`BackupFile`): `"vocabularyWords": [{"word"}]` and
+    ///   `"wordReplacements": {"spoken, forms": "replacement"}`, the key
+    ///   comma-separated like `WordReplacement.heard`.
+    ///
+    /// The generic reader would take a VoiceInk replacement's text for a
+    /// word (its spoken forms are an array), so these are read first.
+    static func voiceInkContents(_ root: [String: Any]) -> DictionaryTransferContents? {
+        var contents = DictionaryTransferContents(source: .voiceInk)
+        if root["format"] as? String == "voiceink.dictionary" {
+            for entry in root["vocabulary"] as? [Any] ?? [] {
+                if let term = (entry as? [String: Any])?["term"] as? String {
+                    contents.words.append(term)
+                }
+            }
+            for entry in root["replacements"] as? [Any] ?? [] {
+                guard let entry = entry as? [String: Any],
+                      let replacement = entry["replacement"] as? String,
+                      let sources = entry["sources"] as? [Any] else { continue }
+                let heard = sources.compactMap { $0 as? String }
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+                guard !heard.isEmpty else { continue }
+                contents.replacements.append(
+                    DictionaryTransferReplacement(heard: heard.joined(separator: ", "), replacement: replacement)
+                )
+            }
+            return contents
+        }
+        let words = root["vocabularyWords"] as? [Any]
+        let replacements = root["wordReplacements"] as? [String: Any]
+        guard words != nil || replacements != nil else { return nil }
+        for entry in words ?? [] {
+            if let word = (entry as? [String: Any])?["word"] as? String {
+                contents.words.append(word)
+            }
+        }
+        for heard in (replacements ?? [:]).keys.sorted() {
+            if let replacement = replacements?[heard] as? String {
+                contents.replacements.append(DictionaryTransferReplacement(heard: heard, replacement: replacement))
+            }
         }
         return contents
     }
@@ -387,7 +461,7 @@ enum DictionaryTransfer {
         var skipped = 0
         var seenWords = Set<String>()
         var seenReplacements = Set<String>()
-        var result = DictionaryTransferContents()
+        var result = DictionaryTransferContents(source: contents.source)
         for word in contents.words {
             // A word file may separate words with commas on one line.
             for part in RecognitionHints.vocabularyTerms(from: word) {

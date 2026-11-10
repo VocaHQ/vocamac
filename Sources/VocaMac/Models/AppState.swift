@@ -340,6 +340,12 @@ final class AppState: ObservableObject {
     @Published private(set) var commandReview: CommandReview?
     /// A file or system-audio capture is being transcribed.
     @Published private(set) var isTranscribingMedia = false
+    /// The microphone is recording, or the model decoding, a take of a
+    /// Dictionary word being taught (`startTeachingTake`).
+    @Published private(set) var isTeachingWord = false
+    /// The microphone start of the current take, awaited before the take
+    /// is stopped so a stop can never run ahead of it and leave it open.
+    private var teachingStart: Task<Bool, Never>?
 
     /// Optional, session-only checks for onboarding.
     @Published var onboardingVerification = OnboardingVerification()
@@ -914,7 +920,11 @@ final class AppState: ObservableObject {
     @Published var snippets: [Snippet] = []
 
     /// Spoken forms rewritten to the user's text, for every engine.
-    @Published var wordReplacements: [WordReplacement] = []
+    @Published var wordReplacements: [WordReplacement] = [] {
+        // A replacement added again starts its "not said in a while"
+        // clock afresh (`TermUsage.noting`).
+        didSet { noteDictionaryTermsSeen() }
+    }
 
     /// Corrections noticed in dictated text, waiting for the user to accept.
     @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
@@ -2370,6 +2380,14 @@ final class AppState: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 if self?.errorMessage == message { self?.errorMessage = nil }
             }
+            return
+        }
+
+        // Teaching a Dictionary word holds the microphone and the model.
+        if isTeachingWord {
+            VocaLogger.info(.appState, "Dictation ignored while a Dictionary word is being taught")
+            endHotKeyToggleSession()
+            showTemporaryError("VocaMac is listening for a Dictionary word. Dictation is available when you finish.")
             return
         }
 
@@ -5157,7 +5175,93 @@ final class AppState: ObservableObject {
     /// Nothing else is using the speech model. An error banner is only a
     /// message, so it doesn't count as busy.
     private var isFreeForMediaTranscription: Bool {
-        !isRecording && !isTranscribingMedia && (appStatus == .idle || appStatus == .error)
+        !isRecording && !isTranscribingMedia && !isTeachingWord && (appStatus == .idle || appStatus == .error)
+    }
+
+    // MARK: - Teaching a Dictionary word
+
+    /// Whether the microphone and the speech model are free for a take.
+    var canTeachWord: Bool {
+        isFreeForMediaTranscription && !isTranscribing && !isStartingAudio && earlyCapture == nil
+    }
+
+    /// Open the microphone for one take of a word being taught. Returns
+    /// false when something else holds it or it could not start.
+    func startTeachingTake() async -> Bool {
+        guard canTeachWord else { return false }
+        isTeachingWord = true
+        audioEngine.onAudioSamples = nil
+        let start = Task { @MainActor [weak self] () -> Bool in
+            await self?.startConfiguredAudioEngine() ?? false
+        }
+        teachingStart = start
+        let started = await start.value
+        if teachingStart == start { teachingStart = nil }
+        // Cancelled or finished while the microphone was opening: that call
+        // waited for this start and has already closed it.
+        guard isTeachingWord else { return false }
+        if !started {
+            isTeachingWord = false
+            VocaLogger.warning(.dictionary, "Could not open the microphone to teach a word")
+        }
+        return started
+    }
+
+    /// Wait for a take's microphone start still under way, so the stop that
+    /// follows closes it rather than running first on the audio queue.
+    private func settleTeachingStart() async {
+        guard let start = teachingStart else { return }
+        _ = await start.value
+        teachingStart = nil
+    }
+
+    /// End the take and decode it without recognition hints, so the result
+    /// is what the engine hears on its own. "" when nothing was heard; nil
+    /// when the model could not run.
+    func finishTeachingTake() async -> String? {
+        guard isTeachingWord else { return nil }
+        defer { isTeachingWord = false }
+        await settleTeachingStart()
+        let samples = await stopAudioEngine()
+        // Under a quarter of a second at 16 kHz is a click, not a word.
+        guard samples.count >= 4_000 else { return "" }
+        if !whisperService.isModelLoaded { await ensureModelLoaded() }
+        guard whisperService.isModelLoaded else { return nil }
+        do {
+            let result = try await whisperService.transcribe(
+                audioData: samples,
+                language: selectedLanguage == "auto" ? nil : selectedLanguage,
+                translate: false,
+                vocabulary: ""
+            )
+            return result.text
+        } catch {
+            VocaLogger.warning(.dictionary, "Could not decode a take of a Dictionary word: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Close the microphone without decoding (the dialog closed mid-take).
+    func cancelTeachingTake() async {
+        guard isTeachingWord else { return }
+        await settleTeachingStart()
+        _ = await stopAudioEngine()
+        isTeachingWord = false
+    }
+
+    /// Save what a teaching session found: the word stays (or is put) in the
+    /// vocabulary, and each chosen spoken form becomes part of its
+    /// replacement, as a learned correction would (`learn`).
+    func teachWord(_ term: String, heardForms: [String]) {
+        let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return }
+        if !vocabularyTerms.contains(where: { $0.lowercased() == term.lowercased() }) {
+            addVocabularyTerm(term)
+        }
+        for form in heardForms {
+            addWordReplacement(heard: form, replacement: term)
+        }
+        VocaLogger.info(.dictionary, "Taught a word by voice with \(heardForms.count) spoken form(s)")
     }
 
     private static func sameOutputTarget(_ first: RunningAppSnapshot?, _ second: RunningAppSnapshot?) -> Bool {
@@ -6409,7 +6513,7 @@ extension AppState {
     // MARK: Dictionary
 
     /// Replacement targets offered to engines as recognition hints.
-    private var replacementTargets: [String] {
+    var replacementTargets: [String] {
         wordReplacements.filter(\.isValid).map(\.replacement)
     }
 
@@ -6482,6 +6586,7 @@ extension AppState {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         customVocabulary = cleaned.joined(separator: "\n")
+        noteDictionaryTermsSeen()
         downloadVocabularyBoostIfUseful()
     }
 
@@ -6578,7 +6683,7 @@ extension AppState {
 
     /// Whether `text` is one ordinary word, so a replacement from it would
     /// rewrite ordinary speech.
-    static func isOrdinaryWord(_ text: String, isKnownWord: (String) -> Bool) -> Bool {
+    nonisolated static func isOrdinaryWord(_ text: String, isKnownWord: (String) -> Bool) -> Bool {
         let words = text.lowercased().split { !($0.isLetter || $0 == "'" || $0 == "’") }.map(String.init)
         return words.count == 1 && isKnownWord(words[0])
     }
@@ -6932,10 +7037,24 @@ extension AppState {
     func recordTermUsage(in text: String) {
         let terms = vocabularyTerms + replacementTargets
         guard !terms.isEmpty else { return }
+        noteDictionaryTermsSeen()
         let usage = termUsage
         let updated = TermUsage.recording(text, terms: terms, in: usage)
         guard updated != usage else { return }
         UserDefaults.standard.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
+    }
+
+    /// When VocaMac first saw each Dictionary term listed (`TermUsage.noting`).
+    var dictionaryTermFirstSeen: [String: Date] {
+        TermUsage.decodeDates(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermFirstSeen))
+    }
+
+    /// Start the clock for terms not seen before, and forget removed ones.
+    func noteDictionaryTermsSeen(now: Date = Date()) {
+        let firstSeen = dictionaryTermFirstSeen
+        let updated = TermUsage.noting(vocabularyTerms + replacementTargets, in: firstSeen, now: now)
+        guard updated != firstSeen else { return }
+        UserDefaults.standard.set(TermUsage.encodeDates(updated), forKey: PreferenceKey.dictionaryTermFirstSeen)
     }
 
     /// Enough for the 100 terms Apple Speech and Parakeet take.
@@ -6950,6 +7069,7 @@ extension AppState {
         dismissedSuggestionKeys = Set(
             UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
         )
+        noteDictionaryTermsSeen()
     }
 
     private func saveSuggestions() {

@@ -47,7 +47,9 @@ struct TermUsage: Equatable, Sendable {
         usage.mapValues(\.stored)
     }
 
-    /// Most terms remembered; the least recently used go first.
+    /// Most records kept for terms no longer listed; the least recently
+    /// used go first. A listed term's record is never dropped, since
+    /// "not said in a while" reads it (`unused`).
     static let maximumEntries = 500
 
     /// `usage` with every term of `terms` found in `text` counted once more.
@@ -64,7 +66,9 @@ struct TermUsage: Equatable, Sendable {
             updated[key] = TermUsage(count: count, lastUsed: now)
         }
         if updated.count > maximumEntries {
-            let oldest = updated.sorted { $0.value.lastUsed < $1.value.lastUsed }
+            let listed = Set(terms.map { $0.lowercased() })
+            let oldest = updated.filter { !listed.contains($0.key) }
+                .sorted { $0.value.lastUsed < $1.value.lastUsed }
                 .prefix(updated.count - maximumEntries).map(\.key)
             for key in oldest { updated.removeValue(forKey: key) }
         }
@@ -86,6 +90,67 @@ struct TermUsage: Equatable, Sendable {
     private static func isWordCharacter(_ character: Character?) -> Bool {
         guard let character else { return false }
         return character.isLetter || character.isNumber || character == "_"
+    }
+
+    // MARK: - Unused terms
+
+    /// Days without a term turning up before the Dictionary offers to
+    /// remove it.
+    static let unusedAfterDays = 60
+
+    /// `firstSeen` with today's date for each of `terms` it doesn't have
+    /// yet, and without terms no longer listed. Keys are lowercased, like
+    /// usage keys.
+    ///
+    /// When a term was added isn't stored, so its age counts from the first
+    /// time VocaMac saw it listed. That is never earlier than when it was
+    /// added, so a term is never called unused too soon.
+    static func noting(
+        _ terms: [String], in firstSeen: [String: Date], now: Date = Date()
+    ) -> [String: Date] {
+        let keys = Set(terms.map { $0.lowercased() }.filter { !$0.isEmpty })
+        var updated = firstSeen.filter { keys.contains($0.key) }
+        for key in keys where updated[key] == nil {
+            updated[key] = now
+        }
+        return updated
+    }
+
+    /// The terms of `terms` neither dictated nor listed in the last `days`:
+    /// the later of its last use and when it was (last) first seen listed is
+    /// that long ago. A word removed and added again counts from its return,
+    /// not its old use. A term with no record either way is left out.
+    static func unused(
+        _ terms: [String],
+        usage: [String: TermUsage],
+        firstSeen: [String: Date],
+        now: Date = Date(),
+        days: Int = unusedAfterDays
+    ) -> [String] {
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        var seen = Set<String>()
+        return terms.filter { term in
+            let key = term.lowercased()
+            guard seen.insert(key).inserted,
+                  let reference = [usage[key]?.lastUsed, firstSeen[key]].compactMap({ $0 }).max()
+            else { return false }
+            return reference <= cutoff
+        }
+    }
+
+    static func decodeDates(_ stored: [String: Any]?) -> [String: Date] {
+        guard let stored else { return [:] }
+        var dates: [String: Date] = [:]
+        for (key, value) in stored {
+            if let seconds = value as? Double, seconds.isFinite {
+                dates[key] = Date(timeIntervalSince1970: seconds)
+            }
+        }
+        return dates
+    }
+
+    static func encodeDates(_ dates: [String: Date]) -> [String: Double] {
+        dates.mapValues(\.timeIntervalSince1970)
     }
 
     /// `terms` reordered for hints that keep their end: never-used terms

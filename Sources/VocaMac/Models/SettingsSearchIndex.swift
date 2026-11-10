@@ -422,8 +422,25 @@ enum SettingsSearchIndex {
             id: "dictionary-import-export",
             page: .dictionary,
             title: "Import or export the dictionary",
-            subtitle: "Move words and replacements in or out as CSV, JSON or a word list",
-            keywords: ["import", "export", "csv", "json", "dictionary", "words", "backup", "transfer", "other app"]
+            subtitle: "Move words and replacements in or out as CSV, JSON or a word list, or bring them from VoiceInk",
+            keywords: [
+                "import", "export", "csv", "json", "dictionary", "words", "backup", "transfer", "other app",
+                "voiceink", "wispr", "migrate", "switch",
+            ]
+        ),
+        SettingsSearchEntry(
+            id: "teach-word",
+            page: .dictionary,
+            title: "Teach a word by saying it",
+            subtitle: "Say a Dictionary word and VocaMac remembers how the speech model hears it",
+            keywords: ["say it", "pronounce", "pronunciation", "teach", "train", "voice", "mishear", "sounds like", "microphone"]
+        ),
+        SettingsSearchEntry(
+            id: "unused-dictionary-words",
+            page: .dictionary,
+            title: "Words not said in a while",
+            subtitle: "Review and remove Dictionary entries you haven’t dictated lately",
+            keywords: ["unused", "old", "stale", "clean up", "remove", "never", "matched", "prune", "tidy"]
         ),
         SettingsSearchEntry(
             id: "screen-context",

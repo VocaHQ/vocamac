@@ -955,9 +955,15 @@ final class AppState: ObservableObject {
             refreshCancelKeyArming()
             if oldValue && !isTranscribing {
                 scheduleQueuedRecordingStart()
+                runDeferredAutoPauseUnload()
             }
         }
     }
+
+    /// Auto-pause began while a dictation was still being transcribed or
+    /// delivered. Its model unload waits for that dictation to finish:
+    /// unloading under it fails the dictation.
+    private var autoPauseUnloadDeferred = false
 
     /// Names and identifiers read from the screen when recording started.
     private var screenContextTask: Task<[String], Never>?
@@ -1819,7 +1825,9 @@ final class AppState: ObservableObject {
         return "Dictation is paused while a listed app is running."
     }
 
-    private func handleAutoPauseEntered() async {
+    /// A listed app started: stop any recording and unload the model.
+    /// Internal so tests can drive it; the monitor calls it in the app.
+    func handleAutoPauseEntered() async {
         isAutoPaused = true
         autoPauseTriggerDisplayName = autoPauseMonitor.activeTrigger?.displayName
         modelKeepAlive.cancel()
@@ -1836,6 +1844,15 @@ final class AppState: ObservableObject {
             appStatus = .idle
         }
 
+        if isTranscribing {
+            VocaLogger.info(.appState, "Auto-pause entered while a dictation is finishing: unloading once it is delivered")
+            autoPauseUnloadDeferred = true
+            return
+        }
+        await unloadModelForAutoPause()
+    }
+
+    private func unloadModelForAutoPause() async {
         if whisperService.isModelLoaded {
             await unloadActiveModel(reason: .autoPause)
         } else {
@@ -1843,7 +1860,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func handleAutoPauseCleared() async {
+    /// Runs the unload `handleAutoPauseEntered` put off, once the dictation
+    /// it was waiting on is delivered, if the pause still holds.
+    private func runDeferredAutoPauseUnload() {
+        guard autoPauseUnloadDeferred else { return }
+        autoPauseUnloadDeferred = false
+        Task { @MainActor [weak self] in
+            guard let self, self.isAutoPaused, !self.isTranscribing, !self.isCapturingAudio else { return }
+            VocaLogger.info(.appState, "Dictation delivered during auto-pause: unloading the model now")
+            await self.unloadModelForAutoPause()
+        }
+    }
+
+    /// The listed apps quit: reload the model so the next dictation is ready.
+    func handleAutoPauseCleared() async {
+        autoPauseUnloadDeferred = false
         isAutoPaused = false
         autoPauseTriggerDisplayName = nil
         // Warm-reload so the next hotkey is ready (Linux behavior).
@@ -2458,6 +2489,19 @@ final class AppState: ObservableObject {
             cursorOverlay.setLoadingSpeechModel(false)
             let pendingStop = pendingStopDuringModelLoad
             pendingStopDuringModelLoad = nil
+            // Auto-pause began while the model loaded. Its unload found
+            // nothing loaded yet, so the model is resident now: unload it
+            // and refuse the dictation as a paused start would.
+            if isAutoPaused {
+                discardEarlyCapture()
+                let message = autoPausedMessage
+                VocaLogger.info(.appState, "Auto-pause began while the speech model loaded: \(message)")
+                endHotKeyToggleSession()
+                showOverlayFailure(message)
+                showTemporaryError(message)
+                await unloadModelForAutoPause()
+                return
+            }
             guard whisperService.isModelLoaded else {
                 discardEarlyCapture()
                 endHotKeyToggleSession()
@@ -4754,35 +4798,54 @@ final class AppState: ObservableObject {
         )
     }
 
+    /// Whether a key is saved, read from the Keychain once and then kept:
+    /// Settings asks on every render, and each Keychain read is a
+    /// `SecItemCopyMatching` round trip. Saving or deleting a key here
+    /// refreshes it.
+    private var cachedCleanupEndpointHasAPIKey: Bool?
+    private var cachedSpeechEndpointHasAPIKey: Bool?
+
     var cleanupEndpointHasAPIKey: Bool {
-        KeychainCredentialStore.cleanupEndpoint.readAPIKey()?.isEmpty == false
+        if let cached = cachedCleanupEndpointHasAPIKey { return cached }
+        let hasKey = KeychainCredentialStore.cleanupEndpoint.readAPIKey()?.isEmpty == false
+        cachedCleanupEndpointHasAPIKey = hasKey
+        return hasKey
     }
 
     func saveCleanupAPIKey(_ key: String) throws {
+        cachedCleanupEndpointHasAPIKey = nil
         try KeychainCredentialStore.cleanupEndpoint.saveAPIKey(key)
         objectWillChange.send()
     }
 
     func deleteCleanupAPIKey() throws {
+        cachedCleanupEndpointHasAPIKey = nil
         try KeychainCredentialStore.cleanupEndpoint.deleteAPIKey()
         objectWillChange.send()
     }
 
     var speechEndpointHasAPIKey: Bool {
-        KeychainCredentialStore.speechEndpoint.readAPIKey()?.isEmpty == false
+        if let cached = cachedSpeechEndpointHasAPIKey { return cached }
+        let hasKey = KeychainCredentialStore.speechEndpoint.readAPIKey()?.isEmpty == false
+        cachedSpeechEndpointHasAPIKey = hasKey
+        return hasKey
     }
 
     func saveSpeechEndpointAPIKey(_ key: String) throws {
+        cachedSpeechEndpointHasAPIKey = nil
         try KeychainCredentialStore.speechEndpoint.saveAPIKey(key)
         objectWillChange.send()
     }
 
     func deleteSpeechEndpointAPIKey() throws {
+        cachedSpeechEndpointHasAPIKey = nil
         try KeychainCredentialStore.speechEndpoint.deleteAPIKey()
         objectWillChange.send()
     }
 
     func reloadImportedSettings() {
+        cachedCleanupEndpointHasAPIKey = nil
+        cachedSpeechEndpointHasAPIKey = nil
         loadSnippets()
         loadDictionary()
         decodedBindingsCache = nil

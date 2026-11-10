@@ -89,6 +89,19 @@ actor ParakeetVocabularyBoost {
         }
     }
 
+    /// Start the background load if needed and wait, up to `timeout`, for
+    /// it to finish. For measurement, where a decode must not run before the
+    /// boost can apply; dictation never waits (see `prepare()`).
+    /// - Returns: Whether the model is loaded.
+    func waitUntilReady(timeout: TimeInterval) async -> Bool {
+        prepare()
+        let deadline = Date().addingTimeInterval(timeout)
+        while models == nil, isLoadingModels, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        return models != nil
+    }
+
     /// Install a finished load. Returns false when `unload()` ran meanwhile;
     /// the load still ends here, so a new one can start only after it, and
     /// two copies of the model are never compiling or resident at once.

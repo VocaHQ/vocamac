@@ -20,7 +20,7 @@ By default, the command follows the model and language currently selected in the
 
 The model must already be downloaded in VocaMac. Headless mode never downloads a missing model automatically. Input is validated and converted with AVFoundation to mono, 16 kHz, Float32 PCM; files are limited to 500 MB and 30 minutes.
 
-Only the selected model and language follow your app preferences. Translate-to-English and WhisperKit custom vocabulary are always off in headless mode, even if enabled in the app.
+Only the selected model and language follow your app preferences. Translate-to-English is always off in headless mode, and the app's Dictionary is never read: the engine gets recognition hints only from `--vocabulary` (see [Recognition hints](#recognition-hints)).
 
 Successful transcription writes exactly one JSON object to stdout (see [Plain text and output files](#plain-text-and-output-files) for `--text` and `--output`):
 
@@ -91,6 +91,21 @@ For scripts that only want the words, use `--text` in place of `--json`. It writ
 ```
 
 Errors are written to stderr as JSON in every mode, with the exit codes above, so a script can tell a missing model from unreadable audio. `--text` and `--output` apply only to `--transcribe-file`, and not to `--pieces`.
+
+## Recognition hints
+
+`--vocabulary` passes words the engine should expect, as the app's Dictionary does, so you can check what hints change on a recording:
+
+```bash
+/Applications/VocaMac.app/Contents/MacOS/VocaMac \
+  --transcribe-file /path/to/audio.wav \
+  --vocabulary "GitHub, Kubernetes, Namrata" \
+  --json
+```
+
+The value is a file when one exists at that path (one term per line, or comma-separated), and otherwise a comma-separated list. A value ending in `.txt` or `.csv` that names no file is an error. Each engine uses hints its own way (Whisper as a prompt, Parakeet as a vocabulary boost, Apple Speech as contextual strings), and keeps as many as it can take. With `--vocabulary`, the JSON result adds `vocabulary_terms`, the number of terms passed. `--pieces` accepts it too.
+
+To measure hints over a whole corpus, with and without them, see [ACCURACY.md](ACCURACY.md).
 
 ## Supported audio
 

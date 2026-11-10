@@ -143,7 +143,8 @@ final class AutoPauseMonitorTests: XCTestCase {
     }
 
     func testClampPollInterval() {
-        XCTAssertEqual(AutoPauseMonitor.clampPollInterval(0.5), 1)
+        XCTAssertEqual(AutoPauseMonitor.clampPollInterval(0.5), 5)
+        XCTAssertEqual(AutoPauseMonitor.clampPollInterval(1), 5)
         XCTAssertEqual(AutoPauseMonitor.clampPollInterval(5), 5)
         XCTAssertEqual(AutoPauseMonitor.clampPollInterval(120), 60)
     }

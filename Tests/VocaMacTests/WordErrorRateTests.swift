@@ -71,14 +71,42 @@ final class WordErrorRateTests: XCTestCase {
         XCTAssertEqual(WordErrorRate.normalizedWords("'quoted' words"), ["quoted", "words"])
         XCTAssertEqual(WordErrorRate.normalizedWords("end.Next"), ["end", "next"])
         XCTAssertEqual(WordErrorRate.normalizedWords("version 3.5"), ["version", "3", "5"])
+        XCTAssertEqual(WordErrorRate.normalizedWords("1,000 users, 50% off"), ["1000", "users", "50", "percent", "off"])
         XCTAssertEqual(
             WordErrorRate.measure(reference: "Ship it, Jatin.", hypothesis: "ship it jatin").errors,
             0
         )
     }
 
-    func testNumbersAreNotSpelledOut() {
-        XCTAssertEqual(WordErrorRate.measure(reference: "three apples", hypothesis: "3 apples").substitutions, 1)
+    func testNumberSpellingIsNotAnError() {
+        XCTAssertEqual(WordErrorRate.measure(reference: "three apples", hypothesis: "3 apples").errors, 0)
+        XCTAssertEqual(WordErrorRate.measure(reference: "twenty one guests", hypothesis: "21 guests").errors, 0)
+        XCTAssertEqual(WordErrorRate.measure(reference: "version three point five", hypothesis: "version 3.5").errors, 0)
+        XCTAssertEqual(WordErrorRate.measure(reference: "fifty percent", hypothesis: "50%").errors, 0)
+        XCTAssertEqual(WordErrorRate.measure(reference: "the twenty first", hypothesis: "the 21st").errors, 0)
+        // A different number is still an error.
+        XCTAssertEqual(WordErrorRate.measure(reference: "three apples", hypothesis: "4 apples").substitutions, 1)
+        // Folding can be turned off.
+        XCTAssertEqual(WordErrorRate.normalizedWords("three apples", foldsNumbers: false), ["three", "apples"])
+    }
+
+    func testCharacterErrorRateForUnspacedScripts() {
+        XCTAssertEqual(WordErrorRate.unit(for: "今日は良い天気です"), .characters)
+        XCTAssertEqual(WordErrorRate.unit(for: "สวัสดีครับ"), .characters)
+        XCTAssertEqual(WordErrorRate.unit(for: "the weather is nice"), .words)
+        XCTAssertEqual(WordErrorRate.unit(for: "안녕하세요 반갑습니다"), .words)
+        XCTAssertEqual(WordErrorRate.unit(for: ""), .words)
+
+        let cer = WordErrorRate.measure(reference: "今日は良い天気です。", hypothesis: "今日は良い電気です", unit: .characters)
+        XCTAssertEqual(cer, WordErrorRate(substitutions: 1, deletions: 0, insertions: 0, referenceWords: 9))
+        XCTAssertEqual(WordErrorRate.characterUnits("A b, C"), ["a", "b", "c"])
+    }
+
+    func testSurfaceWordsKeepCaseAndTrailingMarks() {
+        let words = WordErrorRate.surfaceWords("Hello, World! Is it \u{201C}done\u{201D}? Yes.")
+        XCTAssertEqual(words.map(\.text), ["Hello", "World", "Is", "it", "done", "Yes"])
+        XCTAssertEqual(words.map(\.trailingMark), [",", "!", nil, nil, "?", "."])
+        XCTAssertEqual(words.map(\.isCapitalized), [true, true, true, false, false, true])
     }
 
     func testAggregateWeighsByReferenceWords() {

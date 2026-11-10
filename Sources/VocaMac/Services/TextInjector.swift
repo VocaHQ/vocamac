@@ -526,18 +526,15 @@ final class TextInjector: @unchecked Sendable {
         }
 
         // The returned CFTypeRef must be an AXUIElement.
-        guard CFGetTypeID(focusedRef) == AXUIElementGetTypeID() else {
+        guard let element = AXCast.element(focusedRef) else {
             VocaLogger.debug(.textInjector, "AX: focused element is not an AXUIElement")
             return .unavailable
         }
 
-        // swiftlint:disable force_cast
-        let element = focusedRef as! AXUIElement
         var elementPID: pid_t = 0
         guard AXUIElementGetPid(element, &elementPID) == .success,
               elementPID == targetPID || Self.isLauncherPanelOwner(elementPID) else { return .unavailable }
         AXUIElementSetMessagingTimeout(element, 0.1)
-        // swiftlint:enable force_cast
 
         // Gate on element role. Only single-line input fields reliably handle
         // a direct kAXSelectedTextAttribute write as "insert text at cursor".

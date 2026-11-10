@@ -174,12 +174,9 @@ enum AccessibilityTextReader {
 
     static func selectedTextRange(of element: AXUIElement) -> CFRange? {
         var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &ref) == .success,
-              let ref, CFGetTypeID(ref) == AXValueGetTypeID() else { return nil }
-        var range = CFRange()
-        // swiftlint:disable:next force_cast
-        guard AXValueGetValue(ref as! AXValue, .cfRange, &range) else { return nil }
-        return range
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &ref) == .success
+        else { return nil }
+        return AXCast.range(ref)
     }
 
     static func caretLocation(of element: AXUIElement) -> Int? {
@@ -224,16 +221,8 @@ enum AccessibilityTextReader {
         var sizeRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionRef) == .success,
               AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeRef) == .success,
-              let positionRef, let sizeRef,
-              CFGetTypeID(positionRef) == AXValueGetTypeID(), CFGetTypeID(sizeRef) == AXValueGetTypeID() else {
-            return nil
-        }
-        var position = CGPoint.zero
-        var size = CGSize.zero
-        // swiftlint:disable force_cast
-        guard AXValueGetValue(positionRef as! AXValue, .cgPoint, &position),
-              AXValueGetValue(sizeRef as! AXValue, .cgSize, &size) else { return nil }
-        // swiftlint:enable force_cast
+              let position = AXCast.point(positionRef),
+              let size = AXCast.size(sizeRef) else { return nil }
         return CGRect(origin: position, size: size)
     }
 
@@ -476,10 +465,8 @@ enum AccessibilityTextReader {
 
     private static func copyElement(_ element: AXUIElement, _ attribute: String) -> AXUIElement? {
         var ref: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success,
-              let ref, CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
-        // swiftlint:disable:next force_cast
-        return (ref as! AXUIElement)
+        guard AXUIElementCopyAttributeValue(element, attribute as CFString, &ref) == .success else { return nil }
+        return AXCast.element(ref)
     }
 
     private static func copyString(_ element: AXUIElement, _ attribute: String) -> String? {

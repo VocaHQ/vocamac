@@ -33,6 +33,11 @@ struct CalmLanguagesSettings: View {
         .onChange(of: appState.selectedLanguage) {
             Task { @MainActor in await appState.languageDidChange() }
         }
+        // Adding a second spoken language can leave recognition on Auto yet
+        // change what Nemotron Unified loads with (`languageChangeKey`).
+        .onChange(of: appState.spokenLanguages) {
+            Task { @MainActor in await appState.languageDidChange() }
+        }
         .calmSpeechPickDialogs(flow)
     }
 

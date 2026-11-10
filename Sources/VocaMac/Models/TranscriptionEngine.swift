@@ -117,6 +117,9 @@ enum PreferenceKey {
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
     static let skipSilence = "vocamac.audio.skipSilence"
     static let spokenLanguages = "vocamac.spokenLanguages"
+    /// Bool: the user picked a speech model (Settings, onboarding's
+    /// "Download & Use"), as opposed to the startup load saving its default.
+    static let speechModelChosen = "vocamac.speechModelChosen"
     static let modelRecommendationPriority = "vocamac.modelRecommendationPriority"
     /// Prefix of one key per model: the macOS build it last loaded on.
     static let compiledModelBuildPrefix = "vocamac.models.compiledBuild."

@@ -640,7 +640,7 @@ final class MockWhisperService: SpeechTranscribing {
         }
         await transcribeGate?.wait()
         if shouldThrow {
-            throw WhisperError.transcriptionFailed(reason: "mock error")
+            throw TranscriptionError.transcriptionFailed(reason: "mock error")
         }
         return mockTranscriptionResult
     }

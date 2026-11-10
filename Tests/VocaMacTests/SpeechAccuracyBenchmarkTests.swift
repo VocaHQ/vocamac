@@ -22,6 +22,7 @@ import XCTest
 /// Optional: `VOCAMAC_ACCURACY_OUTPUT` (report path or directory, default
 /// `$TMPDIR`), `VOCAMAC_ACCURACY_LANGUAGE` (default auto-detect),
 /// `VOCAMAC_ACCURACY_VOCABULARY` (comma-separated Dictionary terms),
+/// `VOCAMAC_ACCURACY_SKIP_SILENCE=0` (decode without trimming pauses),
 /// `VOCAMAC_ACCURACY_MAX_WER` (fail when a model's corpus WER is above it,
 /// e.g. `0.15`), `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1` (fetch missing models;
 /// otherwise they are skipped), `VOCAMAC_ACCURACY_FINAL=1` (also run each
@@ -288,7 +289,10 @@ final class SpeechAccuracyBenchmarkTests: XCTestCase {
         paired: Bool,
         modelManager: ModelManager
     ) async throws -> ModelResult {
-        let router = TranscriptionRouter(languagePreferenceProvider: { language }, skipSilenceProvider: { true })
+        // `VOCAMAC_ACCURACY_SKIP_SILENCE=0` decodes without trimming pauses,
+        // to measure what the trim does to punctuation.
+        let skipsSilence = ProcessInfo.processInfo.environment["VOCAMAC_ACCURACY_SKIP_SILENCE"] != "0"
+        let router = TranscriptionRouter(languagePreferenceProvider: { language }, skipSilenceProvider: { skipsSilence })
         let loadStart = ProcessInfo.processInfo.systemUptime
         try await router.loadModel(name: modelManager.modelIdentifier(for: model), folder: modelManager.modelFolder(for: model))
         let loadSeconds = ProcessInfo.processInfo.systemUptime - loadStart

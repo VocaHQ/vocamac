@@ -16,8 +16,9 @@ import Foundation
 ///
 /// The checks are deliberately one-sided. Anything that might be work for the
 /// model — the word "like", a number spelled out, a long sentence — sends the
-/// text to the model as before. Only English is judged; other languages are
-/// always sent, because these word lists say nothing about them.
+/// text to the model as before. The word lists are English. In other
+/// languages the model may only change punctuation and capitals (`EditMerge`
+/// merges their answers at Light), so there only the punctuation is judged.
 enum CleanupNeed {
     /// Why the model should still see `text`, or nil when it has nothing to do.
     ///
@@ -32,10 +33,10 @@ enum CleanupNeed {
         technical: Bool,
         isEnglish: Bool
     ) -> String? {
-        guard isEnglish else { return "not English" }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard isEnglish else { return otherLanguageReason(trimmed, technical: technical) }
         // Grammar repairs can't be predicted from the surface of the text.
         guard level != .grammar else { return "grammar level" }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let words = Self.words(trimmed)
         guard !words.isEmpty else { return nil }
@@ -60,6 +61,22 @@ enum CleanupNeed {
         if matches(#"(?:^|\s)\p{L}(?:\s+\p{L}){2,}(?:\s|$)"#, trimmed) { return "spelled-out letters" }
         if matches(#"(?:^|[\s(])i(?:[\s,.!?']|$)"#, trimmed) { return "lowercase “i”" }
         return punctuationProblem(trimmed)
+    }
+
+    /// Text in another language. Every level, Grammar included, keeps its
+    /// wording and takes only punctuation and capitals from the model, so
+    /// text whose punctuation is already right leaves it nothing to do. Of
+    /// the German, French, Spanish, Portuguese and Italian cleanup probes
+    /// (Qwen 2.5 1.5B, Medium), all seven already punctuated came back as
+    /// spoken, after a pass that echoed them or translated one into English
+    /// (docs/ACCURACY.md).
+    /// Scripts whose sentences end in other marks ("。", "।") still go to
+    /// the model, as do Code and Terminal, which never send it other
+    /// languages.
+    private static func otherLanguageReason(_ text: String, technical: Bool) -> String? {
+        guard !technical else { return "not English" }
+        guard !text.isEmpty, !words(text).isEmpty else { return nil }
+        return punctuationProblem(text).map { "not English: \($0)" }
     }
 
     // MARK: - Words

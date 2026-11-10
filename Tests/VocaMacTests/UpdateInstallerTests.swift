@@ -251,6 +251,62 @@ final class UpdateInstallerTests: XCTestCase {
         XCTAssertEqual(try stagedLeftovers(), ["VocaMac.app"])
     }
 
+    /// Runs `swapScript` directly, as `launchSwapHelper` does, for branches
+    /// that need paths the installer itself would never pass.
+    private func runSwapScript(
+        current: URL, staged: URL, backup: URL, opener: String, result: URL
+    ) async throws -> Process {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [
+            "-c", UpdateInstaller.swapScript, "vocamac-update",
+            "999999", current.path, staged.path, backup.path, opener, result.path, "1.2.0",
+        ]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        try await waitForExit(process)
+        return process
+    }
+
+    func testSwapHelperDropsTheStagedAppWhenTheInstalledOneCannotMoveAside() async throws {
+        let staged = directory.appendingPathComponent("Applications/.VocaMac-update-x.app", isDirectory: true)
+        try makeApp(at: staged, version: "1.2.0")
+        let missingCurrent = directory.appendingPathComponent("Nowhere/VocaMac.app", isDirectory: true)
+        let backup = directory.appendingPathComponent("Applications/.VocaMac-previous.app", isDirectory: true)
+        let result = directory.appendingPathComponent("result.txt")
+
+        _ = try await runSwapScript(
+            current: missingCurrent, staged: staged, backup: backup, opener: "/usr/bin/true", result: result
+        )
+
+        XCTAssertEqual(
+            UpdateInstaller.consumeResult(at: result),
+            "failed: couldn't move the installed app aside to install 1.2.0"
+        )
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staged.path), "Staged copy removed")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: backup.path), "Nothing was moved aside")
+    }
+
+    func testSwapHelperNotesAFailedReopenAfterInstalling() async throws {
+        let installer = try installer()
+        let staged = directory.appendingPathComponent("Applications/.VocaMac-update-x.app", isDirectory: true)
+        try makeApp(at: staged, version: "1.2.0")
+        let backup = directory.appendingPathComponent("Applications/.VocaMac-previous.app", isDirectory: true)
+        let result = directory.appendingPathComponent("result.txt")
+
+        _ = try await runSwapScript(
+            current: installer.runningAppURL, staged: staged, backup: backup, opener: "/usr/bin/false", result: result
+        )
+
+        let lines = try String(contentsOf: result, encoding: .utf8)
+            .split(separator: "\n").map(String.init)
+        XCTAssertEqual(lines, ["installed 1.2.0", "reopen failed"])
+        let info = NSDictionary(contentsOf: installer.runningAppURL.appendingPathComponent("Contents/Info.plist"))
+        XCTAssertEqual(info?["CFBundleShortVersionString"] as? String, "1.2.0")
+        XCTAssertEqual(try stagedLeftovers(), ["VocaMac.app"])
+    }
+
     // MARK: - Reporting the outcome
 
     @MainActor

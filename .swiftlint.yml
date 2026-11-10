@@ -15,13 +15,8 @@ excluded:
   - Sources/VocaMac/Vendor
 
 disabled_rules:
-  # Size and complexity limits. Much of the code predates the linter, and
-  # splitting files and functions to satisfy a number is its own change.
+  # Size limits that are not ratcheted (see the limits below).
   - line_length
-  - file_length
-  - type_body_length
-  - function_body_length
-  - cyclomatic_complexity
   - function_parameter_count
   - large_tuple
   - nesting
@@ -73,3 +68,20 @@ custom_rules:
     regex: (?<![\w.])print\s*\(
     match_kinds: [identifier]
     severity: error
+
+# Size and complexity limits, set at the largest file, type and function
+# today so nothing grows past them. They only ever go down: lower one when
+# the code under it shrinks, never raise it. (AGENTS.md › Code style.)
+file_length:
+  warning: 2309
+  error: 2309
+  ignore_comment_only_lines: true
+type_body_length:
+  warning: 1855
+  error: 1855
+function_body_length:
+  warning: 442
+  error: 442
+cyclomatic_complexity:
+  warning: 66
+  error: 66

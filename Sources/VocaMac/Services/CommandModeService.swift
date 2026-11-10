@@ -114,13 +114,19 @@ final class AccessibilitySelectedTextService: SelectedTextAccessing {
     /// The ⌘C fallback puts the selection on the shared clipboard for a
     /// moment, where clipboard managers can see it, so it runs only after
     /// the user turns it on.
-    var allowsClipboardFallback: () -> Bool = {
-        UserDefaults.standard.bool(forKey: PreferenceKey.commandModeClipboardFallback)
-    }
+    var allowsClipboardFallback: () -> Bool
 
-    init(textInjector: TextInjecting = TextInjector(), pasteboard: NSPasteboard = .general) {
+    /// `defaults` holds the setting: the app's settings store (AppState's).
+    init(
+        textInjector: TextInjecting = TextInjector(),
+        pasteboard: NSPasteboard = .general,
+        defaults: UserDefaults = .standard
+    ) {
         self.textInjector = textInjector
         self.pasteboard = pasteboard
+        self.allowsClipboardFallback = {
+            defaults.bool(forKey: PreferenceKey.commandModeClipboardFallback)
+        }
     }
 
     func captureSelection() async -> Result<SelectedTextSnapshot, SelectionCaptureFailure> {

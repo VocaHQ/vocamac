@@ -102,12 +102,12 @@ final class UnchosenDefaultModelTests: XCTestCase {
     // `AppState` keeps its settings in the standard defaults.
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.speechModelChosen)
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.speechModelChosen)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.selectedModelSize)
         super.tearDown()
     }
 
@@ -187,18 +187,18 @@ final class SpokenLanguageReloadTests: XCTestCase {
         appState.selectedLanguage = TranscriptionLanguage.auto.code
         await appState.loadModel(.nemotronUnified)
         await appState.languageDidChange()
-        let loads = mocks.whisperService.loadRequests.count
+        let loads = mocks.transcriber.loadRequests.count
 
         // Recognition stays on Auto, but Nemotron loaded with German.
         appState.setSpokenLanguages(["de", "fr"])
         XCTAssertEqual(appState.selectedLanguage, TranscriptionLanguage.auto.code)
         await appState.languageDidChange()
 
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, loads + 1)
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, loads + 1)
 
         // The same languages again change nothing.
         await appState.languageDidChange()
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, loads + 1)
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, loads + 1)
     }
 
     func testTheKeyFollowsWhatAModelLoadsWith() {

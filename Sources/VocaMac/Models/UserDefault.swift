@@ -83,6 +83,15 @@ extension LearnCorrectionsMode: RawUserDefaultValue {}
 
 // MARK: - Property wrapper
 
+/// An object whose `@UserDefault` settings live somewhere other than the
+/// store each setting was declared with. AppState gives its tests their own
+/// store this way, so runs in parallel (or in other checkouts) can't read
+/// each other's settings.
+@MainActor
+protocol UserDefaultsStoreProviding: AnyObject {
+    var userDefaultsStore: UserDefaults { get }
+}
+
 /// A setting stored in UserDefaults on an `ObservableObject`. Setting it
 /// publishes the object's change; so does a write to its key from anywhere
 /// else (another view's `@AppStorage`, a settings import), but only when
@@ -95,14 +104,12 @@ extension LearnCorrectionsMode: RawUserDefaultValue {}
 @propertyWrapper
 struct UserDefault<Value: UserDefaultValue> {
     private let key: String
-    private let defaultValue: Value
-    private let store: UserDefaults
     private let watcher: UserDefaultWatcher<Value>
 
+    /// `store` is used unless the owner provides its own
+    /// (`UserDefaultsStoreProviding`).
     init(wrappedValue: Value, _ key: String, store: UserDefaults = .standard) {
         self.key = key
-        self.defaultValue = wrappedValue
-        self.store = store
         self.watcher = UserDefaultWatcher(key: key, defaultValue: wrappedValue, store: store)
     }
 
@@ -118,17 +125,19 @@ struct UserDefault<Value: UserDefaultValue> {
     ) -> Value where Instance.ObjectWillChangePublisher == ObservableObjectPublisher {
         get {
             let wrapper = instance[keyPath: storageKeyPath]
+            wrapper.watcher.resolveStore(for: instance)
             wrapper.watcher.watch(for: instance.objectWillChange)
             return wrapper.watcher.current()
         }
         set {
             let wrapper = instance[keyPath: storageKeyPath]
+            let store = wrapper.watcher.resolveStore(for: instance)
             wrapper.watcher.watch(for: instance.objectWillChange)
             instance.objectWillChange.send()
             // Remembered before the write, so the change notification the
             // write posts doesn't publish a second time.
             wrapper.watcher.remember(newValue)
-            newValue.write(to: wrapper.store, key: wrapper.key)
+            newValue.write(to: store, key: wrapper.key)
         }
     }
 
@@ -148,7 +157,10 @@ struct UserDefault<Value: UserDefaultValue> {
 final class UserDefaultWatcher<Value: UserDefaultValue> {
     private let key: String
     private let defaultValue: Value
-    private let store: UserDefaults
+    /// The store the setting was declared with, until `resolveStore(for:)`
+    /// settles on the owner's.
+    private var store: UserDefaults
+    private var isStoreResolved = false
     /// The value last read or written, to tell a real change from a write
     /// to some other key.
     private var lastSeen: Value?
@@ -165,6 +177,20 @@ final class UserDefaultWatcher<Value: UserDefaultValue> {
 
     deinit {
         if let token { NotificationCenter.default.removeObserver(token) }
+    }
+
+    /// Settle once on the store to use: the owner's own, when it provides
+    /// one, otherwise the declared store. Always before watching, so the
+    /// watch is on the right store.
+    @discardableResult
+    func resolveStore(for owner: AnyObject) -> UserDefaults {
+        if !isStoreResolved {
+            isStoreResolved = true
+            if let provider = owner as? UserDefaultsStoreProviding {
+                store = provider.userDefaultsStore
+            }
+        }
+        return store
     }
 
     /// The stored value, or the default.

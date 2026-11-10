@@ -12,7 +12,7 @@ final class AppStateHistoryTests: XCTestCase {
     private let speech = [Float](repeating: 0.2, count: 8_000)
 
     private func dictate(_ appState: AppState, _ mocks: TestMocks, text: String) async {
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: text, duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         mocks.audioEngine.stopRecordingResult = speech
@@ -58,7 +58,7 @@ final class AppStateHistoryTests: XCTestCase {
 
     func testFailedTranscriptionIsKeptAsFailed() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.whisperService.shouldThrow = true
+        mocks.transcriber.shouldThrow = true
         mocks.audioEngine.stopRecordingResult = speech
         await appState.startRecording()
         await appState.stopRecordingAndTranscribe()
@@ -117,7 +117,7 @@ final class AppStateHistoryTests: XCTestCase {
         XCTAssertFalse(appState.isRecording)
         XCTAssertEqual(appState.appStatus, .idle)
         XCTAssertFalse(mocks.hotKeyManager.isCancelKeyArmed)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData, "Cancelled audio is never transcribed")
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData, "Cancelled audio is never transcribed")
         XCTAssertTrue(appState.historyStore.entries.isEmpty)
     }
 
@@ -161,20 +161,20 @@ final class AppStateHistoryTests: XCTestCase {
         let store = DictationHistoryStore(directory: directory)
         let (appState, mocks) = AppState.makeTestState(historyStore: store)
 
-        mocks.whisperService.shouldThrow = true
+        mocks.transcriber.shouldThrow = true
         mocks.audioEngine.stopRecordingResult = speech
         await appState.startRecording()
         await appState.stopRecordingAndTranscribe()
         let failed = try XCTUnwrap(appState.recoverableHistoryEntry)
 
-        mocks.whisperService.shouldThrow = false
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.shouldThrow = false
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "second time lucky", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         let text = await appState.retryHistoryEntry(failed.id)
 
         XCTAssertNotNil(text)
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, speech.count)
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData?.count, speech.count)
         XCTAssertEqual(store.entry(id: failed.id)?.status, .completed)
         XCTAssertEqual(store.entry(id: failed.id)?.retryCount, 1)
         XCTAssertNil(appState.recoverableHistoryEntry)
@@ -205,7 +205,7 @@ final class AppStateHistoryTests: XCTestCase {
             .appendingPathComponent("VocaMacDismiss-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let (appState, mocks) = AppState.makeTestState(historyStore: DictationHistoryStore(directory: directory))
-        mocks.whisperService.shouldThrow = true
+        mocks.transcriber.shouldThrow = true
         mocks.audioEngine.stopRecordingResult = speech
         await appState.startRecording()
         await appState.stopRecordingAndTranscribe()
@@ -242,7 +242,7 @@ final class AppStateHistoryTests: XCTestCase {
         appState.writingStyleDefault = .code
         await dictate(appState, mocks, text: "log the user id")
         XCTAssertEqual(reader.captureCallCount, 1)
-        XCTAssertTrue(mocks.whisperService.lastVocabulary?.contains("userId") == true)
+        XCTAssertTrue(mocks.transcriber.lastVocabulary?.contains("userId") == true)
         XCTAssertTrue(mocks.textInjector.lastInjectedText?.contains("userId") == true,
                       mocks.textInjector.lastInjectedText ?? "")
     }
@@ -369,7 +369,7 @@ final class AppStateHistoryTests: XCTestCase {
         let reader = MockScreenContextReader()
         reader.text = "let userId = request.userId"
         let (appState, mocks) = AppState.makeTestState(screenContextReader: reader)
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 for try await _ in chunks {}
                 return VocaTranscription(text: "", duration: 0, detectedLanguage: "en", audioLengthSeconds: 0, modelUsed: .tiny)
@@ -377,7 +377,7 @@ final class AppStateHistoryTests: XCTestCase {
         }
         appState.overlayStyle = .live
         await appState.startRecording()
-        let live = try? XCTUnwrap(mocks.whisperService.lastStreamingLiveVocabulary)
+        let live = try? XCTUnwrap(mocks.transcriber.lastStreamingLiveVocabulary)
         for _ in 0..<50 where live?.isSettled == false { try? await Task.sleep(nanoseconds: 10_000_000) }
         XCTAssertTrue(live?.read().contains("userId") == true)
         await appState.cancelRecording()
@@ -405,7 +405,7 @@ final class HistoryExclusionTests: XCTestCase {
 
     private func dictate(_ appState: AppState, _ mocks: TestMocks, into app: RunningAppSnapshot, text: String) async {
         mocks.frontmostAppResolver.frontmostApp = app
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: text, duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         mocks.audioEngine.stopRecordingResult = speech
@@ -491,10 +491,10 @@ final class HistoryExclusionDeliveryTests: XCTestCase {
         let (appState, mocks) = AppState.makeTestState()
         appState.addHistoryExcludedApp(AutoPauseAppEntry.from(snapshot: vault))
         mocks.frontmostAppResolver.frontmostApp = notes
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "secret words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
-        mocks.whisperService.transcribeDelayNanoseconds = 200_000_000
+        mocks.transcriber.transcribeDelayNanoseconds = 200_000_000
         mocks.audioEngine.stopRecordingResult = speech
         await appState.startRecording()
         let stop = Task { await appState.stopRecordingAndTranscribe() }
@@ -511,7 +511,7 @@ final class HistoryExclusionDeliveryTests: XCTestCase {
     func testInAppTestDictationDoesNotReplaceTheLastDelivered() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.frontmostAppResolver.frontmostApp = notes
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "real dictation", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         mocks.audioEngine.stopRecordingResult = speech
@@ -519,7 +519,7 @@ final class HistoryExclusionDeliveryTests: XCTestCase {
         await appState.stopRecordingAndTranscribe()
         let delivered = appState.lastDictationText
 
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "settings test", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         await appState.startRecording(injectResult: false)
@@ -532,14 +532,14 @@ final class HistoryExclusionDeliveryTests: XCTestCase {
         let (appState, mocks) = AppState.makeTestState()
         mocks.frontmostAppResolver.frontmostApp = notes
         mocks.audioEngine.stopRecordingResult = speech
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "saved words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         await appState.startRecording()
         await appState.stopRecordingAndTranscribe()
 
         appState.historyEnabled = false
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "paused words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         await appState.startRecording()

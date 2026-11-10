@@ -606,9 +606,9 @@ final class SettingsArchiveTests: XCTestCase {
     @MainActor
     func testDeclaredKindsMatchHowTheAppStoresSettings() {
         let keys = Array(SettingsArchiveService.keys)
-        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = keys.map { ($0, TestDefaults.store.object(forKey: $0)) }
         defer {
-            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+            for (key, value) in saved { TestDefaults.store.set(value, forKey: key) }
         }
         let (app, _) = AppState.makeTestState()
         app.hotKeyCode = 63
@@ -625,7 +625,7 @@ final class SettingsArchiveTests: XCTestCase {
         app.snippets = [Snippet(trigger: "sig", expansion: "Thanks")]
         app.saveSnippets()
 
-        let archive = SettingsArchiveService.make(defaults: .standard)
+        let archive = SettingsArchiveService.make(defaults: TestDefaults.store)
         XCTAssertGreaterThanOrEqual(archive.values.count, 12)
         for (key, value) in archive.values {
             guard let kind = SettingsArchiveService.kinds[key] else { return XCTFail("\(key) has no kind") }
@@ -691,9 +691,9 @@ final class CommandModePromptTests: XCTestCase {
     @MainActor
     func testCommandModelStaysLoadedUnlessIdleUnloadIsOn() {
         let keys = [PreferenceKey.modelKeepAliveEnabled, PreferenceKey.modelKeepAliveIdleTimeout]
-        let saved = keys.map { ($0, UserDefaults.standard.object(forKey: $0)) }
+        let saved = keys.map { ($0, TestDefaults.store.object(forKey: $0)) }
         defer {
-            for (key, value) in saved { UserDefaults.standard.set(value, forKey: key) }
+            for (key, value) in saved { TestDefaults.store.set(value, forKey: key) }
         }
         let (app, _) = AppState.makeTestState()
         app.modelKeepAliveEnabled = false
@@ -712,10 +712,11 @@ final class CommandModePromptTests: XCTestCase {
     @MainActor
     func testClipboardFallbackNeedsConsent() {
         XCTAssertTrue(SelectionCaptureFailure.needsClipboardFallback.message.contains("Copy the selection"))
-        let service = AccessibilitySelectedTextService(textInjector: MockTextInjector())
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
-        let allowed = service.allowsClipboardFallback()
-        XCTAssertFalse(allowed, "Off until the user turns it on")
+        let service = AccessibilitySelectedTextService(textInjector: MockTextInjector(), defaults: TestDefaults.store)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.commandModeClipboardFallback)
+        XCTAssertFalse(service.allowsClipboardFallback(), "Off until the user turns it on")
+        TestDefaults.store.set(true, forKey: PreferenceKey.commandModeClipboardFallback)
+        XCTAssertTrue(service.allowsClipboardFallback(), "The setting the app stores turns it on")
     }
 
     func testSelectionRevalidationToleratesFreshElementsButNotChangedText() {
@@ -844,7 +845,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.transcriptCleanupEnabled = true
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -881,7 +882,7 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertNil(app.commandModeSession)
 
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "hello there", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1, modelUsed: .tiny
         )
@@ -905,7 +906,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         app.commandModeHoldThreshold = 60
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -940,7 +941,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         app.commandModeHoldThreshold = 0
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -977,7 +978,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         XCTAssertFalse(app.transcriptCleanupEnabled)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1017,7 +1018,7 @@ final class CommandModeFlowTests: XCTestCase {
             modelID: "tiny", language: "en", audioSeconds: 1, now: Date().addingTimeInterval(-3 * 24 * 60 * 60)
         )
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1045,7 +1046,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         app.historyEnabled = false
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1107,7 +1108,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         cleanup.onTransform = { [weak app] in await app?.cancelDictation() }
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite this", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1129,7 +1130,7 @@ final class CommandModeFlowTests: XCTestCase {
         cleanup.cleanHandler = { _ in "First line." }
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "fix the capitalization", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1195,7 +1196,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen3_4b_instruct_2507_q4_k_m
         app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1217,7 +1218,7 @@ final class CommandModeFlowTests: XCTestCase {
         cleanup.cleanHandler = { _ in "Cleaned text." }
         cleanup.onClean = { [weak app] in await app?.cancelDictation() }
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "um so this is a dictation", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1240,7 +1241,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_0_5b_q4_k_m
         app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )

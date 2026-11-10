@@ -173,9 +173,9 @@ extension AppState {
         if inputMonitoringPermission != .granted { return .needsInputMonitoring }
         if accessibilityPermission != .granted { return .needsAccessibility }
         if availableModels.contains(where: { $0.isLoading || $0.downloadProgress != nil }) {
-            return whisperService.isModelLoaded ? .ready(preparingAnother: true) : .preparingModel
+            return transcriber.isModelLoaded ? .ready(preparingAnother: true) : .preparingModel
         }
-        if availableModels.isEmpty && !whisperService.isModelLoaded { return .preparingModel }
+        if availableModels.isEmpty && !transcriber.isModelLoaded { return .preparingModel }
         if needsSpeechModel { return .needsModel }
         return .ready(preparingAnother: false)
     }

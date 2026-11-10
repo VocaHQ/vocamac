@@ -178,8 +178,8 @@ final class SuggestedTermsAppStateTests: XCTestCase {
     func testAScreenRespellingIsSuggestedTheSecondTime() {
         let (appState, _) = AppState.makeTestState()
         appState.learnCorrectionsMode = .suggest
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.screenRespellingCounts)
-        defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.screenRespellingCounts) }
+        TestDefaults.store.removeObject(forKey: PreferenceKey.screenRespellingCounts)
+        defer { TestDefaults.store.removeObject(forKey: PreferenceKey.screenRespellingCounts) }
         func dictate() {
             appState.noteScreenRespellings(raw: "the django nots call", final: "The Djangonauts call.",
                                            screenTerms: ["Djangonauts"], language: "en")

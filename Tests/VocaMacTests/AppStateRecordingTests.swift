@@ -13,11 +13,11 @@ final class AppStateRecordingTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: "vocamac.soundEffectsEnabled")
+        TestDefaults.store.removeObject(forKey: "vocamac.soundEffectsEnabled")
         super.tearDown()
     }
 
@@ -73,7 +73,7 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .idle)
         XCTAssertFalse(appState.isRecording)
         XCTAssertEqual(appState.audioLevel, 0.0)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData)
         XCTAssertEqual(mocks.cursorOverlay.hideCallCount, 1)
         XCTAssertEqual(mocks.hotKeyManager.resetKeyStateCallCount, 1)
     }
@@ -99,15 +99,18 @@ final class AppStateRecordingTests: XCTestCase {
 
     func testStartSoundIsNotPlayedIfRecordingStopsDuringAudioStart() async throws {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.3
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let task = Task {
             await appState.startRecording()
         }
 
-        await Task.yield()
-        try await Task.sleep(nanoseconds: 50_000_000)
+        // Stop while the audio engine is still starting.
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
         await appState.stopRecordingAndTranscribe()
+        gate.open()
         await task.value
 
         XCTAssertEqual(mocks.soundManager.startSoundCallCount, 0)
@@ -166,7 +169,7 @@ final class AppStateRecordingTests: XCTestCase {
 
         XCTAssertEqual(appState.appStatus, .idle)
         XCTAssertNil(appState.errorMessage)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData)
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 0,
                        "Cancelling before the first buffer should not be reported as a broken route")
@@ -182,7 +185,7 @@ final class AppStateRecordingTests: XCTestCase {
 
         XCTAssertEqual(appState.appStatus, .error)
         XCTAssertTrue(appState.errorMessage?.contains("selected microphone") == true)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData)
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 1,
                        "Silent capture should force-reset the engine so a dead route is not kept warm")
@@ -220,11 +223,11 @@ final class AppStateRecordingTests: XCTestCase {
     func testReleasingTheHotkeyBeforeAnyAudioWhileTheModelLoadsRecordsNothing() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadDelayNanoseconds = 100_000_000
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadDelayNanoseconds = 100_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -239,7 +242,7 @@ final class AppStateRecordingTests: XCTestCase {
         await start.value
         await waitUntil { !mocks.audioEngine.isCurrentlyRecording }
 
-        XCTAssertTrue(mocks.whisperService.isModelLoaded)
+        XCTAssertTrue(mocks.transcriber.isModelLoaded)
         XCTAssertFalse(appState.isRecording)
         XCTAssertNotEqual(appState.appStatus, .recording)
         XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording, "The microphone opened for the load must close")
@@ -250,11 +253,11 @@ final class AppStateRecordingTests: XCTestCase {
     func testReleasingTheHotkeyWhileTheModelLoadsTranscribesWhatWasSaid() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadDelayNanoseconds = 300_000_000
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadDelayNanoseconds = 300_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -274,7 +277,7 @@ final class AppStateRecordingTests: XCTestCase {
         await waitUntil { mocks.textInjector.injectCallCount == 1 }
 
         XCTAssertEqual(mocks.textInjector.injectCallCount, 1)
-        let transcribed = mocks.whisperService.lastTranscribedAudioData ?? []
+        let transcribed = mocks.transcriber.lastTranscribedAudioData ?? []
         XCTAssertEqual(Array(transcribed.prefix(spoken.count)), spoken)
         XCTAssertLessThanOrEqual(
             transcribed.count, spoken.count + Int(CapturedSampleCounter.maxInFlightSeconds * 16_000)
@@ -286,11 +289,11 @@ final class AppStateRecordingTests: XCTestCase {
     func testEscapeWhileTheModelLoadsClosesTheMicrophoneAtOnce() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadDelayNanoseconds = 1_000_000_000
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadDelayNanoseconds = 1_000_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -308,7 +311,7 @@ final class AppStateRecordingTests: XCTestCase {
         await waitUntil { !mocks.audioEngine.isCurrentlyRecording }
 
         XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording, "Escape must not leave the microphone on until the load ends")
-        XCTAssertFalse(mocks.whisperService.isModelLoaded, "Closed while the model was still loading")
+        XCTAssertFalse(mocks.transcriber.isModelLoaded, "Closed while the model was still loading")
         await start.value
         XCTAssertEqual(mocks.textInjector.injectCallCount, 0)
         XCTAssertFalse(appState.isRecording)
@@ -317,11 +320,11 @@ final class AppStateRecordingTests: XCTestCase {
     func testTheRecordingLimitEndsADictationStillWaitingForTheModel() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadDelayNanoseconds = 300_000_000
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadDelayNanoseconds = 300_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -345,10 +348,10 @@ final class AppStateRecordingTests: XCTestCase {
     func testHoldingTheHotkeyThroughTheModelLoadStillRecords() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -367,7 +370,7 @@ final class AppStateRecordingTests: XCTestCase {
         let result = try await appState.transcribeCapturedAudio([0.2, 0.1])
 
         XCTAssertEqual(result.text, "mock transcription")
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.1])
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData, [0.2, 0.1])
         XCTAssertEqual(appState.appStatus, .idle)
         // A meeting is counted, but not as a dictation.
         XCTAssertEqual(mocks.statsManager.recordedIsDictation, [false])
@@ -380,21 +383,21 @@ final class AppStateRecordingTests: XCTestCase {
 
         let transcription = Task { try await appState.transcribeCapturedAudio([0.3]) }
         try await Task.sleep(nanoseconds: 250_000_000)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData, "Must not decode during the dictation")
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData, "Must not decode during the dictation")
         appState.isRecording = false
         appState.appStatus = .idle
 
         let result = try await transcription.value
         XCTAssertEqual(result.text, "mock transcription")
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.3])
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData, [0.3])
     }
 
     func testCancellingSystemAudioTranscriptionFreesTheModelForDictation() async throws {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.whisperService.transcribeDelayNanoseconds = 10_000_000_000
+        mocks.transcriber.transcribeDelayNanoseconds = 10_000_000_000
 
         let transcription = Task { try await appState.transcribeCapturedAudio([0.3]) }
-        for _ in 0..<200 where mocks.whisperService.lastTranscribedAudioData == nil { await Task.yield() }
+        for _ in 0..<200 where mocks.transcriber.lastTranscribedAudioData == nil { await Task.yield() }
         XCTAssertEqual(appState.appStatus, .processing)
 
         transcription.cancel()
@@ -408,7 +411,7 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertEqual(appState.appStatus, .idle)
         XCTAssertFalse(appState.isTranscribingMedia)
         XCTAssertNil(appState.lastTranscription)
-        mocks.whisperService.transcribeDelayNanoseconds = 0
+        mocks.transcriber.transcribeDelayNanoseconds = 0
         await appState.startRecording()
         XCTAssertTrue(appState.isRecording, "Dictation must not be blocked by the discarded capture")
     }
@@ -416,7 +419,7 @@ final class AppStateRecordingTests: XCTestCase {
     func testStopRecordingInjectsPolishedText() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "hello world. goodbye",
             duration: 1.0,
             detectedLanguage: "en",
@@ -438,7 +441,7 @@ final class AppStateRecordingTests: XCTestCase {
     func testSnippetExpansionIsNotRewrittenByAutoCapitalize() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "my mail is the one to use",
             duration: 1.0,
             detectedLanguage: "en",
@@ -465,7 +468,7 @@ final class AppStateRecordingTests: XCTestCase {
     func testPracticeDictationStaysLocalWhenStoppedByHotkey() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "practice words", duration: 1, detectedLanguage: "en",
             audioLengthSeconds: 1, modelUsed: .tiny
         )
@@ -489,7 +492,7 @@ final class AppStateRecordingTests: XCTestCase {
     func testSettingsTestDictationDoesNotInject() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "settings only",
             duration: 1.0,
             detectedLanguage: "en",
@@ -510,7 +513,7 @@ final class AppStateRecordingTests: XCTestCase {
         let (appState, mocks) = AppState.makeTestState()
         appState.scratchpadText = "Existing note"
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "new thought", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -529,7 +532,7 @@ final class AppStateRecordingTests: XCTestCase {
         let samples = [Float](repeating: 0.2, count: 1_600)
         try FailedAudioDump.wavData(from: samples, sampleRate: 16_000).write(to: url)
         let (appState, mocks) = AppState.makeTestState()
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "file transcript", duration: 0.1, detectedLanguage: "en",
             audioLengthSeconds: 0.1, modelUsed: .tiny
         )
@@ -537,7 +540,7 @@ final class AppStateRecordingTests: XCTestCase {
         let result = try await appState.transcribeFile(at: url)
 
         XCTAssertEqual(result.text, "file transcript")
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData?.count, 1_600)
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData?.count, 1_600)
         XCTAssertNil(mocks.textInjector.lastInjectedText)
         XCTAssertEqual(appState.appStatus, .idle)
         // A file is counted, but not as a dictation.
@@ -547,7 +550,7 @@ final class AppStateRecordingTests: XCTestCase {
     func testStopTimeInjectResultFalseCannotDemoteOrdinaryDictation() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "ordinary words",
             duration: 1.0,
             detectedLanguage: "en",
@@ -584,7 +587,7 @@ final class AppStateRecordingTests: XCTestCase {
     }
 
     func testDictationToneDefaultsToVoca() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.dictationTone)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.dictationTone)
         let (appState, _) = AppState.makeTestState()
 
         XCTAssertEqual(appState.dictationTone, .voca,
@@ -772,11 +775,7 @@ final class AppStateRecordingTests: XCTestCase {
     }
 
     func testTriggerStartupIdempotent() {
-        // Reset the global flag so this test is self-contained regardless of
-        // test execution order.
-        AppState.hasStartedGlobally = false
-        defer { AppState.hasStartedGlobally = false }
-
+        // Test states don't share the process-wide flag, so nothing to reset.
         let (appState, _) = AppState.makeTestState()
 
         appState.triggerStartupIfNeeded()
@@ -872,8 +871,8 @@ final class AppStateForceRecoveryTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.hasCompletedOnboarding")
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.hasCompletedOnboarding")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
     }
 
     @MainActor
@@ -963,8 +962,8 @@ final class AppStateRecordingGuardTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        UserDefaults.standard.removeObject(forKey: "vocamac.hasCompletedOnboarding")
-        UserDefaults.standard.removeObject(forKey: "vocamac.launchAtLogin")
+        TestDefaults.store.removeObject(forKey: "vocamac.hasCompletedOnboarding")
+        TestDefaults.store.removeObject(forKey: "vocamac.launchAtLogin")
     }
 
     @MainActor
@@ -1049,11 +1048,13 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testStopWhileMicrophoneIsConnectingDoesNotBlock() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        // Let startRecording reach its await on the audio engine.
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        // The audio engine is negotiating the input route and holds there.
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         let stopBegan = Date()
         await appState.stopRecordingAndTranscribe()
@@ -1064,13 +1065,14 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1,
             "the engine should be told to abandon the start it is still negotiating")
 
+        gate.open()
         await start.value
 
         XCTAssertFalse(appState.isRecording)
         XCTAssertEqual(appState.appStatus, .error,
             "the user needs to know nothing was captured")
         XCTAssertNotNil(appState.errorMessage)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData,
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData,
             "there is no audio from before the microphone came up, so nothing should be transcribed")
         XCTAssertEqual(mocks.cursorOverlay.hideCallCount, 1)
     }
@@ -1078,14 +1080,17 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testCancelWhileMicrophoneIsConnectingEndsQuietly() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         await appState.cancelRecording()
         XCTAssertEqual(mocks.audioEngine.cancelPendingStartCallCount, 1)
 
+        gate.open()
         await start.value
 
         XCTAssertFalse(appState.isRecording)
@@ -1097,10 +1102,12 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
     @MainActor
     func testOverlayOnlyClaimsToListenOnceTheMicrophoneIsLive() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.audioEngine.startRecordingDelay = 0.6
+        let gate = StepGate()
+        mocks.audioEngine.startRecordingGate = gate
 
         let start = Task { await appState.startRecording() }
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        let reached = await gate.waitUntilReached()
+        XCTAssertTrue(reached)
 
         XCTAssertEqual(mocks.cursorOverlay.showCallCount, 1,
             "the overlay appears immediately so the hotkey feels responsive")
@@ -1108,6 +1115,7 @@ final class AppStateSlowMicrophoneStartTests: XCTestCase {
             "but it must not claim to be listening while the route is still coming up")
 
         await appState.stopRecordingAndTranscribe()
+        gate.open()
         await start.value
 
         XCTAssertEqual(mocks.cursorOverlay.transitionToRecordingCallCount, 0,
@@ -1146,7 +1154,7 @@ extension AppStateRecordingTests {
     func testPartialTranscriptUpdatesObservableStateAndOverlay() async {
         let (app, mocks) = AppState.makeTestState()
         app.overlayStyle = .live
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 var count = 0
                 for try await chunk in chunks { count += chunk.count }
@@ -1155,7 +1163,7 @@ extension AppStateRecordingTests {
             }
         }
         await app.startRecording()
-        mocks.whisperService.streamingPartialHandler?("words so far")
+        mocks.transcriber.streamingPartialHandler?("words so far")
         await Task.yield()
         XCTAssertEqual(app.liveTranscript, "words so far")
         XCTAssertEqual(mocks.cursorOverlay.lastTranscript, "words so far")
@@ -1165,7 +1173,7 @@ extension AppStateRecordingTests {
 
     func testLiveResultReplacesBatchWithoutLosingFinalSamples() async {
         let (app, mocks) = AppState.makeTestState()
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 var count = 0
                 for try await chunk in chunks { count += chunk.count }
@@ -1180,13 +1188,13 @@ extension AppStateRecordingTests {
         await app.stopRecordingAndTranscribe(injectResult: false)
         XCTAssertEqual(app.lastTranscription?.text, "live result")
         XCTAssertEqual(app.lastTranscription?.audioLengthSeconds, 3.0 / 16_000)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData)
         XCTAssertNil(mocks.audioEngine.onAudioSamples)
     }
 
     func testIncompleteLiveResultFallsBackToFullRecording() async {
         let (app, mocks) = AppState.makeTestState()
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 for try await _ in chunks { }
                 return VocaTranscription(text: "partial", duration: 0, detectedLanguage: "en",
@@ -1197,14 +1205,14 @@ extension AppStateRecordingTests {
         mocks.audioEngine.onAudioSamples?([0.2], 0)
         mocks.audioEngine.stopRecordingResult = [0.2, 0.3]
         await app.stopRecordingAndTranscribe(injectResult: false)
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.3])
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData, [0.2, 0.3])
         XCTAssertEqual(app.lastTranscription?.text, "mock transcription")
     }
 
     func testWhisperTranslationUsesAuthoritativeBatchResult() async {
         let (app, mocks) = AppState.makeTestState()
         app.translationEnabled = true
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 var count = 0
                 for try await chunk in chunks { count += chunk.count }
@@ -1212,7 +1220,7 @@ extension AppStateRecordingTests {
                                          audioLengthSeconds: Double(count) / 16_000, modelUsed: .tiny)
             }
         }
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "translated final", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1223,13 +1231,13 @@ extension AppStateRecordingTests {
         await app.stopRecordingAndTranscribe(injectResult: false)
 
         XCTAssertEqual(app.lastTranscription?.text, "translated final")
-        XCTAssertEqual(mocks.whisperService.lastTranslate, true)
+        XCTAssertEqual(mocks.transcriber.lastTranslate, true)
     }
 
     func testCancelRecordingStopsLiveConsumer() async {
         let (app, mocks) = AppState.makeTestState()
         let cancelled = expectation(description: "live consumer cancelled")
-        mocks.whisperService.streamingFactory = { language in
+        mocks.transcriber.streamingFactory = { language in
             RecordingTranscription(language: language) { chunks in
                 defer { cancelled.fulfill() }
                 for try await _ in chunks { }
@@ -1240,7 +1248,7 @@ extension AppStateRecordingTests {
         await app.cancelRecording()
         await fulfillment(of: [cancelled], timeout: 1)
         XCTAssertNil(mocks.audioEngine.onAudioSamples)
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData)
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData)
     }
 }
 
@@ -1253,11 +1261,11 @@ final class AppStateTranslationTests: XCTestCase {
 
     override func setUp() {
         super.setUp()
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        keys.forEach { TestDefaults.store.removeObject(forKey: $0) }
     }
 
     override func tearDown() {
-        keys.forEach { UserDefaults.standard.removeObject(forKey: $0) }
+        keys.forEach { TestDefaults.store.removeObject(forKey: $0) }
         super.tearDown()
     }
 
@@ -1269,7 +1277,7 @@ final class AppStateTranslationTests: XCTestCase {
         _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
 
         XCTAssertTrue(appState.translatesSpeech)
-        XCTAssertEqual(mocks.whisperService.lastTranslate, true)
+        XCTAssertEqual(mocks.transcriber.lastTranslate, true)
     }
 
     func testTranslationIsNotRequestedFromAModelThatCannotTranslate() async throws {
@@ -1281,7 +1289,7 @@ final class AppStateTranslationTests: XCTestCase {
         _ = try await appState.transcribeCapturedAudio([0.2, 0.1])
 
         XCTAssertFalse(appState.translatesSpeech)
-        XCTAssertEqual(mocks.whisperService.lastTranslate, false)
+        XCTAssertEqual(mocks.transcriber.lastTranslate, false)
         XCTAssertTrue(appState.translationEnabled, "The setting itself is kept for the next model")
     }
 }

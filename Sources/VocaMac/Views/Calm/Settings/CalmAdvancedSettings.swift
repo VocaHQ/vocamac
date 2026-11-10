@@ -161,7 +161,7 @@ struct CalmAdvancedSettings: View {
     }
 
     private var modelMemoryPanel: some View {
-        let isLoaded = appState.whisperService.isModelLoaded
+        let isLoaded = appState.transcriber.isModelLoaded
         return CalmPanel {
             CalmRow(
                 isLoaded ? (appState.calmLoadedSpeechModelName ?? "Speech model") : "Speech model",

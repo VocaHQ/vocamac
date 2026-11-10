@@ -126,6 +126,7 @@ Scripts: `./scripts/build.sh` (dev `.app`), `./scripts/install.sh`, `./scripts/i
 - Follow [Swift API Design Guidelines](https://swift.org/documentation/api-design-guidelines/). Names: `isRecording`, not `flag`.
 - `// MARK: -` sections. `///` on public types/methods and non-trivial private methods.
 - SwiftLint (`.swiftlint.yml`) must pass with `--strict`. Fix the code rather than adding `swiftlint:disable`; when a disable is warranted, scope it to the line (`disable:next`) and say why.
+- The size and complexity limits in `.swiftlint.yml` (`file_length`, `type_body_length`, `function_body_length`, `cyclomatic_complexity`) are a ratchet set at today's largest. They only go down: lower a limit when the code under it shrinks, and split code rather than raise one.
 
 ### Errors and logging
 

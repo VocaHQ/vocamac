@@ -224,7 +224,7 @@ enum ScratchpadOutputDestination {
 }
 
 /// Resumes a continuation with whichever value arrives first.
-private final class FirstValueGate<T: Sendable>: @unchecked Sendable {
+final class FirstValueGate<T: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<T, Never>?
 
@@ -258,14 +258,14 @@ final class AppState: ObservableObject {
     }
 
     /// Whether the app is actively recording audio
-    private var recordingGeneration = UUID()
+    var recordingGeneration = UUID()
     /// Starts, stops, and cancels in progress, nested or interleaved across
     /// awaits. The dictation flags are checked when it returns to zero.
-    private var dictationOperationDepth = 0
+    var dictationOperationDepth = 0
     /// What the last check found, for tests.
-    private(set) var lastDictationStateViolations: [String] = []
+    var lastDictationStateViolations: [String] = []
     /// Practice sessions keep their output local even when a hotkey stops them.
-    private var recordingInjectsResult = true
+    var recordingInjectsResult = true
     /// Whether the active recording belongs to an in-window practice control.
     var isPracticeRecording: Bool {
         isCapturingAudio && !recordingInjectsResult && activeCommandTarget == nil
@@ -277,17 +277,17 @@ final class AppState: ObservableObject {
         isPracticeRecording && nonInjectedOutputDestination == .settingsTest
     }
 
-    private var recordingTranscription: RecordingTranscription?
-    private var finishingTranscription: RecordingTranscription?
+    var recordingTranscription: RecordingTranscription?
+    var finishingTranscription: RecordingTranscription?
     /// Cleanups of finished pieces, run while recording ("Process while
     /// speaking"). Moves to `finishingSpeculator` at stop.
-    private var recordingSpeculator: CleanupSpeculator?
-    private var finishingSpeculator: CleanupSpeculator?
+    var recordingSpeculator: CleanupSpeculator?
+    var finishingSpeculator: CleanupSpeculator?
     /// Vocabulary a commit-mode Whisper session reads per piece.
-    private var recordingVocabulary: LiveVocabulary?
+    var recordingVocabulary: LiveVocabulary?
     /// The recording's live session decodes pieces while the user speaks.
-    private var recordingProcessesWhileSpeaking = false
-    private var isStoppingAudio = false
+    var recordingProcessesWhileSpeaking = false
+    var isStoppingAudio = false
     /// Every way a recording ends — stop, cancel, force recovery, a failed
     /// start, an input device change, auto-pause — sets this to `false`, so
     /// this is the one place that reliably sees the microphone close. Other
@@ -324,28 +324,28 @@ final class AppState: ObservableObject {
     /// Words recognised so far in a live recording. Lives in its own object,
     /// like `audioMeter`, so partial results don't redraw every observer.
     let liveTranscriptState = LiveTranscriptState()
-    private(set) var liveTranscript: String {
+    var liveTranscript: String {
         get { liveTranscriptState.text }
         set { liveTranscriptState.update(newValue) }
     }
     /// The most recent Command Mode edit, so its original can be copied back.
     /// Cleared by the next dictation.
-    @Published private(set) var lastCommandEdit: CommandModeEdit?
+    @Published var lastCommandEdit: CommandModeEdit?
     /// The Command Mode session in progress, from capture to replacement.
-    @Published private(set) var commandModeSession: CommandModeSession? {
+    @Published var commandModeSession: CommandModeSession? {
         didSet { cursorOverlay.setCommandSession(commandModeSession) }
     }
     /// A Command Mode result waiting on the user: an edit to approve, or an
     /// answer to read.
-    @Published private(set) var commandReview: CommandReview?
+    @Published var commandReview: CommandReview?
     /// A file or system-audio capture is being transcribed.
     @Published private(set) var isTranscribingMedia = false
     /// The microphone is recording, or the model decoding, a take of a
     /// Dictionary word being taught (`startTeachingTake`).
-    @Published private(set) var isTeachingWord = false
+    @Published var isTeachingWord = false
     /// The microphone start of the current take, awaited before the take
     /// is stopped so a stop can never run ahead of it and leave it open.
-    private var teachingStart: Task<Bool, Never>?
+    var teachingStart: Task<Bool, Never>?
 
     /// Optional, session-only checks for onboarding.
     @Published var onboardingVerification = OnboardingVerification()
@@ -569,14 +569,14 @@ final class AppState: ObservableObject {
     var websiteStyleBindings: [WebsiteStyleBinding] {
         get {
             // Decoded once per stored value: the Styles page reads this per row.
-            let json = UserDefaults.standard.string(forKey: PreferenceKey.websiteStyleBindings)
+            let json = userDefaultsStore.string(forKey: PreferenceKey.websiteStyleBindings)
             if let cached = calmDerived.websites, cached.json == json { return cached.bindings }
             let bindings = WebsiteStyleBindingStore.decode(json)
             calmDerived.websites = (json, bindings)
             return bindings
         }
         set {
-            UserDefaults.standard.set(WebsiteStyleBindingStore.encode(newValue), forKey: PreferenceKey.websiteStyleBindings)
+            userDefaultsStore.set(WebsiteStyleBindingStore.encode(newValue), forKey: PreferenceKey.websiteStyleBindings)
             objectWillChange.send()
         }
     }
@@ -584,9 +584,9 @@ final class AppState: ObservableObject {
     /// Apps whose dictations are never saved to History (password managers,
     /// banking, health). Same entry type and matching as the auto-pause list.
     var historyExcludedApps: [AutoPauseAppEntry] {
-        get { AppListCoding.decode(UserDefaults.standard.string(forKey: PreferenceKey.historyExcludedApps)) }
+        get { AppListCoding.decode(userDefaultsStore.string(forKey: PreferenceKey.historyExcludedApps)) }
         set {
-            UserDefaults.standard.set(AppListCoding.encode(newValue), forKey: PreferenceKey.historyExcludedApps)
+            userDefaultsStore.set(AppListCoding.encode(newValue), forKey: PreferenceKey.historyExcludedApps)
             objectWillChange.send()
         }
     }
@@ -610,8 +610,8 @@ final class AppState: ObservableObject {
 
     /// JSON-encoded `[AutoPauseAppEntry]` list (complex value not stored via `@AppStorage`).
     var autoPauseAppsJSON: String {
-        get { UserDefaults.standard.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.autoPauseApps) }
+        get { userDefaultsStore.string(forKey: PreferenceKey.autoPauseApps) ?? "[]" }
+        set { userDefaultsStore.set(newValue, forKey: PreferenceKey.autoPauseApps) }
     }
 
     /// Decoded auto-pause app list. Empty when unset or invalid JSON.
@@ -636,9 +636,9 @@ final class AppState: ObservableObject {
 
     /// JSON-encoded `WritingStyleBindingStore` (complex value not stored via `@AppStorage`).
     var writingStyleBindingsJSON: String {
-        get { UserDefaults.standard.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
+        get { userDefaultsStore.string(forKey: PreferenceKey.writingStyleBindings) ?? "" }
         set {
-            UserDefaults.standard.set(newValue, forKey: PreferenceKey.writingStyleBindings)
+            userDefaultsStore.set(newValue, forKey: PreferenceKey.writingStyleBindings)
         }
     }
 
@@ -683,48 +683,48 @@ final class AppState: ObservableObject {
     /// True while the audio engine is negotiating its input route. Bluetooth
     /// headsets can take seconds to switch to their microphone, and a stop
     /// arriving in that window has to be deferred rather than blocked on.
-    private var isStartingAudio = false
+    var isStartingAudio = false
 
     /// How to finish a start that the user interrupted while it was still
     /// negotiating the route.
-    private var pendingStopDuringStart: PendingStopKind?
+    var pendingStopDuringStart: PendingStopKind?
 
     /// True while `startRecording` waits for the speech model to load after
     /// an idle unload. The microphone is already open (`earlyCapture`); a
     /// stop arriving then is remembered here and applied once the model is
     /// ready. Published so the menu can say the model is loading rather than
     /// transcribing (`dictationPhase`).
-    @Published private(set) var isLoadingModelForRecording = false {
+    @Published var isLoadingModelForRecording = false {
         // The status is `.processing` during the load, with no transcription
         // yet: without this, Escape isn't claimed and can't cancel it.
         didSet { if oldValue != isLoadingModelForRecording { refreshCancelKeyArming() } }
     }
-    private var pendingStopDuringModelLoad: PendingStopKind?
+    var pendingStopDuringModelLoad: PendingStopKind?
 
     /// A dictation started while the previous one was still being transcribed
     /// or delivered. It starts as soon as that delivery finishes, unless the
     /// hotkey is released (or pressed again to stop) first.
-    private struct QueuedRecordingStart {
+    struct QueuedRecordingStart {
         let injectResult: Bool
         let outputDestination: ScratchpadOutputDestination
         let isHandsFree: Bool
         let verifiesShortcut: Bool
         let trigger: DictationTrigger
     }
-    private var queuedRecordingStart: QueuedRecordingStart?
+    var queuedRecordingStart: QueuedRecordingStart?
 
     /// The microphone, opened at once for a push-to-talk dictation queued
     /// behind one still finishing. Waiting for the delivery before opening it
     /// lost everything said in the meantime — and all of it when the key came
     /// up first. The queued recording adopts this capture when it starts.
-    private var earlyCapture: EarlyCapture?
+    var earlyCapture: EarlyCapture?
 
     /// Clock for early-capture release boundaries. Tests fix it, so a boundary
     /// doesn't depend on how long the test machine took between two calls.
     var captureClock: @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
 
     /// The speech model load in progress, if any.
-    private var inFlightModelLoad: Task<Void, Error>?
+    var inFlightModelLoad: Task<Void, Error>?
 
     /// Set while a Settings control records a new shortcut with the hotkey
     /// listener turned off, so permission recovery leaves the listener off.
@@ -732,13 +732,13 @@ final class AppState: ObservableObject {
 
     /// The launch-time model download and load, while it runs. The hotkey is
     /// live during it; a press waits for this instead of loading on its own.
-    private var startupModelPreparation: Task<Void, Never>?
+    var startupModelPreparation: Task<Void, Never>?
 
     /// Frontmost app captured when recording started. Used only when the app
     /// in front at injection time is VocaMac itself (Settings has focus).
-    private var pendingTargetApp: RunningAppSnapshot?
+    var pendingTargetApp: RunningAppSnapshot?
 
-    private enum PendingStopKind {
+    enum PendingStopKind {
         /// Push-to-talk released: keep whatever the engine managed to capture.
         case transcribe
         /// Overlay cancel: throw the recording away.
@@ -754,20 +754,20 @@ final class AppState: ObservableObject {
     /// Style that would be used if the user dictated right now. Drives the
     /// menu bar indicator; refreshed when the popover appears, when another
     /// app is activated, and after every dictation, never on a timer.
-    @Published private(set) var activeWritingStyle: ResolvedWritingStyle = .plain
+    @Published var activeWritingStyle: ResolvedWritingStyle = .plain
     /// Name of the app `activeWritingStyle` was resolved for, whether or not
     /// it has its own rule, so the menu bar can say which app it means.
     @Published private(set) var activeWritingTargetName: String?
     @Published var nextWritingProfile: WritingProfile?
-    @Published private(set) var lastOutput: DictationOutputResult?
+    @Published var lastOutput: DictationOutputResult?
     /// A crash report from last time, offered for reporting in the menu bar.
     @Published private(set) var pendingCrashReport: PendingCrashReport?
     let crashReportFinder: CrashReportFinder?
     /// The last dictation typed into an app kept out of History. History's
     /// newest entry is older than it, so paste-last uses this instead. Kept
     /// apart from `lastOutput`, which in-app tests and the scratchpad set too.
-    private(set) var lastUnsavedDictation: String?
-    @Published private(set) var heldOutput: String?
+    var lastUnsavedDictation: String?
+    @Published var heldOutput: String?
 
     /// Explicit recovery only: never paste a delayed result into a changed app.
     func copyHeldOutput() {
@@ -846,13 +846,13 @@ final class AppState: ObservableObject {
     /// Pipeline for Settings previews, cleanup tries and History retries.
     /// These can run while a dictation is processing, so they leave its stage
     /// alone.
-    private var outputPipeline: DictationOutputPipeline {
+    var outputPipeline: DictationOutputPipeline {
         DictationOutputPipeline(cleaner: activeCleanupService, snippets: snippetExpander)
     }
 
     /// Pipeline for the dictation itself: reaching the cleanup model moves the
     /// overlay, menu and footer to "Cleaning up…".
-    private var dictationOutputPipeline: DictationOutputPipeline {
+    var dictationOutputPipeline: DictationOutputPipeline {
         DictationOutputPipeline(
             cleaner: activeCleanupService, snippets: snippetExpander,
             onModelCleanup: { [weak self] in self?.dictationReachedCleanup() }
@@ -927,7 +927,7 @@ final class AppState: ObservableObject {
     }
 
     /// Corrections noticed in dictated text, waiting for the user to accept.
-    @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
+    @Published var dictionarySuggestions: [CorrectionSuggestion] = []
 
     /// Fillers the user always deletes ("basically"), removed from their
     /// dictations like "um". Learned from their edits; listed in Formatting.
@@ -938,7 +938,7 @@ final class AppState: ObservableObject {
     @Published var learnedLowercaseApps: [LearnedLowercaseApp] = []
 
     /// Parakeet's optional vocabulary boost model.
-    @Published private(set) var vocabularyBoostStatus: VocabularyBoostStatus =
+    @Published var vocabularyBoostStatus: VocabularyBoostStatus =
         TranscriptionRouter.isVocabularyBoostDownloaded ? .ready : .notDownloaded
 
     /// History entry whose audio is being transcribed again, if any.
@@ -955,15 +955,15 @@ final class AppState: ObservableObject {
     @Published private(set) var dismissedRecoveryEntryID: UUID?
 
     /// History entry for the dictation being transcribed right now.
-    private var activeHistoryEntryID: UUID?
+    var activeHistoryEntryID: UUID?
 
     /// Whether the current recording was started with the hands-free
     /// shortcut, so silence ends it the way it ends a double-tap recording.
-    private(set) var isHandsFreeSession = false
+    var isHandsFreeSession = false
 
     /// True from the end of a recording until its text is delivered. Escape
     /// cancels during this window as well as while recording.
-    private var isTranscribing = false {
+    var isTranscribing = false {
         didSet {
             refreshCancelKeyArming()
             if oldValue && !isTranscribing {
@@ -976,32 +976,32 @@ final class AppState: ObservableObject {
     /// Auto-pause began while a dictation was still being transcribed or
     /// delivered. Its model unload waits for that dictation to finish:
     /// unloading under it fails the dictation.
-    private var autoPauseUnloadDeferred = false
+    var autoPauseUnloadDeferred = false
 
     /// Names and identifiers read from the screen when recording started.
-    private var screenContextTask: Task<[String], Never>?
-    private var screenDocumentURLTask: Task<URL?, Never>?
+    var screenContextTask: Task<[String], Never>?
+    var screenDocumentURLTask: Task<URL?, Never>?
     /// The focused field and the text around its caret when recording
     /// started, to fit the dictation to it (`InsertionFit`).
-    private var insertionContextTask: Task<InsertionContext?, Never>?
+    var insertionContextTask: Task<InsertionContext?, Never>?
     /// The terminal found running a coding agent when recording started, or
     /// nil (see `startCodingAgentDetection`).
-    private var codingAgentTask: Task<RunningAppSnapshot?, Never>?
+    var codingAgentTask: Task<RunningAppSnapshot?, Never>?
     /// The menu's read of the target app's page address, for website rules.
     private var websiteRuleRefresh: Task<Void, Never>?
 
     /// What Command Mode captured before it started recording its instruction.
-    private var activeCommandTarget: CommandTarget?
+    var activeCommandTarget: CommandTarget?
     /// The llama.cpp slot the session's local model runs in.
-    private var activeCommandService: TranscriptCleaning?
+    var activeCommandService: TranscriptCleaning?
     /// Where the last edit landed, so "shorter still" and "undo that" have
     /// something to act on.
-    private var lastCommandTarget: (snapshot: SelectedTextSnapshot, original: String, replacement: String, at: Date)?
+    var lastCommandTarget: (snapshot: SelectedTextSnapshot, original: String, replacement: String, at: Date)?
     /// How long after an edit a follow-up still means that edit.
     static let commandFollowUpWindow: TimeInterval = 300
     /// The edit a review panel is holding until it is approved.
-    private var pendingReviewEdit: PendingCommandEdit?
-    private var commandModePressStartedAt: Date?
+    var pendingReviewEdit: PendingCommandEdit?
+    var commandModePressStartedAt: Date?
 
     /// Whether the Command Mode shortcut is still held from the press that
     /// started the session (false after a quick press, which needs a second).
@@ -1012,28 +1012,28 @@ final class AppState: ObservableObject {
     /// queued one), `.other` otherwise.
     var dictationTrigger: DictationTrigger = .other
     /// Engine chosen when the current Command Mode session began.
-    private var activeCommandEngine: CommandModeEngine?
+    var activeCommandEngine: CommandModeEngine?
     /// App whose selection is being edited, for the history entry.
-    private var commandTargetApp: RunningAppSnapshot?
+    var commandTargetApp: RunningAppSnapshot?
     /// A held shortcut came up while the selection was still being read.
-    private var commandModeReleasedBeforeRecording = false
+    var commandModeReleasedBeforeRecording = false
     static let commandReleasedEarlyMessage = "Command Mode stopped: the shortcut was released before the microphone was ready. Hold it until you hear the double chime, or tap it once to start and again to finish."
     /// The transform in flight, so Escape can stop it.
-    private var activeCommandTransformer: TextTransforming?
+    var activeCommandTransformer: TextTransforming?
     /// A local Command Mode model loading while the user speaks.
-    private var commandModelWarmup: Task<Void, Never>?
+    var commandModelWarmup: Task<Void, Never>?
     /// Frees a Command Mode model after its last use, when "Unload model
     /// when idle" is on.
-    private var commandModelIdleUnload: Task<Void, Never>?
-    private lazy var appleIntelligenceService = AppleIntelligenceTextService()
+    var commandModelIdleUnload: Task<Void, Never>?
+    lazy var appleIntelligenceService = AppleIntelligenceTextService()
     /// A quick press toggles Command Mode; holding past this point stops on
     /// release. Internal so flow tests can exercise both gestures instantly.
     var commandModeHoldThreshold: TimeInterval = 0.35
-    private var recordingVerifiesShortcut = false
-    private var nonInjectedOutputDestination: ScratchpadOutputDestination = .settingsTest
+    var recordingVerifiesShortcut = false
+    var nonInjectedOutputDestination: ScratchpadOutputDestination = .settingsTest
 
     /// Suggestions the user dismissed, so the same fix isn't offered again.
-    private var dismissedSuggestionKeys: Set<String> = []
+    var dismissedSuggestionKeys: Set<String> = []
 
     /// Whether a word is ordinary vocabulary in a language. Replaceable in tests.
     var isKnownWord: (String, String?) -> Bool
@@ -1041,7 +1041,7 @@ final class AppState: ObservableObject {
     // MARK: - Services
 
     let audioEngine: AudioRecording
-    let whisperService: SpeechTranscribing
+    let transcriber: SpeechTranscribing
     let textInjector: TextInjecting
     let hotKeyManager: HotKeyMonitoring
     let modelManager: ModelManaging
@@ -1069,7 +1069,7 @@ final class AppState: ObservableObject {
     let snippetExpander: SnippetExpanding
     let transcriptCleanup: TranscriptCleaning
     /// When each downloaded model was last in use, for Settings › Models.
-    let modelUsageLog = ModelUsageLog()
+    let modelUsageLog: ModelUsageLog
     /// When `stampModelsInUseIfStale()` last wrote, so a dictation writes
     /// the usage log at most once an hour.
     var lastModelUsageStamp: Date?
@@ -1104,7 +1104,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Private
 
-    private var cancellables = Set<AnyCancellable>()
+    var cancellables = Set<AnyCancellable>()
     private var hasStarted = false
 
     /// Why the model was last unloaded (for logs / UI).
@@ -1117,13 +1117,13 @@ final class AppState: ObservableObject {
     /// Bumped when each load operation starts. Failure restores and success UI
     /// updates only apply when the generation is still current, so a stale
     /// failure cannot undo a newer successful load.
-    private var loadGeneration: UInt64 = 0
+    var loadGeneration: UInt64 = 0
 
     /// Serializes model downloads and loads at the AppState boundary. The
     /// engine router also protects its own load/transcribe lifecycle, but UI
     /// actions can otherwise start several downloads or model-management
     /// operations before they reach those lower-level services.
-    private let modelOperationSerializer = LoadSerializer()
+    let modelOperationSerializer = LoadSerializer()
 
     /// Invalidates an onboarding recommendation when its language or user intent changes.
     private var onboardingModelRequestGeneration: UInt64 = 0
@@ -1136,7 +1136,7 @@ final class AppState: ObservableObject {
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
     /// the intentional background handoff explicit for Dispatch's @Sendable API.
-    private struct AudioEngineWorker: @unchecked Sendable {
+    struct AudioEngineWorker: @unchecked Sendable {
         let audioEngine: AudioRecording
 
         func startRecording(
@@ -1168,13 +1168,19 @@ final class AppState: ObservableObject {
     /// once even when SwiftUI instantiates multiple AppState objects (which it
     /// does during MenuBarExtra scene setup). Instance-level `hasStarted` guards
     /// re-entry on the same object; this static flag guards across all instances.
-    ///
-    /// Internal (not private) so test teardown can reset it between test cases.
-    static var hasStartedGlobally = false
+    /// Headless states (`skipSystemIntegration`, as in tests) neither read nor
+    /// set it: each is independent, so tests never have to reset it.
+    private(set) static var hasStartedGlobally = false
 
     /// Whether to skip system integration calls (SMAppService, etc.) during init.
     /// Set to `true` in tests to avoid side effects.
     let skipSystemIntegration: Bool
+
+    /// Where settings are stored: `UserDefaults.standard` in the app, a store
+    /// of its own in each test so parallel runs can't see each other's
+    /// settings. Every `@UserDefault` setting reads it
+    /// (`UserDefaultsStoreProviding`).
+    let userDefaultsStore: UserDefaults
 
     /// Pre-load memory gate. Production defaults to SystemInfo; tests stub this
     /// so CI free+inactive pages cannot flake medium/large mock loads.
@@ -1202,7 +1208,7 @@ final class AppState: ObservableObject {
 
     init(
         audioEngine: AudioRecording = AudioEngine(),
-        whisperService: SpeechTranscribing = TranscriptionRouter(),
+        transcriber: SpeechTranscribing = TranscriptionRouter(),
         textInjector: TextInjecting = TextInjector(),
         hotKeyManager: HotKeyMonitoring = HotKeyManager(),
         modelManager: ModelManaging = ModelManager(),
@@ -1226,10 +1232,13 @@ final class AppState: ObservableObject {
         voiceActionPerformer: (any VoiceActionPerforming)? = nil,
         commandReviewPresenter: (any CommandReviewPresenting)? = nil,
         crashReportFinder: CrashReportFinder? = nil,
+        userDefaults: UserDefaults = .standard,
         skipSystemIntegration: Bool = false
     ) {
+        self.userDefaultsStore = userDefaults
+        self.modelUsageLog = ModelUsageLog(defaults: userDefaults)
         self.audioEngine = audioEngine
-        self.whisperService = whisperService
+        self.transcriber = transcriber
         self.textInjector = textInjector
         self.hotKeyManager = hotKeyManager
         self.modelManager = modelManager
@@ -1257,7 +1266,7 @@ final class AppState: ObservableObject {
         self.screenContextReader = screenContextReader ?? (skipSystemIntegration ? nil : ScreenContextReader())
         self.correctionObserver = correctionObserver ?? (skipSystemIntegration ? nil : CorrectionObserver())
         self.selectedTextService = selectedTextService
-            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService(textInjector: textInjector))
+            ?? (skipSystemIntegration ? nil : AccessibilitySelectedTextService(textInjector: textInjector, defaults: userDefaults))
         self.commandModelSlot = commandModelSlot
         self.voiceActionPerformer = voiceActionPerformer ?? (skipSystemIntegration ? nil : SystemVoiceActionPerformer())
         self.commandReviewPresenter = commandReviewPresenter
@@ -1268,7 +1277,7 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Initializing... id=\(ObjectIdentifier(self))")
         if !skipSystemIntegration {
-            SettingsConsistency.normalize(defaults: .standard)
+            SettingsConsistency.normalize(defaults: userDefaultsStore)
         }
         loadSnippets()
         loadDictionary()
@@ -1294,12 +1303,9 @@ final class AppState: ObservableObject {
             return self.isRecording || self.appStatus == .recording || self.appStatus == .processing
         }
 
-        // Forward updateChecker changes so SwiftUI views observing AppState
-        // re-render when updateState changes (nested ObservableObject fix).
-        updateChecker.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
+        // The update checker's changes are not forwarded: the views that show
+        // it observe it through `ObservedContent`, so a download's progress
+        // redraws them alone rather than every view that reads AppState.
 
         // Forward statsManager changes
         statsManager.objectWillChangePublisher
@@ -1349,12 +1355,13 @@ final class AppState: ObservableObject {
     /// Safe to call multiple times and across multiple instances — only the
     /// first call across the entire process takes effect.
     func triggerStartupIfNeeded() {
-        guard !hasStarted, !AppState.hasStartedGlobally else {
+        let sharesProcessFlag = !skipSystemIntegration
+        guard !hasStarted, !(sharesProcessFlag && AppState.hasStartedGlobally) else {
             VocaLogger.debug(.appState, "triggerStartupIfNeeded called again — skipping (already started)")
             return
         }
         hasStarted = true
-        AppState.hasStartedGlobally = true
+        if sharesProcessFlag { AppState.hasStartedGlobally = true }
         Task {
             await performStartup()
         }
@@ -1634,8 +1641,8 @@ final class AppState: ObservableObject {
 
         $wordReplacements
             .dropFirst()
-            .sink { replacements in
-                Self.saveJSON(replacements, forKey: PreferenceKey.wordReplacements)
+            .sink { [weak self] replacements in
+                self?.saveJSON(replacements, forKey: PreferenceKey.wordReplacements)
             }
             .store(in: &cancellables)
 
@@ -1645,352 +1652,6 @@ final class AppState: ObservableObject {
         if !skipSystemIntegration {
             setupPowerManagement()
         }
-    }
-
-    // MARK: - Power Management
-
-    /// Wire auto-pause, idle unload, and sleep/wake monitors.
-    private func setupPowerManagement() {
-        autoPauseMonitor.getConfig = { [weak self] in
-            guard let self else {
-                return (false, [], AutoPauseMonitor.defaultPollIntervalSeconds)
-            }
-            return (
-                self.autoPauseEnabled,
-                self.autoPauseApps,
-                self.autoPausePollIntervalSeconds
-            )
-        }
-        autoPauseMonitor.onPause = { [weak self] in
-            Task { @MainActor in
-                await self?.handleAutoPauseEntered()
-            }
-        }
-        autoPauseMonitor.onResume = { [weak self] in
-            Task { @MainActor in
-                await self?.handleAutoPauseCleared()
-            }
-        }
-
-        modelKeepAlive.getConfig = { [weak self] in
-            guard let self else {
-                return (false, ModelKeepAlive.defaultIdleTimeoutSeconds)
-            }
-            return (self.modelKeepAliveEnabled, self.modelKeepAliveIdleTimeoutSeconds)
-        }
-        modelKeepAlive.isSafeToUnload = { [weak self] in
-            guard let self else { return false }
-            // The cleanup LLM holds as much RAM as a speech model, so idle
-            // unload has to consider it too — otherwise enabling keep-alive
-            // frees the transcriber and leaves a GGUF resident forever.
-            return self.appStatus == .idle
-                && !self.isAutoPaused
-                && (self.whisperService.isModelLoaded || self.transcriptCleanup.isLoaded)
-        }
-        modelKeepAlive.onIdleUnload = { [weak self] in
-            Task { @MainActor in
-                await self?.unloadActiveModel(reason: .idleKeepAlive)
-            }
-        }
-
-        sleepWakeMonitor.onWillSleep = { [weak self] in
-            self?.handleWillSleep()
-        }
-        sleepWakeMonitor.onDidWake = { [weak self] in
-            guard let self else { return }
-            VocaLogger.info(.appState, "Wake recovery: refreshing hotkey health")
-            self.checkPermissions()
-            if self.permissionManager.allPermissionsGranted {
-                self.syncHotKeyConfiguration()
-                self.restartHotKeyListenerIfNeeded()
-            }
-            if !self.isAutoPaused {
-                self.modelKeepAlive.bump()
-            }
-        }
-
-        $appStatus
-            .sink { [weak self] status in
-                guard let self else { return }
-                switch status {
-                case .idle:
-                    if !self.isAutoPaused {
-                        self.modelKeepAlive.bump()
-                    }
-                case .recording, .processing, .error:
-                    self.modelKeepAlive.cancel()
-                }
-            }
-            .store(in: &cancellables)
-
-        autoPauseMonitor.start()
-        modelKeepAlive.start()
-        sleepWakeMonitor.start()
-        if !skipSystemIntegration {
-            AudioDeviceMonitor.shared.start()
-        }
-    }
-
-    /// The Mac is about to sleep. A dictation in progress is stopped as if
-    /// the key came up rather than discarded: its audio is saved to History
-    /// first, so it is transcribed (now or after wake) or can be retried,
-    /// instead of lost with a closed lid.
-    func handleWillSleep() {
-        modelKeepAlive.cancel()
-        guard isCapturingAudio else { return }
-        VocaLogger.info(.appState, "Mac is going to sleep mid-dictation — stopping and keeping the audio")
-        Task { @MainActor [weak self] in await self?.stopRecordingAndTranscribe() }
-    }
-
-    /// Unload the resident model and clear active UI flags.
-    func unloadActiveModel(reason: ModelUnloadReason) async {
-        // The idle timer fired on an earlier turn; a dictation may have
-        // started since, and unloading under it fails it at stop.
-        if reason == .idleKeepAlive,
-           appStatus != .idle || isCapturingAudio || isTranscribing || isLoadingModelForRecording {
-            VocaLogger.info(.appState, "Idle unload skipped: a dictation started (\(dictationFlags))")
-            return
-        }
-        VocaLogger.info(.appState, "Unloading model (reason=\(reason.rawValue))")
-        modelKeepAlive.cancel()
-        let beforeMB = ProcessMonitor.currentResidentMemoryMB()
-        processMemoryBeforeUnloadMB = beforeMB
-        await whisperService.unloadModel()
-        transcriptCleanup.unload()
-        // Give the allocator a beat to release pages before sampling again.
-        try? await Task.sleep(nanoseconds: 150_000_000)
-        let afterMB = ProcessMonitor.currentResidentMemoryMB()
-        processMemoryAfterUnloadMB = afterMB
-        lastModelUnloadReason = reason
-        for i in availableModels.indices {
-            availableModels[i].isActive = false
-            availableModels[i].isLoading = false
-        }
-        currentModel = nil
-        VocaLogger.info(
-            .appState,
-            "Unload complete (reason=\(reason.rawValue), RSS \(String(format: "%.0f", beforeMB))→\(String(format: "%.0f", afterMB)) MB)"
-        )
-    }
-
-    /// Approximate RAM freed by the last unload, when both samples exist.
-    var approximateMemoryFreedMB: Double? {
-        guard let before = processMemoryBeforeUnloadMB,
-              let after = processMemoryAfterUnloadMB,
-              before > after else {
-            return nil
-        }
-        return before - after
-    }
-
-    /// User-facing summary of why the model is currently unloaded.
-    var modelUnloadStatusMessage: String? {
-        guard !whisperService.isModelLoaded else { return nil }
-        if isAutoPaused {
-            if let name = autoPauseTriggerDisplayName, !name.isEmpty {
-                return "Paused while \(name) is running. The speech model was unloaded to free memory."
-            }
-            return "Paused by a listed app. The speech model was unloaded to free memory."
-        }
-        switch lastModelUnloadReason {
-        case .idleKeepAlive:
-            return "Model unloaded after idle timeout. Next dictation reloads it."
-        case .autoPause:
-            return "Model unloaded by auto-pause."
-        case .manual:
-            return "Model unloaded."
-        case .none:
-            return nil
-        }
-    }
-
-    /// The chosen speech model is not on this Mac and none is on the way.
-    ///
-    /// A model that is downloaded but not loaded yet, or unloaded on purpose
-    /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
-    var needsSpeechModel: Bool {
-        appStatus == .idle
-            && !whisperService.isModelLoaded
-            // Not yet populated at launch: nothing is known to be missing.
-            && !availableModels.isEmpty
-            && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
-            && !availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
-    }
-
-    /// Ensure a model is loaded before dictation (lazy reload after idle unload).
-    func ensureModelLoaded() async {
-        guard !whisperService.isModelLoaded else { return }
-        let size = ModelSize(rawValue: selectedModelSize)
-            ?? currentModel?.size
-            ?? .tiny
-        VocaLogger.info(.appState, "Ensuring model loaded: \(size.displayName)")
-        // Checked again once earlier model operations finish: a load queued
-        // ahead of this one may already have loaded a model.
-        _ = try? await modelOperationSerializer.run { @MainActor [self] in
-            guard !whisperService.isModelLoaded else { return }
-            await performLoadModel(size)
-        }
-    }
-
-    private var autoPausedMessage: String {
-        if let name = autoPauseTriggerDisplayName ?? autoPauseMonitor.activeTrigger?.displayName, !name.isEmpty {
-            return "Dictation is paused while \(name) is running."
-        }
-        return "Dictation is paused while a listed app is running."
-    }
-
-    /// A listed app started: stop any recording and unload the model.
-    /// Internal so tests can drive it; the monitor calls it in the app.
-    func handleAutoPauseEntered() async {
-        isAutoPaused = true
-        autoPauseTriggerDisplayName = autoPauseMonitor.activeTrigger?.displayName
-        modelKeepAlive.cancel()
-
-        queuedRecordingStart = nil
-        discardEarlyCapture()
-        if isCapturingAudio {
-            VocaLogger.warning(.appState, "Auto-pause entered while recording: stopping without inject")
-            recordingGeneration = UUID()
-            _ = await stopAudioEngine()
-            showOverlayFailure(autoPausedMessage)
-            discardRecordingState()
-            isTranscribing = false
-            appStatus = .idle
-        }
-
-        if isTranscribing {
-            VocaLogger.info(.appState, "Auto-pause entered while a dictation is finishing: unloading once it is delivered")
-            autoPauseUnloadDeferred = true
-            return
-        }
-        await unloadModelForAutoPause()
-    }
-
-    private func unloadModelForAutoPause() async {
-        if whisperService.isModelLoaded {
-            await unloadActiveModel(reason: .autoPause)
-        } else {
-            lastModelUnloadReason = .autoPause
-        }
-    }
-
-    /// Runs the unload `handleAutoPauseEntered` put off, once the dictation
-    /// it was waiting on is delivered, if the pause still holds.
-    private func runDeferredAutoPauseUnload() {
-        guard autoPauseUnloadDeferred else { return }
-        autoPauseUnloadDeferred = false
-        Task { @MainActor [weak self] in
-            guard let self, self.isAutoPaused, !self.isTranscribing, !self.isCapturingAudio else { return }
-            VocaLogger.info(.appState, "Dictation delivered during auto-pause: unloading the model now")
-            await self.unloadModelForAutoPause()
-        }
-    }
-
-    /// The listed apps quit: reload the model so the next dictation is ready.
-    func handleAutoPauseCleared() async {
-        autoPauseUnloadDeferred = false
-        isAutoPaused = false
-        autoPauseTriggerDisplayName = nil
-        // Warm-reload so the next hotkey is ready (Linux behavior).
-        await ensureModelLoaded()
-        modelKeepAlive.bump()
-    }
-
-    /// Build the model list shown in Settings and onboarding.
-    ///
-    /// The base catalog is curated for M-series Macs, then extended with any
-    /// exact variants WhisperKit marks supported for the current device.
-    /// Models whose engine cannot run on this system at all (e.g. Apple
-    /// Speech before macOS 26, Parakeet on Intel) are excluded entirely.
-    /// Other engines report every model they can run as supported, so only
-    /// WhisperKit's list extends the catalog; otherwise a model left out of
-    /// it on purpose (Canary 180M Flash) would come straight back. A legacy
-    /// model still appears while it is the selected one.
-    private func modelCatalog() -> [ModelSize] {
-        var catalog = ModelSize.standardCatalog.filter { $0.isAvailableOnThisSystem }
-
-        for size in ModelSize.allCases
-        where size.engine == .whisperKit && size.isAvailableOnThisSystem && modelManager.isModelSupported(size) {
-            if !catalog.contains(size) {
-                catalog.append(size)
-            }
-        }
-
-        if let selected = ModelSize(rawValue: selectedModelSize),
-           !catalog.contains(selected) {
-            catalog.append(selected)
-        }
-
-        return catalog
-    }
-
-    /// Recreate model UI state from the latest catalog and local cache status.
-    private func rebuildAvailableModels() {
-        availableModels = modelCatalog().map { size in
-            // A folder is only returned once its files check out, so it
-            // answers "downloaded" too; asking again walked every file twice.
-            let folder = modelManager.modelFolder(for: size)
-            return WhisperModelInfo(
-                size: size,
-                filePath: folder,
-                isDownloaded: folder != nil || modelManager.isModelDownloaded(size),
-                isActive: size.rawValue == selectedModelSize,
-                isSupported: modelManager.isModelSupported(size)
-            )
-        }
-    }
-
-    /// Resolve WhisperKit's recommended exact model variant into app metadata.
-    private func recommendedModelSize() -> ModelSize? {
-        guard let recommended = deviceRecommendedModel,
-              let size = modelManager.modelSize(from: recommended),
-              modelManager.isModelSupported(size) else {
-            return nil
-        }
-        return size
-    }
-
-    /// The model a load with no explicit size should use: the stored
-    /// preference, corrected to something this Mac supports, else whatever
-    /// this device is recommended. Nil only when the catalog offers nothing.
-    private func resolvedDefaultModel() -> ModelSize? {
-        if let stored = ModelSize(rawValue: selectedModelSize) {
-            return startupFallbackModel(for: stored)
-        }
-        return currentModel?.size ?? recommendedModelSize()
-    }
-
-    /// Pick a supported startup model when the stored preference is no longer valid.
-    private func startupFallbackModel(for preferred: ModelSize) -> ModelSize {
-        guard !modelManager.isModelSupported(preferred) else {
-            return preferred
-        }
-
-        // Stay on the engine the user was already using where possible.
-        // Without this, the catalog order alone decides the fallback, and a
-        // Whisper user could land on a different engine — notably Apple
-        // Speech, which always counts as downloaded because macOS owns it.
-        if let sameEngine = availableModels.last(where: {
-            $0.size.engine == preferred.engine && $0.isSupported && $0.isDownloaded
-        })?.size {
-            return sameEngine
-        }
-
-        // Custom Endpoint is always marked downloaded (nothing to install) and
-        // sits last in the catalog, so leaving it in this fallback would auto-
-        // select a remote upload path the user never chose. Keep it only when
-        // it was the explicit preference (handled by the early return above).
-        if let downloadedSupported = availableModels.last(where: {
-            $0.isSupported && $0.isDownloaded && $0.size.engine != .customEndpoint
-        })?.size {
-            return downloadedSupported
-        }
-
-        if let recommended = recommendedModelSize() {
-            return recommended
-        }
-
-        return .tiny
     }
 
     // MARK: - Permission Handling (delegated to PermissionManager)
@@ -2276,1764 +1937,10 @@ final class AppState: ObservableObject {
     /// Stop the decode and cleanup of a dictation that is being abandoned.
     /// Otherwise the local model keeps generating for it, and the next
     /// dictation's cleanup waits behind it.
-    private func cancelFinishingWork() {
+    func cancelFinishingWork() {
         finishingTranscription?.cancel()
         finishingSpeculator?.cancelAll()
         transcriptCleanup.cancelCleanup()
-    }
-
-    // MARK: - Force Recovery
-
-    /// Forcibly reset the entire recording pipeline to idle state.
-    /// This is a last-resort recovery mechanism callable from the menu bar UI.
-    /// It unconditionally resets the audio engine, hotkey state, cursor overlay,
-    /// and all published state back to idle.
-    func forceRecovery() {
-        recordingGeneration = UUID()
-        queuedRecordingStart = nil
-        // The engine is reset below, which closes an early capture too. Its
-        // mute and pause were never tied to `isRecording`, so undo them here.
-        if earlyCapture != nil {
-            earlyCapture = nil
-            audioEngine.onAudioSamples = nil
-            audioDucker.restore()
-            spotifyPauser.resume()
-        }
-        cancelFinishingWork()
-        // A load that never returns would otherwise hold every later load
-        // and dictation behind it; the router drops the model it was loading.
-        inFlightModelLoad?.cancel()
-        VocaLogger.warning(.appState, "Force recovery: resetting all state to idle (was appStatus=\(appStatus.rawValue), isRecording=\(isRecording))")
-
-        // Reset audio engine unconditionally
-        audioEngine.forceReset()
-
-        // Reset hotkey tracking state
-        hotKeyManager.resetKeyState()
-
-        // Reset UI state
-        isRecording = false
-        whisperService.cancelVoiceActivityStream()
-        audioLevel = 0.0
-        cursorOverlay.hide()
-        appStatus = .idle
-        errorMessage = nil
-        isTranscribing = false
-        resetCommandModeState()
-        liveTranscript = ""
-        screenContextTask?.cancel()
-        screenContextTask = nil
-        screenDocumentURLTask?.cancel()
-        screenDocumentURLTask = nil
-        insertionContextTask?.cancel()
-        insertionContextTask = nil
-        if let id = activeHistoryEntryID {
-            historyStore.markCancelled(id)
-            activeHistoryEntryID = nil
-        }
-    }
-
-    /// Play start, then stop, for the tone currently selected in Settings.
-    /// Off is silence. Preview is not gated by the sound-effects switch.
-    func previewDictationTone() async {
-        await soundManager.previewStartThenStop()
-    }
-
-    // MARK: - Recording Flow
-
-    func startRecording(
-        injectResult: Bool = true,
-        outputDestination: ScratchpadOutputDestination = .settingsTest,
-        verifiesShortcut: Bool = false
-    ) async {
-        beginDictationOperation()
-        defer { endDictationOperation("start") }
-        let interval = PerformanceTrace.begin("RecordingStart")
-        defer { PerformanceTrace.end(interval) }
-        overlayPreview.stop()
-        // If we're already recording, this is a recovery attempt — the user
-        // pressed the hotkey again because a previous key-up was missed.
-        // Stop the current recording and transcribe what we have.
-        if isCapturingAudio {
-            VocaLogger.warning(.appState, "startRecording called while already recording — treating as stop (recovery)")
-            await stopRecordingAndTranscribe()
-            return
-        }
-
-        if isAutoPaused {
-            let message = autoPausedMessage
-            VocaLogger.info(.appState, message)
-            endHotKeyToggleSession()
-            showOverlayFailure(message)
-            showTemporaryError(message)
-            return
-        }
-
-        // A file or system-audio transcription owns the speech model and shows
-        // as processing. Treating that as a stuck state would force-recover
-        // mid-job and run two decodes on one model.
-        if isTranscribingMedia {
-            VocaLogger.info(.appState, "Dictation ignored while a file or system-audio transcription is running")
-            endHotKeyToggleSession()
-            errorMessage = "VocaMac is transcribing audio. Dictation is available when it finishes."
-            let message = errorMessage
-            DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
-                if self?.errorMessage == message { self?.errorMessage = nil }
-            }
-            return
-        }
-
-        // Teaching a Dictionary word holds the microphone and the model.
-        if isTeachingWord {
-            VocaLogger.info(.appState, "Dictation ignored while a Dictionary word is being taught")
-            endHotKeyToggleSession()
-            showTemporaryError("VocaMac is listening for a Dictionary word. Dictation is available when you finish.")
-            return
-        }
-
-        if isLoadingModelForRecording {
-            VocaLogger.info(.appState, "Dictation already starting while the speech model loads — ignoring")
-            return
-        }
-
-        // The previous dictation is still being transcribed, cleaned up, or
-        // delivered. Never throw it away: start this one when it's done.
-        if isTranscribing {
-            if queuedRecordingStart != nil, let early = earlyCapture, early.releasedAtSampleCount != nil {
-                // Pressed again before the queued dictation could start. Its
-                // microphone never closed, so it simply carries on.
-                early.releasedAtSampleCount = nil
-                VocaLogger.info(.appState, "Queued dictation resumed before it started")
-            } else if queuedRecordingStart != nil {
-                // Toggle-style triggers (hands-free, menu) press again to stop.
-                queuedRecordingStart = nil
-                discardEarlyCapture()
-                VocaLogger.info(.appState, "Queued dictation withdrawn before it started")
-            } else {
-                queuedRecordingStart = QueuedRecordingStart(
-                    injectResult: injectResult,
-                    outputDestination: outputDestination,
-                    isHandsFree: isHandsFreeSession,
-                    verifiesShortcut: verifiesShortcut,
-                    trigger: dictationTrigger
-                )
-                VocaLogger.info(.appState, "Dictation requested while the previous one is still finishing — starting when it's delivered")
-                // Push to talk speaks while the key is down; toggle-style
-                // starts withdraw on the next press, so only a hold records early.
-                if activationMode == .pushToTalk, !isHandsFreeSession, activeCommandTarget == nil,
-                   micPermission == .granted {
-                    beginEarlyCapture()
-                }
-            }
-            return
-        }
-
-        switch appStatus {
-        case .idle, .recording:
-            break
-        case .error:
-            // An error only reports something that already happened. Clear it
-            // and start, rather than making the user press twice.
-            errorMessage = nil
-            appStatus = .idle
-        case .processing:
-            // Processing with no transcription, model load, or media job
-            // behind it is a stuck status. Clear it and start in one press
-            // (not `forceRecovery`, which would forget the key being held).
-            VocaLogger.warning(.appState, "startRecording found a stale processing state — clearing it and starting")
-            errorMessage = nil
-            appStatus = .idle
-        }
-
-        // Snapshot the target app now. Injection re-reads the frontmost app —
-        // that is what actually receives the text — and only falls back to this
-        // when VocaMac itself is in front at that point.
-        pendingTargetApp = frontmostAppResolver.currentFrontmostApp()
-
-        // Starting another dictation means the user is done fixing the last one.
-        correctionObserver?.flush()
-
-        guard micPermission == .granted else {
-            endHotKeyToggleSession()
-            showOverlayFailure("Microphone access is off.")
-            errorMessage = "Microphone permission is required. Please grant access in System Settings."
-            appStatus = .error
-            return
-        }
-
-        // Lazy-reload after idle unload (or any other cold start).
-        if !whisperService.isModelLoaded {
-            // The first download can take minutes. Say so instead of leaving
-            // the hotkey looking stuck on "processing" until it finishes.
-            if startupModelPreparation != nil,
-               availableModels.contains(where: { $0.downloadProgress != nil }) {
-                let message = "The speech model is still downloading. Dictation will work as soon as it finishes."
-                VocaLogger.info(.appState, message)
-                endHotKeyToggleSession()
-                showOverlayFailure("The speech model is still downloading.")
-                showTemporaryError(message)
-                return
-            }
-            appStatus = .processing
-            isLoadingModelForRecording = true
-            pendingStopDuringModelLoad = nil
-            // Listen while the model loads, as for a queued dictation: the
-            // microphone opens now and the recording is decoded once the
-            // model is ready. Before, it opened only after the load, and a
-            // key released in the meantime recorded nothing. Command Mode
-            // keeps its own start (and its double chime) after the load.
-            if activeCommandTarget == nil {
-                beginEarlyCapture()
-                if showCursorIndicator && overlayStyle != .off {
-                    cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
-                    cursorOverlay.show(style: overlayStyle, position: overlayPosition)
-                    cursorOverlay.setStopHint(overlayStopHint)
-                    cursorOverlay.setLoadingSpeechModel(true)
-                }
-            }
-            // The cleanup model loads with llama.cpp on the GPU while the
-            // speech model loads on the Neural Engine. When memory has room
-            // for both, as at launch, start it now: after the speech model,
-            // its load and prompt read were left for after the user stopped.
-            if injectResult, activeCommandTarget == nil, transcriptCleanupEnabled, startupFitsBothModels() {
-                let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
-                Task { @MainActor [weak self] in
-                    await self?.warmCleanupModel(for: target)
-                }
-            }
-            // A dictation is waiting: the load hands the model over without
-            // its warm-up decode, which this dictation would only wait for.
-            // Set before waiting on the launch load too, so a dictation that
-            // starts while that load runs skips its warm-up as well.
-            whisperService.setRecordingWaitingForLoad(true)
-            if let startupModelPreparation {
-                await startupModelPreparation.value
-            }
-            await ensureModelLoaded()
-            whisperService.setRecordingWaitingForLoad(false)
-            isLoadingModelForRecording = false
-            cursorOverlay.setLoadingSpeechModel(false)
-            let pendingStop = pendingStopDuringModelLoad
-            pendingStopDuringModelLoad = nil
-            // Auto-pause began while the model loaded. Its unload found
-            // nothing loaded yet, so the model is resident now: unload it
-            // and refuse the dictation as a paused start would.
-            if isAutoPaused {
-                discardEarlyCapture()
-                let message = autoPausedMessage
-                VocaLogger.info(.appState, "Auto-pause began while the speech model loaded: \(message)")
-                endHotKeyToggleSession()
-                showOverlayFailure(message)
-                showTemporaryError(message)
-                await unloadModelForAutoPause()
-                return
-            }
-            guard whisperService.isModelLoaded else {
-                discardEarlyCapture()
-                endHotKeyToggleSession()
-                showOverlayFailure("Couldn't load the speech model.")
-                showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
-                return
-            }
-            appStatus = .idle
-            // The hotkey was released while the model loaded, with the
-            // microphone already recording: transcribe what was said while
-            // the key was down, as a queued dictation does.
-            if pendingStop == .transcribe, let releasedAt = earlyCapture?.releasedAtSampleCount, releasedAt > 0 {
-                VocaLogger.info(.appState, "Dictation ended while the speech model was loading — transcribing what was recorded")
-                await startRecording(
-                    injectResult: injectResult, outputDestination: outputDestination, verifiesShortcut: verifiesShortcut
-                )
-                if isCapturingAudio {
-                    await stopRecordingAndTranscribe(endsHotKeyToggle: true, keepingFirst: releasedAt)
-                }
-                // A start that never reached the microphone leaves nothing to adopt.
-                discardEarlyCapture()
-                return
-            }
-            // Released before the microphone captured anything, or Escape:
-            // starting now would leave the microphone recording with nobody
-            // holding the key.
-            if let pendingStop {
-                discardEarlyCapture()
-                cursorOverlay.hide()
-                VocaLogger.info(.appState, "Dictation ended while the speech model was loading — not starting a recording")
-                hotKeyManager.resetKeyState()
-                if pendingStop == .transcribe {
-                    showTemporaryError("The speech model was still loading, so nothing was recorded. It's ready now — try again.")
-                }
-                return
-            }
-        }
-
-        recordingGeneration = UUID()
-        let generation = recordingGeneration
-        recordingInjectsResult = injectResult
-        recordingVerifiesShortcut = verifiesShortcut
-        nonInjectedOutputDestination = outputDestination
-        // Typing into the field would move the selection an edit under
-        // review is waiting on.
-        dismissCommandReview()
-        startScreenContextCapture(injectResult: injectResult)
-        codingAgentTask?.cancel()
-        codingAgentTask = injectResult
-            ? (frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp).flatMap(codingAgentDetection(for:))
-            : nil
-        // A dictation is coming: have the cleanup model loaded and its prompt
-        // read by the time the user stops speaking.
-        if injectResult, activeCommandTarget == nil {
-            let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
-            // The prompt a coding agent's terminal will use, not Terminal's.
-            let agentTask = codingAgentTask
-            Task { @MainActor [weak self] in
-                let agentTerminal = await Self.value(of: agentTask, within: Self.screenContextTimeout, otherwise: nil)
-                await self?.warmCleanupModel(for: target, codingAgentTerminal: agentTerminal)
-            }
-        }
-        appStatus = .recording
-        liveTranscript = ""
-        isRecording = true
-        errorMessage = nil
-        inputDeviceFallbackNotice = nil
-
-        // Show the overlay in its connecting state. It only claims to be
-        // listening once the audio engine confirms the route is live — on
-        // Bluetooth that can be seconds later, and anything said before then is
-        // not captured by anyone.
-        if showCursorIndicator && overlayStyle != .off {
-            cursorOverlay.recordingLimit = maxRecordingDuration > 0 ? TimeInterval(maxRecordingDuration) : nil
-            cursorOverlay.show(style: overlayStyle, position: overlayPosition)
-            cursorOverlay.setStopHint(overlayStopHint)
-            cursorOverlay.setCommandSession(commandModeSession)
-        }
-
-        // Start recording immediately for instant responsiveness.
-        // The start sound is played concurrently — any brief bleed into the
-        // mic buffer is negligible and handled well by WhisperKit's noise model.
-        isStartingAudio = true
-        pendingStopDuringStart = nil
-        let partialHandler: (@Sendable (String) -> Void)?
-        if overlayStyle == .live {
-            partialHandler = { [weak self] text in
-                _ = Task<Void, Never> { @MainActor [weak self] in
-                    guard let self, self.isRecording else { return }
-                    self.liveTranscript = text
-                    self.cursorOverlay.updateTranscript(text)
-                }
-            }
-        } else {
-            partialHandler = nil
-        }
-        // A microphone opened early for this dictation already holds its
-        // start. A live session would miss that audio, so it is decoded whole.
-        let adoptedCapture = earlyCapture
-        earlyCapture = nil
-        let commit = adoptedCapture == nil
-            ? commitOptionsForRecording(injectResult: injectResult, generation: generation) : nil
-        let session = adoptedCapture == nil ? whisperService.startStreaming(
-            language: selectedLanguage == "auto" ? nil : selectedLanguage,
-            vocabulary: recognitionHintVocabulary,
-            liveVocabulary: recordingVocabulary ?? sessionVocabulary(),
-            onPartial: partialHandler,
-            commit: commit
-        ) : nil
-        if commit == nil || session == nil {
-            recordingSpeculator = nil
-            recordingVocabulary = nil
-        }
-        recordingProcessesWhileSpeaking = commit != nil && session != nil
-        // Only promise live words when an engine will actually send them:
-        // Whisper, Parakeet and ONNX decode partial snapshots; the Apple
-        // Speech session streams audio but reports text only when it finishes.
-        let recordingEngine = ModelSize(rawValue: selectedModelSize)?.engine
-        let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
-        cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
-        recordingTranscription = session
-        // A recording decoded whole at stop has its silence found while it
-        // is made, so the stop is left only the last fraction of a second.
-        // A microphone opened early holds audio the stream never saw, and
-        // Apple Speech finishes its own session without a batch decode.
-        let voiceActivity = adoptedCapture == nil && !recordingProcessesWhileSpeaking
-            && recordingEngine != .appleSpeech
-            ? whisperService.startVoiceActivityStream() : nil
-        audioEngine.onAudioSamples = Self.sampleObserver(session: session, voiceActivity: voiceActivity)
-        let didStartRecording: Bool
-        if let adoptedCapture {
-            didStartRecording = await adoptedCapture.start.value
-        } else {
-            didStartRecording = await startConfiguredAudioEngine()
-        }
-        isStartingAudio = false
-
-        // The hotkey was released (or the overlay cancelled) while the route was
-        // still coming up. That stop was deferred so it wouldn't block behind the
-        // Bluetooth settle; finish it now.
-        if let pendingStop = pendingStopDuringStart {
-            pendingStopDuringStart = nil
-            await finishStartInterruptedByStop(pendingStop, didStartRecording: didStartRecording)
-            return
-        }
-
-        guard didStartRecording else {
-            VocaLogger.warning(.appState, "Audio engine failed to start — resetting recording state")
-            showOverlayFailure("Couldn't start the microphone.")
-            discardRecordingState()
-            // Silently dropping back to idle looks like the hotkey did nothing.
-            // Tell the user which microphone we tried and where to change it.
-            let deviceDescription = selectedAudioDeviceName.isEmpty
-                ? "the system default microphone"
-                : selectedAudioDeviceName
-            showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
-            return
-        }
-
-        cursorOverlay.transitionToRecording()
-        // Announced now, not when the status changed: until the microphone is
-        // live (seconds on Bluetooth) anything said is lost.
-        DictationAnnouncement.post(DictationAnnouncement.recordingStarted(isCommandMode: commandModeSession != nil))
-
-        // Spotify Connect plays through another device, outside the Mac's
-        // mixer, so muting cannot reach it — only a transport pause can. Ask
-        // for it the moment the microphone is live (not on a failed start,
-        // which leaves playback alone); the pause itself takes a few hundred
-        // milliseconds. Undone from `isRecording`'s observer on every exit.
-        guard isRecording && appStatus == .recording && recordingGeneration == generation else { return }
-        if pauseSpotifyEnabled {
-            spotifyPauser.pause()
-        }
-
-        // Off is a stored tone and stays silent even when this switch is on.
-        // An adopted early capture played its cue when its microphone opened.
-        let playsCue = soundEffectsEnabled && adoptedCapture == nil
-        let isCommand = activeCommandTarget != nil
-        guard duckOtherAudioEnabled else {
-            if playsCue {
-                if isCommand { soundManager.playCommandStartSound() } else { soundManager.playStartSound() }
-            }
-            return
-        }
-
-        // Muting is the whole output device, so it silences the cue too.
-        // A dictation mutes first: the music stopping is the cue, and the
-        // first words are not recorded over the music while a chime plays.
-        // The chime still plays when nothing else was playing.
-        if !isCommand {
-            let mutedOtherAudio = audioDucker.duck()
-            if playsCue && !mutedOtherAudio {
-                soundManager.playStartSound()
-            }
-            return
-        }
-
-        // Command Mode tells the user to wait for its double chime, so it
-        // keeps the chime and mutes once it has played. The recording may
-        // have ended, or a new one begun, while the cue played.
-        if playsCue {
-            await soundManager.playCommandStartSoundAsync()
-        }
-        if isRecording && appStatus == .recording && recordingGeneration == generation {
-            audioDucker.duck()
-        }
-    }
-
-    /// Whether a live session's result is used whatever the screen context
-    /// brings, so its input can end the moment the microphone stops.
-    ///
-    /// Whisper is the exception: its pieces read the vocabulary when they are
-    /// decoded, and a tail decoded before the screen terms arrived would send
-    /// the recording to the batch path instead.
-    private func endsSessionInputAtStop(liveVocabulary: LiveVocabulary?) -> Bool {
-        guard ModelSize(rawValue: selectedModelSize)?.engine == .whisperKit else { return true }
-        return !translatesSpeech && liveVocabulary?.isSettled == true
-    }
-
-    // MARK: - Process while speaking
-
-    /// The recognition vocabulary for a live session, updated with the
-    /// screen's terms as soon as they are read.
-    private func sessionVocabulary() -> LiveVocabulary {
-        let vocabulary = LiveVocabulary(recognitionHintVocabulary, settled: screenContextTask == nil)
-        if let contextTask = screenContextTask {
-            let customVocabulary = customVocabulary
-            let replacementTargets = replacementTargets
-            let usage = termUsage
-            Task { @MainActor in
-                let terms = await contextTask.value
-                vocabulary.update(Self.recognitionVocabulary(
-                    customVocabulary, replacementTargets: replacementTargets, contextTerms: terms, usage: usage
-                ))
-            }
-        }
-        return vocabulary
-    }
-
-    /// Commit-mode options for a new recording, or nil to record as before.
-    /// Also creates the recording's cleanup speculator and live vocabulary.
-    ///
-    /// Only real dictations commit pieces: Command Mode needs the whole
-    /// instruction, previews and practice show batch output, and Whisper
-    /// translation always decodes the whole recording.
-    private func commitOptionsForRecording(injectResult: Bool, generation: UUID) -> StreamingCommitOptions? {
-        recordingSpeculator = nil
-        recordingVocabulary = nil
-        // The custom endpoint is batch-only: one upload per recording. Commit
-        // mode would mean an upload per piece, so it stays off for it.
-        guard processWhileSpeaking, injectResult, activeCommandTarget == nil,
-              let model = ModelSize(rawValue: selectedModelSize),
-              model.engine != .customEndpoint,
-              // A streaming export transcribes the whole recording as it
-              // comes; pieces would decode it twice.
-              !(parakeetLiveStreaming && model.transcribesWhileSpeaking),
-              !(model.engine == .whisperKit && translatesSpeech) else { return nil }
-        let engine = model.engine
-        guard !isPowerConstrained() else {
-            VocaLogger.info(.appState, "Process while speaking paused: Low Power Mode or thermal pressure")
-            return nil
-        }
-
-        let vocabulary = sessionVocabulary()
-        recordingVocabulary = vocabulary
-
-        // Cleanup ahead of time only on this Mac: an endpoint would be sent
-        // pieces that may never be used.
-        if transcriptCleanupEnabled, cleanupEndpoint.isLocal {
-            recordingSpeculator = makeSpeculator(
-                target: frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp,
-                contextTask: screenContextTask,
-                documentURLTask: screenDocumentURLTask,
-                codingAgentTask: codingAgentTask
-            )
-        }
-
-        let onPiece: @Sendable (Int, TranscribedPiece) -> Void = { [weak self] index, piece in
-            Task { @MainActor [weak self] in
-                self?.submitPiece(piece, index: index, generation: generation)
-            }
-        }
-        var readVocabulary: (@Sendable () -> String)?
-        var isReadyForEarlyDecode: (@Sendable () -> Bool)?
-        // A model that takes no vocabulary prompt has nothing to wait for.
-        if engine == .whisperKit, model.acceptsVocabularyPrompt {
-            readVocabulary = { vocabulary.read() }
-            isReadyForEarlyDecode = { vocabulary.isSettled }
-        }
-        // A session that ends on silence stops after `silenceDuration` of
-        // quiet, which is time to decode (and clean) the last piece before
-        // stop. Push to talk ends when the key comes up, in recorded
-        // dictations usually within a third of a second of the last word:
-        // there, early decodes at every pause cost far more than they save.
-        let stopsOnSilence = activationMode == .doubleTapToggle || isHandsFreeSession
-        return StreamingCommitOptions(
-            onPiece: onPiece,
-            // The piece being spoken, decoded early: cleaned the same way, and
-            // simply not found at stop if speech went on.
-            onTentativePiece: onPiece,
-            vocabulary: readVocabulary,
-            earlyDecodeQuietSeconds: stopsOnSilence ? Self.earlyDecodeQuietSeconds(silenceDuration: silenceDuration) : nil,
-            isReadyForEarlyDecode: isReadyForEarlyDecode,
-            // Corrections are free without cleanup; with it, each corrected
-            // piece would be cleaned twice (see `revisesPrevious`).
-            revisesPrevious: recordingSpeculator == nil
-        )
-    }
-
-    /// Quiet before the last piece is decoded early, in a session that stops
-    /// after `silenceDuration` of it: a third of the way in, leaving the rest
-    /// for the decode and its cleanup, and no sooner than 0.3 s, so ordinary
-    /// pauses between words don't each cost a decode.
-    nonisolated static func earlyDecodeQuietSeconds(silenceDuration: Double) -> Double {
-        min(1.0, max(0.3, SilenceDetectionSettings.clampedDuration(silenceDuration) / 3))
-    }
-
-    nonisolated static func systemIsPowerConstrained(_ info: ProcessInfo = .processInfo) -> Bool {
-        if info.isLowPowerModeEnabled { return true }
-        switch info.thermalState {
-        case .serious, .critical: return true
-        default: return false
-        }
-    }
-
-    private func submitPiece(_ piece: TranscribedPiece, index: Int, generation: UUID) {
-        guard recordingGeneration == generation else { return }
-        (recordingSpeculator ?? finishingSpeculator)?.submit(piece, index: index)
-    }
-
-    /// A speculator whose options match what the stop path will use, as far
-    /// as can be known while recording. Anything that turns out different at
-    /// stop (another app in front, new dictionary words) changes the request,
-    /// and that piece is simply cleaned again.
-    private func makeSpeculator(
-        target: RunningAppSnapshot?,
-        contextTask: Task<[String], Never>?,
-        documentURLTask: Task<URL?, Never>?,
-        codingAgentTask: Task<RunningAppSnapshot?, Never>?
-    ) -> CleanupSpeculator {
-        var cachedProfile: WritingProfile?
-        var cachedTerms: [String]?
-        return CleanupSpeculator(pipeline: dictationOutputPipeline) { [weak self] language in
-            guard let self else { return nil }
-            if cachedProfile == nil {
-                let documentURL = await Self.awaitDocumentURL(documentURLTask)
-                let agentTerminal = await Self.value(of: codingAgentTask, within: Self.screenContextTimeout, otherwise: nil)
-                cachedProfile = self.nextWritingProfile
-                    ?? self.resolveWritingStyle(
-                        for: target, documentURL: documentURL, codingAgentTerminal: agentTerminal
-                    ).profile
-            }
-            // Cleanup ahead of time isn't on anyone's wait, so it can give the
-            // screen read longer than the stop path's 0.3 s. A read that
-            // still hasn't answered isn't remembered as "no terms": the
-            // final pass would then get the terms, its glossary would differ,
-            // and every answer worked out ahead would go unused.
-            if cachedTerms == nil, let contextTask {
-                let terms = await Self.value(
-                    of: Task { Optional(await contextTask.value) },
-                    within: Self.speculationContextTimeout, otherwise: nil
-                )
-                cachedTerms = terms
-            }
-            guard let profile = cachedProfile else { return nil }
-            return self.dictationOptions(profile: profile, language: language, contextTerms: cachedTerms ?? [])
-        }
-    }
-
-    private static func logPieceSummary(
-        result: VocaTranscription,
-        speculator: CleanupSpeculator?,
-        stopToResult: TimeInterval
-    ) {
-        let tailSeconds = result.pieces.last.map { Double($0.range.count) / 16_000 } ?? 0
-        var line = "Process while speaking: \(result.pieces.count) pieces, "
-            + "tail \(String(format: "%.1f", tailSeconds))s, "
-            + "stop to result \(String(format: "%.2f", stopToResult))s"
-        if let speculator {
-            line += ", cleanup hits \(speculator.hitCount), misses \(speculator.missCount), "
-                + "cancelled \(speculator.cancelledCount) of \(speculator.submittedCount) submitted"
-        }
-        VocaLogger.info(.appState, line)
-    }
-
-    private func automaticExternalInputIfNeeded() -> AudioDevice? {
-        guard externalMicWhenLidClosed, isLidClosed() else { return nil }
-        let devices = availableInputDevices()
-        if let selected = devices.first(where: { $0.id == selectedAudioDeviceID }), !selected.isBuiltIn {
-            return nil
-        }
-        let external = devices.filter { !$0.isBuiltIn }
-            .sorted { lhs, rhs in lhs.isDefault && !rhs.isDefault }
-            .first
-        if let external {
-            inputDeviceFallbackNotice = "MacBook lid is closed — recording from \(external.name)."
-        }
-        return external
-    }
-
-    func stopRecordingAndTranscribe(injectResult: Bool = true) async {
-        await stopRecordingAndTranscribe(endsHotKeyToggle: true)
-    }
-
-    /// - Parameter endsHotKeyToggle: False only when the hotkey itself asked
-    ///   for the stop. Any other stop (silence, the time limit, the menu or
-    ///   overlay) must also end the hotkey's double-tap session, or the next
-    ///   double-tap would be taken as a stop and do nothing.
-    /// - Parameter keepingFirst: Keep only this many samples: a queued
-    ///   dictation whose key came up before it could start is stopped late,
-    ///   and only what was said while the key was down belongs to it.
-    private func stopRecordingAndTranscribe(endsHotKeyToggle: Bool, keepingFirst: Int? = nil) async {
-        beginDictationOperation()
-        defer { endDictationOperation("stop") }
-        // Start-time recordingInjectsResult alone decides injection.
-        // Practice/settings UIs cannot demote an ordinary hotkey session.
-        let injectResult = recordingInjectsResult
-        let interval = PerformanceTrace.begin("StopToResultQueued")
-        defer { PerformanceTrace.end(interval) }
-        // Accept stop if we're recording OR if the audio engine thinks
-        // it's recording (covers stuck-state recovery scenarios where
-        // isRecording and appStatus may be out of sync).
-        guard isCapturingAudio else {
-            if isLoadingModelForRecording {
-                pendingStopDuringModelLoad = .transcribe
-                // The microphone opened while the model loads; keep what it
-                // heard until now and transcribe it once the model is ready.
-                if let early = earlyCapture, early.releasedAtSampleCount == nil {
-                    early.releasedAtSampleCount = early.counter.releaseBoundary()
-                    if soundEffectsEnabled { soundManager.playStopSound() }
-                    cursorOverlay.transitionToProcessing()
-                }
-                return
-            }
-            if queuedRecordingStart != nil, let early = earlyCapture, early.releasedAtSampleCount == nil {
-                // The microphone opened early, so what was said is kept and
-                // transcribed once the previous dictation is delivered.
-                early.releasedAtSampleCount = early.counter.releaseBoundary()
-                if soundEffectsEnabled { soundManager.playStopSound() }
-                VocaLogger.info(.appState, "Queued dictation ended before it could start — transcribing it next")
-                return
-            }
-            if queuedRecordingStart != nil {
-                // Released (or toggled off) before the previous dictation
-                // finished, so this one never started.
-                queuedRecordingStart = nil
-                VocaLogger.info(.appState, "Queued dictation ended before it could start")
-            }
-            return
-        }
-        if endsHotKeyToggle {
-            endHotKeyToggleSession()
-        }
-        let stopRequested = ProcessInfo.processInfo.systemUptime
-
-        // A start that is still negotiating its input route holds the audio
-        // engine's lifecycle queue. Calling stopRecording() here would block the
-        // hotkey path for the whole Bluetooth settle and then hand back an empty
-        // buffer — the "No microphone audio detected" report. Ask the engine to
-        // abandon the start instead and let startRecording() finish up.
-        if isStartingAudio {
-            pendingStopDuringStart = .transcribe
-            audioEngine.cancelPendingStart()
-            return
-        }
-
-        guard !isStoppingAudio else { return }
-        isStoppingAudio = true
-        let generation = recordingGeneration
-        var audioData = await stopAudioEngine()
-        // Zero is a real limit: the key came up before the microphone
-        // delivered anything, so nothing recorded since belongs to it.
-        if let keepingFirst, keepingFirst >= 0, audioData.count > keepingFirst {
-            audioData = Array(audioData.prefix(keepingFirst))
-        }
-        isStoppingAudio = false
-        guard generation == recordingGeneration else { return }
-        let session = recordingTranscription
-        recordingTranscription = nil
-        finishingTranscription = session
-        let speculator = recordingSpeculator
-        recordingSpeculator = nil
-        finishingSpeculator = speculator
-        let liveVocabulary = recordingVocabulary
-        recordingVocabulary = nil
-        // Let the engine start on the last piece now: saving to History and
-        // waiting for the screen context below then overlap its decode.
-        if let session, endsSessionInputAtStop(liveVocabulary: liveVocabulary) {
-            session.endInput(expectedSampleCount: audioData.count)
-        }
-        let processedWhileSpeaking = recordingProcessesWhileSpeaking
-        let stopStarted = ProcessInfo.processInfo.systemUptime
-        defer {
-            session?.cancel()
-            if finishingTranscription === session { finishingTranscription = nil }
-            speculator?.cancelAll()
-            if finishingSpeculator === speculator { finishingSpeculator = nil }
-        }
-        isRecording = false
-        audioLevel = 0.0
-
-        // Play stop sound
-        if soundEffectsEnabled {
-            soundManager.playStopSound()
-        }
-
-        // Transition cursor indicator to processing state (red -> purple)
-        // Keeps the overlay visible so the user knows text is on its way
-        cursorOverlay.transitionToProcessing()
-
-        guard !audioData.isEmpty else {
-            resetCommandModeState()
-            liveTranscript = ""
-            cursorOverlay.hide()
-            appStatus = .idle
-            return
-        }
-
-        guard audioData.contains(where: { abs($0) >= 0.0001 }) else {
-            resetCommandModeState()
-            showOverlayFailure("No audio from the microphone.")
-            cursorOverlay.hide()
-            // Don't keep a route warm when it produced only silence.
-            audioEngine.forceReset()
-            let message = "No microphone audio detected. Check that the selected microphone is connected and available in Settings → Audio."
-            VocaLogger.warning(.appState, message)
-            showTemporaryError(message)
-            return
-        }
-
-        appStatus = .processing
-        isTranscribing = true
-        defer {
-            if generation == recordingGeneration { isTranscribing = false }
-        }
-        // Copy the clipboard while the speech is decoded, not after the text
-        // is ready. The paste reuses it only if the board is unchanged, and
-        // the release (queued behind that paste) drops it either way.
-        if injectResult, preserveClipboard {
-            textInjector.prepareClipboardSnapshot()
-        }
-        defer {
-            if injectResult, preserveClipboard { textInjector.releasePreparedClipboardSnapshot() }
-        }
-
-        let contextTask = screenContextTask
-        screenContextTask = nil
-        let documentURLTask = screenDocumentURLTask
-        screenDocumentURLTask = nil
-        let insertionTask = insertionContextTask
-        insertionContextTask = nil
-        let insertionContextRead = Task {
-            await Self.value(of: insertionTask, within: Self.screenContextTimeout, otherwise: nil)
-        }
-        let agentTask = codingAgentTask
-        codingAgentTask = nil
-        let codingAgentRead = Task { await Self.value(of: agentTask, within: Self.screenContextTimeout, otherwise: nil) }
-        // Both screen reads wait out one timeout together, alongside the
-        // History write, rather than one after the other.
-        let contextTermsRead = Task { await Self.awaitContextTerms(contextTask) }
-        let documentURLRead = Task { await Self.awaitDocumentURL(documentURLTask) }
-        // A website rule is checked against the page in front now, while the
-        // speech is decoded, rather than in another Accessibility read after
-        // it. A page changed during the decode itself is not noticed.
-        let documentURLCheck = Task { @MainActor [weak self] () -> URL? in
-            let captured = await documentURLRead.value
-            return await self?.revalidatedDocumentURL(captured)
-        }
-        // The field is read again at key-up, while the speech is decoded,
-        // rather than after cleanup: a move to another field while speaking
-        // is still noticed, and the read no longer adds to the wait. A move
-        // during the decode itself is left to the app check at delivery.
-        let insertionContextAtStop: Task<InsertionContext?, Never>?
-        if injectResult, writingStyleEnabled, let reader = screenContextReader {
-            insertionContextAtStop = Task {
-                await Self.value(
-                    of: Task { @MainActor in await reader.captureInsertionContext() },
-                    within: Self.screenContextTimeout, otherwise: nil
-                )
-            }
-        } else {
-            insertionContextAtStop = nil
-        }
-        let language = selectedLanguage == "auto" ? nil : selectedLanguage
-        let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
-        // sherpa-onnx models take no screen terms (only Qwen3-ASR reads the
-        // user's own words), so its batch decode starts now instead of after
-        // the History write and the screen read.
-        let earlyDecode: Task<VocaTranscription, Error>?
-        let decodesWholeRecording = session == nil || session?.language != language
-        if selectedEngine == .sherpaOnnx, decodesWholeRecording {
-            let vocabulary = Self.recognitionVocabulary(
-                customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
-            )
-            let transcriber = whisperService
-            let translate = translatesSpeech
-            earlyDecode = Task {
-                try await transcriber.transcribe(
-                    audioData: audioData, language: language, translate: translate, vocabulary: vocabulary
-                )
-            }
-        } else if selectedEngine == .parakeet, decodesWholeRecording {
-            // Parakeet reads the screen terms only for its boost after the
-            // decode, so the decode starts now too and the terms join it
-            // when they arrive.
-            let vocabulary = customVocabulary
-            let targets = replacementTargets
-            let usage = termUsage
-            let transcriber = whisperService
-            let translate = translatesSpeech
-            earlyDecode = Task {
-                try await transcriber.transcribe(
-                    audioData: audioData, language: language, translate: translate,
-                    vocabularyAfterDecode: {
-                        let contextTerms = await contextTermsRead.value
-                        return await Self.recognitionVocabulary(
-                            vocabulary, replacementTargets: targets, contextTerms: contextTerms, usage: usage
-                        )
-                    }
-                )
-            }
-        } else {
-            earlyDecode = nil
-        }
-        defer { earlyDecode?.cancel() }
-        // Journaled before transcribing; the audio is written alongside the
-        // transcription, so a failure can still be retried from history.
-        let historyID = injectResult ? await beginHistoryEntry(audio: audioData) : nil
-        activeHistoryEntryID = historyID
-        guard generation == recordingGeneration else {
-            // Escape arrived while the audio was being saved.
-            if let historyID { historyStore.markCancelled(historyID) }
-            return
-        }
-
-        do {
-            let contextTerms = await contextTermsRead.value
-            // Words read off the screen stay on this Mac: a remote endpoint
-            // gets only the user's own Dictionary.
-            let recognitionVocabulary = Self.recognitionVocabulary(
-                customVocabulary, replacementTargets: replacementTargets,
-                contextTerms: selectedEngine == .customEndpoint ? [] : contextTerms, usage: termUsage
-            )
-            let result: VocaTranscription
-            // A commit-mode session reads the vocabulary per piece, so context
-            // terms reach it too, provided no piece was decoded without them.
-            liveVocabulary?.update(recognitionVocabulary)
-            let pieceVocabularyMatches = liveVocabulary?.servedOnly(recognitionVocabulary) ?? false
-            let contextNeedsWhisperBatch = selectedEngine == .whisperKit
-                && ((!contextTerms.isEmpty && !pieceVocabularyMatches) || translatesSpeech)
-            if let session, session.language == language, !contextNeedsWhisperBatch {
-                do {
-                    result = try await session.finish(expectedSampleCount: audioData.count)
-                } catch RecordingTranscription.StreamError.timedOut {
-                    // The engine was given up on; the batch path would wait
-                    // on a model that is being dropped.
-                    throw RecordingTranscription.StreamError.timedOut
-                } catch {
-                    guard generation == recordingGeneration else { return }
-                    try Task.checkCancellation()
-                    PerformanceTrace.event("StreamingBatchFallback")
-                    VocaLogger.warning(.appState, "Live transcription unavailable; decoding the complete recording")
-                    result = try await whisperService.transcribe(
-                        audioData: audioData, language: language,
-                        translate: translatesSpeech, vocabulary: recognitionVocabulary
-                    )
-                }
-            } else if let earlyDecode {
-                session?.cancel()
-                result = try await withTaskCancellationHandler {
-                    try await earlyDecode.value
-                } onCancel: {
-                    earlyDecode.cancel()
-                }
-            } else {
-                session?.cancel()
-                result = try await whisperService.transcribe(
-                    audioData: audioData, language: language,
-                    translate: translatesSpeech, vocabulary: recognitionVocabulary
-                )
-            }
-
-            guard generation == recordingGeneration else {
-                if let historyID { historyStore.markCancelled(historyID) }
-                return
-            }
-            liveTranscript = ""
-
-            // A spoken edit command isn't a dictation: it stays out of the
-            // last-dictation card and the dictated-words stats.
-            if let target = activeCommandTarget {
-                activeCommandTarget = nil
-                commandModeSession?.phase = .rewriting
-                commandModeSession?.instruction = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                await finishCommandMode(
-                    instruction: result.text,
-                    language: result.detectedLanguage,
-                    audioSeconds: result.audioLengthSeconds,
-                    target: target,
-                    engine: activeCommandEngine ?? commandModeEngine,
-                    generation: generation
-                )
-                return
-            }
-
-            lastTranscription = result
-            lastCommandEdit = nil
-            // The text there has changed; "shorter still" no longer has
-            // anything to refer to.
-            lastCommandTarget = nil
-
-            let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            // Set when nothing was heard and no overlay could say so.
-            var heardNothing = false
-            var heardNothingBecauseQuiet = false
-            if !trimmedText.isEmpty {
-                let target = frontmostAppResolver.currentFrontmostApp()
-                    ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
-                let documentURL = await documentURLCheck.value
-                let resolved = resolveWritingStyle(
-                    for: target, documentURL: documentURL, codingAgentTerminal: await codingAgentRead.value
-                )
-                // The scratchpad is plain notes: format it with the default
-                // style, not whichever app the Settings preview was left on.
-                let profile: WritingProfile
-                if injectResult {
-                    profile = nextWritingProfile ?? resolved.profile
-                } else if nonInjectedOutputDestination == .scratchpad {
-                    profile = resolveWritingStyle(for: nil).profile
-                } else {
-                    profile = settingsPreviewProfile
-                }
-                if injectResult {
-                    nextWritingProfile = nil
-                    if activeWritingStyle != resolved { activeWritingStyle = resolved }
-                }
-                let laysOutParagraphs = Self.laysOutParagraphs(enabled: pauseParagraphs, profile: profile)
-                let spoken = laysOutParagraphs
-                    ? await Self.paragraphsAtPauses(result, audio: audioData)
-                    : result.text
-                var output = await dictationOutputPipeline.process(
-                    spoken, profile: profile, snippetList: snippets,
-                    cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
-                    model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
-                    cleanupLevel: transcriptCleanupLevel,
-                    language: result.detectedLanguage, autoCapitalize: autoCapitalize,
-                    trailingSpace: appendTrailingSpace, preview: !injectResult,
-                    dictionary: dictionaryContext(
-                        contextTerms: contextTerms, language: DictationOutputPipeline.languagePrior(
-                            reported: result.detectedLanguage, spoken: spokenLanguages, text: result.text
-                        ), segments: result.segments
-                    ),
-                    numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
-                    spokenLanguages: spokenLanguages,
-                    // Cleaning piece by piece only pays off with answers from
-                    // while recording; an endpoint would get one call per piece.
-                    pieces: speculator == nil ? [] : result.pieces, speculator: speculator
-                )
-                if injectResult, resolved.codingAgent, profile == resolved.profile {
-                    output = DictationOutputResult(
-                        original: output.original, text: output.text,
-                        summary: "\(Self.codingAgentSummary) · \(output.summary)"
-                    )
-                }
-                // Fit the text to the field: one line, the sentence already
-                // there, the draft's register. Prose only; a terminal's
-                // buffer or an editor's code is not a sentence to join.
-                // The field read again at key-up: the user may have moved to
-                // another one while speaking, and then nothing is fitted.
-                var leadingSpace = false
-                if injectResult, writingStyleEnabled, profile.cleanup != .raw, profile.format.supportsWording,
-                   !resolved.codingAgent, let start = await insertionContextRead.value,
-                   let stopRead = insertionContextAtStop,
-                   let context = InsertionFit.deliveryContext(start: start, now: await stopRead.value) {
-                    let fit = InsertionFit.fit(
-                        output.text, into: context,
-                        capitalizes: Self.capitalizes(profile.rules, autoCapitalize: autoCapitalize),
-                        mirrorsRegister: profile.format == .chat || profile.format == .slack,
-                        protecting: snippets.map(\.expansion) + vocabularyTerms
-                            + wordReplacements.map(\.replacement) + contextTerms
-                    )
-                    if fit.text != output.text {
-                        output = DictationOutputResult(original: output.original, text: fit.text, summary: output.summary)
-                    }
-                    leadingSpace = fit.leadingSpace
-                }
-                if !result.pieces.isEmpty {
-                    Self.logPieceSummary(
-                        result: result, speculator: speculator,
-                        stopToResult: ProcessInfo.processInfo.systemUptime - stopStarted
-                    )
-                }
-                guard generation == recordingGeneration, !Task.isCancelled else {
-                    if let historyID { historyStore.markCancelled(historyID) }
-                    return
-                }
-                if !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                   injectResult || nonInjectedOutputDestination == .settingsTest {
-                    onboardingVerification.microphoneWorks = true
-                    if recordingVerifiesShortcut, onboardingVerification.mode != nil {
-                        onboardingVerification.shortcutDictationWorks = true
-                    }
-                }
-                lastOutput = output
-                // The destination is read again at delivery: the user may have
-                // switched to an excluded app while this was transcribed.
-                var historyID = historyID
-                if injectResult {
-                    let destination = frontmostAppResolver.currentFrontmostApp()
-                        ?? frontmostAppResolver.lastActiveApp() ?? pendingTargetApp
-                    if let id = historyID, !historyRecords(destination) {
-                        historyStore.delete(id)
-                        historyID = nil
-                        activeHistoryEntryID = nil
-                        VocaLogger.info(.history, "Removed this dictation from History: \(destination?.displayName ?? "the app") is excluded")
-                    }
-                    // Paused History counts too: resuming it mustn't bring
-                    // back an older saved dictation for Paste Last.
-                    lastUnsavedDictation = historyID == nil ? output.text : nil
-                }
-                // Saved after the paste is under way, not before it: the
-                // journal write (and every 500th dictation a rewrite of the
-                // whole History index) and the stats update are main-thread
-                // work the text should not wait for.
-                let completedHistoryID = historyID
-                func saveResult() {
-                    if let completedHistoryID {
-                        historyStore.complete(
-                            completedHistoryID, rawText: result.text, finalText: output.text, summary: output.summary,
-                            language: result.detectedLanguage, transcriptionSeconds: result.duration,
-                            segments: result.segments, keepAudio: historyKeepsAudio
-                        )
-                    }
-                    statsManager.recordTranscription(result)
-                    stampModelsInUseIfStale()
-                    recordTermUsage(in: output.text)
-                }
-                if injectResult {
-                    let current = frontmostAppResolver.currentFrontmostApp()
-                        ?? frontmostAppResolver.lastActiveApp() ?? pendingTargetApp
-                    guard Self.sameOutputTarget(target, current) else {
-                        saveResult()
-                        heldOutput = output.text
-                        showOverlayFailure("The app changed. Your text is saved in the menu bar.")
-                        cursorOverlay.hide()
-                        // The held text stays in the menu bar; the error
-                        // itself clears so the app doesn't stay in .error.
-                        showTemporaryError("The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want.")
-                        return
-                    }
-                    let delivery = Self.textDelivery(
-                        spoken: result.text, text: output.text, app: current,
-                        isCodeOrTerminal: Self.isCodeOrTerminal(current, resolved: resolved),
-                        method: insertionMethod, typingApps: typedInsertionApps,
-                        autoSendMode: autoSendMode, autoSendApps: autoSendApps
-                    )
-                    if delivery.text != output.text {
-                        // "Send it" asked for Return; it isn't part of the text.
-                        output = DictationOutputResult(original: output.original, text: delivery.text, summary: output.summary)
-                        lastOutput = output
-                        // Paste Last prefers the unsaved copy: it must match
-                        // what was delivered, without the cue.
-                        if lastUnsavedDictation != nil { lastUnsavedDictation = output.text }
-                    }
-                    let deliveredText = output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                        ? "" : (leadingSpace ? " " : "") + output.text
-                    textInjector.inject(text: deliveredText, preserveClipboard: preserveClipboard, options: delivery.options)
-                    saveResult()
-                    if onboardingVerification.mode == .insertion,
-                       !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        onboardingVerification.insertionAttempted = true
-                    }
-                    statsManager.recordStopWait(StopWait(
-                        seconds: ProcessInfo.processInfo.systemUptime - stopRequested,
-                        audioSeconds: result.audioLengthSeconds,
-                        processedWhileSpeaking: processedWhileSpeaking
-                    ))
-                    let dictationLanguage = DictationOutputPipeline.knownLanguage(result.detectedLanguage) ?? spellingLanguage
-                    observeCorrections(
-                        to: output.text, language: dictationLanguage, historyID: completedHistoryID, app: target
-                    )
-                    noteScreenRespellings(raw: result.text, final: output.text, screenTerms: contextTerms,
-                                          language: dictationLanguage)
-                    suggestFrequentNamesIfDue()
-                } else {
-                    saveResult()
-                    if nonInjectedOutputDestination == .scratchpad {
-                        if !scratchpadText.isEmpty, !scratchpadText.hasSuffix("\n") { scratchpadText += "\n" }
-                        scratchpadText += output.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    } else {
-                        settingsTestResultText = output.text
-
-                    }
-                }
-            } else {
-                VocaLogger.info(.appState, "Transcription produced no usable text (silence or blank audio)")
-                if let historyID {
-                    historyStore.complete(
-                        historyID, rawText: result.text, finalText: "", summary: nil,
-                        language: result.detectedLanguage, transcriptionSeconds: result.duration,
-                        segments: result.segments, keepAudio: historyKeepsAudio
-                    )
-                }
-                // A mic turned too far down is the likeliest cause; say so.
-                let tooQuiet = result.inputLevelWarning == .tooQuiet
-                if injectResult {
-                    heardNothing = !showOverlayFailure(tooQuiet ? "Didn't catch that. Your mic is very quiet." : "Didn't catch that.")
-                } else {
-                    settingsTestResultText = nil
-                }
-                if tooQuiet { heardNothingBecauseQuiet = true }
-            }
-
-            cursorOverlay.hide()
-            appStatus = .idle
-            if heardNothing {
-                showTemporaryError(heardNothingBecauseQuiet
-                    ? "Didn't catch that. Your microphone level is very low; raise its input volume in System Settings → Sound."
-                    : "Didn't catch that. Nothing was typed.")
-            }
-        } catch {
-            guard generation == recordingGeneration else {
-                if let historyID { historyStore.markCancelled(historyID) }
-                return
-            }
-            resetCommandModeState()
-            liveTranscript = ""
-            var message = "Transcription failed: \(error.localizedDescription)"
-            var overlayMessage = "Transcription failed."
-            if let historyID {
-                historyStore.markFailed(historyID, message: error.localizedDescription)
-                if historyStore.entry(id: historyID)?.hasAudio == true {
-                    message += " Your audio is saved — retry it from the menu bar."
-                    overlayMessage = "Transcription failed. Retry it from the menu bar."
-                }
-            }
-            showOverlayFailure(overlayMessage)
-            cursorOverlay.hide()
-            errorMessage = message
-            appStatus = .error
-
-            // Auto-recover after 3 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
-                if self?.appStatus == .error {
-                    self?.appStatus = .idle
-                    self?.errorMessage = nil
-                }
-            }
-        }
-    }
-
-    // MARK: - Dictation state
-
-    /// The microphone is on, or a stop hasn't been taken yet. The two can
-    /// briefly disagree during recovery, so every start, stop, and cancel
-    /// asks this rather than either flag alone.
-    var isCapturingAudio: Bool { isRecording || appStatus == .recording }
-
-    /// The dictation flags in one value.
-    var dictationFlags: DictationFlags {
-        DictationFlags(
-            appStatus: appStatus,
-            isRecording: isRecording,
-            isStartingAudio: isStartingAudio,
-            isStoppingAudio: isStoppingAudio,
-            isLoadingModel: isLoadingModelForRecording,
-            isTranscribing: isTranscribing,
-            isTranscribingMedia: isTranscribingMedia,
-            hasPendingStopDuringStart: pendingStopDuringStart != nil,
-            hasPendingStopDuringModelLoad: pendingStopDuringModelLoad != nil
-        )
-    }
-
-    var dictationPhase: DictationPhase { dictationFlags.phase }
-
-    private func beginDictationOperation() {
-        dictationOperationDepth += 1
-    }
-
-    /// Once nothing else is starting, stopping, or cancelling, check that no
-    /// flag was left behind. A finding is logged, not repaired: the log line
-    /// is what turns a "the hotkey stopped working" report into a fix.
-    private func endDictationOperation(_ operation: String) {
-        dictationOperationDepth -= 1
-        guard dictationOperationDepth == 0 else { return }
-        let flags = dictationFlags
-        lastDictationStateViolations = flags.violations
-        guard !lastDictationStateViolations.isEmpty else { return }
-        VocaLogger.warning(
-            .appState,
-            "Dictation state after \(operation) is inconsistent: "
-                + lastDictationStateViolations.joined(separator: "; ") + " [\(flags)]"
-        )
-    }
-
-    func toggleScratchpadRecording() async {
-        if isCapturingAudio {
-            await stopRecordingAndTranscribe()
-        } else {
-            await startRecording(injectResult: false, outputDestination: .scratchpad)
-        }
-    }
-
-    /// Cancels the active recording without sending its audio to a transcription
-    /// engine. This is used by the overlay's cancel button.
-    func cancelRecording() async {
-        beginDictationOperation()
-        defer { endDictationOperation("cancel") }
-        guard isCapturingAudio else {
-            if isLoadingModelForRecording {
-                pendingStopDuringModelLoad = .discard
-                cursorOverlay.hide()
-            }
-            queuedRecordingStart = nil
-            // A microphone opened early (model loading, or a queued
-            // dictation) closes now, not when the load finishes, which can
-            // take minutes with playback muted all the while.
-            discardEarlyCapture()
-            return
-        }
-
-        if isStartingAudio {
-            pendingStopDuringStart = .discard
-            audioEngine.cancelPendingStart()
-            return
-        }
-
-        // A stop already waiting on the audio engine (the hotkey released a
-        // moment before Escape) must not go on to transcribe and paste.
-        recordingGeneration = UUID()
-        _ = await stopAudioEngine()
-        discardRecordingState()
-        appStatus = .idle
-        errorMessage = nil
-        VocaLogger.info(.appState, "Recording cancelled")
-    }
-
-    /// Tear down a recording that ends without a transcript: a cancel, a
-    /// failed start, a lost input device, or auto-pause. Every such exit
-    /// must also drop a Command Mode session, or the next ordinary dictation
-    /// would be taken as an editing command for the stale selection.
-    private func discardRecordingState() {
-        isRecording = false
-        whisperService.cancelVoiceActivityStream()
-        audioLevel = 0.0
-        screenContextTask?.cancel()
-        screenContextTask = nil
-        screenDocumentURLTask?.cancel()
-        screenDocumentURLTask = nil
-        insertionContextTask?.cancel()
-        insertionContextTask = nil
-        codingAgentTask?.cancel()
-        codingAgentTask = nil
-        resetCommandModeState()
-        liveTranscript = ""
-        cursorOverlay.hide()
-        hotKeyManager.resetKeyState()
-    }
-
-    /// Escape: throw away a recording, or drop a dictation still being
-    /// transcribed. A dictation cancelled mid-transcription keeps its audio in
-    /// history, so an accidental Escape can be undone with Retry.
-    func cancelDictation() async {
-        beginDictationOperation()
-        defer { endDictationOperation("cancel dictation") }
-        // The model is still loading, with the microphone already open.
-        if isCapturingAudio || isLoadingModelForRecording {
-            await cancelRecording()
-            return
-        }
-        guard isTranscribing else {
-            // Nothing is running: Escape closes a result waiting on screen.
-            dismissCommandReview()
-            return
-        }
-        recordingGeneration = UUID()
-        // Escape cancels everything, including a dictation waiting to start.
-        queuedRecordingStart = nil
-        discardEarlyCapture()
-        cancelFinishingWork()
-        resetCommandModeState()
-        liveTranscript = ""
-        isTranscribing = false
-        if let id = activeHistoryEntryID {
-            historyStore.markCancelled(id)
-            activeHistoryEntryID = nil
-        }
-        cursorOverlay.hide()
-        hotKeyManager.resetKeyState()
-        appStatus = .idle
-        errorMessage = nil
-        VocaLogger.info(.appState, "Dictation cancelled while transcribing")
-    }
-
-    /// Completes a recording the user ended while the microphone was still
-    /// connecting. If the engine never reached the capture stage there is
-    /// nothing to transcribe — no audio existed before the route came up — so
-    /// say so plainly instead of reporting a mysterious silent recording.
-    private func finishStartInterruptedByStop(
-        _ kind: PendingStopKind,
-        didStartRecording: Bool
-    ) async {
-        guard didStartRecording else {
-            VocaLogger.info(.appState, "Recording ended while the microphone was still connecting")
-            isRecording = false
-            audioLevel = 0.0
-            cursorOverlay.hide()
-            hotKeyManager.resetKeyState()
-
-            switch kind {
-            case .discard:
-                appStatus = .idle
-                errorMessage = nil
-            case .transcribe:
-                showTemporaryError("The microphone was still connecting, so nothing was recorded. Bluetooth headsets need a moment — hold the hotkey until the start sound, then speak.")
-            }
-            return
-        }
-
-        // The route came up just as the user let go; treat it as a normal end.
-        switch kind {
-        case .transcribe:
-            await stopRecordingAndTranscribe()
-        case .discard:
-            await cancelRecording()
-        }
-    }
-
-    private func startAudioEngine(
-        silenceThreshold: Float,
-        silenceDuration: Double,
-        maxDuration: TimeInterval,
-        preferredInputDeviceID: String?,
-        preferredInputChannel: Int,
-        preferredInputChannelDeviceID: String?,
-        preferredInputChannelCount: Int
-    ) async -> Bool {
-        let worker = AudioEngineWorker(audioEngine: audioEngine)
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                let didStart = worker.startRecording(
-                    silenceThreshold: silenceThreshold,
-                    silenceDuration: silenceDuration,
-                    maxDuration: maxDuration,
-                    preferredInputDeviceID: preferredInputDeviceID,
-                    preferredInputChannel: preferredInputChannel,
-                    preferredInputChannelDeviceID: preferredInputChannelDeviceID,
-                    preferredInputChannelCount: preferredInputChannelCount
-                )
-                continuation.resume(returning: didStart)
-            }
-        }
-    }
-
-    /// Start the microphone with the user's audio settings.
-    private func startConfiguredAudioEngine() async -> Bool {
-        let automaticExternal = automaticExternalInputIfNeeded()
-        return await startAudioEngine(
-            silenceThreshold: Float(silenceThreshold),
-            silenceDuration: silenceDuration,
-            maxDuration: TimeInterval(maxRecordingDuration),
-            preferredInputDeviceID: automaticExternal?.id
-                ?? (selectedAudioDeviceID.isEmpty ? nil : selectedAudioDeviceID),
-            preferredInputChannel: automaticExternal == nil ? selectedAudioChannel : 0,
-            preferredInputChannelDeviceID: automaticExternal?.id
-                ?? (selectedAudioChannelDeviceID.isEmpty ? nil : selectedAudioChannelDeviceID),
-            preferredInputChannelCount: automaticExternal?.channelCount ?? selectedAudioChannelCount
-        )
-    }
-
-    /// Open the microphone for a queued push-to-talk dictation now, without
-    /// touching the dictation flags: the previous dictation still owns them.
-    private func beginEarlyCapture() {
-        guard earlyCapture == nil else { return }
-        let counter = CapturedSampleCounter(clock: captureClock)
-        audioEngine.onAudioSamples = { samples, offset in counter.record(offset + samples.count) }
-        let start = Task { @MainActor [weak self] () -> Bool in
-            guard let self else { return false }
-            let started = await self.startConfiguredAudioEngine()
-            guard started, self.earlyCapture?.counter === counter else { return started }
-            counter.markLive()
-            // Recording while the model loads: the overlay can say so now.
-            if self.isLoadingModelForRecording, self.earlyCapture?.releasedAtSampleCount == nil {
-                self.cursorOverlay.transitionToRecording()
-            }
-            // Live now: silence playback as a dictation start would, so music
-            // is not recorded under what the user says while waiting.
-            // `discardEarlyCapture` undoes it; an adopted capture's recording
-            // undoes it when it ends.
-            let mutedOtherAudio = self.duckOtherAudioEnabled && self.audioDucker.duck()
-            if self.pauseSpotifyEnabled { self.spotifyPauser.pause() }
-            if self.soundEffectsEnabled, !mutedOtherAudio {
-                self.soundManager.playStartSound()
-            }
-            return started
-        }
-        earlyCapture = EarlyCapture(start: start, counter: counter)
-        VocaLogger.info(.appState, "Opened the microphone early for the queued dictation")
-    }
-
-    /// Close a microphone opened early for a queued dictation, discarding
-    /// what it heard.
-    private func discardEarlyCapture() {
-        guard let early = earlyCapture else { return }
-        earlyCapture = nil
-        audioEngine.onAudioSamples = nil
-        audioEngine.cancelPendingStart()
-        Task { @MainActor [weak self] in
-            guard await early.start.value, let self, !self.isCapturingAudio else { return }
-            _ = await self.stopAudioEngine()
-            // Undo the mute and pause applied when the capture went live.
-            self.audioDucker.restore()
-            self.spotifyPauser.resume()
-            VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
-        }
-    }
-
-    /// What receives the microphone's samples while recording: a live
-    /// session, the silence detector, both, or neither.
-    static func sampleObserver(
-        session: RecordingTranscription?, voiceActivity: VoiceActivityStream?
-    ) -> (@Sendable ([Float], Int) -> Void)? {
-        switch (session, voiceActivity) {
-        case (nil, nil):
-            return nil
-        case let (session?, nil):
-            return { samples, offset in session.append(samples, at: offset) }
-        case let (nil, voiceActivity?):
-            return { samples, offset in voiceActivity.append(samples, at: offset) }
-        case let (session?, voiceActivity?):
-            return { samples, offset in
-                session.append(samples, at: offset)
-                voiceActivity.append(samples, at: offset)
-            }
-        }
-    }
-
-    private func stopAudioEngine() async -> [Float] {
-        let worker = AudioEngineWorker(audioEngine: audioEngine)
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: worker.stopRecording())
-            }
-        }
-    }
-
-    // MARK: - Model Management
-
-    func loadModel(_ size: ModelSize? = nil) async {
-        _ = try? await modelOperationSerializer.run { [self] in
-            await performLoadModel(size)
-        }
-    }
-
-    /// Perform one model load after earlier model operations have completed.
-    private func performLoadModel(_ size: ModelSize? = nil) async {
-        loadGeneration += 1
-        let generation = loadGeneration
-
-        let previousLoadedModelName = whisperService.loadedModelName
-        let previousModelSize = currentModel?.size
-            ?? previousLoadedModelName.flatMap { modelManager.modelSize(from: $0) }
-            ?? ModelSize(rawValue: selectedModelSize)
-        let hadLoadedModel = whisperService.isModelLoaded
-
-        // Decide the model here rather than passing nil and letting WhisperKit
-        // auto-select. Its choice arrives with no progress reporting and lands
-        // in its own cache, and it is only a WhisperKit choice, so it can
-        // never reach the other three engines. Resolving first means the
-        // download and memory paths below always know what they are handling.
-        guard let targetSize = size ?? resolvedDefaultModel() else {
-            let failureMessage = "No speech model is available for this Mac."
-            showTemporaryError(failureMessage)
-            VocaLogger.error(.appState, failureMessage)
-            clearActiveModelState()
-            return
-        }
-        let modelName = modelManager.modelIdentifier(for: targetSize)
-
-        // Refuse known-too-large loads before WhisperKit/CoreML can hang the
-        // UI spinner under memory pressure (vocamac#250). Leave any already
-        // loaded model alone — we never started a load, so do not restore/clear.
-        //
-        // The resident model is still in memory at this point: the router only
-        // unloads it once the load is under way. Credit what it will release,
-        // or switching away from a large engine (Parakeet especially) is
-        // measured against memory that model is about to give back.
-        let reclaimableGB = hadLoadedModel ? (previousModelSize?.ramRequiredGB ?? 0) : 0
-        if !modelFitsInMemory(targetSize, reclaimableGB) {
-            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
-            let needed = String(
-                format: "%.1f",
-                isFirstLoad ? targetSize.firstLoadRAMRequiredGB : targetSize.ramRequiredGB
-            )
-            let failureMessage =
-                "Not enough free memory to load \(targetSize.displayName) "
-                + "(~\(needed) GB needed). Free RAM or choose a smaller model."
-            showTemporaryError(failureMessage)
-            VocaLogger.error(.appState, failureMessage)
-            return
-        }
-
-        // Fetch the weights ourselves when they are missing, so the wait shows
-        // real download progress. Left to the engine it is a silent multi-GB
-        // transfer behind a spinner that only ever says "Loading model…" —
-        // and for WhisperKit the files land in its own cache rather than ours.
-        // Settings' "Download & Load" already does this; every other entry
-        // point (a hotkey reloading after the files were deleted, a language
-        // change, an intent) arrives here instead.
-        //
-        // Downloads run outside `modelOperationSerializer`, so this cannot
-        // deadlock behind itself; it joins a download of the same model that
-        // Settings already started.
-        if !modelManager.isModelDownloaded(targetSize) {
-            VocaLogger.info(
-                .appState,
-                "\(targetSize.displayName) is not downloaded — fetching it before loading"
-            )
-            // A bundled copy costs a file move instead of a transfer.
-            if await installBundledOrFallback(preferred: targetSize) {
-                refreshModelStatuses()
-            }
-            if !modelManager.isModelDownloaded(targetSize) {
-                await performDownloadModel(targetSize)
-            }
-            guard generation == loadGeneration else {
-                clearLoadingFlag(for: targetSize)
-                return
-            }
-            guard modelManager.isModelDownloaded(targetSize) else {
-                // The download path owns its own messaging, including staying
-                // quiet when the user cancelled, so do not invent one here.
-                clearLoadingFlag(for: targetSize)
-                return
-            }
-        }
-
-        // Mark the model as loading in the UI
-        if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
-            availableModels[idx].isLoading = true
-            availableModels[idx].loadingStatus = "Preparing…"
-        }
-
-        do {
-            // The files are present by now, so the engine loads from our own
-            // cache instead of fetching its own copy. WhisperKit handles
-            // tokenizer fetching itself — we don't pre-validate those files.
-            let folderURL = modelManager.modelFolder(for: targetSize)
-            let isFirstLoad = !CompiledModelRecord().hasLoaded(targetSize)
-            if isFirstLoad && targetSize.engine.compilesForNeuralEngine {
-                VocaLogger.info(
-                    .appState,
-                    "First load of \(targetSize.displayName) on this macOS build: compiling for the Neural Engine"
-                )
-            }
-
-            // Update status: unpacking
-            if let idx = availableModels.firstIndex(where: { $0.size == targetSize }) {
-                availableModels[idx].loadingStatus = targetSize.loadingStatus(
-                    forPhase: "Unpacking model…", isFirstLoad: isFirstLoad
-                )
-            }
-
-            // Load model with status callback. Kept as a task of its own so
-            // Force Recovery can give up on a load that never returns.
-            let onPhaseChange: @Sendable (String) -> Void = { [weak self] phase in
-                Task { @MainActor in
-                    guard let self = self else { return }
-                    if let idx = self.availableModels.firstIndex(where: { $0.size == targetSize }) {
-                        self.availableModels[idx].loadingStatus = targetSize.loadingStatus(
-                            forPhase: phase, isFirstLoad: isFirstLoad
-                        )
-                    }
-                }
-            }
-            let speech = whisperService
-            let load = Task { try await speech.loadModel(name: modelName, folder: folderURL, onPhaseChange: onPhaseChange) }
-            inFlightModelLoad = load
-            defer { if inFlightModelLoad == load { inFlightModelLoad = nil } }
-            try await withTaskCancellationHandler {
-                try await load.value
-            } onCancel: {
-                load.cancel()
-            }
-            // CoreML has cached the compile even if a newer load supersedes
-            // this one, so record it before any early return.
-            CompiledModelRecord().recordLoad(targetSize)
-
-            // A newer loadModel started while we were waiting; leave UI to it.
-            guard generation == loadGeneration else {
-                clearLoadingFlag(for: targetSize)
-                return
-            }
-
-            // Persist the resolved model as the user's preference
-            selectedModelSize = targetSize.rawValue
-
-            // The outgoing model was in use until now.
-            stampModelsInUse()
-            // Update model states — clear all, then mark the loaded one as active
-            for i in availableModels.indices {
-                let matches = availableModels[i].size == targetSize
-                availableModels[i].isActive = matches
-                availableModels[i].isLoading = false
-                availableModels[i].loadingStatus = "Loading…"
-                if matches {
-                    availableModels[i].isDownloaded = modelManager.isModelDownloaded(targetSize)
-                    currentModel = availableModels[i]
-                }
-            }
-
-            stampModelsInUse()
-            lastModelUnloadReason = nil
-            processMemoryBeforeUnloadMB = nil
-            processMemoryAfterUnloadMB = nil
-            VocaLogger.info(.appState, "Model ready: \(targetSize.displayName)")
-            downloadVocabularyBoostIfUseful()
-        } catch {
-            // A newer load superseded this one; do not restore over it.
-            guard generation == loadGeneration else {
-                clearLoadingFlag(for: targetSize)
-                return
-            }
-
-            for i in availableModels.indices {
-                availableModels[i].isLoading = false
-                availableModels[i].loadingStatus = "Loading…"
-            }
-
-            let failureMessage = "Failed to load \(targetSize.displayName): \(error.localizedDescription)"
-            showTemporaryError(failureMessage)
-            VocaLogger.error(.appState, failureMessage)
-
-            await restorePreviousModelIfNeeded(
-                afterFailedLoadFor: targetSize,
-                previousSize: previousModelSize,
-                previousName: previousLoadedModelName,
-                hadLoadedModel: hadLoadedModel,
-                originalFailureMessage: failureMessage
-            )
-        }
-    }
-
-    /// Clear the loading spinner on a superseded load without touching others.
-    private func clearLoadingFlag(for size: ModelSize?) {
-        guard let size,
-              let idx = availableModels.firstIndex(where: { $0.size == size }) else {
-            return
-        }
-        availableModels[idx].isLoading = false
-        availableModels[idx].loadingStatus = "Loading…"
-    }
-
-    /// Reload the active model when "Transcribe as you speak" no longer
-    /// matches the loaded encoder (a Unified checkpoint's streaming export is
-    /// a different model).
-    ///
-    /// Queued behind any model operation in progress and decided only once it
-    /// has finished: a change made while a load is under way is compared
-    /// with what that load actually produced, so it is never dropped.
-    func reloadModelForLiveStreamingChangeIfNeeded() async {
-        _ = try? await modelOperationSerializer.run { @MainActor [self] in
-            guard let size = liveStreamingReloadTarget() else { return }
-            VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
-            await performLoadModel(size)
-        }
-    }
-
-    /// The loaded model, when its encoder disagrees with the setting.
-    ///
-    /// Nil when the chosen model is not the loaded one (an imported backup
-    /// can pick another): reloading the old model would save it over that
-    /// choice, and the next load applies the setting anyway.
-    func liveStreamingReloadTarget() -> ModelSize? {
-        guard let size = currentModel?.size,
-              ModelSize(rawValue: selectedModelSize) == size,
-              size.transcribesWhileSpeaking,
-              whisperService.isModelLoaded,
-              whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {
-            return nil
-        }
-        return size
-    }
-
-    /// Reload the active model when the transcription language changes and
-    /// the engine bakes that language into the loaded model (sherpa-onnx,
-    /// Nemotron Unified, SenseVoice on the Neural Engine). Other engines
-    /// take the language per transcription and need no reload.
-    func reloadModelForLanguageChangeIfNeeded() async {
-        guard let size = currentModel?.size,
-              size.bindsLanguageAtLoadTime,
-              whisperService.isModelLoaded else {
-            return
-        }
-
-        VocaLogger.info(.appState, "Language changed to \(selectedLanguage) — reloading \(size.displayName)")
-        await loadModel(size)
-    }
-
-    /// What a language change is judged by: the recognition language, and
-    /// the language a model that binds it at load would be given.
-    var languageChangeKey: String {
-        let pinned = selectedLanguage == TranscriptionLanguage.auto.code ? nil : selectedLanguage
-        let loadLanguage = TranscriptionRouter.loadLanguage(selected: pinned, spoken: spokenLanguages)
-        return "\(selectedLanguage)|\(loadLanguage ?? TranscriptionLanguage.auto.code)"
     }
 
     // MARK: - Spoken Languages
@@ -4138,7 +2045,7 @@ final class AppState: ObservableObject {
             // The engine may have completed after cancellation even though
             // performLoadModel correctly declined to publish the stale model.
             // Keep service and AppState readiness aligned.
-            await whisperService.unloadModel()
+            await transcriber.unloadModel()
             clearActiveModelState()
 
             // A language change queues a replacement preparation that will
@@ -4203,7 +2110,7 @@ final class AppState: ObservableObject {
     /// unseen. Shown with the overlay style Off too: a failure nobody sees
     /// looks like the hotkey did nothing. Always returns true.
     @discardableResult
-    private func showOverlayFailure(_ message: String) -> Bool {
+    func showOverlayFailure(_ message: String) -> Bool {
         cursorOverlay.showFailure(message: message)
         DictationAnnouncement.post(message)
         return true
@@ -4213,7 +2120,7 @@ final class AppState: ObservableObject {
     /// or failed to start, without a double-tap. Otherwise the next
     /// double-tap is read as "stop" and does nothing. Push-to-talk tracks the
     /// physical key instead, which a reset here could lose mid-press.
-    private func endHotKeyToggleSession() {
+    func endHotKeyToggleSession() {
         guard activationMode == .doubleTapToggle else { return }
         hotKeyManager.resetKeyState()
     }
@@ -4221,7 +2128,7 @@ final class AppState: ObservableObject {
     /// Start the hotkey listener if it isn't running, and rebuild it if macOS
     /// disabled its event tap (a revoked and re-granted permission leaves the
     /// old tap disabled for good).
-    private func restartHotKeyListenerIfNeeded() {
+    func restartHotKeyListenerIfNeeded() {
         // Settings turns the listener off while it records a new shortcut;
         // turning it back on would swallow the key being recorded.
         guard !isCapturingShortcut else { return }
@@ -4303,7 +2210,7 @@ final class AppState: ObservableObject {
         showTemporaryError(message)
     }
 
-    private func showTemporaryError(_ message: String, duration: TimeInterval = 5.0) {
+    func showTemporaryError(_ message: String, duration: TimeInterval = 5.0) {
         errorMessage = message
         // Set here as well as on the status change, for an error that
         // follows another before the first one cleared.
@@ -4319,7 +2226,7 @@ final class AppState: ObservableObject {
     }
 
     /// Restore the model that was active before a failed switch.
-    private func restorePreviousModelIfNeeded(
+    func restorePreviousModelIfNeeded(
         afterFailedLoadFor failedSize: ModelSize?,
         previousSize: ModelSize?,
         previousName: String?,
@@ -4339,7 +2246,7 @@ final class AppState: ObservableObject {
                 ? modelManager.modelFolder(for: previousSize)
                 : nil
             let restoreName = previousName ?? modelManager.modelIdentifier(for: previousSize)
-            try await whisperService.loadModel(name: restoreName, folder: folderURL)
+            try await transcriber.loadModel(name: restoreName, folder: folderURL)
             CompiledModelRecord().recordLoad(previousSize)
             markModelActive(previousSize)
             VocaLogger.info(.appState, "Restored previous model: \(previousSize.displayName)")
@@ -4367,7 +2274,7 @@ final class AppState: ObservableObject {
     }
 
     /// Clear active model metadata when no model is loaded in WhisperService.
-    private func clearActiveModelState() {
+    func clearActiveModelState() {
         currentModel = nil
         for i in availableModels.indices {
             availableModels[i].isActive = false
@@ -4395,7 +2302,7 @@ final class AppState: ObservableObject {
     private let downloadSerializer = LoadSerializer()
 
     /// Download `size`, or wait for its download already in progress.
-    private func performDownloadModel(_ size: ModelSize) async {
+    func performDownloadModel(_ size: ModelSize) async {
         if let running = modelDownloads[size] {
             await running.value
             return
@@ -4517,7 +2424,7 @@ final class AppState: ObservableObject {
 
     /// Refresh the download status of all models
     /// This ensures that all previously downloaded models are detected and marked correctly
-    private func refreshModelStatuses() {
+    func refreshModelStatuses() {
         for i in availableModels.indices {
             let size = availableModels[i].size
             availableModels[i].isDownloaded = modelManager.isModelDownloaded(size)
@@ -4528,7 +2435,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Startup
 
-    private func installBundledOrFallback(preferred: ModelSize) async -> Bool {
+    func installBundledOrFallback(preferred: ModelSize) async -> Bool {
         do {
             return try modelManager.installBundledModelIfAvailable(for: preferred)
         } catch {
@@ -4598,7 +2505,7 @@ final class AppState: ObservableObject {
             await self?.updateChecker.checkOnLaunchIfNeeded()
         }
 
-        whisperService.removeRetiredEngineState()
+        transcriber.removeRetiredEngineState()
         transcriptCleanup.pruneUnknownModels()
         adoptRecommendedModelIfNeverChosen()
 
@@ -4630,7 +2537,7 @@ final class AppState: ObservableObject {
     }
     /// Whether the speech model and the cleanup model can load at the same
     /// time: both downloaded, and free memory for both with room to spare.
-    private func startupFitsBothModels() -> Bool {
+    func startupFitsBothModels() -> Bool {
         guard cleanupEndpoint.isLocal else { return false }
         let speech = ModelSize(rawValue: selectedModelSize) ?? .tiny
         let cleanup = selectedCleanupModelKind
@@ -4714,7 +2621,7 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Loading model: \(modelToLoad.displayName)...")
         await loadModel(modelToLoad)
-        VocaLogger.info(.appState, "Model loaded: \(whisperService.loadedModelName ?? "none")")
+        VocaLogger.info(.appState, "Model loaded: \(transcriber.loadedModelName ?? "none")")
     }
 
     func completeOnboarding() {
@@ -4723,7 +2630,7 @@ final class AppState: ObservableObject {
             hotKeyManager.resetKeyState()
         }
         hasCompletedOnboarding = true
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.onboardingResumeStep)
+        userDefaultsStore.removeObject(forKey: PreferenceKey.onboardingResumeStep)
         VocaLogger.info(.appState, "Onboarding completed")
     }
 
@@ -4731,18 +2638,19 @@ final class AppState: ObservableObject {
     /// was left on, so a Quit & Reopen for a permission (VocaMac's or
     /// macOS's own) lands back there; "Run setup again" starts over.
     var onboardingStartStep: OnboardingStep {
-        hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep()
+        hasCompletedOnboarding ? .welcome : OnboardingStep.resumeStep(defaults: userDefaultsStore)
     }
 
     /// Save the step onboarding is on, for `onboardingStartStep`.
     func recordOnboardingStep(_ step: OnboardingStep) {
-        UserDefaults.standard.set(step.rawValue, forKey: PreferenceKey.onboardingResumeStep)
+        userDefaultsStore.set(step.rawValue, forKey: PreferenceKey.onboardingResumeStep)
     }
 
     /// Repair completion state corrupted by the old manual "Set Up VocaMac"
     /// action. A genuine first launch has no stored value; the old action was
     /// the only production path that explicitly persisted `false`.
-    func repairLegacyOnboardingCompletionIfNeeded(defaults: UserDefaults = .standard) {
+    func repairLegacyOnboardingCompletionIfNeeded(defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? userDefaultsStore
         guard !hasCompletedOnboarding,
               defaults.object(forKey: PreferenceKey.onboardingCompleted) != nil else {
             return
@@ -4755,7 +2663,7 @@ final class AppState: ObservableObject {
     // MARK: - Snippets Management
 
     private func loadSnippets() {
-        if let data = UserDefaults.standard.data(forKey: "vocamac.snippets") {
+        if let data = userDefaultsStore.data(forKey: "vocamac.snippets") {
             do {
                 snippets = try JSONDecoder().decode([Snippet].self, from: data)
             } catch {
@@ -4771,7 +2679,7 @@ final class AppState: ObservableObject {
     private func saveSnippets(_ snippets: [Snippet]) {
         do {
             let encoded = try JSONEncoder().encode(snippets)
-            UserDefaults.standard.set(encoded, forKey: "vocamac.snippets")
+            userDefaultsStore.set(encoded, forKey: "vocamac.snippets")
         } catch {
             VocaLogger.error(.appState, "Failed to encode snippets: \(error)")
         }
@@ -5113,17 +3021,17 @@ final class AppState: ObservableObject {
             isTranscribingMedia = false
             if appStatus == .processing { appStatus = .idle }
         }
-        if !whisperService.isModelLoaded {
+        if !transcriber.isModelLoaded {
             await ensureModelLoaded()
         }
-        guard whisperService.isModelLoaded else {
+        guard transcriber.isModelLoaded else {
             throw CLIError(.modelNotDownloaded, "The selected speech model could not be loaded.")
         }
         let loaded = try await Task.detached(priority: .userInitiated) {
             try AudioFileLoader().loadAudio(at: url)
         }.value
         let language = selectedLanguage == "auto" ? nil : selectedLanguage
-        let result = try await whisperService.transcribe(
+        let result = try await transcriber.transcribe(
             audioData: loaded.samples,
             language: language,
             translate: translatesSpeech,
@@ -5152,13 +3060,13 @@ final class AppState: ObservableObject {
             isTranscribingMedia = false
             if appStatus == .processing { appStatus = .idle }
         }
-        if !whisperService.isModelLoaded { await ensureModelLoaded() }
-        guard whisperService.isModelLoaded else { throw CLIError(.modelNotDownloaded, "The selected model could not be loaded.") }
+        if !transcriber.isModelLoaded { await ensureModelLoaded() }
+        guard transcriber.isModelLoaded else { throw CLIError(.modelNotDownloaded, "The selected model could not be loaded.") }
         // Cancelled when the capture window is closed and its audio
         // discarded: stop before (or during) the decode, and never record a
         // result nobody will see.
         try Task.checkCancellation()
-        let result = try await whisperService.transcribe(
+        let result = try await transcriber.transcribe(
             audioData: samples,
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             translate: translatesSpeech,
@@ -5174,109 +3082,10 @@ final class AppState: ObservableObject {
 
     /// Nothing else is using the speech model. An error banner is only a
     /// message, so it doesn't count as busy.
-    private var isFreeForMediaTranscription: Bool {
+    var isFreeForMediaTranscription: Bool {
         !isRecording && !isTranscribingMedia && !isTeachingWord && (appStatus == .idle || appStatus == .error)
     }
 
-    // MARK: - Teaching a Dictionary word
-
-    /// Whether the microphone and the speech model are free for a take.
-    var canTeachWord: Bool {
-        isFreeForMediaTranscription && !isTranscribing && !isStartingAudio && earlyCapture == nil
-    }
-
-    /// Open the microphone for one take of a word being taught. Returns
-    /// false when something else holds it or it could not start.
-    func startTeachingTake() async -> Bool {
-        guard canTeachWord else { return false }
-        isTeachingWord = true
-        audioEngine.onAudioSamples = nil
-        let start = Task { @MainActor [weak self] () -> Bool in
-            await self?.startConfiguredAudioEngine() ?? false
-        }
-        teachingStart = start
-        let started = await start.value
-        if teachingStart == start { teachingStart = nil }
-        // Cancelled or finished while the microphone was opening: that call
-        // waited for this start and has already closed it.
-        guard isTeachingWord else { return false }
-        if !started {
-            isTeachingWord = false
-            VocaLogger.warning(.dictionary, "Could not open the microphone to teach a word")
-        }
-        return started
-    }
-
-    /// Wait for a take's microphone start still under way, so the stop that
-    /// follows closes it rather than running first on the audio queue.
-    private func settleTeachingStart() async {
-        guard let start = teachingStart else { return }
-        _ = await start.value
-        teachingStart = nil
-    }
-
-    /// End the take and decode it without recognition hints, so the result
-    /// is what the engine hears on its own. "" when nothing was heard; nil
-    /// when the model could not run.
-    func finishTeachingTake() async -> String? {
-        guard isTeachingWord else { return nil }
-        defer { isTeachingWord = false }
-        await settleTeachingStart()
-        let samples = await stopAudioEngine()
-        // Under a quarter of a second at 16 kHz is a click, not a word.
-        guard samples.count >= 4_000 else { return "" }
-        if !whisperService.isModelLoaded { await ensureModelLoaded() }
-        guard whisperService.isModelLoaded else { return nil }
-        do {
-            let result = try await whisperService.transcribe(
-                audioData: samples,
-                language: selectedLanguage == "auto" ? nil : selectedLanguage,
-                translate: false,
-                vocabulary: ""
-            )
-            return result.text
-        } catch {
-            VocaLogger.warning(.dictionary, "Could not decode a take of a Dictionary word: \(error.localizedDescription)")
-            return nil
-        }
-    }
-
-    /// Close the microphone without decoding (the dialog closed mid-take).
-    func cancelTeachingTake() async {
-        guard isTeachingWord else { return }
-        await settleTeachingStart()
-        _ = await stopAudioEngine()
-        isTeachingWord = false
-    }
-
-    /// Save what a teaching session found: the word stays (or is put) in the
-    /// vocabulary, and each chosen spoken form becomes part of its
-    /// replacement, as a learned correction would (`learn`).
-    func teachWord(_ term: String, heardForms: [String]) {
-        let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return }
-        if !vocabularyTerms.contains(where: { $0.lowercased() == term.lowercased() }) {
-            addVocabularyTerm(term)
-        }
-        for form in heardForms {
-            addWordReplacement(heard: form, replacement: term)
-        }
-        VocaLogger.info(.dictionary, "Taught a word by voice with \(heardForms.count) spoken form(s)")
-    }
-
-    private static func sameOutputTarget(_ first: RunningAppSnapshot?, _ second: RunningAppSnapshot?) -> Bool {
-        switch (first, second) {
-        case (nil, nil): return true
-        case let (first?, second?):
-            return AppIdentityMatching.matches(
-                configuredBundleIdentifier: first.bundleIdentifier,
-                configuredProcessName: first.processName,
-                configuredID: first.bundleIdentifier ?? first.processName ?? first.displayName,
-                snapshot: second
-            )
-        default: return false
-        }
-    }
 }
 
 // MARK: - Crash reports
@@ -5334,7 +3143,7 @@ extension AppState {
 
     /// Record a dictation in history before it is transcribed. Returns nil
     /// when history is off.
-    fileprivate func beginHistoryEntry(audio: [Float]) async -> UUID? {
+    func beginHistoryEntry(audio: [Float]) async -> UUID? {
         let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
         guard historyRecords(target) else {
             if historyEnabled {
@@ -5402,11 +3211,11 @@ extension AppState {
         do {
             let samples = try await historyStore.loadAudio(for: entry)
             await ensureModelLoaded()
-            guard whisperService.isModelLoaded else {
+            guard transcriber.isModelLoaded else {
                 showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
                 return nil
             }
-            let result = try await whisperService.transcribe(
+            let result = try await transcriber.transcribe(
                 audioData: samples,
                 language: selectedLanguage == "auto" ? nil : selectedLanguage,
                 translate: translatesSpeech,
@@ -5505,7 +3314,7 @@ extension AppState {
     /// for people.
     var loadedModelDisplayName: String? {
         if let model = currentModel { return CalmModelText.name(model.size) }
-        guard let name = whisperService.loadedModelName else { return nil }
+        guard let name = transcriber.loadedModelName else { return nil }
         let size = ModelSize(rawValue: name) ?? modelManager.modelSize(from: name)
         return size.map(CalmModelText.name) ?? name
     }
@@ -5649,1543 +3458,8 @@ extension AppState {
         await stopRecordingAndTranscribe()
     }
 
-    // MARK: Command Mode
-
-    /// The engine Command Mode will use, after falling back from choices that
-    /// can no longer work (an endpoint that was switched off).
-    var commandModeEngine: CommandModeEngine {
-        get {
-            CommandModeEngine.resolve(
-                stored: commandModeEngineStorage,
-                endpointIsConfigured: !cleanupEndpoint.isLocal && cleanupEndpoint.validationProblem() == nil,
-                appleIntelligenceAvailable: appleIntelligenceAvailable()
-            )
-        }
-        set { commandModeEngineStorage = newValue.storageValue }
-    }
-
-    /// Why `engine` can't run an edit right now, worded for the error banner.
-    func commandModeProblem(for engine: CommandModeEngine) -> String? {
-        switch engine {
-        case .appleIntelligence:
-            guard !appleIntelligenceAvailable() else { return nil }
-            return AppleIntelligenceTextService.availabilityProblem()
-                ?? "Apple Intelligence is unavailable. Choose another model in Settings → Command Mode."
-        case .endpoint:
-            if cleanupEndpoint.isLocal {
-                return "Command Mode is set to use the cleanup endpoint, but none is configured. Choose a model in Settings → Command Mode."
-            }
-            return cleanupEndpoint.validationProblem()
-        case .local(let kind):
-            guard transcriptCleanup.isDownloaded(kind) else {
-                return "Download \(kind.descriptor.displayName) in Settings → Command Mode first."
-            }
-            return nil
-        }
-    }
-
-    private func commandTransformer(for engine: CommandModeEngine) -> TextTransforming {
-        switch engine {
-        case .appleIntelligence: return appleIntelligenceService
-        case .endpoint: return RemoteCleanupService(configuration: cleanupEndpoint)
-        case .local(let kind): return activeCommandService ?? commandModelService(for: kind)
-        }
-    }
-
-    /// Whether a local Command Mode model gets a llama.cpp slot of its own.
-    ///
-    /// Cleanup and Command Mode used to share one slot, so two different
-    /// models swapped in and out around every edit — seconds each way, and
-    /// the cleanup prompt read again afterwards. With memory for both, the
-    /// small cleanup model stays resident and the edit model loads beside it.
-    func usesSeparateCommandSlot(for kind: CleanupModelKind) -> Bool {
-        commandModelSlot != nil && cleanupUsesLocalModel && kind != selectedCleanupModelKind
-            && (systemCapabilities?.physicalMemoryGB ?? SystemInfo.physicalMemoryGB) >= CleanupModelCatalog.sharedModelMemoryGB
-    }
-
-    private func commandModelService(for kind: CleanupModelKind) -> TranscriptCleaning {
-        guard let commandModelSlot, usesSeparateCommandSlot(for: kind) else { return transcriptCleanup }
-        return commandModelSlot
-    }
-
-    /// Free the second slot when nothing uses it any more: the models were
-    /// set to share again, or another engine or model was chosen.
-    func syncCommandModelSlot() {
-        guard let commandModelSlot, commandModelSlot.isLoaded, activeCommandService == nil else { return }
-        if case .local(let kind) = commandModeEngine, usesSeparateCommandSlot(for: kind),
-           commandModelSlot.loadedKind == kind {
-            return
-        }
-        commandModelSlot.unload()
-    }
-
-    /// End a Command Mode session that produced nothing, saying why on
-    /// screen and in the log. Without the log line, a session that ended
-    /// without an edit left no trace of the reason.
-    private func failCommand(_ message: String, detail: String? = nil, started: Date? = nil) {
-        cursorOverlay.hide()
-        var line = "Command Mode ended without a result: \(detail ?? message)"
-        if let engine = activeCommandEngine { line += " [\(engine.displayName)]" }
-        if let started { line += String(format: " after %.2fs", Date().timeIntervalSince(started)) }
-        VocaLogger.warning(.appState, line)
-        showTemporaryError(message)
-    }
-
-    /// Capture what Command Mode will act on, then record the spoken
-    /// instruction.
-    func beginCommandMode() async {
-        // An error banner from the last attempt is not a reason to ignore
-        // this one; a dictation can start over it too.
-        guard appStatus == .idle || appStatus == .error, !isRecording else { return }
-        dismissCommandReview()
-        let engine = commandModeEngine
-        if let problem = commandModeProblem(for: engine) {
-            failCommand(problem)
-            return
-        }
-        guard let target = await captureCommandTarget() else { return }
-        if commandModeReleasedBeforeRecording {
-            commandModeReleasedBeforeRecording = false
-            showTemporaryError(Self.commandReleasedEarlyMessage)
-            return
-        }
-        beginCommandSession(target: target, engine: engine)
-        await startRecording(injectResult: false)
-        // Released while the speech model was still loading for this session.
-        if commandModeReleasedBeforeRecording {
-            commandModeReleasedBeforeRecording = false
-            if isCapturingAudio { await cancelRecording() }
-            resetCommandModeState()
-            showTemporaryError(Self.commandReleasedEarlyMessage)
-            return
-        }
-        if !isRecording, activeCommandTarget != nil, !isTranscribing {
-            // The microphone never started; nothing will finish this session.
-            resetCommandModeState()
-        }
-    }
-
-    /// Read the selection, or settle for the cursor when nothing is selected.
-    /// Nil after reporting why Command Mode can't run here.
-    private func captureCommandTarget() async -> CommandTarget? {
-        guard let selectedTextService else {
-            failCommand(SelectionCaptureFailure.noFocusedApp.message)
-            return nil
-        }
-        switch await selectedTextService.captureSelection() {
-        case .success(let captured):
-            return captured.isEditable ? .selection(captured) : .readOnly(captured)
-        case .failure(.nothingSelected):
-            return .cursor(insertionPoint: await selectedTextService.captureInsertionPoint())
-        case .failure(let failure):
-            failCommand(failure.message, detail: "the selection could not be read (\(failure))")
-            return nil
-        }
-    }
-
-    private func beginCommandSession(target: CommandTarget, engine: CommandModeEngine) {
-        activeCommandTarget = target
-        activeCommandEngine = engine
-        commandTargetApp = frontmostAppResolver.currentFrontmostApp()
-        commandModeSession = CommandModeSession(
-            kind: target.sessionKind,
-            selection: target.selectedText ?? "",
-            appName: commandTargetApp?.displayName,
-            engineName: engine.displayName
-        )
-        let what: String
-        switch target {
-        case .selection(let snapshot):
-            what = "a \(snapshot.text.count)-character selection" + (snapshot.source == .clipboard ? " via the clipboard" : "")
-        case .readOnly(let snapshot):
-            what = "a \(snapshot.text.count)-character read-only selection"
-        case .cursor:
-            what = "no selection"
-        }
-        VocaLogger.info(.appState, "Command Mode captured \(what)")
-        // Load a local model while the user speaks, so its load time isn't
-        // added to the wait after they stop.
-        commandModelIdleUnload?.cancel()
-        if case .local(let kind) = engine {
-            let service = commandModelService(for: kind)
-            activeCommandService = service
-            commandModelWarmup = Task { await service.load(kind) }
-        }
-    }
-
-    /// Run `instruction` on the current selection without recording anything:
-    /// a saved command's shortcut, or the Shortcuts action.
-    func runCommand(instruction: String) async {
-        guard appStatus == .idle || appStatus == .error, !isRecording, !isTranscribing else { return }
-        dismissCommandReview()
-        let engine = commandModeEngine
-        if let problem = commandModeProblem(for: engine) {
-            failCommand(problem)
-            return
-        }
-        guard let target = await captureCommandTarget() else { return }
-        recordingGeneration = UUID()
-        let generation = recordingGeneration
-        beginCommandSession(target: target, engine: engine)
-        activeCommandTarget = nil
-        commandModeSession?.phase = .rewriting
-        commandModeSession?.instruction = instruction
-        if showCursorIndicator && overlayStyle != .off {
-            cursorOverlay.show(style: overlayStyle, position: overlayPosition)
-            cursorOverlay.setCommandSession(commandModeSession)
-            cursorOverlay.transitionToProcessing()
-        }
-        appStatus = .processing
-        isTranscribing = true
-        defer {
-            if generation == recordingGeneration {
-                isTranscribing = false
-                if appStatus == .processing { appStatus = .idle }
-            }
-        }
-        await finishCommandMode(
-            instruction: instruction, language: nil, audioSeconds: 0,
-            target: target, engine: engine, generation: generation
-        )
-    }
-
-    /// One Command Mode request, from the instruction to where its result goes.
-    private struct CommandRun {
-        var instruction: String
-        var target: CommandTarget
-        let engine: CommandModeEngine
-        let generation: UUID
-        let language: String?
-        let audioSeconds: Double
-        let started: Date
-    }
-
-    /// An edit that is ready, and everything needed to apply and record it.
-    private struct PendingCommandEdit {
-        let snapshot: SelectedTextSnapshot
-        let replacement: String
-        let instruction: String
-        let engineName: String
-        let summary: String
-        let note: String?
-        let app: RunningAppSnapshot?
-        let language: String?
-        let audioSeconds: Double
-    }
-
-    private func finishCommandMode(
-        instruction: String,
-        language: String?,
-        audioSeconds: Double,
-        target: CommandTarget,
-        engine: CommandModeEngine,
-        generation: UUID
-    ) async {
-        defer {
-            commandModeSession = nil
-            finishCommandModelUse(engine)
-        }
-        var instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
-        // "um, make this shorter" — the model doesn't need the hesitation, and
-        // History and the Last Edit card shouldn't show it.
-        if DictationOutputPipeline.knownLanguage(language).map(DictationOutputPipeline.isEnglish)
-            ?? RewriteValidation.likelyEnglish(instruction) {
-            instruction = WritingStyleEngine.removeHesitations(instruction).text
-        }
-        guard !instruction.isEmpty else {
-            failCommand("No editing command was detected. Your selection was not changed.", detail: "no instruction was heard")
-            return
-        }
-        // The user's own spellings: "address it to Kanishk" should not go to
-        // the model as "Kanishka".
-        let dictionary = dictionaryContext(contextTerms: [], language: language)
-        if !dictionary.isEmpty {
-            instruction = DictionaryCorrector.correct(instruction, context: dictionary, allowIdentifierJoins: false).text
-        }
-        // A saved command, said by name.
-        if let saved = SavedCommandStore.command(named: instruction, in: savedCommands) {
-            instruction = saved.instruction
-        }
-        commandModeSession?.instruction = instruction
-        await performCommand(CommandRun(
-            instruction: instruction, target: target, engine: engine, generation: generation,
-            language: language, audioSeconds: audioSeconds, started: Date()
-        ))
-    }
-
-    /// Decide what the instruction asks for and do it: take back the last
-    /// edit, act on the Mac, apply a rule, or ask the model.
-    private func performCommand(_ run: CommandRun) async {
-        var run = run
-        let instruction = run.instruction
-
-        if CommandInstruction.isUndo(instruction) {
-            await undoLastCommandEdit(run)
-            return
-        }
-        // Only the user's own words choose an action. The selection is, at
-        // most, what the action is given to work on.
-        if voiceActionsEnabled, voiceActionPerformer != nil,
-           let action = VoiceActionParser.parse(instruction, selection: run.target.selectedText) {
-            await performVoiceAction(action, run: run)
-            return
-        }
-
-        let intent = CommandInstruction.intent(for: instruction)
-        if case .cursor = run.target,
-           intent.editsExistingText || CommandExactEdit.isExactEdit(instruction),
-           !CommandInstruction.asksForNewText(instruction) {
-            // "shorter still", "now make it formal": the text meant is the
-            // one the last edit left behind.
-            guard let reselected = await reselectLastCommandEdit() else {
-                failCommand(SelectionCaptureFailure.nothingSelected.message, detail: "nothing was selected and there was no recent edit to continue", started: run.started)
-                return
-            }
-            run.target = .selection(reselected)
-        }
-
-        switch run.target {
-        case .selection(let snapshot):
-            if let exact = CommandExactEdit.apply(instruction: instruction, to: snapshot.text, keeping: establishedSpellings) {
-                guard exact.text != snapshot.text else {
-                    failCommand("Command Mode did not change the text: it is already that way.", detail: "\(exact.name) changed nothing", started: run.started)
-                    return
-                }
-                VocaLogger.info(.appState, "Command Mode applied a rule edit (\(exact.name)) without the model")
-                await deliverEdit(PendingCommandEdit(
-                    snapshot: snapshot, replacement: exact.text, instruction: instruction,
-                    engineName: "VocaMac", summary: "Command Mode · \(exact.name)", note: nil,
-                    app: commandTargetApp, language: run.language, audioSeconds: run.audioSeconds
-                ), run: run, reviews: false)
-                return
-            }
-            guard let result = await runCommandModel(text: snapshot.text, intent: intent, mode: .replace, run: run) else { return }
-            await deliverEdit(PendingCommandEdit(
-                snapshot: snapshot,
-                replacement: TranscriptCleanup.preservingOuterWhitespace(of: snapshot.text, in: result.output),
-                instruction: instruction, engineName: run.engine.displayName,
-                summary: "Command Mode · \(run.engine.displayName)", note: result.problem?.message,
-                app: commandTargetApp, language: run.language, audioSeconds: run.audioSeconds
-            ), run: run, reviews: commandModeReview.reviews(selection: snapshot.text))
-        case .readOnly(let snapshot):
-            // A rule edit of text that can't be replaced is still exact, and
-            // still needs no model: show it to copy.
-            if let exact = CommandExactEdit.apply(instruction: instruction, to: snapshot.text, keeping: establishedSpellings) {
-                deliverAnswer(exact.text, about: snapshot.text, note: nil, run: run, engineName: "VocaMac")
-                return
-            }
-            guard let result = await runCommandModel(text: snapshot.text, intent: intent, mode: .answer, run: run) else { return }
-            deliverAnswer(result.output, about: snapshot.text, note: result.problem?.message, run: run)
-        case .cursor(let insertionPoint):
-            guard let result = await runCommandModel(text: instruction, intent: intent, mode: .compose, run: run) else { return }
-            await deliverComposedText(result.output, at: insertionPoint, note: result.problem?.message, run: run)
-        }
-    }
-
-    // MARK: Command Mode: the model
-
-    /// Spellings the user has settled on, which a rule edit must not undo.
-    private var establishedSpellings: [String] {
-        vocabularyTerms + wordReplacements.map(\.replacement)
-    }
-
-    /// What the session can tell the model about where the text lives.
-    private func commandContext(instruction: String, text: String) -> CommandContext {
-        let haystack = (instruction + "\n" + text).lowercased()
-        let terms = (vocabularyTerms + wordReplacements.map(\.replacement))
-            .filter { $0.count >= 3 && haystack.contains($0.lowercased()) }
-        var seen = Set<String>()
-        return CommandContext(
-            appName: commandTargetApp?.displayName,
-            style: writingStyleEnabled ? resolveWritingStyle(for: commandTargetApp).profile.format : nil,
-            terms: terms.filter { seen.insert($0.lowercased()).inserted }
-        )
-    }
-
-    /// Ask the model, check what it wrote, and ask once more when the answer
-    /// is plainly not what was asked for. Nil after reporting a failure, or
-    /// when the session was cancelled.
-    private func runCommandModel(
-        text: String, intent: CommandIntent, mode: CommandMode, run: CommandRun
-    ) async -> (output: String, problem: CommandOutputProblem?)? {
-        let engine = run.engine, generation = run.generation
-        if case .local(let kind) = engine {
-            await commandModelWarmup?.value
-            commandModelWarmup = nil
-            guard generation == recordingGeneration else { return nil }
-            var service = activeCommandService ?? commandModelService(for: kind)
-            // Joins or no-ops when the warm-up already loaded it.
-            await service.load(kind)
-            if service.loadedKind != kind, service !== transcriptCleanup {
-                // No room for a second model after all: borrow cleanup's
-                // slot, as a Mac with less memory does.
-                VocaLogger.info(.appState, "Command Mode is borrowing the cleanup model's slot for \(kind.descriptor.displayName)")
-                service = transcriptCleanup
-                activeCommandService = service
-                await service.load(kind)
-            }
-            // Check the kind, not just "something is loaded": a load refused
-            // before it starts leaves the cleanup model resident, and a 0.5B
-            // cleanup model must not be handed an editing command.
-            guard service.loadedKind == kind else {
-                let detail: String
-                if case .error(let message) = service.modelState { detail = message }
-                else { detail = "\(kind.descriptor.displayName) could not be loaded." }
-                failCommand("Command Mode did not change the text: \(detail)", detail: "the model could not be loaded — \(detail)", started: run.started)
-                return nil
-            }
-        }
-        guard generation == recordingGeneration else { return nil }
-
-        let context = commandContext(instruction: run.instruction, text: mode == .compose ? "" : text)
-        let transformer = commandTransformer(for: engine)
-        var options = TransformOptions(allowsSplitting: mode == .replace && intent.appliesPerPart)
-        options.onPartial = { [weak self] partial in
-            guard let self, generation == self.recordingGeneration else { return }
-            self.commandModeSession?.preview = partial
-        }
-        activeCommandTransformer = transformer
-        let result = await CommandModelRunner.run(
-            text: text, instruction: run.instruction, intent: intent, mode: mode, context: context,
-            transformer: transformer, options: options,
-            // Escape while the model was running: the user no longer wants
-            // this edit, even if the model finished anyway.
-            isCurrent: { generation == self.recordingGeneration },
-            willAsk: { retryReason in
-                self.commandModeSession?.preview = nil
-                if let retryReason {
-                    VocaLogger.info(.appState, "Command Mode is asking again: \(retryReason)")
-                }
-            }
-        )
-        activeCommandTransformer = nil
-        switch result {
-        case .success(let answer):
-            // A model that only Command Mode uses is in use only here.
-            if case .local(let kind) = engine { modelUsageLog.markUsed([.writing(kind)]) }
-            return (answer.output, answer.problem)
-        case .failure(.cancelled):
-            VocaLogger.info(.appState, "Command Mode cancelled; selection left unchanged")
-            return nil
-        case .failure(.failed(let why)):
-            failCommand("Command Mode did not change the text: \(why).", started: run.started)
-            return nil
-        }
-    }
-
-    // MARK: Command Mode: results
-
-    /// Replace the selection with an edit, or hold it for approval first.
-    private func deliverEdit(_ edit: PendingCommandEdit, run: CommandRun, reviews: Bool) async {
-        if reviews {
-            pendingReviewEdit = edit
-            presentCommandReview(CommandReview(
-                kind: .edit, instruction: edit.instruction, original: edit.snapshot.text,
-                result: edit.replacement, engineName: edit.engineName, note: edit.note,
-                acceptShortcut: shortcut(for: .commandMode).map { KeyCodeReference.displayName(for: $0) }
-            ))
-            VocaLogger.info(.appState, String(
-                format: "Command Mode is holding a %d-character edit for review after %.2fs",
-                edit.replacement.count, Date().timeIntervalSince(run.started)
-            ))
-            cursorOverlay.hide()
-            appStatus = .idle
-            errorMessage = nil
-            return
-        }
-        guard await applyEdit(edit) else {
-            failCommand("Command Mode did not change the text: the selection changed or its app is no longer in front.", detail: "the selection changed or its app is no longer in front", started: run.started)
-            return
-        }
-        VocaLogger.info(.appState, String(
-            format: "Command Mode queued a %d-character replacement after %.2fs",
-            edit.replacement.count, Date().timeIntervalSince(run.started)
-        ))
-        cursorOverlay.hide()
-        appStatus = .idle
-        errorMessage = nil
-    }
-
-    /// Put an edit into the document and remember it.
-    private func applyEdit(_ edit: PendingCommandEdit) async -> Bool {
-        guard let selectedTextService,
-              await selectedTextService.replaceSelection(edit.snapshot, with: edit.replacement) else { return false }
-        lastCommandEdit = CommandModeEdit(
-            instruction: edit.instruction, original: edit.snapshot.text, replacement: edit.replacement,
-            engineName: edit.engineName, kind: .edit, note: edit.note
-        )
-        lastCommandTarget = (edit.snapshot, edit.snapshot.text, edit.replacement, Date())
-        recordCommandHistory(
-            instruction: edit.instruction, original: edit.snapshot.text, replacement: edit.replacement,
-            summary: edit.summary, app: edit.app, language: edit.language, audioSeconds: edit.audioSeconds
-        )
-        return true
-    }
-
-    /// Show an answer about text that can't be replaced.
-    private func deliverAnswer(
-        _ answer: String, about original: String, note: String?, run: CommandRun, engineName: String? = nil
-    ) {
-        let engineName = engineName ?? run.engine.displayName
-        lastCommandEdit = CommandModeEdit(
-            instruction: run.instruction, original: original, replacement: answer,
-            engineName: engineName, kind: .answer, note: note
-        )
-        recordCommandHistory(
-            instruction: run.instruction, original: original, replacement: answer,
-            summary: "Command Mode · \(engineName) · answer", app: commandTargetApp,
-            language: run.language, audioSeconds: run.audioSeconds
-        )
-        presentCommandReview(CommandReview(
-            kind: .answer, instruction: run.instruction, original: original,
-            result: answer, engineName: engineName, note: note
-        ))
-        VocaLogger.info(.appState, String(
-            format: "Command Mode answered about read-only text (%d characters) after %.2fs",
-            answer.count, Date().timeIntervalSince(run.started)
-        ))
-        cursorOverlay.hide()
-        appStatus = .idle
-        errorMessage = nil
-    }
-
-    /// Type new text where the cursor was when the session began.
-    ///
-    /// The model ran for seconds, and typing goes to whatever has focus now.
-    /// The same app in front is not enough: the cursor may have moved to
-    /// another field of it, one that sends what is typed. So where the app
-    /// reported its cursor at the start, it has to report the same field,
-    /// position, and text now, or the result is kept in the menu bar instead.
-    /// An app that reports no cursor gets the check a dictation gets: the
-    /// same app must still be in front.
-    private func deliverComposedText(_ text: String, at insertionPoint: InsertionPoint?, note: String?, run: CommandRun) async {
-        let current = frontmostAppResolver.currentFrontmostApp() ?? frontmostAppResolver.lastActiveApp()
-        guard Self.sameOutputTarget(commandTargetApp, current) else {
-            heldOutput = text
-            failCommand("The destination app changed. The text is saved in the menu bar; copy it to paste where you want.", detail: "the app changed before the text could be typed", started: run.started)
-            return
-        }
-        if let insertionPoint {
-            let now = await selectedTextService?.captureInsertionPoint()
-            guard run.generation == recordingGeneration else { return }
-            guard insertionPoint.matches(now) else {
-                heldOutput = text
-                failCommand("The cursor moved while the text was being written. It is saved in the menu bar; copy it to paste where you want.", detail: "the cursor moved before the text could be typed", started: run.started)
-                return
-            }
-        }
-        textInjector.inject(text: text, preserveClipboard: preserveClipboard)
-        let engineName = run.engine.displayName
-        lastCommandEdit = CommandModeEdit(
-            instruction: run.instruction, original: "", replacement: text,
-            engineName: engineName, kind: .composed, note: note
-        )
-        // Where it landed, so "make it shorter" can pick it up.
-        lastCommandTarget = insertionPoint.map { ($0.snapshot, "", text, Date()) }
-        recordCommandHistory(
-            instruction: run.instruction, original: "", replacement: text,
-            summary: "Command Mode · \(engineName) · new text", app: commandTargetApp,
-            language: run.language, audioSeconds: run.audioSeconds
-        )
-        VocaLogger.info(.appState, String(
-            format: "Command Mode typed %d new characters after %.2fs",
-            text.count, Date().timeIntervalSince(run.started)
-        ))
-        cursorOverlay.hide()
-        appStatus = .idle
-        errorMessage = nil
-    }
-
-    private func recordCommandHistory(
-        instruction: String, original: String, replacement: String, summary: String,
-        app: RunningAppSnapshot?, language: String?, audioSeconds: Double
-    ) {
-        guard historyRecords(app) else { return }
-        // Same retention as dictations, applied now rather than at the next
-        // dictation, so a run of edits can't outlive the setting.
-        defer { historyStore.applyRetention(historyRetention) }
-        historyStore.recordCommandEdit(
-            instruction: instruction, original: original, replacement: replacement,
-            summary: summary, target: app, modelID: selectedModelSize,
-            language: language, audioSeconds: audioSeconds
-        )
-    }
-
-    // MARK: Command Mode: follow-ups and undo
-
-    /// The last edit, selected again, when it is recent and still there.
-    private func reselectLastCommandEdit() async -> SelectedTextSnapshot? {
-        guard let last = lastCommandTarget, let selectedTextService,
-              Date().timeIntervalSince(last.at) <= Self.commandFollowUpWindow else { return nil }
-        return await selectedTextService.reselect(last.snapshot, replacement: last.replacement)
-    }
-
-    /// "Undo that": put back what the last edit replaced.
-    ///
-    /// Not the app's own Undo. That takes back whatever the app did last, and
-    /// once the user has typed anything since, that is their typing and not
-    /// the edit. Instead the result is selected again where it was put, which
-    /// only succeeds if it is still there unchanged, and the original is
-    /// written over it. Where the app won't let text be selected that way,
-    /// nothing is touched and the user is pointed at ⌘Z.
-    private func undoLastCommandEdit(_ run: CommandRun) async {
-        guard let last = lastCommandTarget, let selectedTextService else {
-            failCommand("There's no Command Mode edit to undo here.", detail: "undo was asked for with no edit to undo", started: run.started)
-            return
-        }
-        guard let reselected = await selectedTextService.reselect(last.snapshot, replacement: last.replacement) else {
-            failCommand("VocaMac can't take that edit back here: the text has changed since, or this app doesn't let it be selected. Press ⌘Z in the app instead.", detail: "the last edit could not be selected again to undo it", started: run.started)
-            return
-        }
-        // Text that was written, not replaced, has nothing to put back.
-        let undone = last.original.isEmpty
-            ? await selectedTextService.deleteSelection(reselected)
-            : await selectedTextService.replaceSelection(reselected, with: last.original)
-        guard undone else {
-            failCommand("VocaMac couldn't take that edit back: the selection changed. Press ⌘Z in the app instead.", detail: "the reselected edit changed before it could be undone", started: run.started)
-            return
-        }
-        lastCommandTarget = nil
-        lastCommandEdit = nil
-        VocaLogger.info(.appState, "Command Mode undid the last edit")
-        cursorOverlay.hide()
-        appStatus = .idle
-        errorMessage = nil
-    }
-
-    // MARK: Command Mode: actions
-
-    /// Shortcuts a spoken instruction may run, as the user listed them.
-    var allowedVoiceShortcuts: [String] {
-        SavedCommandStore.shortcutNames(from: voiceActionShortcuts)
-    }
-
-    private func performVoiceAction(_ action: VoiceAction, run: CommandRun) async {
-        guard let voiceActionPerformer else { return }
-        let permitted: VoiceAction
-        switch VoiceActionPolicy.permitted(action, allowedShortcuts: allowedVoiceShortcuts) {
-        case .success(let allowed): permitted = allowed
-        case .failure(let error):
-            failCommand(error.message, detail: "\(action.summary) was not allowed", started: run.started)
-            return
-        }
-        // A shortcut gets the selection as its input; nothing else does.
-        var input: String?
-        if case .runShortcut = permitted { input = run.target.selectedText }
-        switch await voiceActionPerformer.perform(permitted, input: input) {
-        case .failure(let error):
-            failCommand(error.message, detail: "\(permitted.summary) failed — \(error.message)", started: run.started)
-        case .success:
-            lastCommandEdit = CommandModeEdit(
-                instruction: run.instruction, original: "", replacement: permitted.summary,
-                engineName: "VocaMac", kind: .action
-            )
-            recordCommandHistory(
-                instruction: run.instruction, original: "", replacement: permitted.summary,
-                summary: "Command Mode · action", app: commandTargetApp,
-                language: run.language, audioSeconds: run.audioSeconds
-            )
-            VocaLogger.info(.appState, "Command Mode action: \(permitted.summary)")
-            cursorOverlay.hide()
-            appStatus = .idle
-            errorMessage = nil
-        }
-    }
-
-    // MARK: Command Mode: review
-
-    private func presentCommandReview(_ review: CommandReview) {
-        commandReview = review
-        refreshCancelKeyArming()
-        commandReviewPresenter?.show(
-            review,
-            onAccept: { [weak self] in Task { @MainActor in await self?.acceptCommandReview() } },
-            onCopy: { [weak self] in self?.copyCommandReview() },
-            onDismiss: { [weak self] in self?.dismissCommandReview() }
-        )
-    }
-
-    /// Apply the edit being reviewed.
-    func acceptCommandReview() async {
-        guard let edit = pendingReviewEdit else {
-            dismissCommandReview()
-            return
-        }
-        dismissCommandReview()
-        guard await applyEdit(edit) else {
-            failCommand("Command Mode did not change the text: the selection changed or its app is no longer in front.", detail: "a reviewed edit could not be applied: the selection changed")
-            return
-        }
-        VocaLogger.info(.appState, "Command Mode applied a reviewed \(edit.replacement.count)-character edit")
-    }
-
-    func copyCommandReview() {
-        guard let review = commandReview else { return }
-        copyToClipboard(review.result)
-        // An answer has nothing else to do; an edit stays up to be approved.
-        if review.kind == .answer { dismissCommandReview() }
-    }
-
-    func dismissCommandReview() {
-        guard commandReview != nil || pendingReviewEdit != nil else { return }
-        commandReview = nil
-        pendingReviewEdit = nil
-        commandReviewPresenter?.hide()
-        refreshCancelKeyArming()
-    }
-
-    // MARK: Command Mode: saved commands
-
-    var savedCommands: [SavedCommand] {
-        get { SavedCommandStore.decode(savedCommandsJSON) }
-        set {
-            savedCommandsJSON = SavedCommandStore.encode(newValue)
-            syncShortcutConfiguration()
-        }
-    }
-
-    /// Run a saved command on the current selection.
-    func runSavedCommand(_ id: UUID) async {
-        guard isCommandModeOn,
-              let command = savedCommands.first(where: { $0.id == id }), command.isUsable else { return }
-        await runCommand(instruction: command.instruction)
-    }
-
-    // MARK: Command Mode: model slots
-
-    /// Drop a Command Mode session that ended without an edit: stop its
-    /// model, and hand the llama.cpp slot back to cleanup.
-    private func resetCommandModeState() {
-        activeCommandTarget = nil
-        commandModeSession = nil
-        commandModePressStartedAt = nil
-        activeCommandTransformer?.cancelTransform()
-        activeCommandTransformer = nil
-        if let engine = activeCommandEngine { finishCommandModelUse(engine) }
-    }
-
-    /// Give the cleanup model back after a Command Mode model borrowed the
-    /// shared llama.cpp slot, or free a large model that nothing else needs.
-    private func finishCommandModelUse(_ engine: CommandModeEngine) {
-        let service = activeCommandService
-        activeCommandEngine = nil
-        activeCommandService = nil
-        guard case .local(let kind) = engine else { return }
-        commandModelIdleUnload?.cancel()
-        let usedOwnSlot = commandModelSlot != nil && service === commandModelSlot
-        if cleanupUsesLocalModel, !usedOwnSlot {
-            if kind != selectedCleanupModelKind {
-                // The next dictation needs its cleanup model resident.
-                Task { await releaseCommandModelSlot() }
-            } else {
-                // One model does both. The edit left its own prompt in the
-                // model, so the next dictation would read cleanup's again
-                // from the top; read it now instead.
-                Task { await warmCleanupModel() }
-            }
-            return
-        }
-        // Nothing else needs the slot. Keep the model resident unless the
-        // user asked for idle unloading: a fixed timer here dropped it behind
-        // their back, and the reload could then be refused for memory.
-        guard let delay = commandModelIdleUnloadDelay else { return }
-        commandModelIdleUnload = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard let self, !Task.isCancelled, self.commandModelIdleUnloadIsDue else { return }
-            if usedOwnSlot {
-                self.commandModelSlot?.unload()
-            } else {
-                await self.releaseCommandModelSlot()
-            }
-        }
-    }
-
-    /// Checked again when the timer fires, as `ModelKeepAlive` does: the user
-    /// may have turned idle unloading off, or started another edit, since.
-    var commandModelIdleUnloadIsDue: Bool {
-        commandModelIdleUnloadDelay != nil && activeCommandEngine == nil
-    }
-
-    /// How long a Command Mode model stays loaded after its last use, or nil
-    /// to keep it loaded. Follows the "Unload model when idle" setting.
-    var commandModelIdleUnloadDelay: TimeInterval? {
-        guard modelKeepAliveEnabled else { return nil }
-        return ModelKeepAlive.clampIdleTimeout(modelKeepAliveIdleTimeoutSeconds)
-    }
-
-    private var cleanupUsesLocalModel: Bool {
-        transcriptCleanupEnabled && cleanupEndpoint.isLocal
-            && transcriptCleanup.isDownloaded(selectedCleanupModelKind)
-    }
-
-    /// Put the cleanup model back in the shared slot, or empty it.
-    private func releaseCommandModelSlot() async {
-        if cleanupUsesLocalModel {
-            await transcriptCleanup.load(selectedCleanupModelKind)
-            await warmCleanupModel()
-        } else if transcriptCleanup.isLoaded {
-            transcriptCleanup.unload()
-        }
-    }
-
-    // MARK: Cleanup warm-up
-
-    /// The options a dictation into `profile` is processed with.
-    private func dictationOptions(
-        profile: WritingProfile, language: String?, contextTerms: [String], preview: Bool = false
-    ) -> DictationOutputOptions {
-        DictationOutputOptions(
-            profile: profile, snippetList: snippets,
-            cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
-            model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
-            cleanupLevel: transcriptCleanupLevel, language: language, spokenLanguages: spokenLanguages,
-            autoCapitalize: autoCapitalize, trailingSpace: appendTrailingSpace,
-            preview: preview,
-            dictionary: dictionaryContext(contextTerms: contextTerms, language: language),
-            numbers: numberWriting, numberSymbols: numberSymbols,
-            spokenEmoji: spokenEmoji, skipWhenClean: skipCleanDictations
-        )
-    }
-
-    /// Load the cleanup model and have it read the prompt the next dictation
-    /// into `target` will use.
-    ///
-    /// llama.cpp keeps the tokens of its last request and reads only what is
-    /// new. The cleanup prompt is about a thousand tokens and comes first, so
-    /// once it has been read a dictation costs only its own words — but after
-    /// a load, a Command Mode edit, or a switch between a prose app and a
-    /// terminal, the next dictation used to read all of it while the user
-    /// waited. This reads it ahead: at launch, after an edit, and when a
-    /// recording starts, while the user is still speaking.
-    func warmCleanupModel(
-        for target: RunningAppSnapshot? = nil, codingAgentTerminal: RunningAppSnapshot? = nil
-    ) async {
-        guard cleanupUsesLocalModel else { return }
-        let target = target ?? frontmostAppResolver.styleTargetApp()
-        let profile = nextWritingProfile
-            ?? resolveWritingStyle(for: target, codingAgentTerminal: codingAgentTerminal).profile
-        let language = selectedLanguage == "auto" ? nil : selectedLanguage
-        await outputPipeline.warmUp(
-            options: dictationOptions(profile: profile, language: language, contextTerms: [])
-        )
-    }
-
-    /// Start a dictation that runs until the shortcut is pressed again (or
-    /// silence ends it), whatever the activation mode is.
-    func toggleHandsFreeDictation() async {
-        if isCapturingAudio {
-            await stopRecordingAndTranscribe()
-            return
-        }
-        isHandsFreeSession = true
-        await startRecording()
-        if !isRecording {
-            isHandsFreeSession = false
-        }
-    }
-
-    /// Type the most recent dictation again at the cursor.
-    func pasteLastDictation() {
-        guard !isRecording, appStatus != .recording else { return }
-        guard let text = lastDictationText else {
-            showTemporaryError("There's no dictation to paste yet.")
-            return
-        }
-        VocaLogger.info(.appState, "Pasting the last dictation again (\(text.count) chars)")
-        textInjector.inject(text: text, preserveClipboard: preserveClipboard)
-    }
-
-    /// Something the menu's Cancel can stop: a recording, or a dictation
-    /// still being transcribed or cleaned up.
-    var canCancelDictation: Bool { isCapturingAudio || isTranscribing || isLoadingModelForRecording }
-
-    fileprivate func refreshCancelKeyArming(status: AppStatus? = nil) {
-        guard let monitor = hotKeyManager as? HotKeyShortcutMonitoring else { return }
-        let current = status ?? appStatus
-        // A result on screen is closed with Escape whatever the dictation
-        // setting says: it is the only key the panel has.
-        monitor.setCancelKeyArmed(
-            (escapeCancelsDictation && (current == .recording || isTranscribing || isLoadingModelForRecording))
-                || commandReview != nil
-        )
-    }
-
-    // MARK: Dictionary
-
-    /// Replacement targets offered to engines as recognition hints.
-    var replacementTargets: [String] {
-        wordReplacements.filter(\.isValid).map(\.replacement)
-    }
-
-    /// Vocabulary and replacement targets as a recognition hint, for decodes
-    /// with no screen context (live sessions, files, history retries).
-    var recognitionHintVocabulary: String {
-        Self.recognitionVocabulary(
-            customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
-        )
-    }
-
-    // MARK: - Vocabulary Boost
-
-    /// Fetch Parakeet's vocabulary boost model once it would help: Parakeet
-    /// is selected and the Dictionary has a word to listen for. It is about
-    /// 98 MB and loads in the background, so nothing waits on it. Never in a
-    /// test run, which must not touch the network.
-    func downloadVocabularyBoostIfUseful() {
-        guard NSClassFromString("XCTestCase") == nil,
-              VocabularyBoostStatus.downloadsAutomatically(
-                  engine: ModelSize(rawValue: selectedModelSize)?.engine,
-                  vocabulary: recognitionHintVocabulary, status: vocabularyBoostStatus,
-                  removedByUser: vocabularyBoostRemovedByUser
-              ) else { return }
-        VocaLogger.info(.appState, "Fetching Parakeet's vocabulary boost: the Dictionary has words to listen for")
-        downloadVocabularyBoost()
-    }
-
-    /// Download Parakeet's vocabulary boost model.
-    func downloadVocabularyBoost() {
-        guard vocabularyBoostStatus != .downloading else { return }
-        vocabularyBoostRemovedByUser = false
-        vocabularyBoostStatus = .downloading
-        Task { @MainActor [weak self] in
-            do {
-                try await TranscriptionRouter.downloadVocabularyBoost()
-                self?.vocabularyBoostStatus = .ready
-                VocaLogger.info(.appState, "Parakeet vocabulary boost downloaded")
-            } catch {
-                VocaLogger.error(.appState, "Vocabulary boost download failed: \(error.localizedDescription)")
-                self?.vocabularyBoostStatus = .failed(error.localizedDescription)
-            }
-        }
-    }
-
-    /// Delete Parakeet's vocabulary boost model.
-    func removeVocabularyBoost() {
-        do {
-            try TranscriptionRouter.removeVocabularyBoost()
-            vocabularyBoostStatus = .notDownloaded
-            vocabularyBoostRemovedByUser = true
-        } catch {
-            VocaLogger.error(.appState, "Could not remove vocabulary boost: \(error.localizedDescription)")
-            vocabularyBoostStatus = .failed(error.localizedDescription)
-        }
-    }
-
-    /// Vocabulary terms, one per entry. Stored in `customVocabulary` so the
-    /// Whisper recognition hint keeps working.
-    var vocabularyTerms: [String] {
-        RecognitionHints.vocabularyTerms(from: customVocabulary)
-    }
-
-    func setVocabularyTerms(_ terms: [String]) {
-        var seen = Set<String>()
-        // A comma or new line inside a term would read back as two terms
-        // (and could duplicate one already listed), so split them here.
-        let cleaned = terms
-            .flatMap { RecognitionHints.vocabularyTerms(from: $0) }
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
-        customVocabulary = cleaned.joined(separator: "\n")
-        noteDictionaryTermsSeen()
-        downloadVocabularyBoostIfUseful()
-    }
-
-    /// Add a term, replacing a differently-cased copy of it.
-    func addVocabularyTerm(_ term: String) {
-        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        var terms = vocabularyTerms.filter { $0.lowercased() != trimmed.lowercased() }
-        terms.append(trimmed)
-        setVocabularyTerms(terms)
-    }
-
-    /// Put a removed term back where it was, so undoing an early term in a long
-    /// list does not push a different one out of the recognition hints (which
-    /// keep the last terms). Does nothing if the term was added again meanwhile.
-    func restoreVocabularyTerm(_ term: String, at index: Int) {
-        let trimmed = term.trimmingCharacters(in: .whitespacesAndNewlines)
-        var terms = vocabularyTerms
-        guard !trimmed.isEmpty, !terms.contains(where: { $0.lowercased() == trimmed.lowercased() }) else { return }
-        terms.insert(trimmed, at: min(max(index, 0), terms.count))
-        setVocabularyTerms(terms)
-    }
-
-    func removeVocabularyTerm(_ term: String) {
-        setVocabularyTerms(vocabularyTerms.filter { $0 != term })
-    }
-
-    /// Add a replacement, merging into an existing one that already writes
-    /// the same text.
-    func addWordReplacement(heard: String, replacement: String) {
-        let heard = heard.trimmingCharacters(in: .whitespacesAndNewlines)
-        let replacement = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !heard.isEmpty, !replacement.isEmpty else { return }
-        if let index = wordReplacements.firstIndex(where: { $0.replacement == replacement }) {
-            let forms = wordReplacements[index].heardForms
-            guard !forms.contains(where: { $0.lowercased() == heard.lowercased() }) else { return }
-            wordReplacements[index].heard = (forms + [heard]).joined(separator: ", ")
-        } else {
-            wordReplacements.append(WordReplacement(heard: heard, replacement: replacement))
-        }
-    }
-
-    /// - Parameter segments: The decode's timings; the words the engine was
-    ///   unsure of let the Dictionary respell real words that sound like a
-    ///   term (`RecognitionConfidence`).
-    func dictionaryContext(
-        contextTerms: [String], language: String?, segments: [TimedSegment] = []
-    ) -> DictionaryContext {
-        let isKnownWord = self.isKnownWord
-        // "auto" from Parakeet or Apple Speech isn't a language; passed on, it
-        // made every word count as known and switched off name fixes.
-        let language = DictationOutputPipeline.knownLanguage(language)
-        return DictionaryContext(
-            vocabulary: vocabularyTerms,
-            replacements: wordReplacements,
-            contextTerms: contextTerms,
-            isKnownWord: { isKnownWord($0, language) },
-            removedWords: personalFillers,
-            lowConfidenceWords: RecognitionConfidence.lowConfidenceWords(in: segments)
-        )
-    }
-
-    /// Accept a noticed correction: the corrected spelling becomes a
-    /// vocabulary term, plus a replacement when the engine heard different
-    /// letters (not just different casing or spacing).
-    func acceptDictionarySuggestion(_ suggestion: CorrectionSuggestion) {
-        learn(heard: suggestion.heard, corrected: suggestion.corrected, language: suggestion.language)
-        dictionarySuggestions.removeAll { $0.id == suggestion.id }
-        saveSuggestions()
-    }
-
-    func dismissDictionarySuggestion(_ suggestion: CorrectionSuggestion) {
-        dictionarySuggestions.removeAll { $0.id == suggestion.id }
-        dismissedSuggestionKeys.insert(suggestion.id)
-        saveSuggestions()
-    }
-
-    /// - Parameter language: The language of the dictation the correction
-    ///   was seen in; the selected one when unknown.
-    private func learn(heard: String, corrected: String, language: String?) {
-        addVocabularyTerm(corrected)
-        // A replacement fires on every later match. "cloud" fixed to
-        // "Claude" once must not turn every cloud into Claude, so a single
-        // ordinary word only teaches the term; the engines are then asked to
-        // listen for it, and cleanup may respell it in context. A phrase
-        // ("get hub" → "GitHub") is rarely said for itself, so it still
-        // becomes a replacement.
-        if DictionaryCorrector.normalized(heard) != DictionaryCorrector.normalized(corrected),
-           !Self.isOrdinaryWord(heard, isKnownWord: { self.isKnownWord($0, language ?? self.spellingLanguage) }) {
-            addWordReplacement(heard: heard, replacement: corrected)
-        }
-        VocaLogger.info(.dictionary, "Learned a spelling from a correction")
-    }
-
-    /// Whether `text` is one ordinary word, so a replacement from it would
-    /// rewrite ordinary speech.
-    nonisolated static func isOrdinaryWord(_ text: String, isKnownWord: (String) -> Bool) -> Bool {
-        let words = text.lowercased().split { !($0.isLetter || $0 == "'" || $0 == "’") }.map(String.init)
-        return words.count == 1 && isKnownWord(words[0])
-    }
-
-    /// The language to judge ordinary words in when no dictation says
-    /// which: the selected one, else English.
-    var spellingLanguage: String {
-        DictationOutputPipeline.knownLanguage(selectedLanguage) ?? "en"
-    }
-
-    fileprivate func receiveCorrections(_ corrections: [CorrectionLearner.Correction]) {
-        let mode = learnCorrectionsMode
-        guard mode != .off else { return }
-        let known = Set(vocabularyTerms)
-        var learned: [LearnedCorrection] = []
-        for correction in corrections where !known.contains(correction.corrected) {
-            let key = CorrectionSuggestion.key(heard: correction.heard, corrected: correction.corrected)
-            guard !dismissedSuggestionKeys.contains(key) else { continue }
-            // Only the user's own fix of a name or term is added unasked;
-            // screen and History finds, and anything else, are suggested.
-            if mode == .automatic, correction.source == nil,
-               Self.learnsWithoutAsking(correction.corrected, isKnownWord: {
-                   self.isKnownWord($0, correction.language ?? self.spellingLanguage)
-               }) {
-                learned.append(learnUndoably(correction))
-                continue
-            }
-            if let index = dictionarySuggestions.firstIndex(where: { $0.id == key }) {
-                dictionarySuggestions[index].occurrences += 1
-                dictionarySuggestions[index].lastSeen = Date()
-                dictionarySuggestions[index].language = correction.language ?? dictionarySuggestions[index].language
-            } else {
-                dictionarySuggestions.insert(
-                    CorrectionSuggestion(heard: correction.heard, corrected: correction.corrected,
-                                         occurrences: 1, lastSeen: Date(), language: correction.language,
-                                         source: correction.source),
-                    at: 0
-                )
-            }
-        }
-        dictionarySuggestions = Array(dictionarySuggestions.prefix(50))
-        saveSuggestions()
-        offerUndo(for: learned)
-    }
-
-    /// What one automatic learn added, so Undo takes back exactly that.
-    struct LearnedCorrection {
-        let heard: String
-        let corrected: String
-        let addedTerm: Bool
-        let addedReplacement: Bool
-    }
-
-    private func learnUndoably(_ correction: CorrectionLearner.Correction) -> LearnedCorrection {
-        let hadTerm = vocabularyTerms.contains(correction.corrected)
-        let replacementsBefore = wordReplacements
-        learn(heard: correction.heard, corrected: correction.corrected, language: correction.language)
-        return LearnedCorrection(
-            heard: correction.heard, corrected: correction.corrected,
-            addedTerm: !hadTerm && vocabularyTerms.contains(correction.corrected),
-            addedReplacement: wordReplacements != replacementsBefore
-        )
-    }
-
-    /// "Learned “Priya”" on the overlay, with Undo.
-    private func offerUndo(for learned: [LearnedCorrection]) {
-        guard !learned.isEmpty else { return }
-        let names = learned.map { "“\(Self.shortened($0.corrected))”" }
-        let message = "Learned " + (names.count == 1 ? names[0] : names.dropLast().joined(separator: ", ") + " and " + (names.last ?? ""))
-        cursorOverlay.showLearned(message: message) { [weak self] in
-            self?.unlearn(learned)
-        }
-    }
-
-    /// Take back automatic learns, and don't learn the same fixes again.
-    func unlearn(_ learned: [LearnedCorrection]) {
-        for item in learned {
-            if item.addedTerm { removeVocabularyTerm(item.corrected) }
-            if item.addedReplacement,
-               let index = wordReplacements.firstIndex(where: { $0.replacement == item.corrected }) {
-                let forms = wordReplacements[index].heardForms.filter { $0.lowercased() != item.heard.lowercased() }
-                if forms.isEmpty {
-                    wordReplacements.remove(at: index)
-                } else {
-                    wordReplacements[index].heard = forms.joined(separator: ", ")
-                }
-            }
-            dismissedSuggestionKeys.insert(CorrectionSuggestion.key(heard: item.heard, corrected: item.corrected))
-        }
-        saveSuggestions()
-        VocaLogger.info(.dictionary, "Took back \(learned.count) learned spelling(s)")
-    }
-
-    // MARK: - Suggested terms
-
-    /// Screen respellings seen before, by suggestion key, until one has
-    /// been seen often enough to suggest.
-    private var screenRespellingCounts: [String: Int] {
-        get { UserDefaults.standard.dictionary(forKey: PreferenceKey.screenRespellingCounts) as? [String: Int] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.screenRespellingCounts) }
-    }
-
-    /// Times a screen term must replace the same words before it is
-    /// suggested: once may be a coincidence, twice is a pattern.
-    static let screenRespellingsBeforeSuggesting = 2
-
-    /// Count each place `final` has a screen term where the engine heard
-    /// other words, and suggest the term once it keeps happening.
-    func noteScreenRespellings(raw: String, final: String, screenTerms: [String], language: String?) {
-        guard learnCorrectionsMode != .off, !screenTerms.isEmpty else { return }
-        let listed = Set(vocabularyTerms.map { $0.lowercased() })
-        var counts = screenRespellingCounts
-        var due: [CorrectionLearner.Correction] = []
-        for (heard, term) in TermSuggestionFinder.screenRespellings(raw: raw, final: final, terms: screenTerms)
-        where !listed.contains(term.lowercased()) {
-            let key = CorrectionSuggestion.key(heard: heard, corrected: term)
-            counts[key, default: 0] += 1
-            if counts[key, default: 0] >= Self.screenRespellingsBeforeSuggesting {
-                due.append(CorrectionLearner.Correction(heard: heard, corrected: term, language: language, source: .screen))
-            }
-        }
-        // Bounded: the rarest go first.
-        if counts.count > 200 {
-            counts = Dictionary(uniqueKeysWithValues: counts.sorted { $0.value > $1.value }.prefix(150).map { ($0.key, $0.value) })
-        }
-        screenRespellingCounts = counts
-        if !due.isEmpty { receiveCorrections(due) }
-    }
-
-    /// Once a day, look through recent History for names the spell checker
-    /// doesn't know that keep coming up, and suggest them.
-    func suggestFrequentNamesIfDue(now: Date = Date()) {
-        guard learnCorrectionsMode != .off else { return }
-        if let last = UserDefaults.standard.object(forKey: PreferenceKey.lastFrequentNameScan) as? Date,
-           now.timeIntervalSince(last) < 24 * 60 * 60 { return }
-        UserDefaults.standard.set(now, forKey: PreferenceKey.lastFrequentNameScan)
-        // History keeps the newest first: these are the most recent.
-        let entries = historyStore.entries.filter { $0.status == .completed && $0.commandOriginal == nil }
-            .prefix(TermSuggestionFinder.maximumDictations)
-        let texts = entries.map(\.finalText)
-        // The commonest language decides which spell checker judges a name.
-        let language = Dictionary(grouping: entries.compactMap { DictationOutputPipeline.knownLanguage($0.language) }) { $0 }
-            .max { $0.value.count < $1.value.count }?.key ?? spellingLanguage
-        Task { @MainActor [weak self] in
-            let candidates = await Task.detached(priority: .utility) {
-                TermSuggestionFinder.capitalizedCandidates(in: texts)
-            }.value
-            guard let self, !candidates.isEmpty else { return }
-            let names = TermSuggestionFinder.unknownNames(
-                candidates, vocabulary: vocabularyTerms, isKnownWord: { self.isKnownWord($0, language) }
-            )
-            guard !names.isEmpty else { return }
-            VocaLogger.info(.dictionary, "Found \(names.count) name(s) said in several dictations")
-            receiveCorrections(names.map {
-                CorrectionLearner.Correction(heard: $0, corrected: $0, language: language, source: .frequent)
-            })
-        }
-    }
-
-    /// Feed corrections through the same path the observer uses. Tests only.
-    func _receiveCorrectionsForTesting(_ corrections: [CorrectionLearner.Correction]) {
-        receiveCorrections(corrections)
-    }
-
-    fileprivate func observeCorrections(
-        to text: String, language: String, historyID: UUID?, app: RunningAppSnapshot?
-    ) {
-        guard learnCorrectionsMode != .off, let correctionObserver,
-              let processID = NSWorkspace.shared.frontmostApplication?.processIdentifier else { return }
-        let isKnownWord = self.isKnownWord
-        correctionObserver.observe(
-            insertedText: text, processID: processID, language: language, historyID: historyID, app: app
-        ) {
-            isKnownWord($0, language)
-        }
-    }
-
-    /// Whether `rules` start sentences with a capital.
-    static func capitalizes(_ rules: WritingStyleRules, autoCapitalize: Bool) -> Bool {
-        switch rules.capitalization {
-        case .inherit, .lowercaseStart: return autoCapitalize
-        case .sentences: return true
-        case .off: return false
-        }
-    }
-
-    /// What History and the menu say for a dictation to a coding agent.
-    static let codingAgentSummary = "Coding agent in Terminal — prose cleanup"
-
-    /// Look, off the main thread, for a coding agent in `target`'s tab in
-    /// front, when `target` gets the Terminal style and the setting allows.
-    /// The task returns `target` when one runs there, nil otherwise.
-    func codingAgentDetection(for target: RunningAppSnapshot) -> Task<RunningAppSnapshot?, Never>? {
-        guard codingAgentsAsProse, AppDistribution.canReadOtherProcesses,
-              resolveWritingStyle(for: target).style == .terminal,
-              let app = NSWorkspace.shared.runningApplications.first(where: {
-                  Self.sameOutputTarget(target, RunningAppSnapshot(
-                      displayName: $0.localizedName ?? "", bundleIdentifier: $0.bundleIdentifier,
-                      processName: $0.executableURL?.lastPathComponent
-                  ))
-              }) else { return nil }
-        let processID = app.processIdentifier
-        return Task.detached(priority: .userInitiated) {
-            let title = AccessibilityTextReader.focusedWindowTitle(processID: processID)
-            let found = CodingAgentDetector.detect(terminalProcessID: processID, windowTitle: title)
-            if found { VocaLogger.debug(.appState, "Coding agent running in \(target.displayName): prose cleanup") }
-            return found ? target : nil
-        }
-    }
-
-    /// Start reading names and identifiers from the screen while the user speaks.
-    fileprivate func startScreenContextCapture(injectResult: Bool) {
-        screenContextTask?.cancel()
-        screenContextTask = nil
-        screenDocumentURLTask?.cancel()
-        screenDocumentURLTask = nil
-        insertionContextTask?.cancel()
-        insertionContextTask = nil
-        guard injectResult, let reader = screenContextReader else { return }
-        if useScreenContext {
-            let isKnownWord = self.isKnownWord
-            let language = spellingLanguage
-            screenContextTask = Task { @MainActor in
-                guard let text = await reader.captureFrontmostContext(), !Task.isCancelled else { return [] }
-                return ScreenContextTerms.extract(from: text) { isKnownWord($0, language) }
-            }
-        }
-        if !websiteStyleBindings.isEmpty {
-            screenDocumentURLTask = Task { @MainActor in
-                await reader.captureFrontmostDocumentURL()
-            }
-        }
-        if writingStyleEnabled {
-            insertionContextTask = Task { @MainActor in
-                await reader.captureInsertionContext()
-            }
-        }
-    }
-
-    /// The screen terms, if they arrive in time. Never holds up a dictation
-    /// for more than a moment on a slow app.
-    fileprivate static func awaitContextTerms(_ task: Task<[String], Never>?) async -> [String] {
-        await value(of: task, within: screenContextTimeout, otherwise: [])
-    }
-
-    fileprivate static func awaitDocumentURL(_ task: Task<URL?, Never>?) async -> URL? {
-        await value(of: task, within: screenContextTimeout, otherwise: nil)
-    }
-
-    static let screenContextTimeout: TimeInterval = 0.3
-    /// How long cleanup ahead of time waits for the screen's terms.
-    static let speculationContextTimeout: TimeInterval = 2
-
-    /// A task's value if it arrives within `timeout`, otherwise `fallback`.
-    ///
-    /// Returns at the deadline even when the task ignores cancellation: a
-    /// task group would wait for every child, and `Task.value` does not stop
-    /// waiting when cancelled, so a slow Accessibility read would hold up the
-    /// dictation for as long as it took. The task is left to finish on its own.
-    static func value<T: Sendable>(
-        of task: Task<T, Never>?,
-        within timeout: TimeInterval,
-        otherwise fallback: T
-    ) async -> T {
-        guard let task else { return fallback }
-        let gate = FirstValueGate<T>()
-        return await withCheckedContinuation { continuation in
-            gate.install(continuation)
-            Task.detached {
-                gate.resume(with: await task.value)
-            }
-            Task.detached {
-                try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
-                gate.resume(with: fallback)
-            }
-        }
-    }
-
-    /// A browser can navigate while transcription runs. Apply a website rule
-    /// only when the output is still going to the host captured at recording
-    /// start; a failed refresh is safer than formatting for a stale page.
-    private func revalidatedDocumentURL(_ capturedURL: URL?) async -> URL? {
-        guard !websiteStyleBindings.isEmpty,
-              let capturedURL,
-              let reader = screenContextReader else { return nil }
-        let refresh = Task { @MainActor in await reader.captureFrontmostDocumentURL() }
-        guard let currentURL = await Self.value(of: refresh, within: Self.screenContextTimeout, otherwise: nil) else {
-            VocaLogger.warning(.appState, "Couldn't re-read the website before dictation output; skipping the captured website rule")
-            return nil
-        }
-        guard capturedURL.host?.lowercased() == currentURL.host?.lowercased() else {
-            VocaLogger.warning(.appState, "Website changed before dictation output; skipping the captured website rule")
-            return nil
-        }
-        return currentURL
-    }
-
-    /// The hint list every engine reads its vocabulary from: screen terms,
-    /// then replacement targets and the user's own terms.
-    ///
-    /// Each engine keeps what it can take from the end of the list: Whisper
-    /// `WhisperService.maximumPromptTokens`, Apple Speech and Parakeet 100
-    /// terms each (`RecognitionHints`), the custom endpoint a short prompt.
-    /// So the user's words go last and are never cut, and the screen terms
-    /// most worth hearing (`ScreenContextTerms.extract` puts them first) sit
-    /// right before them. The budget here only bounds the list as a whole; a
-    /// tighter one sized for Whisper left Apple Speech and Parakeet without
-    /// screen terms once the user had about 40 words.
-    /// - Parameter usage: How recently each term was dictated; the user's
-    ///   terms are ordered by it so the ones said lately are kept when an
-    ///   engine trims the list from the front (`TermUsage`).
-    static func recognitionVocabulary(
-        _ vocabulary: String,
-        replacementTargets: [String] = [],
-        contextTerms: [String],
-        usage: [String: TermUsage] = [:]
-    ) -> String {
-        // Replacement targets ("GitHub" for "get hub") are words the user
-        // wants heard, so they join the vocabulary ahead of the user's terms.
-        var userTerms = RecognitionHints.vocabularyTerms(from: vocabulary)
-        let listed = Set(userTerms.map { $0.lowercased() })
-        var targetSeen = Set<String>()
-        let targets = replacementTargets.filter {
-            RecognitionHints.isHintableReplacement($0)
-                && !listed.contains($0.lowercased())
-                && targetSeen.insert($0.lowercased()).inserted
-        }
-        userTerms = TermUsage.ordered(targets + userTerms, by: usage)
-        let known = Set(userTerms.map { $0.lowercased() })
-        let characterBudget = max(0, recognitionPromptCharacterBudget - userTerms.joined(separator: ", ").count)
-        var screenTerms: [String] = []
-        var used = 0
-        var seen = Set<String>()
-        for term in contextTerms where !known.contains(term.lowercased()) && seen.insert(term.lowercased()).inserted {
-            guard screenTerms.count < maximumRecognitionContextTerms,
-                  used + term.count + 2 <= characterBudget else { break }
-            screenTerms.append(term)
-            used += term.count + 2
-        }
-        // Most relevant last among them, so a trim from the front drops the
-        // least relevant first.
-        return (screenTerms.reversed() + userTerms).joined(separator: ", ")
-    }
-
-    /// How recently each Dictionary term was dictated (`TermUsage`).
-    var termUsage: [String: TermUsage] {
-        TermUsage.decode(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermUsage))
-    }
-
-    /// Count the Dictionary terms that appear in a dictation's final text.
-    func recordTermUsage(in text: String) {
-        let terms = vocabularyTerms + replacementTargets
-        guard !terms.isEmpty else { return }
-        noteDictionaryTermsSeen()
-        let usage = termUsage
-        let updated = TermUsage.recording(text, terms: terms, in: usage)
-        guard updated != usage else { return }
-        UserDefaults.standard.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
-    }
-
-    /// When VocaMac first saw each Dictionary term listed (`TermUsage.noting`).
-    var dictionaryTermFirstSeen: [String: Date] {
-        TermUsage.decodeDates(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermFirstSeen))
-    }
-
-    /// Start the clock for terms not seen before, and forget removed ones.
-    func noteDictionaryTermsSeen(now: Date = Date()) {
-        let firstSeen = dictionaryTermFirstSeen
-        let updated = TermUsage.noting(vocabularyTerms + replacementTargets, in: firstSeen, now: now)
-        guard updated != firstSeen else { return }
-        UserDefaults.standard.set(TermUsage.encodeDates(updated), forKey: PreferenceKey.dictionaryTermFirstSeen)
-    }
-
-    /// Enough for the 100 terms Apple Speech and Parakeet take.
-    static let recognitionPromptCharacterBudget = 2_000
-    static let maximumRecognitionContextTerms = 100
-
-    fileprivate func loadDictionary() {
-        wordReplacements = Self.loadJSON([WordReplacement].self, forKey: PreferenceKey.wordReplacements) ?? []
-        personalFillers = Self.loadJSON([String].self, forKey: PreferenceKey.personalFillers) ?? []
-        learnedLowercaseApps = Self.loadJSON([LearnedLowercaseApp].self, forKey: PreferenceKey.learnedLowercaseApps) ?? []
-        dictionarySuggestions = Self.loadJSON([CorrectionSuggestion].self, forKey: PreferenceKey.dictionarySuggestions) ?? []
-        dismissedSuggestionKeys = Set(
-            UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
-        )
-        noteDictionaryTermsSeen()
-    }
-
-    private func saveSuggestions() {
-        Self.saveJSON(dictionarySuggestions, forKey: PreferenceKey.dictionarySuggestions)
-        UserDefaults.standard.set(Array(dismissedSuggestionKeys), forKey: PreferenceKey.dismissedDictionarySuggestions)
-    }
-
-    fileprivate static func loadJSON<T: Decodable>(_ type: T.Type, forKey key: String) -> T? {
-        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
-        do {
-            return try JSONDecoder().decode(type, from: data)
-        } catch {
-            VocaLogger.error(.dictionary, "Could not read \(key): \(error)")
-            return nil
-        }
-    }
-
-    func savePersonalFillers() {
-        Self.saveJSON(personalFillers, forKey: PreferenceKey.personalFillers)
-    }
-
-    func saveLearnedLowercaseApps() {
-        Self.saveJSON(learnedLowercaseApps, forKey: PreferenceKey.learnedLowercaseApps)
-    }
-
-    fileprivate static func saveJSON<T: Encodable>(_ value: T, forKey key: String) {
-        do {
-            UserDefaults.standard.set(try JSONEncoder().encode(value), forKey: key)
-        } catch {
-            VocaLogger.error(.dictionary, "Could not save \(key): \(error)")
-        }
-    }
 }
 
-// MARK: - Early capture
+// MARK: - Settings store
 
-/// A microphone opened for a queued push-to-talk dictation (see
-/// `AppState.earlyCapture`). Only touched on the main actor.
-private final class EarlyCapture {
-    /// Opening the microphone; true once it is live.
-    let start: Task<Bool, Never>
-    /// How much audio the microphone has delivered.
-    let counter: CapturedSampleCounter
-    /// Samples captured when the key came up, or nil while it is held.
-    var releasedAtSampleCount: Int?
-
-    init(start: Task<Bool, Never>, counter: CapturedSampleCounter) {
-        self.start = start
-        self.counter = counter
-    }
-}
-
-/// Counts samples from the audio tap's thread for the main actor.
-final class CapturedSampleCounter: Sendable {
-    private struct State {
-        var count = 0
-        /// Uptime of the last delivery.
-        var lastDelivery: TimeInterval?
-        /// Uptime the microphone went live.
-        var liveSince: TimeInterval?
-    }
-
-    /// The tap hands over 4096 frames at a time: about 85 ms at 48 kHz, but
-    /// 512 ms from an 8 kHz Bluetooth headset. Time past the last delivery
-    /// is counted up to this much, so a stalled tap can't stretch a release
-    /// boundary into later speech.
-    static let maxInFlightSeconds: TimeInterval = 0.6
-
-    private let state = OSAllocatedUnfairLock(initialState: State())
-    private let sampleRate: Double
-    private let clock: @Sendable () -> TimeInterval
-
-    init(
-        sampleRate: Double = 16_000,
-        clock: @escaping @Sendable () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
-    ) {
-        self.sampleRate = sampleRate
-        self.clock = clock
-    }
-
-    var count: Int { state.withLock { $0.count } }
-
-    func record(_ end: Int) { record(end, at: clock()) }
-
-    func record(_ end: Int, at uptime: TimeInterval) {
-        state.withLock {
-            $0.count = max($0.count, end)
-            $0.lastDelivery = uptime
-        }
-    }
-
-    /// The microphone went live: from here on audio is being captured, even
-    /// before its first buffer arrives.
-    func markLive() { markLive(at: clock()) }
-
-    func markLive(at uptime: TimeInterval) {
-        state.withLock { if $0.liveSince == nil { $0.liveSince = uptime } }
-    }
-
-    /// Samples captured up to `uptime`, including the buffer the tap is
-    /// still filling: the delivered count alone cuts off the last syllable,
-    /// and a short word on a slow headset can end before the first buffer.
-    /// No minimum length: like any recording, a short one is left to the
-    /// silence trimming. (The live time is stamped on the main actor, so it
-    /// can run late. A minimum would then drop real words.)
-    func releaseBoundary() -> Int { releaseBoundary(at: clock()) }
-
-    func releaseBoundary(at uptime: TimeInterval) -> Int {
-        state.withLock { state in
-            if let lastDelivery = state.lastDelivery {
-                let pending = min(max(uptime - lastDelivery, 0), Self.maxInFlightSeconds)
-                return state.count + Int((pending * sampleRate).rounded())
-            }
-            guard let liveSince = state.liveSince else { return state.count }
-            let elapsed = min(max(uptime - liveSince, 0), Self.maxInFlightSeconds)
-            return Int((elapsed * sampleRate).rounded())
-        }
-    }
-}
+extension AppState: UserDefaultsStoreProviding {}

@@ -188,7 +188,7 @@ final class WordTeachingTests: XCTestCase {
         state.setVocabularyTerms(["Kubernetes"])
         state.wordReplacements = [WordReplacement(heard: "kube", replacement: "Kubernetes")]
         mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.1, count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "Cooper netties.", duration: 0.2, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
 
@@ -199,7 +199,7 @@ final class WordTeachingTests: XCTestCase {
         XCTAssertFalse(state.canTeachWord, "one take at a time")
         let text = await state.finishTeachingTake()
         XCTAssertEqual(text, "Cooper netties.")
-        XCTAssertEqual(mocks.whisperService.lastVocabulary, "", "takes are decoded without hints")
+        XCTAssertEqual(mocks.transcriber.lastVocabulary, "", "takes are decoded without hints")
         XCTAssertFalse(state.isTeachingWord)
 
         state.teachWord("Kubernetes", heardForms: ["cooper netties"])
@@ -216,7 +216,7 @@ final class WordTeachingTests: XCTestCase {
         XCTAssertTrue(started)
         let text = await state.finishTeachingTake()
         XCTAssertEqual(text, "")
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData, "a click is not decoded")
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData, "a click is not decoded")
     }
 
     @MainActor
@@ -236,8 +236,8 @@ final class WordTeachingTests: XCTestCase {
         defer { state.wordReplacements = [] }
         mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.1, count: 16_000)
         // A cancelled task throws out of this sleep, as the router rejects it.
-        mocks.whisperService.transcribeDelayNanoseconds = 20_000_000
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.transcribeDelayNanoseconds = 20_000_000
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "Cooper netties", duration: 0.2, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
         let session = WordTeachingSession(term: "Kubernetes", appState: state, takeSeconds: 0.02)
@@ -352,10 +352,10 @@ final class UnusedDictionaryTermTests: XCTestCase {
         let (state, _) = AppState.makeTestState()
         defer {
             state.setVocabularyTerms([])
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
         }
         state.setVocabularyTerms(["Kubernetes"])
-        UserDefaults.standard.set(
+        TestDefaults.store.set(
             TermUsage.encodeDates(["kubernetes": Date(timeIntervalSinceNow: -200 * 86_400)]),
             forKey: PreferenceKey.dictionaryTermFirstSeen
         )
@@ -408,7 +408,7 @@ final class UnusedDictionaryTermTests: XCTestCase {
         let (state, _) = AppState.makeTestState()
         defer {
             state.setVocabularyTerms([])
-            UserDefaults.standard.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
+            TestDefaults.store.removeObject(forKey: PreferenceKey.dictionaryTermFirstSeen)
         }
         state.setVocabularyTerms(["Kubernetes"])
         state.recordTermUsage(in: "nothing relevant")

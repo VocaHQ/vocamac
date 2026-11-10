@@ -594,16 +594,16 @@ final class CleanupModelTests: XCTestCase {
 final class AppStateTranscriptCleanupTests: XCTestCase {
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupEnabled)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupModel)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.transcriptCleanupPrompt)
         super.tearDown()
     }
 
     func testCleanupIsOffByDefaultAndDoesNotRun() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "so um hello",
             duration: 1.0,
             detectedLanguage: "en",
@@ -627,7 +627,7 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
     func testEnabledCleanupRewritesBeforePolish() async {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "so um hello world",
             duration: 1.0,
             detectedLanguage: "en",
@@ -655,7 +655,7 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         cleanup.downloadedKinds = []
         let (appState, mocks) = AppState.makeTestState(transcriptCleanup: cleanup)
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "hello",
             duration: 1.0,
             detectedLanguage: "en",
@@ -681,7 +681,7 @@ final class AppStateTranscriptCleanupTests: XCTestCase {
         // cursor and must be dropped rather than typed into the next app.
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "so um hello world",
             duration: 1.0,
             detectedLanguage: "en",

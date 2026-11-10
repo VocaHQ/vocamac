@@ -14,7 +14,7 @@ final class SnippetTests: XCTestCase {
     override func setUp() async throws {
         // Snippets persist to shared UserDefaults; start from a clean slate so
         // no state leaks in from other tests or a previous run.
-        UserDefaults.standard.removeObject(forKey: "vocamac.snippets")
+        TestDefaults.store.removeObject(forKey: "vocamac.snippets")
 
         // Use makeTestState to avoid real hardware access in CI
         let (testState, _) = AppState.makeTestState()
@@ -26,7 +26,7 @@ final class SnippetTests: XCTestCase {
 
     @MainActor
     override func tearDown() async throws {
-        UserDefaults.standard.removeObject(forKey: "vocamac.snippets")
+        TestDefaults.store.removeObject(forKey: "vocamac.snippets")
         appState = nil
     }
 
@@ -187,7 +187,7 @@ final class SnippetTests: XCTestCase {
         appState.snippets = []
 
         // Then
-        let data = UserDefaults.standard.data(forKey: "vocamac.snippets")
+        let data = TestDefaults.store.data(forKey: "vocamac.snippets")
         let decoded = data.flatMap { try? JSONDecoder().decode([Snippet].self, from: $0) }
         XCTAssertEqual(decoded, [])
     }

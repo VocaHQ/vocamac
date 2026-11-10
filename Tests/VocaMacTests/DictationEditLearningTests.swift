@@ -232,12 +232,12 @@ final class AppStateEditLearningTests: XCTestCase {
 
     func testAnInstallThatUsesTheDictionaryKeepsSuggest() {
         let (appState, _) = AppState.makeTestState()
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.learnModeDefaultSettled)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.learnCorrectionsMode)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.learnModeDefaultSettled)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.learnCorrectionsMode)
         appState.addVocabularyTerm("Priya")
         appState.settleLearnModeDefault()
         XCTAssertEqual(appState.learnCorrectionsMode, .suggest)
-        XCTAssertNotNil(UserDefaults.standard.object(forKey: PreferenceKey.learnCorrectionsMode), "Stored, so it stays")
+        XCTAssertNotNil(TestDefaults.store.object(forKey: PreferenceKey.learnCorrectionsMode), "Stored, so it stays")
     }
 
     func testTheDefaultIsSettledOnce() {
@@ -250,7 +250,7 @@ final class AppStateEditLearningTests: XCTestCase {
 
     func testAChosenModeIsKept() {
         let (appState, _) = AppState.makeTestState()
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.learnModeDefaultSettled)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.learnModeDefaultSettled)
         appState.learnCorrectionsMode = .off
         appState.addVocabularyTerm("Priya")
         appState.settleLearnModeDefault()
@@ -403,9 +403,9 @@ final class AppStateEditLearningTests: XCTestCase {
         for index in 0..<AppState.maximumLowercaseStartTallies {
             stored["app.\(index)"] = [2, old.timeIntervalSince1970 + Double(index)]
         }
-        UserDefaults.standard.set(stored, forKey: PreferenceKey.lowercaseStartCounts)
+        TestDefaults.store.set(stored, forKey: PreferenceKey.lowercaseStartCounts)
         appState.noteLowercaseStart(in: messages, now: Date(timeIntervalSince1970: 5_000))
-        let tallies = UserDefaults.standard.dictionary(forKey: PreferenceKey.lowercaseStartCounts) as? [String: [Double]] ?? [:]
+        let tallies = TestDefaults.store.dictionary(forKey: PreferenceKey.lowercaseStartCounts) as? [String: [Double]] ?? [:]
         XCTAssertEqual(tallies.count, AppState.maximumLowercaseStartTallies)
         XCTAssertEqual(tallies["com.apple.MobileSMS"]?.first, 1, "The app just counted is kept")
         XCTAssertNil(tallies["app.0"], "The app seen longest ago goes")

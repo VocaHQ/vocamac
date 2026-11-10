@@ -27,7 +27,7 @@ final class AppStateWritingStyleTests: XCTestCase {
             PreferenceKey.spokenEmoji,
             PreferenceKey.automaticWritingStyles
         ] {
-            UserDefaults.standard.removeObject(forKey: key)
+            TestDefaults.store.removeObject(forKey: key)
         }
     }
 
@@ -49,7 +49,7 @@ final class AppStateWritingStyleTests: XCTestCase {
         injectResult: Bool = true
     ) async {
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: transcript,
             duration: 1.0,
             detectedLanguage: "en",
@@ -228,7 +228,7 @@ final class AppStateWritingStyleTests: XCTestCase {
     /// read when recording begins.
     private func dictateFromStart(_ transcript: String, on appState: AppState, mocks: TestMocks) async {
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: transcript, duration: 1.0, detectedLanguage: "en", audioLengthSeconds: 1.0, modelUsed: .tiny
         )
         await appState.startRecording()
@@ -353,7 +353,7 @@ final class AppStateWritingStyleTests: XCTestCase {
             mocks.frontmostAppResolver.frontmostApp = cursor
 
             mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-            mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            mocks.transcriber.mockTranscriptionResult = VocaTranscription(
                 text: fixture.transcript,
                 duration: 1.0,
                 detectedLanguage: "en",

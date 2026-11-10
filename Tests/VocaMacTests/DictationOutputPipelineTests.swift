@@ -774,7 +774,7 @@ final class DictationOutputPipelineTests: XCTestCase {
         state.transcriptCleanupEnabled = true
         state.useNextWritingFormat(.chat)
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "send the report", duration: 1, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
         state.isRecording = true

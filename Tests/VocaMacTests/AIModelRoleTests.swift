@@ -23,8 +23,8 @@ final class AIModelRoleTests: XCTestCase {
     }
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.aiModelsKeptSeparate)
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.commandModeEngine)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.aiModelsKeptSeparate)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.commandModeEngine)
         super.tearDown()
     }
 
@@ -247,13 +247,13 @@ final class AIModelRoleTests: XCTestCase {
     func testLoadedModelShowsItsDisplayNameNotItsIdentifier() {
         let (state, mocks) = AppState.makeTestState()
         state.currentModel = nil
-        mocks.whisperService.loadedModelName = "openai_whisper-tiny"
+        mocks.transcriber.loadedModelName = "openai_whisper-tiny"
         XCTAssertEqual(state.loadedModelDisplayName, CalmModelText.name(.tiny))
 
-        mocks.whisperService.loadedModelName = ModelSize.allCases.last?.rawValue
+        mocks.transcriber.loadedModelName = ModelSize.allCases.last?.rawValue
         XCTAssertEqual(state.loadedModelDisplayName, ModelSize.allCases.last.map(CalmModelText.name))
 
-        mocks.whisperService.loadedModelName = nil
+        mocks.transcriber.loadedModelName = nil
         XCTAssertNil(state.loadedModelDisplayName)
     }
 

@@ -20,7 +20,8 @@ extension AppState {
     /// stored so it no longer follows the default. Everyone else — new
     /// installs included — gets the new default. Runs once: a new install
     /// that later adds words stays on Add automatically.
-    func settleLearnModeDefault(defaults: UserDefaults = .standard) {
+    func settleLearnModeDefault(defaults: UserDefaults? = nil) {
+        let defaults = defaults ?? userDefaultsStore
         guard !defaults.bool(forKey: PreferenceKey.learnModeDefaultSettled) else { return }
         defaults.set(true, forKey: PreferenceKey.learnModeDefaultSettled)
         guard defaults.object(forKey: PreferenceKey.learnCorrectionsMode) == nil else { return }
@@ -72,13 +73,13 @@ extension AppState {
     // MARK: - Personal fillers
 
     private var personalFillerCounts: [String: Int] {
-        get { UserDefaults.standard.dictionary(forKey: PreferenceKey.personalFillerCounts) as? [String: Int] ?? [:] }
-        set { UserDefaults.standard.set(newValue, forKey: PreferenceKey.personalFillerCounts) }
+        get { userDefaultsStore.dictionary(forKey: PreferenceKey.personalFillerCounts) as? [String: Int] ?? [:] }
+        set { userDefaultsStore.set(newValue, forKey: PreferenceKey.personalFillerCounts) }
     }
 
     private var rejectedPersonalFillers: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: PreferenceKey.rejectedPersonalFillers) ?? []) }
-        set { UserDefaults.standard.set(newValue.sorted(), forKey: PreferenceKey.rejectedPersonalFillers) }
+        get { Set(userDefaultsStore.stringArray(forKey: PreferenceKey.rejectedPersonalFillers) ?? []) }
+        set { userDefaultsStore.set(newValue.sorted(), forKey: PreferenceKey.rejectedPersonalFillers) }
     }
 
     /// Count the fillers deleted from one dictation; one deleted in enough
@@ -135,11 +136,11 @@ extension AppState {
     /// Per app ID: lowercased starts seen so far, and when the last one was.
     private var lowercaseStartTallies: [String: (count: Int, lastSeen: TimeInterval)] {
         get {
-            let stored = UserDefaults.standard.dictionary(forKey: PreferenceKey.lowercaseStartCounts) as? [String: [Double]] ?? [:]
+            let stored = userDefaultsStore.dictionary(forKey: PreferenceKey.lowercaseStartCounts) as? [String: [Double]] ?? [:]
             return stored.compactMapValues { $0.count == 2 ? (Int($0[0]), $0[1]) : nil }
         }
         set {
-            UserDefaults.standard.set(
+            userDefaultsStore.set(
                 newValue.mapValues { [Double($0.count), $0.lastSeen] }, forKey: PreferenceKey.lowercaseStartCounts
             )
         }
@@ -150,8 +151,8 @@ extension AppState {
     static let maximumLowercaseStartTallies = 100
 
     private var rejectedLowercaseApps: Set<String> {
-        get { Set(UserDefaults.standard.stringArray(forKey: PreferenceKey.rejectedLowercaseApps) ?? []) }
-        set { UserDefaults.standard.set(newValue.sorted(), forKey: PreferenceKey.rejectedLowercaseApps) }
+        get { Set(userDefaultsStore.stringArray(forKey: PreferenceKey.rejectedLowercaseApps) ?? []) }
+        set { userDefaultsStore.set(newValue.sorted(), forKey: PreferenceKey.rejectedLowercaseApps) }
     }
 
     /// Count one lowercased start in `app`; after enough, dictation there

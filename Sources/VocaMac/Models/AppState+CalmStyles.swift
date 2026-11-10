@@ -325,7 +325,7 @@ extension AppState {
     /// must come back in the same tab).
     var calmStyleGroupStore: CalmStyleGroupStore {
         get {
-            let json = UserDefaults.standard.string(forKey: CalmStyleGroupStore.defaultsKey)
+            let json = userDefaultsStore.string(forKey: CalmStyleGroupStore.defaultsKey)
             if let cached = calmDerived.styleGroups, cached.json == json { return cached.store }
             let store = CalmStyleGroupStore.decode(json)
             calmDerived.styleGroups = (json, store)
@@ -334,7 +334,7 @@ extension AppState {
         set {
             var store = newValue
             if undoCenter.current == nil { store.prune(keepingKeys: calmLiveStyleGroupKeys) }
-            UserDefaults.standard.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
+            userDefaultsStore.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
             objectWillChange.send()
         }
     }

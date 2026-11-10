@@ -14,7 +14,7 @@ import XCTest
 final class CalmPrivacyStatementTests: XCTestCase {
 
     override func tearDown() {
-        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
+        TestDefaults.store.removeObject(forKey: PreferenceKey.selectedModelSize)
         super.tearDown()
     }
 

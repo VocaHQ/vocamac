@@ -24,7 +24,7 @@ final class CalmStylesTests: XCTestCase {
             PreferenceKey.autoCapitalize, PreferenceKey.appendTrailingSpace,
             CalmStyleGroupStore.defaultsKey,
         ] {
-            UserDefaults.standard.removeObject(forKey: key)
+            TestDefaults.store.removeObject(forKey: key)
         }
     }
 
@@ -508,13 +508,13 @@ final class CalmStylesTests: XCTestCase {
         state.calmStyleGroupStore = store
         state.writingStyleBindings = []
         // A stale pin (the store wasn't saved since the removal).
-        UserDefaults.standard.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
+        TestDefaults.store.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
 
         XCTAssertEqual(state.applySuggestedWritingStyles([suggestion], bindingsAtStart: []), 1)
         XCTAssertEqual(state.calmExistingGroup(for: slack), .messages)
 
         state.writingStyleBindings = [suggestion.binding]
-        UserDefaults.standard.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
+        TestDefaults.store.set(store.encodedJSON(), forKey: CalmStyleGroupStore.defaultsKey)
         state.calmResetStyleGroups(forApps: [suggestion.binding.id])
         XCTAssertEqual(state.calmExistingGroup(for: slack), .messages)
     }

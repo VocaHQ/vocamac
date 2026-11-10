@@ -107,7 +107,7 @@ final class AbandonedVoiceActivityStreamTests: XCTestCase {
 
         await appState.cancelRecording()
 
-        XCTAssertEqual(mocks.whisperService.cancelVoiceActivityStreamCallCount, 1)
+        XCTAssertEqual(mocks.transcriber.cancelVoiceActivityStreamCallCount, 1)
     }
 
     func testForceRecoveryReleasesTheSilenceStream() {
@@ -116,7 +116,7 @@ final class AbandonedVoiceActivityStreamTests: XCTestCase {
 
         appState.forceRecovery()
 
-        XCTAssertEqual(mocks.whisperService.cancelVoiceActivityStreamCallCount, 1)
+        XCTAssertEqual(mocks.transcriber.cancelVoiceActivityStreamCallCount, 1)
     }
 }
 

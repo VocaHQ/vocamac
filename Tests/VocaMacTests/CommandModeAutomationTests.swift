@@ -33,7 +33,7 @@ final class CommandModeAutomationTests: XCTestCase {
     /// One Command Mode session: press, say `instruction`, finish.
     private func say(_ instruction: String, _ fixture: Fixture) async {
         fixture.mocks.audioEngine.stopRecordingResult = [0.2]
-        fixture.mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        fixture.mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: instruction, duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -160,7 +160,7 @@ final class CommandModeAutomationTests: XCTestCase {
         fixture.cleanup.cleanHandler = { _ in "A short sentence." }
         await say("make this shorter", fixture)
 
-        fixture.mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        fixture.mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "something else entirely", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -796,7 +796,7 @@ final class CommandModeAutomationTests: XCTestCase {
 
         XCTAssertTrue(fixture.app.usesSeparateCommandSlot(for: .qwen3_4b_instruct_2507_q4_k_m))
         await say("rewrite", fixture)
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        await eventually { fixture.selection.replacement == "Other text." }
 
         XCTAssertEqual(fixture.selection.replacement, "Other text.")
         XCTAssertEqual(slot.loadedKind, .qwen3_4b_instruct_2507_q4_k_m)
@@ -916,7 +916,7 @@ final class CommandModeAutomationTests: XCTestCase {
         fixture.app.transcriptCleanupEnabled = true
         fixture.cleanup.cleanHandler = { _ in "Changed." }
         fixture.mocks.audioEngine.stopRecordingResult = [0.2]
-        fixture.mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        fixture.mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "The build passed, and I will merge it.", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )

@@ -13,34 +13,6 @@
 import Foundation
 import SherpaOnnxC
 
-// MARK: - SherpaError
-
-enum SherpaError: LocalizedError {
-    case modelNotLoaded
-    case unknownModel(String)
-    case modelFilesMissing(String)
-    case initializationFailed(reason: String)
-    case transcriptionFailed(reason: String)
-    case emptyAudio
-
-    var errorDescription: String? {
-        switch self {
-        case .modelNotLoaded:
-            return "No ONNX model is loaded. Please load a model first."
-        case .unknownModel(let name):
-            return "Unknown ONNX model: \(name)"
-        case .modelFilesMissing(let path):
-            return "Model files are missing at: \(path)"
-        case .initializationFailed(let reason):
-            return "Failed to initialize the ONNX model: \(reason)"
-        case .transcriptionFailed(let reason):
-            return "Transcription failed: \(reason)"
-        case .emptyAudio:
-            return "No audio data to transcribe."
-        }
-    }
-}
-
 // MARK: - SherpaService
 
 final class SherpaService: @unchecked Sendable {
@@ -179,12 +151,12 @@ final class SherpaService: @unchecked Sendable {
 
         guard let size = modelName.flatMap(ModelSize.init(rawValue:)),
               let spec = SherpaModelCatalog.spec(for: size) else {
-            throw SherpaError.unknownModel(modelName ?? "nil")
+            throw TranscriptionError.unknownModel(modelName ?? "nil")
         }
 
         let directory = Self.modelDirectory(for: spec)
         guard Self.modelFilesExist(for: spec) else {
-            throw SherpaError.modelFilesMissing(directory.path)
+            throw TranscriptionError.modelFilesMissing(directory.path)
         }
 
         let preferredLanguage = Self.normalizedLoadLanguage(language)
@@ -216,7 +188,7 @@ final class SherpaService: @unchecked Sendable {
         }
 
         guard let created else {
-            throw SherpaError.initializationFailed(reason: "sherpa-onnx rejected the model files at \(directory.path)")
+            throw TranscriptionError.initializationFailed(.sherpaOnnx, reason: "sherpa-onnx rejected the model files at \(directory.path)")
         }
 
         guard !Task.isCancelled else {
@@ -301,7 +273,7 @@ final class SherpaService: @unchecked Sendable {
         decodeLanguage: String? = nil
     ) async throws -> VocaTranscription {
         try Task.checkCancellation()
-        guard let request = snapshot() else { throw SherpaError.modelNotLoaded }
+        guard let request = snapshot() else { throw TranscriptionError.modelNotLoaded(.sherpaOnnx) }
         let size = request.size
         let hotwords: String?
         if case .qwen3Asr = SherpaModelCatalog.spec(for: size)?.kind {
@@ -577,7 +549,7 @@ final class SherpaService: @unchecked Sendable {
         samples: [Float], recognizer: OpaquePointer, hotwords: String?, language: String? = nil
     ) throws -> (text: String, lang: String) {
         guard let stream = SherpaOnnxCreateOfflineStream(recognizer) else {
-            throw SherpaError.transcriptionFailed(reason: "Could not create an ONNX audio stream.")
+            throw TranscriptionError.transcriptionFailed(reason: "Could not create an ONNX audio stream.")
         }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
         if let hotwords {
@@ -593,7 +565,7 @@ final class SherpaService: @unchecked Sendable {
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
 
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
-            throw SherpaError.transcriptionFailed(reason: "The ONNX decoder returned no result.")
+            throw TranscriptionError.transcriptionFailed(reason: "The ONNX decoder returned no result.")
         }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
 

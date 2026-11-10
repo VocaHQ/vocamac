@@ -10,30 +10,6 @@ import Foundation
 import FluidAudio
 import os
 
-// MARK: - ParakeetError
-
-enum ParakeetError: LocalizedError {
-    case modelNotLoaded
-    case initializationFailed(reason: String)
-    /// `underlying` is the error the engine threw, kept so the router can
-    /// tell a model fault from a cancellation without comparing messages.
-    case transcriptionFailed(reason: String, underlying: (any Error)? = nil)
-    case emptyAudio
-
-    var errorDescription: String? {
-        switch self {
-        case .modelNotLoaded:
-            return "No Parakeet model is loaded. Please load a model first."
-        case .initializationFailed(let reason):
-            return "Failed to initialize Parakeet: \(reason)"
-        case .transcriptionFailed(let reason, _):
-            return "Transcription failed: \(reason)"
-        case .emptyAudio:
-            return "No audio data to transcribe."
-        }
-    }
-}
-
 // MARK: - ParakeetService
 
 /// Unchecked: the loaded model and its bookkeeping live in `state`, behind a
@@ -184,7 +160,7 @@ final class ParakeetService: @unchecked Sendable {
         case .senseVoice:
             try await SenseVoiceNeuralEngineModel.download(onProgress: onProgress)
         case nil:
-            throw ParakeetError.initializationFailed(reason: "Unknown Parakeet variant: \(size.rawValue)")
+            throw TranscriptionError.initializationFailed(.parakeet, reason: "Unknown Parakeet variant: \(size.rawValue)")
         }
     }
 
@@ -227,7 +203,7 @@ final class ParakeetService: @unchecked Sendable {
 
         let size = modelName.flatMap(ModelSize.init(rawValue:)) ?? .parakeetV3
         guard let family = Self.family(for: size) else {
-            throw ParakeetError.initializationFailed(reason: "Unknown Parakeet variant: \(modelName ?? "nil")")
+            throw TranscriptionError.initializationFailed(.parakeet, reason: "Unknown Parakeet variant: \(modelName ?? "nil")")
         }
 
         VocaLogger.info(.parakeetService, "Loading Parakeet model: \(size.rawValue)...")
@@ -245,7 +221,7 @@ final class ParakeetService: @unchecked Sendable {
                 manager = .tdt(tdt)
             case .unified, .nemotronUnified:
                 guard let checkpoint = family.unifiedCheckpoint else {
-                    throw ParakeetError.initializationFailed(reason: "Unknown Parakeet variant: \(size.rawValue)")
+                    throw TranscriptionError.initializationFailed(.parakeet, reason: "Unknown Parakeet variant: \(size.rawValue)")
                 }
                 onPhaseChange?("Compiling neural engine…")
                 // Downloads only what is missing, then loads; a cache that
@@ -286,7 +262,7 @@ final class ParakeetService: @unchecked Sendable {
             throw CancellationError()
         } catch {
             VocaLogger.error(.parakeetService, "ERROR loading Parakeet model: \(error)")
-            throw ParakeetError.initializationFailed(reason: error.localizedDescription)
+            throw TranscriptionError.initializationFailed(.parakeet, reason: error.localizedDescription)
         }
     }
 
@@ -417,11 +393,11 @@ final class ParakeetService: @unchecked Sendable {
     ) async throws -> VocaTranscription {
         let loaded = state.withLock { state in state.manager.flatMap { manager in state.loadedSize.map { (manager, $0) } } }
         guard let (manager, size) = loaded else {
-            throw ParakeetError.modelNotLoaded
+            throw TranscriptionError.modelNotLoaded(.parakeet)
         }
 
         guard !audioData.isEmpty else {
-            throw ParakeetError.emptyAudio
+            throw TranscriptionError.emptyAudio(.parakeet)
         }
 
         let audioLengthSeconds = Double(audioData.count) / 16000.0
@@ -493,7 +469,7 @@ final class ParakeetService: @unchecked Sendable {
             // router would count it toward reloading the model.
             throw CancellationError()
         } catch {
-            throw ParakeetError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
+            throw TranscriptionError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
         }
     }
 }
@@ -570,7 +546,7 @@ extension ParakeetService {
               ),
               let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(max(1, samples.count))),
               let channel = buffer.floatChannelData?[0] else {
-            throw ParakeetError.transcriptionFailed(reason: "Could not allocate an audio buffer")
+            throw TranscriptionError.transcriptionFailed(reason: "Could not allocate an audio buffer")
         }
         buffer.frameLength = AVAudioFrameCount(samples.count)
         samples.withUnsafeBufferPointer { source in
@@ -604,7 +580,7 @@ extension ParakeetService {
             guard case .streamingUnified(let manager)? = state.manager, let size = state.loadedSize else { return nil }
             return (manager, size)
         }
-        guard let (manager, size) = loaded else { throw ParakeetError.modelNotLoaded }
+        guard let (manager, size) = loaded else { throw TranscriptionError.modelNotLoaded(.parakeet) }
 
         let started = CFAbsoluteTimeGetCurrent()
         var audio: [Float] = []
@@ -631,7 +607,7 @@ extension ParakeetService {
             timings += await manager.consumeTokenTimings()
             try await manager.reset()
 
-            guard !audio.isEmpty else { throw ParakeetError.emptyAudio }
+            guard !audio.isEmpty else { throw TranscriptionError.emptyAudio(.parakeet) }
             var text = await screenText(audio, finalText).trimmingCharacters(in: .whitespacesAndNewlines)
             let boostTerms = RecognitionHints.boostTerms(from: vocabulary())
             if !text.isEmpty, !boostTerms.isEmpty,
@@ -660,12 +636,12 @@ extension ParakeetService {
         } catch let error as RecordingTranscription.StreamError {
             try? await manager.reset()
             throw error
-        } catch let error as ParakeetError {
+        } catch let error as TranscriptionError {
             try? await manager.reset()
             throw error
         } catch {
             try? await manager.reset()
-            throw ParakeetError.transcriptionFailed(reason: error.localizedDescription)
+            throw TranscriptionError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
         }
     }
 }

@@ -28,9 +28,9 @@ enum SherpaAudioPreparation {
 
     /// Reject malformed input before segmentation or any native inference.
     static func validate(_ samples: [Float]) throws {
-        guard !samples.isEmpty else { throw SherpaError.emptyAudio }
+        guard !samples.isEmpty else { throw TranscriptionError.emptyAudio(.sherpaOnnx) }
         guard samples.allSatisfy({ $0.isFinite }) else {
-            throw SherpaError.transcriptionFailed(reason: "Audio contains non-finite samples.")
+            throw TranscriptionError.transcriptionFailed(reason: "Audio contains non-finite samples.")
         }
     }
 

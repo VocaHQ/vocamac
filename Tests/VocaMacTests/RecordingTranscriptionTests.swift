@@ -159,7 +159,7 @@ private actor FakePieceEngine {
         decodedLengths.append(samples.count)
         if let hold { await hold.wait() }
         if failOnDecode == decodedLengths.count - 1 {
-            throw WhisperError.transcriptionFailed(reason: "fake failure")
+            throw TranscriptionError.transcriptionFailed(reason: "fake failure")
         }
         let text = scriptedTexts.isEmpty ? Self.toneNames(samples) : scriptedTexts.removeFirst()
         return VocaTranscription(

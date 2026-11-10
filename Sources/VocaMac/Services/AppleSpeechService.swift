@@ -16,34 +16,6 @@ import os
 import Speech
 #endif
 
-// MARK: - AppleSpeechError
-
-enum AppleSpeechError: LocalizedError {
-    case unsupportedSystem
-    case modelNotLoaded
-    case localeNotSupported(String)
-    case audioFormatUnavailable
-    case transcriptionFailed(reason: String)
-    case emptyAudio
-
-    var errorDescription: String? {
-        switch self {
-        case .unsupportedSystem:
-            return "Apple Speech requires macOS 26 or later."
-        case .modelNotLoaded:
-            return "Apple Speech is not prepared. Please load the model first."
-        case .localeNotSupported(let locale):
-            return "Apple Speech does not support the language '\(locale)' on this Mac."
-        case .audioFormatUnavailable:
-            return "Apple Speech could not negotiate an audio format."
-        case .transcriptionFailed(let reason):
-            return "Transcription failed: \(reason)"
-        case .emptyAudio:
-            return "No audio data to transcribe."
-        }
-    }
-}
-
 // MARK: - AppleSpeechService
 
 /// Unchecked: the prepared state lives in `state`, behind a lock. The router
@@ -111,7 +83,7 @@ final class AppleSpeechService: @unchecked Sendable {
         onPhaseChange: ((String) -> Void)? = nil
     ) async throws {
         #if compiler(>=6.2)
-        guard #available(macOS 26.0, *) else { throw AppleSpeechError.unsupportedSystem }
+        guard #available(macOS 26.0, *) else { throw TranscriptionError.unsupportedSystem }
 
         VocaLogger.info(.appleSpeechService, "Preparing Apple Speech (system engine)...")
         let startTime = CFAbsoluteTimeGetCurrent()
@@ -137,7 +109,7 @@ final class AppleSpeechService: @unchecked Sendable {
         let elapsed = CFAbsoluteTimeGetCurrent() - startTime
         VocaLogger.info(.appleSpeechService, "Apple Speech ready in \(String(format: "%.2f", elapsed))s")
         #else
-        throw AppleSpeechError.unsupportedSystem
+        throw TranscriptionError.unsupportedSystem
         #endif
     }
 
@@ -168,7 +140,7 @@ final class AppleSpeechService: @unchecked Sendable {
         language: String? = nil,
         vocabulary: String = ""
     ) async throws -> VocaTranscription {
-        guard !audioData.isEmpty else { throw AppleSpeechError.emptyAudio }
+        guard !audioData.isEmpty else { throw TranscriptionError.emptyAudio(.appleSpeech) }
         let cursor = AudioChunkCursor(audioData)
         return try await transcribe(
             chunks: AsyncThrowingStream(unfolding: { await cursor.next() }),
@@ -188,7 +160,7 @@ final class AppleSpeechService: @unchecked Sendable {
         onPiece: (@Sendable (Int, TranscribedPiece) -> Void)? = nil
     ) async throws -> VocaTranscription {
         #if compiler(>=6.2)
-        guard #available(macOS 26.0, *) else { throw AppleSpeechError.unsupportedSystem }
+        guard #available(macOS 26.0, *) else { throw TranscriptionError.unsupportedSystem }
         let locale = language.map { Locale(identifier: $0) } ?? Locale.current
         let start = CFAbsoluteTimeGetCurrent()
         // Take the prepared analyzer, if it is for this locale. Finished
@@ -203,7 +175,7 @@ final class AppleSpeechService: @unchecked Sendable {
         }
         guard taken.isPrepared else {
             await taken.session?.cancel()
-            throw AppleSpeechError.modelNotLoaded
+            throw TranscriptionError.modelNotLoaded(.appleSpeech)
         }
         defer { prepareNextSession(for: locale, generation: taken.generation) }
         let session: any PreparedSpeechSession
@@ -246,7 +218,7 @@ final class AppleSpeechService: @unchecked Sendable {
             throw error
         }
         #else
-        throw AppleSpeechError.unsupportedSystem
+        throw TranscriptionError.unsupportedSystem
         #endif
     }
 
@@ -342,7 +314,7 @@ enum AppleSpeechEngine {
         let interval = PerformanceTrace.begin("AppleSpeechPreparation")
         defer { PerformanceTrace.end(interval) }
         guard let resolved = await resolveSupportedLocale(matching: locale) else {
-            throw AppleSpeechError.localeNotSupported(locale.identifier)
+            throw TranscriptionError.localeNotSupported(locale.identifier)
         }
         // Word time ranges and confidences come back as attributes on each
         // result's text (`timedWords(in:)`).
@@ -356,7 +328,7 @@ enum AppleSpeechEngine {
         }
         guard let bestFormat = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]),
               let format = analyzerInputFormat(for: bestFormat) else {
-            throw AppleSpeechError.audioFormatUnavailable
+            throw TranscriptionError.audioFormatUnavailable
         }
         let analyzer = SpeechAnalyzer(modules: [transcriber])
         onPhaseChange?("Preparing speech recognition…")
@@ -390,7 +362,7 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
         contextUpdates: LiveVocabulary?,
         onFinal: @escaping @Sendable (String, Double, [TimedWord]) -> Void
     ) async throws -> (String, Int) {
-        guard !started else { throw AppleSpeechError.modelNotLoaded }
+        guard !started else { throw TranscriptionError.modelNotLoaded(.appleSpeech) }
         started = true
         await applyContext(contextualStrings)
         // Screen terms arrive a moment after recording starts. The audio
@@ -492,17 +464,17 @@ actor SpeechInputCursor {
         var input: AVAudioPCMBuffer?
         if let samples, !samples.isEmpty {
             guard let buffer = AVAudioPCMBuffer(pcmFormat: AudioEngine.whisperFormat, frameCapacity: AVAudioFrameCount(count)),
-                  let destination = buffer.floatChannelData?[0] else { throw AppleSpeechError.audioFormatUnavailable }
+                  let destination = buffer.floatChannelData?[0] else { throw TranscriptionError.audioFormatUnavailable }
             buffer.frameLength = AVAudioFrameCount(count)
             samples.withUnsafeBufferPointer { source in
                 if let base = source.baseAddress { destination.update(from: base, count: count) }
             }
             input = buffer
         }
-        guard let converter else { throw AppleSpeechError.audioFormatUnavailable }
+        guard let converter else { throw TranscriptionError.audioFormatUnavailable }
         let capacity = AVAudioFrameCount(ceil(Double(max(1, count)) * format.sampleRate / 16_000) + 1024)
         guard let output = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
-            throw AppleSpeechError.audioFormatUnavailable
+            throw TranscriptionError.audioFormatUnavailable
         }
         let provider = SpeechConverterInput(buffer: input, isEnd: samples == nil)
         var error: NSError?
@@ -512,7 +484,7 @@ actor SpeechInputCursor {
         }
         PerformanceTrace.end(interval)
         if let error { throw error }
-        guard status != .error else { throw AppleSpeechError.audioFormatUnavailable }
+        guard status != .error else { throw TranscriptionError.audioFormatUnavailable }
         // At EOF one call can return only part of what the converter holds.
         let isEmpty = output.frameLength == 0
         if status == .endOfStream || (ended && isEmpty) { drained = true }

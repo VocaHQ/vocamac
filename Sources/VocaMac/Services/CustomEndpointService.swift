@@ -13,12 +13,9 @@
 import Foundation
 import os
 
-/// Failures the endpoint can return, named like the other engines' errors.
+/// HTTP and configuration failures particular to the endpoint. "Not loaded"
+/// and "nothing recorded" use the shared `TranscriptionError`.
 enum CustomEndpointError: LocalizedError, Equatable {
-    /// `transcribe` was called before `loadModel` succeeded.
-    case modelNotLoaded
-    /// Nothing was recorded to send.
-    case emptyAudio
     /// The saved endpoint settings cannot produce a request.
     case notConfigured(String)
     /// The endpoint answered with a non-2xx status.
@@ -28,10 +25,6 @@ enum CustomEndpointError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .modelNotLoaded:
-            return "The custom endpoint is not loaded."
-        case .emptyAudio:
-            return "Nothing was recorded."
         case .notConfigured(let problem):
             return problem
         case .endpointRejected(let status, _):
@@ -131,8 +124,8 @@ final class CustomEndpointService: SpeechTranscribing, @unchecked Sendable {
         translate: Bool,
         vocabulary: String
     ) async throws -> VocaTranscription {
-        guard isModelLoaded else { throw CustomEndpointError.modelNotLoaded }
-        guard !audioData.isEmpty else { throw CustomEndpointError.emptyAudio }
+        guard isModelLoaded else { throw TranscriptionError.modelNotLoaded(.customEndpoint) }
+        guard !audioData.isEmpty else { throw TranscriptionError.emptyAudio(.customEndpoint) }
         let configuration = configurationProvider()
         guard let url = configuration.transcriptionsURL else {
             let problem = configuration.validationProblem() ?? "The endpoint settings are invalid."

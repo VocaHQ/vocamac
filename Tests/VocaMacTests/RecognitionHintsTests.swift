@@ -207,12 +207,12 @@ final class RecognitionHintsTests: XCTestCase {
     // MARK: Router recovery
 
     func testOnlyRealDecodeFailuresCountTowardReload() {
-        XCTAssertTrue(TranscriptionRouter.isModelFailure(WhisperError.transcriptionFailed(reason: "x")))
-        XCTAssertTrue(TranscriptionRouter.isModelFailure(ParakeetError.transcriptionFailed(reason: "x")))
+        XCTAssertTrue(TranscriptionRouter.isModelFailure(TranscriptionError.transcriptionFailed(reason: "x")))
+        XCTAssertTrue(TranscriptionRouter.isModelFailure(TranscriptionError.transcriptionFailed(reason: "x")))
         XCTAssertFalse(TranscriptionRouter.isModelFailure(CancellationError()))
-        XCTAssertFalse(TranscriptionRouter.isModelFailure(WhisperError.emptyAudio))
-        XCTAssertFalse(TranscriptionRouter.isModelFailure(ParakeetError.modelNotLoaded))
-        XCTAssertFalse(TranscriptionRouter.isModelFailure(AppleSpeechError.emptyAudio))
-        XCTAssertFalse(TranscriptionRouter.isModelFailure(SherpaError.modelNotLoaded))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(TranscriptionError.emptyAudio(.whisperKit)))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(TranscriptionError.modelNotLoaded(.parakeet)))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(TranscriptionError.emptyAudio(.appleSpeech)))
+        XCTAssertFalse(TranscriptionRouter.isModelFailure(TranscriptionError.modelNotLoaded(.sherpaOnnx)))
     }
 }

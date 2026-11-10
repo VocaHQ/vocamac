@@ -151,6 +151,30 @@ final class SpeechEndpointConfigurationTests: XCTestCase {
         XCTAssertNil(configuration.validationProblem())
     }
 
+    func testRecordingDestinationAllowsHTTPSAndPrivateCleartextOnly() throws {
+        func allows(_ string: String) throws -> Bool {
+            SpeechEndpointConfiguration.allowsRecordingDestination(try XCTUnwrap(URL(string: string)))
+        }
+        // Plain HTTP only to this Mac, RFC1918 and .local names.
+        XCTAssertTrue(try allows("http://localhost:8080/v1/audio/transcriptions"))
+        XCTAssertTrue(try allows("http://127.0.0.1:9000/inference"))
+        XCTAssertTrue(try allows("http://[::1]:9000/inference"))
+        XCTAssertTrue(try allows("http://10.1.2.3/inference"))
+        XCTAssertTrue(try allows("http://172.20.0.5/inference"))
+        XCTAssertTrue(try allows("http://192.168.0.10/inference"))
+        XCTAssertTrue(try allows("http://whisper.local/inference"))
+        XCTAssertFalse(try allows("http://speech.example.com/inference"))
+        XCTAssertFalse(try allows("http://8.8.8.8/inference"))
+        XCTAssertFalse(try allows("http://169.254.169.254/latest"))
+        // HTTPS anywhere.
+        XCTAssertTrue(try allows("https://api.openai.com/v1/audio/transcriptions"))
+        XCTAssertTrue(try allows("https://8.8.8.8/inference"))
+        // Never another scheme, a missing host, or credentials in the URL.
+        XCTAssertFalse(try allows("ftp://192.168.0.10/inference"))
+        XCTAssertFalse(try allows("file:///tmp/recording.wav"))
+        XCTAssertFalse(try allows("https://user:secret@api.example.com/v1"))
+    }
+
     func testSpeechCleartextRejectsLinkLocalAndBareHostnames() {
         XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("169.254.169.254"))
         XCTAssertFalse(SpeechEndpointConfiguration.isCleartextAllowedHost("fe80::1"))
@@ -341,10 +365,10 @@ final class CustomEndpointServiceTests: XCTestCase {
                 audioData: [0.5], language: nil, translate: false, vocabulary: ""
             )
             XCTFail("expected modelNotLoaded")
-        } catch let error as CustomEndpointError {
-            XCTAssertEqual(error, .modelNotLoaded)
+        } catch TranscriptionError.modelNotLoaded(let engine) {
+            XCTAssertEqual(engine, .customEndpoint)
         } catch {
-            XCTFail("expected CustomEndpointError, got \(error)")
+            XCTFail("expected TranscriptionError.modelNotLoaded, got \(error)")
         }
     }
 
@@ -356,10 +380,10 @@ final class CustomEndpointServiceTests: XCTestCase {
                 audioData: [], language: nil, translate: false, vocabulary: ""
             )
             XCTFail("expected emptyAudio")
-        } catch let error as CustomEndpointError {
-            XCTAssertEqual(error, .emptyAudio)
+        } catch TranscriptionError.emptyAudio(let engine) {
+            XCTAssertEqual(engine, .customEndpoint)
         } catch {
-            XCTFail("expected CustomEndpointError, got \(error)")
+            XCTFail("expected TranscriptionError.emptyAudio, got \(error)")
         }
     }
 

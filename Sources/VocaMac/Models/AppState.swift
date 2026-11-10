@@ -3065,6 +3065,7 @@ final class AppState: ObservableObject {
             // when they arrive.
             let vocabulary = customVocabulary
             let targets = replacementTargets
+            let usage = termUsage
             let transcriber = whisperService
             let translate = translatesSpeech
             earlyDecode = Task {
@@ -3073,7 +3074,7 @@ final class AppState: ObservableObject {
                     vocabularyAfterDecode: {
                         let contextTerms = await contextTermsRead.value
                         return await Self.recognitionVocabulary(
-                            vocabulary, replacementTargets: targets, contextTerms: contextTerms
+                            vocabulary, replacementTargets: targets, contextTerms: contextTerms, usage: usage
                         )
                     }
                 )

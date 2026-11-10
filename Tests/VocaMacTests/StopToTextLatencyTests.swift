@@ -47,6 +47,13 @@ final class StopToTextLatencyTests: XCTestCase {
         XCTAssertFalse(TranscriptRepetition.isRunawayInProgress(text))
     }
 
+    func testOneWordPastTheLoopIsNotRunaway() {
+        // The decode has started moving on: stopping now would cut the rest
+        // of the sentence.
+        let text = Array(repeating: "Chalo.", count: 20).joined(separator: " ") + " and"
+        XCTAssertFalse(TranscriptRepetition.isRunawayInProgress(text))
+    }
+
     func testRepetitionSomeoneMightSayIsNotRunaway() {
         XCTAssertFalse(TranscriptRepetition.isRunawayInProgress("no no no no"))
         XCTAssertFalse(TranscriptRepetition.isRunawayInProgress("thank you, thank you, thank you"))

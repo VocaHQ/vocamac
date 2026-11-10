@@ -1294,12 +1294,9 @@ final class AppState: ObservableObject {
             return self.isRecording || self.appStatus == .recording || self.appStatus == .processing
         }
 
-        // Forward updateChecker changes so SwiftUI views observing AppState
-        // re-render when updateState changes (nested ObservableObject fix).
-        updateChecker.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.objectWillChange.send() }
-            .store(in: &cancellables)
+        // The update checker's changes are not forwarded: the views that show
+        // it observe it through `ObservedContent`, so a download's progress
+        // redraws them alone rather than every view that reads AppState.
 
         // Forward statsManager changes
         statsManager.objectWillChangePublisher

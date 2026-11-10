@@ -56,6 +56,11 @@ struct UpdateDetailView: View {
     private var notes: [ReleaseNotes.Block] { ReleaseNotes.blocks(from: info.releaseNotes) }
 
     var body: some View {
+        // Redraws with the download's progress; AppState doesn't forward it.
+        ObservedContent(object: appState.updateChecker) { _ in content }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 

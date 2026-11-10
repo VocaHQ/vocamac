@@ -77,11 +77,6 @@ struct CalmAboutSettings: View {
             .settingsTarget("github-issues", aliases: ["discord", "x", "email"])
         }
         .task { modelsOnDisk = await appState.calmModelsDiskUsage() }
-        .onChange(of: appState.updateChecker.updateState) { old, new in
-            // A check that finds an update (here or from the menu footer) opens it.
-            guard old == .checking, let info = Self.availableInfo(new) else { return }
-            updateInfo = info
-        }
         .calmDialog(item: $updateInfo) { info in
             CalmUpdateDialog(info: info)
         }
@@ -89,7 +84,20 @@ struct CalmAboutSettings: View {
 
     // MARK: Identity
 
+    /// Observes the update checker itself: AppState doesn't forward its
+    /// changes, so only this part of the page redraws during a download.
     private var identity: some View {
+        ObservedContent(object: appState.updateChecker) { checker in
+            identityContent
+                .onChange(of: checker.updateState) { old, new in
+                    // A check that finds an update (here or from the menu footer) opens it.
+                    guard old == .checking, let info = Self.availableInfo(new) else { return }
+                    updateInfo = info
+                }
+        }
+    }
+
+    private var identityContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 20) {
                 CalmBrandMark(size: 72)

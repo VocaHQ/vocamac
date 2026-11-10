@@ -753,21 +753,22 @@ struct CalmSettingsMenu: View {
         .padding(CalmMetrics.sheetMenuPadding)
     }
 
-    @ViewBuilder
     private var updateButton: some View {
-        if appState.updateChecker.updateState == .checking {
-            CalmSpinner(size: 15)
-                .frame(width: 28, height: 28)
-        } else {
-            Button {
-                navigator.select(.about)
-                Task { await appState.updateChecker.checkForUpdates() }
-            } label: {
-                CalmIcon(.update, size: 15)
+        ObservedContent(object: appState.updateChecker) { checker in
+            if checker.updateState == .checking {
+                CalmSpinner(size: 15)
+                    .frame(width: 28, height: 28)
+            } else {
+                Button {
+                    navigator.select(.about)
+                    Task { await checker.checkForUpdates() }
+                } label: {
+                    CalmIcon(.update, size: 15)
+                }
+                .calmIconButton(size: 28)
+                .accessibilityLabel("Check for updates")
+                .help("Check for updates")
             }
-            .calmIconButton(size: 28)
-            .accessibilityLabel("Check for updates")
-            .help("Check for updates")
         }
     }
 

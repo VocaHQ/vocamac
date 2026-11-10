@@ -212,9 +212,13 @@ struct MenuBarView: View {
 
     private var supplementaryContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if AppDistribution.hasSelfUpdate, let info = appState.updateChecker.activeUpdateInfo {
-                UpdateBannerView(info: info, updateWindowManager: updateWindowManager)
-                    .menuPanelCard()
+            if AppDistribution.hasSelfUpdate {
+                ObservedContent(object: appState.updateChecker) { checker in
+                    if let info = checker.activeUpdateInfo {
+                        UpdateBannerView(info: info, updateWindowManager: updateWindowManager)
+                            .menuPanelCard()
+                    }
+                }
             }
 
             // Setup problems come first: nothing else works until they are fixed.

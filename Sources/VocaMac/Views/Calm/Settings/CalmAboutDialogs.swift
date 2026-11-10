@@ -20,15 +20,18 @@ struct CalmUpdateDialog: View {
     private var state: UpdateState { appState.updateChecker.updateState }
 
     var body: some View {
-        CalmDialog(
-            "\(CalmAdvancedSummary.displayVersion(info)) is available",
-            description: "You have \(CalmSettingsMenu.appVersion).",
-            width: 460
-        ) {
-            notes
-            progress
-        } footer: {
-            footer
+        // Redraws with the update's progress; AppState doesn't forward it.
+        ObservedContent(object: appState.updateChecker) { _ in
+            CalmDialog(
+                "\(CalmAdvancedSummary.displayVersion(info)) is available",
+                description: "You have \(CalmSettingsMenu.appVersion).",
+                width: 460
+            ) {
+                notes
+                progress
+            } footer: {
+                footer
+            }
         }
     }
 

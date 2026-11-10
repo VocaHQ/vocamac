@@ -336,11 +336,11 @@ final class CalmGeneralAppStateTests: XCTestCase {
     func testLeavingGeneralWhileTheTestWaitsForTheModelClosesTheMicrophone() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadDelayNanoseconds = 1_000_000_000
-        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadDelayNanoseconds = 1_000_000_000
+        let (appState, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -354,7 +354,7 @@ final class CalmGeneralAppStateTests: XCTestCase {
         await appState.stopSettingsTestDictation()
         await waitUntil { !mocks.audioEngine.isCurrentlyRecording }
         XCTAssertFalse(mocks.audioEngine.isCurrentlyRecording, "The microphone must close before the load ends")
-        XCTAssertFalse(mocks.whisperService.isModelLoaded, "Closed while the model was still loading")
+        XCTAssertFalse(mocks.transcriber.isModelLoaded, "Closed while the model was still loading")
 
         await start.value
         XCTAssertFalse(appState.isStartingSettingsTest)

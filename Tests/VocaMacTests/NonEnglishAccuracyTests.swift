@@ -187,18 +187,18 @@ final class SpokenLanguageReloadTests: XCTestCase {
         appState.selectedLanguage = TranscriptionLanguage.auto.code
         await appState.loadModel(.nemotronUnified)
         await appState.languageDidChange()
-        let loads = mocks.whisperService.loadRequests.count
+        let loads = mocks.transcriber.loadRequests.count
 
         // Recognition stays on Auto, but Nemotron loaded with German.
         appState.setSpokenLanguages(["de", "fr"])
         XCTAssertEqual(appState.selectedLanguage, TranscriptionLanguage.auto.code)
         await appState.languageDidChange()
 
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, loads + 1)
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, loads + 1)
 
         // The same languages again change nothing.
         await appState.languageDidChange()
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, loads + 1)
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, loads + 1)
     }
 
     func testTheKeyFollowsWhatAModelLoadsWith() {

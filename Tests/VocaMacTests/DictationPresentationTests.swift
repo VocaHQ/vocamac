@@ -92,7 +92,7 @@ final class DictationPresentationTests: XCTestCase {
     }
 
     func testReadinessRequiresPermissionsEvenWithALoadedModel() {
-        mocks.whisperService.isModelLoaded = true
+        mocks.transcriber.isModelLoaded = true
         XCTAssertTrue(state.isDictationReady)
         mocks.permissionManager.micPermission = .denied
         XCTAssertEqual(state.dictationReadinessTitle, "Microphone access needed")
@@ -103,14 +103,14 @@ final class DictationPresentationTests: XCTestCase {
     }
 
     func testIdleUnloadedDownloadedModelRemainsReady() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         XCTAssertEqual(state.dictationReadinessTitle, "Ready")
         state.availableModels = [model(.tiny, downloaded: false)]
         XCTAssertEqual(state.dictationReadinessTitle, "Choose a speech model")
     }
 
     func testUninitializedCatalogIsNotReportedAsReady() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         state.availableModels = []
         XCTAssertFalse(state.isDictationReady)
         XCTAssertEqual(state.dictationReadinessTitle, "Preparing speech model…")
@@ -129,7 +129,7 @@ final class DictationPresentationTests: XCTestCase {
     func testShortcutPracticeUsesRealRecordingFlowWithoutInjection() async {
         state.armOnboardingVerification(.shortcut)
         mocks.audioEngine.stopRecordingResult = Array(repeating: 0.1, count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "This is a shortcut test", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
         await state.startRecordingFromActivationShortcut()
@@ -146,7 +146,7 @@ final class DictationPresentationTests: XCTestCase {
     func testInsertionAttemptDoesNotAutomaticallyClaimSuccess() async {
         state.armOnboardingVerification(.insertion)
         mocks.audioEngine.stopRecordingResult = Array(repeating: 0.1, count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "Insert these words", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
         await state.startRecordingFromActivationShortcut()
@@ -164,7 +164,7 @@ final class DictationPresentationTests: XCTestCase {
     func testButtonPracticeDoesNotClaimShortcutVerificationEvenWhenArmed() async {
         state.armOnboardingVerification(.shortcut)
         mocks.audioEngine.stopRecordingResult = Array(repeating: 0.1, count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "Button practice", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 1, modelUsed: .tiny
         )
         await state.startRecording(injectResult: false)

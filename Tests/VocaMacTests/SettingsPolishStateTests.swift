@@ -69,27 +69,27 @@ final class SettingsPolishStateTests: XCTestCase {
     }
 
     func testNoModelNeededWhenTheModelListIsNotPopulatedYet() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         appState.availableModels = []
         XCTAssertFalse(appState.needsSpeechModel)
     }
 
     func testModelNeededWhenTheSelectedOneIsNotDownloaded() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         appState.selectedModelSize = ModelSize.tiny.rawValue
         appState.availableModels = [model(.tiny, downloaded: false)]
         XCTAssertTrue(appState.needsSpeechModel)
     }
 
     func testIdleUnloadOfADownloadedModelIsNotMissing() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         appState.selectedModelSize = ModelSize.tiny.rawValue
         appState.availableModels = [model(.tiny, downloaded: true)]
         XCTAssertFalse(appState.needsSpeechModel)
     }
 
     func testNoModelNeededWhileOneIsDownloadingOrLoading() {
-        mocks.whisperService.isModelLoaded = false
+        mocks.transcriber.isModelLoaded = false
         appState.selectedModelSize = ModelSize.tiny.rawValue
         appState.availableModels = [model(.tiny, downloaded: false, progress: 0.4)]
         XCTAssertFalse(appState.needsSpeechModel)
@@ -98,7 +98,7 @@ final class SettingsPolishStateTests: XCTestCase {
     }
 
     func testNoModelNeededWhenOneIsLoaded() {
-        mocks.whisperService.isModelLoaded = true
+        mocks.transcriber.isModelLoaded = true
         appState.availableModels = [model(.tiny, downloaded: false)]
         XCTAssertFalse(appState.needsSpeechModel)
     }

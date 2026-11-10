@@ -495,7 +495,7 @@ struct MenuBarView: View {
                          : model.size.displayName)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else if appState.whisperService.isModelLoaded {
+                } else if appState.transcriber.isModelLoaded {
                     Text("Model: \(appState.loadedModelDisplayName ?? "Loaded")")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

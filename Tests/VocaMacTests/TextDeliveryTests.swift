@@ -146,7 +146,7 @@ final class TextDeliveryPlanTests: XCTestCase {
         appState.autoSendMode = .spokenCue
         defer { UserDefaults.standard.removeObject(forKey: PreferenceKey.autoSendMode) }
         mocks.frontmostAppResolver.frontmostApp = slack
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "See you at five. Send it.", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.2, count: 8_000)
@@ -168,7 +168,7 @@ final class TextDeliveryPlanTests: XCTestCase {
             UserDefaults.standard.removeObject(forKey: PreferenceKey.historyEnabled)
         }
         mocks.frontmostAppResolver.frontmostApp = slack
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "See you at five. Send it.", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
         )
         mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.2, count: 8_000)

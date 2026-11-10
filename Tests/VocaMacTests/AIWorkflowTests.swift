@@ -844,7 +844,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.transcriptCleanupEnabled = true
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -881,7 +881,7 @@ final class CommandModeFlowTests: XCTestCase {
         XCTAssertNil(app.commandModeSession)
 
         mocks.audioEngine.stopRecordingResult = Array(repeating: Float(0.1), count: 16_000)
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "hello there", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1, modelUsed: .tiny
         )
@@ -905,7 +905,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         app.commandModeHoldThreshold = 60
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -940,7 +940,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_1_5b_q4_k_m
         app.commandModeHoldThreshold = 0
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -977,7 +977,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         XCTAssertFalse(app.transcriptCleanupEnabled)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "make this shorter", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1017,7 +1017,7 @@ final class CommandModeFlowTests: XCTestCase {
             modelID: "tiny", language: "en", audioSeconds: 1, now: Date().addingTimeInterval(-3 * 24 * 60 * 60)
         )
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1045,7 +1045,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         app.historyEnabled = false
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1107,7 +1107,7 @@ final class CommandModeFlowTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         cleanup.onTransform = { [weak app] in await app?.cancelDictation() }
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite this", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1129,7 +1129,7 @@ final class CommandModeFlowTests: XCTestCase {
         cleanup.cleanHandler = { _ in "First line." }
         let (app, mocks) = AppState.makeTestState(transcriptCleanup: cleanup, selectedTextService: selection)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "fix the capitalization", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1195,7 +1195,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen3_4b_instruct_2507_q4_k_m
         app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1217,7 +1217,7 @@ final class CommandModeFlowTests: XCTestCase {
         cleanup.cleanHandler = { _ in "Cleaned text." }
         cleanup.onClean = { [weak app] in await app?.cancelDictation() }
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "um so this is a dictation", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )
@@ -1240,7 +1240,7 @@ final class CommandModeFlowTests: XCTestCase {
         app.selectedCleanupModelKind = .qwen25_0_5b_q4_k_m
         app.commandModeEngine = .local(.qwen3_4b_instruct_2507_q4_k_m)
         mocks.audioEngine.stopRecordingResult = [0.2]
-        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+        mocks.transcriber.mockTranscriptionResult = VocaTranscription(
             text: "rewrite", duration: 0, detectedLanguage: "en",
             audioLengthSeconds: 1.0 / 16_000, modelUsed: .tiny
         )

@@ -1005,7 +1005,7 @@ extension AppState {
     @MainActor
     static func makeTestState(
         modelManager: MockModelManager = MockModelManager(),
-        whisperService: MockWhisperService = MockWhisperService(),
+        transcriber: MockWhisperService = MockWhisperService(),
         transcriptCleanup: MockTranscriptCleanup? = nil,
         historyStore: DictationHistoryStore? = nil,
         screenContextReader: (any ScreenContextReading)? = nil,
@@ -1092,7 +1092,7 @@ extension AppState {
             permissionManager: permissionManager,
             cursorOverlay: cursorOverlay,
             modelManager: modelManager,
-            whisperService: whisperService,
+            transcriber: transcriber,
             textInjector: textInjector,
             statsManager: statsManager,
             frontmostAppResolver: frontmostAppResolver,
@@ -1100,7 +1100,7 @@ extension AppState {
         )
         let appState = AppState(
             audioEngine: audioEngine,
-            whisperService: whisperService,
+            transcriber: transcriber,
             textInjector: textInjector,
             hotKeyManager: hotKeyManager,
             modelManager: modelManager,
@@ -1147,7 +1147,7 @@ struct TestMocks {
     let permissionManager: MockPermissionManager
     let cursorOverlay: MockCursorOverlay
     let modelManager: MockModelManager
-    let whisperService: MockWhisperService
+    let transcriber: MockWhisperService
     let textInjector: MockTextInjector
     let statsManager: MockStatsManager
     let frontmostAppResolver: MockFrontmostAppResolver

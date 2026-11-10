@@ -32,7 +32,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState()
         XCTAssertFalse(app.processWhileSpeaking)
         await app.startRecording()
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit)
         await app.cancelRecording()
     }
 
@@ -40,7 +40,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState()
         app.processWhileSpeaking = true
         await app.startRecording()
-        let commit = mocks.whisperService.lastStreamingCommit
+        let commit = mocks.transcriber.lastStreamingCommit
         XCTAssertNotNil(commit)
         XCTAssertNotNil(commit?.vocabulary, "Whisper reads recognition vocabulary per piece")
         XCTAssertEqual(commit?.revisesPrevious, true)
@@ -51,12 +51,12 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         let (app, mocks) = AppState.makeTestState()
         app.processWhileSpeaking = true
         await app.startRecording(injectResult: false)
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit, "previews and practice show batch output")
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit, "previews and practice show batch output")
         await app.cancelRecording()
 
         app.translationEnabled = true
         await app.startRecording()
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit, "Whisper translation always decodes in batch")
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit, "Whisper translation always decodes in batch")
         await app.cancelRecording()
     }
 
@@ -68,7 +68,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.transcriptCleanupEnabled = true
         await app.beginCommandMode()
         XCTAssertTrue(app.isRecording)
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit)
         await app.cancelRecording()
     }
 
@@ -78,10 +78,10 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.transcriptCleanupEnabled = true
         app.appendTrailingSpace = false
         mocks.transcriptCleanup.cleanHandler = { $0.replacingOccurrences(of: "could could", with: "could") }
-        mocks.whisperService.streamingFactory = committedSession([first, second])
+        mocks.transcriber.streamingFactory = committedSession([first, second])
 
         await app.startRecording()
-        mocks.whisperService.lastStreamingCommit?.onPiece?(0, first)
+        mocks.transcriber.lastStreamingCommit?.onPiece?(0, first)
         await waitUntil { mocks.transcriptCleanup.speculateCallCount == 1 }
         mocks.audioEngine.onAudioSamples?([0.2, 0.3], 0)
         mocks.audioEngine.onAudioSamples?([0.4], 2)
@@ -89,7 +89,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await app.stopRecordingAndTranscribe()
 
         XCTAssertEqual(mocks.textInjector.lastInjectedText, "So we could ship it on friday. Then we talk about the review.")
-        XCTAssertNil(mocks.whisperService.lastTranscribedAudioData, "no batch decode")
+        XCTAssertNil(mocks.transcriber.lastTranscribedAudioData, "no batch decode")
         XCTAssertEqual(mocks.transcriptCleanup.speculateCallCount, 1)
         XCTAssertEqual(mocks.transcriptCleanup.cleanCallCount, 1, "only the last piece is cleaned after stop")
         XCTAssertLessThanOrEqual(mocks.transcriptCleanup.maxConcurrentModelCalls, 1)
@@ -102,10 +102,10 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         var release: CheckedContinuation<Void, Never>?
         mocks.transcriptCleanup.onSpeculate = { await withCheckedContinuation { release = $0 } }
         mocks.transcriptCleanup.onCancelCleanup = { release?.resume(); release = nil }
-        mocks.whisperService.streamingFactory = committedSession([first, second])
+        mocks.transcriber.streamingFactory = committedSession([first, second])
 
         await app.startRecording()
-        mocks.whisperService.lastStreamingCommit?.onPiece?(0, first)
+        mocks.transcriber.lastStreamingCommit?.onPiece?(0, first)
         await waitUntil { release != nil }
         await app.cancelRecording()
 
@@ -117,14 +117,14 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
     func testPiecesThatDontCoverTheRecordingFallBackToBatch() async {
         let (app, mocks) = AppState.makeTestState()
         app.processWhileSpeaking = true
-        mocks.whisperService.streamingFactory = committedSession([first])
+        mocks.transcriber.streamingFactory = committedSession([first])
 
         await app.startRecording()
         mocks.audioEngine.onAudioSamples?([0.2, 0.3, 0.4], 0)
         mocks.audioEngine.stopRecordingResult = [0.2, 0.3, 0.4]
         await app.stopRecordingAndTranscribe()
 
-        XCTAssertEqual(mocks.whisperService.lastTranscribedAudioData, [0.2, 0.3, 0.4])
+        XCTAssertEqual(mocks.transcriber.lastTranscribedAudioData, [0.2, 0.3, 0.4])
         XCTAssertEqual(app.lastTranscription?.text, "mock transcription")
         XCTAssertEqual(app.lastTranscription?.pieces, [])
     }
@@ -142,7 +142,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.processWhileSpeaking = true
         app.transcriptCleanupEnabled = true
         await app.startRecording()
-        XCTAssertEqual(mocks.whisperService.lastStreamingCommit?.revisesPrevious, false,
+        XCTAssertEqual(mocks.transcriber.lastStreamingCommit?.revisesPrevious, false,
                        "a corrected piece would be cleaned twice")
         await app.cancelRecording()
     }
@@ -152,12 +152,12 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.processWhileSpeaking = true
         app.isPowerConstrained = { true }
         await app.startRecording()
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit)
         await app.cancelRecording()
 
         app.isPowerConstrained = { false }
         await app.startRecording()
-        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertNotNil(mocks.transcriber.lastStreamingCommit)
         await app.cancelRecording()
     }
 
@@ -180,14 +180,14 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.processWhileSpeaking = true
         app.activationMode = .pushToTalk
         await app.startRecording()
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit?.earlyDecodeQuietSeconds,
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit?.earlyDecodeQuietSeconds,
                      "push to talk stops on key-up, right after the last word")
         await app.cancelRecording()
 
         app.activationMode = .doubleTapToggle
         app.silenceDuration = 2
         await app.startRecording()
-        let commit = mocks.whisperService.lastStreamingCommit
+        let commit = mocks.transcriber.lastStreamingCommit
         XCTAssertEqual(commit?.earlyDecodeQuietSeconds ?? 0, 2.0 / 3, accuracy: 0.001)
         XCTAssertEqual(commit?.isReadyForEarlyDecode?(), true, "no context terms can change the vocabulary")
         XCTAssertNotNil(commit?.onTentativePiece)
@@ -207,16 +207,16 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
 
         app.selectedModelSize = ModelSize.small.rawValue
         await app.startRecording()
-        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit?.vocabulary)
-        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit?.isReadyForEarlyDecode)
+        XCTAssertNotNil(mocks.transcriber.lastStreamingCommit?.vocabulary)
+        XCTAssertNotNil(mocks.transcriber.lastStreamingCommit?.isReadyForEarlyDecode)
         await app.cancelRecording()
 
         // Nothing to read or wait for: the vocabulary never reaches the model.
         app.selectedModelSize = ModelSize.vocaHinglish.rawValue
         await app.startRecording()
-        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit, "pieces still decode while speaking")
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit?.vocabulary)
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit?.isReadyForEarlyDecode)
+        XCTAssertNotNil(mocks.transcriber.lastStreamingCommit, "pieces still decode while speaking")
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit?.vocabulary)
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit?.isReadyForEarlyDecode)
         await app.cancelRecording()
     }
 
@@ -234,23 +234,23 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         // The streaming export transcribes the whole recording as it comes.
         app.selectedModelSize = ModelSize.parakeetUnified.rawValue
         await app.startRecording()
-        XCTAssertNil(mocks.whisperService.lastStreamingCommit)
-        XCTAssertGreaterThan(mocks.whisperService.streamingStartCount, 0, "a live session still starts")
+        XCTAssertNil(mocks.transcriber.lastStreamingCommit)
+        XCTAssertGreaterThan(mocks.transcriber.streamingStartCount, 0, "a live session still starts")
         await app.cancelRecording()
 
         // A model without one keeps processing while speaking.
         app.selectedModelSize = ModelSize.parakeetV3.rawValue
         await app.startRecording()
-        XCTAssertNotNil(mocks.whisperService.lastStreamingCommit)
+        XCTAssertNotNil(mocks.transcriber.lastStreamingCommit)
         await app.cancelRecording()
     }
 
     func testStreamingReloadTargetOnlyWhenEncoderDisagrees() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.parakeetUnified]
-        let whisperService = MockWhisperService()
-        whisperService.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
-        let (app, _) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
+        let (app, _) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         // Loading writes the shared model choice; put it back for later tests.
         let originalModel = app.selectedModelSize
         defer {
@@ -266,23 +266,23 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.parakeetLiveStreaming = true
         XCTAssertEqual(app.liveStreamingReloadTarget(), .parakeetUnified)
 
-        whisperService.isLiveStreamingLoaded = true
+        transcriber.isLiveStreamingLoaded = true
         XCTAssertNil(app.liveStreamingReloadTarget(), "streaming encoder matches the setting")
     }
 
     func testStreamingChangeDuringLoadIsAppliedAfterIt() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.parakeetUnified]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
-        whisperService.loadResponses = [
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        transcriber.loadResponses = [
             .success(ModelSize.parakeetUnified.rawValue),
             .success(ModelSize.parakeetUnified.rawValue),
         ]
         let gate = StepGate()
-        whisperService.loadGate = gate
-        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        transcriber.loadGate = gate
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         // Loading writes the shared model choice; put it back for later tests.
         let originalModel = app.selectedModelSize
         defer {
@@ -301,15 +301,15 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await load.value
         await reload.value
 
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, 2, "the change is applied, not dropped")
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, 2, "the change is applied, not dropped")
     }
 
     func testImportedStreamingChangeKeepsTheImportedModelChoice() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.parakeetUnified]
-        let whisperService = MockWhisperService()
-        whisperService.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
-        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        let transcriber = MockWhisperService()
+        transcriber.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = app.selectedModelSize
         defer {
             app.selectedModelSize = originalModel
@@ -325,7 +325,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         await app.reloadModelForLiveStreamingChangeIfNeeded()
 
         XCTAssertEqual(app.selectedModelSize, ModelSize.parakeetV3.rawValue)
-        XCTAssertEqual(mocks.whisperService.loadRequests.count, 1, "the old model is not reloaded")
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, 1, "the old model is not reloaded")
     }
 
     func testStreamingSettingIsSearchableAndArchived() {
@@ -346,10 +346,10 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         app.transcriptCleanupEnabled = true
         app.appendTrailingSpace = false
         mocks.transcriptCleanup.cleanHandler = { $0.replacingOccurrences(of: "could could", with: "could") }
-        mocks.whisperService.streamingFactory = committedSession([first, second])
+        mocks.transcriber.streamingFactory = committedSession([first, second])
 
         await app.startRecording()
-        let commit = mocks.whisperService.lastStreamingCommit
+        let commit = mocks.transcriber.lastStreamingCommit
         commit?.onPiece?(0, first)
         commit?.onTentativePiece?(1, second)
         await waitUntil { mocks.transcriptCleanup.speculateCallCount == 2 }
@@ -364,7 +364,7 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
     func testWaitAfterStopIsRecordedForStats() async {
         let (app, mocks) = AppState.makeTestState()
         app.processWhileSpeaking = true
-        mocks.whisperService.streamingFactory = committedSession([first, second])
+        mocks.transcriber.streamingFactory = committedSession([first, second])
         await app.startRecording()
         mocks.audioEngine.onAudioSamples?([0.2, 0.3, 0.4], 0)
         mocks.audioEngine.stopRecordingResult = [0.2, 0.3, 0.4]

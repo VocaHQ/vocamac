@@ -114,7 +114,7 @@ final class DictationStateCheckTests: XCTestCase {
 
     func testFailedTranscription() async {
         let (appState, mocks) = AppState.makeTestState()
-        mocks.whisperService.shouldThrow = true
+        mocks.transcriber.shouldThrow = true
         mocks.audioEngine.stopRecordingResult = speech
         await appState.startRecording()
         await appState.stopRecordingAndTranscribe()
@@ -170,12 +170,12 @@ final class DictationStateCheckTests: XCTestCase {
     func testReleaseWhileTheModelLoads() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.tiny]
-        let whisperService = MockWhisperService()
-        whisperService.loadedModelName = nil
-        whisperService.isModelLoaded = false
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
         let gate = StepGate()
-        whisperService.loadGate = gate
-        let (appState, _) = AppState.makeTestState(modelManager: modelManager, whisperService: whisperService)
+        transcriber.loadGate = gate
+        let (appState, _) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = appState.selectedModelSize
         defer { appState.selectedModelSize = originalModel }
         appState.selectedModelSize = ModelSize.tiny.rawValue
@@ -194,7 +194,7 @@ final class DictationStateCheckTests: XCTestCase {
         let (appState, mocks) = AppState.makeTestState()
         mocks.audioEngine.stopRecordingResult = speech
         let gate = StepGate()
-        mocks.whisperService.transcribeGate = gate
+        mocks.transcriber.transcribeGate = gate
         await appState.startRecording()
         let stop = Task { await appState.stopRecordingAndTranscribe() }
         let reachedGate = await gate.waitUntilReached()

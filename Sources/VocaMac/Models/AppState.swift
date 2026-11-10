@@ -1041,7 +1041,7 @@ final class AppState: ObservableObject {
     // MARK: - Services
 
     let audioEngine: AudioRecording
-    let whisperService: SpeechTranscribing
+    let transcriber: SpeechTranscribing
     let textInjector: TextInjecting
     let hotKeyManager: HotKeyMonitoring
     let modelManager: ModelManaging
@@ -1202,7 +1202,7 @@ final class AppState: ObservableObject {
 
     init(
         audioEngine: AudioRecording = AudioEngine(),
-        whisperService: SpeechTranscribing = TranscriptionRouter(),
+        transcriber: SpeechTranscribing = TranscriptionRouter(),
         textInjector: TextInjecting = TextInjector(),
         hotKeyManager: HotKeyMonitoring = HotKeyManager(),
         modelManager: ModelManaging = ModelManager(),
@@ -1229,7 +1229,7 @@ final class AppState: ObservableObject {
         skipSystemIntegration: Bool = false
     ) {
         self.audioEngine = audioEngine
-        self.whisperService = whisperService
+        self.transcriber = transcriber
         self.textInjector = textInjector
         self.hotKeyManager = hotKeyManager
         self.modelManager = modelManager
@@ -1685,7 +1685,7 @@ final class AppState: ObservableObject {
             // frees the transcriber and leaves a GGUF resident forever.
             return self.appStatus == .idle
                 && !self.isAutoPaused
-                && (self.whisperService.isModelLoaded || self.transcriptCleanup.isLoaded)
+                && (self.transcriber.isModelLoaded || self.transcriptCleanup.isLoaded)
         }
         modelKeepAlive.onIdleUnload = { [weak self] in
             Task { @MainActor in
@@ -1755,7 +1755,7 @@ final class AppState: ObservableObject {
         modelKeepAlive.cancel()
         let beforeMB = ProcessMonitor.currentResidentMemoryMB()
         processMemoryBeforeUnloadMB = beforeMB
-        await whisperService.unloadModel()
+        await transcriber.unloadModel()
         transcriptCleanup.unload()
         // Give the allocator a beat to release pages before sampling again.
         try? await Task.sleep(nanoseconds: 150_000_000)
@@ -1785,7 +1785,7 @@ final class AppState: ObservableObject {
 
     /// User-facing summary of why the model is currently unloaded.
     var modelUnloadStatusMessage: String? {
-        guard !whisperService.isModelLoaded else { return nil }
+        guard !transcriber.isModelLoaded else { return nil }
         if isAutoPaused {
             if let name = autoPauseTriggerDisplayName, !name.isEmpty {
                 return "Paused while \(name) is running. The speech model was unloaded to free memory."
@@ -1810,7 +1810,7 @@ final class AppState: ObservableObject {
     /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
     var needsSpeechModel: Bool {
         appStatus == .idle
-            && !whisperService.isModelLoaded
+            && !transcriber.isModelLoaded
             // Not yet populated at launch: nothing is known to be missing.
             && !availableModels.isEmpty
             && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
@@ -1819,7 +1819,7 @@ final class AppState: ObservableObject {
 
     /// Ensure a model is loaded before dictation (lazy reload after idle unload).
     func ensureModelLoaded() async {
-        guard !whisperService.isModelLoaded else { return }
+        guard !transcriber.isModelLoaded else { return }
         let size = ModelSize(rawValue: selectedModelSize)
             ?? currentModel?.size
             ?? .tiny
@@ -1827,7 +1827,7 @@ final class AppState: ObservableObject {
         // Checked again once earlier model operations finish: a load queued
         // ahead of this one may already have loaded a model.
         _ = try? await modelOperationSerializer.run { @MainActor [self] in
-            guard !whisperService.isModelLoaded else { return }
+            guard !transcriber.isModelLoaded else { return }
             await performLoadModel(size)
         }
     }
@@ -1867,7 +1867,7 @@ final class AppState: ObservableObject {
     }
 
     private func unloadModelForAutoPause() async {
-        if whisperService.isModelLoaded {
+        if transcriber.isModelLoaded {
             await unloadActiveModel(reason: .autoPause)
         } else {
             lastModelUnloadReason = .autoPause
@@ -2313,7 +2313,7 @@ final class AppState: ObservableObject {
 
         // Reset UI state
         isRecording = false
-        whisperService.cancelVoiceActivityStream()
+        transcriber.cancelVoiceActivityStream()
         audioLevel = 0.0
         cursorOverlay.hide()
         appStatus = .idle
@@ -2462,7 +2462,7 @@ final class AppState: ObservableObject {
         }
 
         // Lazy-reload after idle unload (or any other cold start).
-        if !whisperService.isModelLoaded {
+        if !transcriber.isModelLoaded {
             // The first download can take minutes. Say so instead of leaving
             // the hotkey looking stuck on "processing" until it finishes.
             if startupModelPreparation != nil,
@@ -2505,12 +2505,12 @@ final class AppState: ObservableObject {
             // its warm-up decode, which this dictation would only wait for.
             // Set before waiting on the launch load too, so a dictation that
             // starts while that load runs skips its warm-up as well.
-            whisperService.setRecordingWaitingForLoad(true)
+            transcriber.setRecordingWaitingForLoad(true)
             if let startupModelPreparation {
                 await startupModelPreparation.value
             }
             await ensureModelLoaded()
-            whisperService.setRecordingWaitingForLoad(false)
+            transcriber.setRecordingWaitingForLoad(false)
             isLoadingModelForRecording = false
             cursorOverlay.setLoadingSpeechModel(false)
             let pendingStop = pendingStopDuringModelLoad
@@ -2528,7 +2528,7 @@ final class AppState: ObservableObject {
                 await unloadModelForAutoPause()
                 return
             }
-            guard whisperService.isModelLoaded else {
+            guard transcriber.isModelLoaded else {
                 discardEarlyCapture()
                 endHotKeyToggleSession()
                 showOverlayFailure("Couldn't load the speech model.")
@@ -2630,7 +2630,7 @@ final class AppState: ObservableObject {
         earlyCapture = nil
         let commit = adoptedCapture == nil
             ? commitOptionsForRecording(injectResult: injectResult, generation: generation) : nil
-        let session = adoptedCapture == nil ? whisperService.startStreaming(
+        let session = adoptedCapture == nil ? transcriber.startStreaming(
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             vocabulary: recognitionHintVocabulary,
             liveVocabulary: recordingVocabulary ?? sessionVocabulary(),
@@ -2655,7 +2655,7 @@ final class AppState: ObservableObject {
         // Apple Speech finishes its own session without a batch decode.
         let voiceActivity = adoptedCapture == nil && !recordingProcessesWhileSpeaking
             && recordingEngine != .appleSpeech
-            ? whisperService.startVoiceActivityStream() : nil
+            ? transcriber.startVoiceActivityStream() : nil
         audioEngine.onAudioSamples = Self.sampleObserver(session: session, voiceActivity: voiceActivity)
         let didStartRecording: Bool
         if let adoptedCapture {
@@ -3122,7 +3122,7 @@ final class AppState: ObservableObject {
             let vocabulary = Self.recognitionVocabulary(
                 customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
             )
-            let transcriber = whisperService
+            let transcriber = self.transcriber
             let translate = translatesSpeech
             earlyDecode = Task {
                 try await transcriber.transcribe(
@@ -3136,7 +3136,7 @@ final class AppState: ObservableObject {
             let vocabulary = customVocabulary
             let targets = replacementTargets
             let usage = termUsage
-            let transcriber = whisperService
+            let transcriber = self.transcriber
             let translate = translatesSpeech
             earlyDecode = Task {
                 try await transcriber.transcribe(
@@ -3190,7 +3190,7 @@ final class AppState: ObservableObject {
                     try Task.checkCancellation()
                     PerformanceTrace.event("StreamingBatchFallback")
                     VocaLogger.warning(.appState, "Live transcription unavailable; decoding the complete recording")
-                    result = try await whisperService.transcribe(
+                    result = try await transcriber.transcribe(
                         audioData: audioData, language: language,
                         translate: translatesSpeech, vocabulary: recognitionVocabulary
                     )
@@ -3204,7 +3204,7 @@ final class AppState: ObservableObject {
                 }
             } else {
                 session?.cancel()
-                result = try await whisperService.transcribe(
+                result = try await transcriber.transcribe(
                     audioData: audioData, language: language,
                     translate: translatesSpeech, vocabulary: recognitionVocabulary
                 )
@@ -3572,7 +3572,7 @@ final class AppState: ObservableObject {
     /// would be taken as an editing command for the stale selection.
     private func discardRecordingState() {
         isRecording = false
-        whisperService.cancelVoiceActivityStream()
+        transcriber.cancelVoiceActivityStream()
         audioLevel = 0.0
         screenContextTask?.cancel()
         screenContextTask = nil
@@ -3788,11 +3788,11 @@ final class AppState: ObservableObject {
         loadGeneration += 1
         let generation = loadGeneration
 
-        let previousLoadedModelName = whisperService.loadedModelName
+        let previousLoadedModelName = transcriber.loadedModelName
         let previousModelSize = currentModel?.size
             ?? previousLoadedModelName.flatMap { modelManager.modelSize(from: $0) }
             ?? ModelSize(rawValue: selectedModelSize)
-        let hadLoadedModel = whisperService.isModelLoaded
+        let hadLoadedModel = transcriber.isModelLoaded
 
         // Decide the model here rather than passing nil and letting WhisperKit
         // auto-select. Its choice arrives with no progress reporting and lands
@@ -3904,7 +3904,7 @@ final class AppState: ObservableObject {
                     }
                 }
             }
-            let speech = whisperService
+            let speech = transcriber
             let load = Task { try await speech.loadModel(name: modelName, folder: folderURL, onPhaseChange: onPhaseChange) }
             inFlightModelLoad = load
             defer { if inFlightModelLoad == load { inFlightModelLoad = nil } }
@@ -4006,8 +4006,8 @@ final class AppState: ObservableObject {
         guard let size = currentModel?.size,
               ModelSize(rawValue: selectedModelSize) == size,
               size.transcribesWhileSpeaking,
-              whisperService.isModelLoaded,
-              whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {
+              transcriber.isModelLoaded,
+              transcriber.isLiveStreamingLoaded != parakeetLiveStreaming else {
             return nil
         }
         return size
@@ -4020,7 +4020,7 @@ final class AppState: ObservableObject {
     func reloadModelForLanguageChangeIfNeeded() async {
         guard let size = currentModel?.size,
               size.bindsLanguageAtLoadTime,
-              whisperService.isModelLoaded else {
+              transcriber.isModelLoaded else {
             return
         }
 
@@ -4138,7 +4138,7 @@ final class AppState: ObservableObject {
             // The engine may have completed after cancellation even though
             // performLoadModel correctly declined to publish the stale model.
             // Keep service and AppState readiness aligned.
-            await whisperService.unloadModel()
+            await transcriber.unloadModel()
             clearActiveModelState()
 
             // A language change queues a replacement preparation that will
@@ -4339,7 +4339,7 @@ final class AppState: ObservableObject {
                 ? modelManager.modelFolder(for: previousSize)
                 : nil
             let restoreName = previousName ?? modelManager.modelIdentifier(for: previousSize)
-            try await whisperService.loadModel(name: restoreName, folder: folderURL)
+            try await transcriber.loadModel(name: restoreName, folder: folderURL)
             CompiledModelRecord().recordLoad(previousSize)
             markModelActive(previousSize)
             VocaLogger.info(.appState, "Restored previous model: \(previousSize.displayName)")
@@ -4598,7 +4598,7 @@ final class AppState: ObservableObject {
             await self?.updateChecker.checkOnLaunchIfNeeded()
         }
 
-        whisperService.removeRetiredEngineState()
+        transcriber.removeRetiredEngineState()
         transcriptCleanup.pruneUnknownModels()
         adoptRecommendedModelIfNeverChosen()
 
@@ -4714,7 +4714,7 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Loading model: \(modelToLoad.displayName)...")
         await loadModel(modelToLoad)
-        VocaLogger.info(.appState, "Model loaded: \(whisperService.loadedModelName ?? "none")")
+        VocaLogger.info(.appState, "Model loaded: \(transcriber.loadedModelName ?? "none")")
     }
 
     func completeOnboarding() {
@@ -5113,17 +5113,17 @@ final class AppState: ObservableObject {
             isTranscribingMedia = false
             if appStatus == .processing { appStatus = .idle }
         }
-        if !whisperService.isModelLoaded {
+        if !transcriber.isModelLoaded {
             await ensureModelLoaded()
         }
-        guard whisperService.isModelLoaded else {
+        guard transcriber.isModelLoaded else {
             throw CLIError(.modelNotDownloaded, "The selected speech model could not be loaded.")
         }
         let loaded = try await Task.detached(priority: .userInitiated) {
             try AudioFileLoader().loadAudio(at: url)
         }.value
         let language = selectedLanguage == "auto" ? nil : selectedLanguage
-        let result = try await whisperService.transcribe(
+        let result = try await transcriber.transcribe(
             audioData: loaded.samples,
             language: language,
             translate: translatesSpeech,
@@ -5152,13 +5152,13 @@ final class AppState: ObservableObject {
             isTranscribingMedia = false
             if appStatus == .processing { appStatus = .idle }
         }
-        if !whisperService.isModelLoaded { await ensureModelLoaded() }
-        guard whisperService.isModelLoaded else { throw CLIError(.modelNotDownloaded, "The selected model could not be loaded.") }
+        if !transcriber.isModelLoaded { await ensureModelLoaded() }
+        guard transcriber.isModelLoaded else { throw CLIError(.modelNotDownloaded, "The selected model could not be loaded.") }
         // Cancelled when the capture window is closed and its audio
         // discarded: stop before (or during) the decode, and never record a
         // result nobody will see.
         try Task.checkCancellation()
-        let result = try await whisperService.transcribe(
+        let result = try await transcriber.transcribe(
             audioData: samples,
             language: selectedLanguage == "auto" ? nil : selectedLanguage,
             translate: translatesSpeech,
@@ -5225,10 +5225,10 @@ final class AppState: ObservableObject {
         let samples = await stopAudioEngine()
         // Under a quarter of a second at 16 kHz is a click, not a word.
         guard samples.count >= 4_000 else { return "" }
-        if !whisperService.isModelLoaded { await ensureModelLoaded() }
-        guard whisperService.isModelLoaded else { return nil }
+        if !transcriber.isModelLoaded { await ensureModelLoaded() }
+        guard transcriber.isModelLoaded else { return nil }
         do {
-            let result = try await whisperService.transcribe(
+            let result = try await transcriber.transcribe(
                 audioData: samples,
                 language: selectedLanguage == "auto" ? nil : selectedLanguage,
                 translate: false,
@@ -5402,11 +5402,11 @@ extension AppState {
         do {
             let samples = try await historyStore.loadAudio(for: entry)
             await ensureModelLoaded()
-            guard whisperService.isModelLoaded else {
+            guard transcriber.isModelLoaded else {
                 showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
                 return nil
             }
-            let result = try await whisperService.transcribe(
+            let result = try await transcriber.transcribe(
                 audioData: samples,
                 language: selectedLanguage == "auto" ? nil : selectedLanguage,
                 translate: translatesSpeech,
@@ -5505,7 +5505,7 @@ extension AppState {
     /// for people.
     var loadedModelDisplayName: String? {
         if let model = currentModel { return CalmModelText.name(model.size) }
-        guard let name = whisperService.loadedModelName else { return nil }
+        guard let name = transcriber.loadedModelName else { return nil }
         let size = ModelSize(rawValue: name) ?? modelManager.modelSize(from: name)
         return size.map(CalmModelText.name) ?? name
     }

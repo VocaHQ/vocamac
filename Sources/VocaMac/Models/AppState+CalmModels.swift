@@ -616,7 +616,7 @@ extension AppState {
     /// The speech model the engine has loaded, whichever way it reports it.
     var calmLoadedSpeechModel: ModelSize? {
         if let model = currentModel { return model.size }
-        guard let name = whisperService.loadedModelName else { return nil }
+        guard let name = transcriber.loadedModelName else { return nil }
         return ModelSize(rawValue: name) ?? modelManager.modelSize(from: name)
     }
 
@@ -624,7 +624,7 @@ extension AppState {
     /// (“Whisper Tiny”, “Parakeet v3”), falling back to the engine's own
     /// identifier when the catalog doesn't know it.
     var calmLoadedSpeechModelName: String? {
-        calmLoadedSpeechModel.map(CalmModelText.name) ?? whisperService.loadedModelName
+        calmLoadedSpeechModel.map(CalmModelText.name) ?? transcriber.loadedModelName
     }
 
     /// The speech model dictation uses, or is switching to while it loads.

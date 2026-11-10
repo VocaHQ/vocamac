@@ -1,608 +1,293 @@
-# VocaMac - Technical Architecture Document
+# VocaMac architecture
 
-**Version:** 1.0
-**Date:** 2026-03-04
-**Author:** Jatin Kumar Malik
-**Status:** Draft
+How a dictation travels from the hotkey to text in the focused app, and which
+type owns each step. File names are under `Sources/VocaMac/` unless noted.
+Rules for changing this code (layering, concurrency, logging, tests) live in
+[`AGENTS.md`](../AGENTS.md); this page describes what the code does today.
 
----
+## 1. Overview
 
-## 1. System Overview
-
-VocaMac is a native macOS menu bar application built with Swift and SwiftUI. It captures microphone audio, transcribes it locally using WhisperKit, and injects the resulting text at the cursor position in any application.
-
-### High-Level Architecture
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│                     macOS System Layer                        │
-│  ┌────────────┐  ┌──────────────┐  ┌───────────────────┐    │
-│  │ CGEventTap │  │ AVAudioEngine│  │   NSPasteboard    │    │
-│  │ (Hotkeys)  │  │ (Microphone) │  │ + CGEvent (Paste) │    │
-│  └─────┬──────┘  └──────┬───────┘  └────────┬──────────┘    │
-│        │                │                     │               │
-├────────┼────────────────┼─────────────────────┼───────────────┤
-│        │          VocaMac Application         │               │
-│        ▼                ▼                     ▲               │
-│  ┌───────────┐  ┌─────────────┐  ┌───────────────────┐      │
-│  │ HotKey    │  │ Audio       │  │   TextInjector    │      │
-│  │ Manager   │  │ Engine      │  │                   │      │
-│  └─────┬─────┘  └──────┬──────┘  └────────▲──────────┘      │
-│        │               │                   │                  │
-│        ▼               ▼                   │                  │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │                   AppState                           │    │
-│  │          (Observable, Reactive State)                │    │
-│  └───────────────────────┬──────────────────────────────┘    │
-│                          │                                    │
-│                          ▼                                    │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │              WhisperService                          │    │
-│  │         (WhisperKit (CoreML))                   │    │
-│  │     ┌──────────────────────────────┐                 │    │
-│  │     │       ModelManager           │                 │    │
-│  │     │  (Download, Load, Detect)    │                 │    │
-│  │     └──────────────────────────────┘                 │    │
-│  └──────────────────────────────────────────────────────┘    │
-│                                                               │
-│  ┌──────────────────────────────────────────────────────┐    │
-│  │                   SwiftUI Layer                       │    │
-│  │  ┌──────────────┐  ┌────────────┐  ┌──────────────┐ │    │
-│  │  │ MenuBarView  │  │CalmWindow  │                  │    │
-│  │  └──────────────┘  └────────────┘  └──────────────┘ │    │
-│  └──────────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 2. Technology Stack
-
-| Layer | Technology | Version | Purpose |
-|-------|-----------|---------|---------|
-| Language | Swift | 5.9+ | Primary development language |
-| UI | SwiftUI | macOS 13+ | Menu bar UI, settings, onboarding |
-| Audio | AVAudioEngine | macOS 13+ | Real-time microphone capture |
-| Hotkeys | CGEventTap (Quartz) | macOS 13+ | System-wide key event interception |
-| Text Injection | NSPasteboard + CGEvent | macOS 13+ | Clipboard-based text insertion |
-| STT Engine | WhisperKit | 0.9.4+ | CoreML-based on-device speech-to-text (Whisper) |
-| STT Engine | FluidAudio | 0.12.4+ | NVIDIA Parakeet TDT as CoreML on the Neural Engine |
-| STT Engine | Apple Speech | macOS 26+ | SpeechAnalyzer/SpeechTranscriber system engine |
-| STT Engine | sherpa-onnx | 1.13.8 | Specialized ONNX models (Moonshine, SenseVoice, GigaAM, Canary, Qwen3-ASR), CPU-only |
-| Acceleration | Metal | macOS 13+ | GPU-accelerated inference on Apple Silicon |
-| Build | Swift Package Manager | 5.9+ | Dependency management and build |
-| Min OS | macOS 14 Sonoma | - | Minimum supported macOS version |
-| Update Checks | GitHub Releases API | v3 | In-app release detection and DMG download |
-
----
-
-## 3. Module Design
-
-### 3.1 Module Dependency Graph
+VocaMac is a native macOS menu bar app (Swift, SwiftUI, Apple Silicon only,
+macOS 14+). It records the microphone while a hotkey is held or toggled,
+transcribes on this Mac with one of four engines (or a Custom Endpoint the
+user hosts), tidies the text with rules and an optional local model, and
+inserts it at the cursor.
 
 ```
-VocaMacApp (entry point)
-    ├── AppState (shared state)
-    │     ├── HotKeyManager
-    │     ├── AudioEngine
-    │     ├── WhisperService
-    │     │     └── ModelManager
-    │     │           └── SystemInfo
-    │     ├── UpdateChecker
-    │     ├── FrontmostAppResolver
-    │     │     └── WritingStyleResolver → WritingProfile (format, intent, cleanup policy)
-    │     ├── RecordingTranscription (live session; optional commit mode)
-    │     │     └── SpeechSegmenter (cuts pieces at pauses while recording)
-    │     ├── CleanupSpeculator (cleans finished pieces before stop)
-    │     ├── PauseParagraphs (blank line at a long pause between sentences,
-    │     │     found in the recording's loudness, placed by word timings)
-    │     ├── DictationOutputPipeline
-    │     │     ├── SnippetExpander / RewriteProtectedText
-    │     │     ├── CleanupNeed (skips the model when the rules left it nothing to do)
-    │     │     ├── TranscriptCleanupService (one optional local inference;
-    │     │     │     reads its prompt ahead, stops a runaway answer early)
-    │     │     ├── RewriteValidation (reject → deterministic fallback)
-    │     │     └── WritingStyleEngine → SpokenSymbolTransformer
-    │     ├── Command Mode
-    │     │     ├── AccessibilitySelectedTextService (selection, cursor, re-select, undo)
-    │     │     ├── CommandInstruction / CommandExactEdit (intent; rule edits, no model)
-    │     │     ├── VoiceActionParser → VoiceActionPolicy → VoiceActionPerforming
-    │     │     ├── CommandModelRunner (prompt → answer → CommandOutputCheck → one retry)
-    │     │     │     └── TextTransforming (local slot, Apple Intelligence, or endpoint)
-    │     │     └── CommandReviewPanelController (diff to approve; answers)
-    │     └── TextInjector
-    │     └── SoundManager
-    ├── MenuBarView
-    └── CalmWindowView (sidebar pages + Settings sheet)
-```
-
-### 3.2 Module Specifications
-
-#### 3.2.1 `VocaMacApp` - Application Entry Point
-
-**Responsibility:** Bootstrap the app, configure as menu bar-only (no Dock icon), initialize all services.
-
-**Key Design Decisions:**
-- Uses `MenuBarExtra` (SwiftUI, macOS 13+) for the menu bar presence
-- Sets `LSUIElement = true` in Info.plist to hide from Dock
-- Creates `AppState` as `@StateObject` and passes it through the environment
-
-**Lifecycle:**
-```
-App Launch
-  → Initialize AppState
-  → AppState checks permissions
-  → AppState loads default model
-  → MenuBarExtra renders
-  → HotKeyManager starts listening
-  → App is ready
-```
-
-#### 3.2.2 `AppState` - Central State Management
-
-**Responsibility:** Single source of truth for all app state. Observable object that drives reactive UI updates.
-
-**Key State Properties:**
-```swift
-@Published var appStatus: AppStatus           // .idle, .recording, .processing, .error
-@Published var currentModel: WhisperModelInfo // Currently loaded model
-@Published var activationMode: ActivationMode // .pushToTalk, .doubleTapToggle
-@Published var isRecording: Bool
-@Published var audioLevel: Float              // 0.0 - 1.0, for visual feedback
-@Published var lastTranscription: String?
-@Published var micPermission: PermissionStatus
-@Published var accessibilityPermission: PermissionStatus
-@Published var selectedLanguage: String       // "auto" or ISO 639-1 code
-```
-
-**Orchestration Logic:**
-```
-HotKey Triggered (start)
-  → Set appStatus = .recording
-  → AudioEngine.startRecording()
-
-HotKey Triggered (stop)
-  → AudioEngine.stopRecording() → returns [Float]
-  → Set appStatus = .processing
-  → WhisperService.transcribe([Float]) → returns String
-  → TextInjector.inject(String)
-  → Set appStatus = .idle
-```
-
-#### 3.2.3 `HotKeyManager` - Global Hotkey Listener
-
-**Responsibility:** Listen for system-wide key events to trigger recording start/stop.
-
-**Implementation Approach:**
-- Uses `CGEvent.tapCreate()` to create a Mach port event tap
-- Tap is inserted at `.cgSessionEventTap` level for user-session coverage
-- The tap acts as an event filter and consumes only the configured hotkey events so they don't leak into the frontmost app
-- Callback processes `keyDown`/`keyUp` events for regular keys and `flagsChanged` events for modifier keys
-
-**Activation Modes:**
-
-| Mode | Trigger Start | Trigger Stop |
-|------|--------------|--------------|
-| Push-to-Talk | Key down | Key up |
-| Double-Tap Toggle | 2nd tap within threshold | Next double-tap, or silence detection |
-
-**Double-Tap Detection Algorithm:**
-```
-On keyDown:
-  currentTime = now()
-  if (currentTime - lastKeyDownTime) < doubleTapThreshold:
-    → Fire "double tap" event
-    → Reset lastKeyDownTime
-  else:
-    → Store lastKeyDownTime = currentTime
-
-On keyUp:
-  (Used only for push-to-talk mode)
-```
-
-**Default Hotkey:** Right Option (keyCode 61). Users can choose a preset or record any single activation key from Settings; the selected key is reserved by VocaMac while the app is running.
-
-**Required Permissions:** Accessibility and Input Monitoring (System Settings → Privacy & Security)
-
-#### 3.2.4 `AudioEngine` - Microphone Capture
-
-**Responsibility:** Capture audio from the microphone in the format required by WhisperKit.
-
-**Audio Pipeline:**
-```
-Microphone → AVAudioInputNode → Format Converter → Buffer Accumulator
-                                  (16kHz, mono,      ([Float] array)
-                                   Float32 PCM)
-```
-
-**Key Configuration:**
-- Sample rate: 16,000 Hz (WhisperKit requirement)
-- Channels: 1 (mono)
-- Format: Float32 PCM
-- Buffer size: 4096 frames per callback
-
-**Silence Detection:**
-- Calculate RMS energy of each buffer
-- Track time since last buffer above silence threshold
-- Trigger silence callback when silence exceeds configured duration
-- Configurable threshold (default: 0.01 RMS) and duration (default: 2.0s)
-
-**Audio Level Reporting:**
-- Normalize RMS energy to 0.0–1.0 range
-- Report to AppState on each buffer for UI visualization
-- Throttle updates to ~15 Hz to avoid excessive UI refreshes
-
-#### 3.2.5 `WhisperService` - Speech-to-Text Engine
-
-**Responsibility:** Load WhisperKit models and perform transcription.
-
-**Integration Strategy:**
-- WhisperKit is included as a Swift Package Manager dependency (see Package.swift)
-- Provides a native Swift async/await API — no C bridging required
-- Models are in CoreML format, optimized per-device by Apple's Neural Engine
-
-**Core API:**
-```swift
-class WhisperService {
-    func loadModel(path: String) throws
-    func transcribe(audioData: [Float], language: String?) async throws -> TranscriptionResult
-    func unloadModel()
-    var isModelLoaded: Bool { get }
-}
-```
-
-**Transcription Flow:**
-```
-audioData: [Float]
-  → whisper_full_default_params(WHISPER_SAMPLING_GREEDY)
-  → Configure params (language, threads, etc.)
-  → whisper_full(ctx, params, audioData, count)
-  → Iterate segments: whisper_full_get_segment_text()
-  → Concatenate segments → TranscriptionResult
-```
-
-**Threading:**
-- Transcription runs on a background thread (Swift async/await)
-- Number of threads = min(processorCount, 4) for optimal performance
-- Model loading also happens on background thread
-
-**Metal Acceleration:**
-- Enabled by default on Apple Silicon when WhisperKit is compiled with Metal support
-- Compile flag: `WHISPER_METAL=1` or `CoreML_METAL=1`
-- VocaMac targets Apple Silicon only; Intel Macs are not a supported runtime
-
-#### 3.2.6 `ModelManager` - Model Lifecycle Management
-
-**Responsibility:** Discover, download, verify, and manage whisper model files.
-
-**Model Storage:**
-```
-~/Library/Application Support/VocaMac/
-  └── models/
-      ├── ggml-tiny.bin        (39 MB)
-      ├── ggml-base.bin        (142 MB)  ← downloaded on demand
-      ├── ggml-small.bin       (466 MB)  ← downloaded on demand
-      ├── ggml-medium.bin      (1.5 GB)  ← downloaded on demand
-      └── ggml-large-v3.bin    (3.1 GB)  ← downloaded on demand
-```
-
-**Model Catalog:**
-| Model | Size | RAM Required | Relative Speed | Accuracy |
-|-------|------|-------------|----------------|----------|
-| tiny | 39 MB | ~1 GB | 1x (fastest) | Good |
-| base | 142 MB | ~1.5 GB | 2x | Better |
-| small | 466 MB | ~2 GB | 4x | Great |
-| medium | 1.5 GB | ~5 GB | 8x | Excellent |
-| large-v3 | 3.1 GB | ~10 GB | 16x | Best |
-
-**Download Source:** Hugging Face (`https://huggingface.co/ggerganov/WhisperKit/resolve/main/`)
-
-**Download Process:**
-1. Check if model file exists locally
-2. If not, initiate async download with URLSession
-3. Report progress via delegate/closure
-4. Verify SHA256 checksum after download
-5. Move to models directory on success
-
-#### 3.2.7 `SystemInfo` - Hardware Detection
-
-**Responsibility:** Detect system hardware capabilities and recommend optimal model size.
-
-**Detection Points:**
-- CPU architecture: `uname()` → arm64 (Apple Silicon) — the only supported runtime target
-- Physical RAM: `ProcessInfo.processInfo.physicalMemory`
-- Processor name: `sysctlbyname("machdep.cpu.brand_string")`
-- Core count: `ProcessInfo.processInfo.activeProcessorCount`
-
-**Recommendation Algorithm:**
-```
-Apple Silicon:
-  RAM ≤ 8 GB  → tiny  (safe default)
-  RAM = 16 GB → small (good balance)
-  RAM ≥ 24 GB → medium (high quality)
-```
-
-> The `recommendModel` function in `SystemInfo.swift` retains a defensive
-> Intel branch (smaller models, no Metal). It exists only to keep the
-> code valid if someone compiles from source on Intel; the released binary
-> is `arm64`-only and Intel Macs are not a supported configuration.
-
-#### 3.2.8 `TextInjector` - System-Wide Text Insertion
-
-**Responsibility:** Insert transcribed text at the cursor position in any application.
-
-**Algorithm:**
-```
-1. Save current clipboard contents
-2. Write transcribed text to clipboard (NSPasteboard)
-3. Wait 50ms (ensure clipboard is updated)
-4. Simulate Cmd+V keypress via CGEvent
-5. Wait 100ms (ensure paste is processed)
-6. Restore original clipboard contents
-```
-
-**CGEvent Simulation:**
-```
-CGEventSource(stateID: .hidSystemState)
-  → Create keyDown for Cmd (keyCode 55)
-  → Create keyDown for V (keyCode 9) with .maskCommand flag
-  → Create keyUp for V
-  → Create keyUp for Cmd
-  → Post all events to .cghidEventTap
-```
-
-**Required Permission:** Accessibility (same as HotKeyManager)
-
-**Related helpers:**
-- `DictationOutputFormatter`: trailing space and sentence capitalization before inject
-- `AutoPauseMonitor` / `ModelKeepAlive` / `SleepWakeMonitor`: power controls that unload via `TranscriptionRouter.unloadModel()`
-
-**Edge Cases:**
-- If clipboard contains non-text content (images, files), save and restore the full pasteboard items
-- Add configurable delay between paste simulation events for slower apps
-- Handle the case where the user's clipboard is empty
-
-#### 3.2.9 `UpdateChecker` - GitHub Release Updates
-
-**Responsibility:** Detect new stable releases from GitHub and manage updates. For Homebrew-installed copies, it shows a `brew upgrade` command instead of in-app DMG downloads.
-
-**Update Flow (DMG installs):**
-```
-On launch (max once every 24h)
-  → GET /repos/VocaHQ/vocamac/releases/latest
-  → Compare tag_name vs CFBundleShortVersionString
-  → If newer: show update banner in MenuBarView
-  → User opens update sheet and starts download
-  → Download DMG with progress
-  → Verify SHA-256 using assets[].digest
-  → Open DMG in Finder (user drags app to /Applications)
-```
-
-**Update Flow (Homebrew installs):**
-```
-On launch (max once every 24h)
-  → Detect /Caskroom/ in Bundle.main.bundlePath
-  → If newer release available: show "brew upgrade --cask vocamac" banner
-  → User copies command and upgrades via Homebrew
-```
-
-**Manual Check:**
-- Settings → About includes **Check for Updates...**
-
-**Key Constraints:**
-- Uses GitHub API unauthenticated (rate-limited), so checks are throttled to once per day automatically
-- Works with existing DMG release artifacts and current release workflow
-
----
-
-## 4. Data Flow
-
-### 4.1 Complete Transcription Pipeline
-
-```
-User Action
-  │
-  ▼
 HotKeyManager (CGEventTap)
-  │ detects hotkey press/release
-  ▼
-AppState (orchestrator)
-  │ sets status = .recording
-  ▼
-AudioEngine (AVAudioEngine)
-  │ captures mic audio → [Float] buffer
-  │ reports audio levels → AppState → MenuBarView
-  ▼
-AppState (orchestrator)
-  │ sets status = .processing
-  ▼
-WhisperService (WhisperKit)
-  │ transcribes [Float] → String
-  ▼
-AppState (orchestrator)
-  │ sets status = .idle
-  ▼
-TextInjector (NSPasteboard + CGEvent)
-  │ injects text at cursor
-  ▼
-Target Application (Safari, Slack, VS Code, etc.)
-  │ receives pasted text
-  ▼
-Done
+      │ press / release
+      ▼
+AppState ──────────────────────────────────────────────────────────────┐
+  │ startRecording                                                      │
+  ▼                                                                     │
+AudioEngine (AVAudioEngine → 16 kHz mono Float32)                       │
+  │ stop: samples                                                       │
+  ▼                                                                     │
+TranscriptionRouter ── SpeechActivityTrimmer (Silero VAD)               │
+  │                    └─ HallucinationGuard (when VAD is unsure)       │
+  ├─ WhisperService      (WhisperKit, CoreML)                           │
+  ├─ ParakeetService     (FluidAudio, CoreML / Neural Engine)           │
+  ├─ AppleSpeechService  (SpeechAnalyzer, macOS 26+)                    │
+  ├─ SherpaService       (sherpa-onnx, CPU)                             │
+  └─ CustomEndpointService (remote, opt-in)                             │
+  │ VocaTranscription                                                   │
+  ▼                                                                     │
+PauseParagraphs → DictationOutputPipeline                               │
+  │   rules → CleanupNeed → TranscriptCleanupService → EditMerge        │
+  ▼                                                                     │
+InsertionFit → TextInjector (Accessibility write, else clipboard + ⌘V)  │
+  │                                                                     │
+  └─ after the paste: DictationHistoryStore, StatsManager, ─────────────┘
+     CorrectionObserver (learning from the user's edits)
 ```
 
-### 4.2 Data Formats at Each Stage
+`AppState` (`Models/AppState.swift` and its `AppState+*.swift` extensions) is
+the single source of truth: views observe it and dispatch to it. It talks to
+speech engines only through `TranscriptionRouter`, and to the cleanup model
+only through `DictationOutputPipeline` / `TranscriptCleanupService`.
 
-| Stage | Format | Details |
-|-------|--------|---------|
-| Microphone input | Hardware-dependent | Usually 44.1kHz or 48kHz, stereo |
-| After format conversion | Float32 PCM | 16kHz, mono, [-1.0, 1.0] range |
-| Audio buffer | `[Float]` | Swift array of samples |
-| WhisperKit input | `const float *` | C pointer to samples array |
-| WhisperKit output | `const char *` | C string per segment |
-| Transcription result | `String` | Swift string, all segments concatenated |
-| Clipboard | `NSPasteboard.string` | UTF-8 string |
-| Key simulation | `CGEvent` | Keyboard events posted to HID |
+## 2. Technology
 
----
+| Layer | Technology | Pin / floor |
+|-------|-----------|-------------|
+| Language, UI | Swift 5.9+, SwiftUI; AppKit for windows, event taps, Accessibility | macOS 14 |
+| Audio | `AVAudioEngine` input tap, `AVAudioConverter` | — |
+| Hotkeys | `CGEventTap` | — |
+| Text insertion | Accessibility (`AXUIElement`), `NSPasteboard` + `CGEvent` | — |
+| Whisper | [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (CoreML) | `.upToNextMinor(from: "1.1.0")` |
+| Parakeet, Silero VAD | [FluidAudio](https://github.com/FluidInference/FluidAudio) (CoreML) | `.upToNextMinor(from: "0.17.5")` |
+| Apple Speech | `SpeechAnalyzer` / `SpeechTranscriber` | macOS 26+ at runtime |
+| Specialized models | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ONNX Runtime, CPU) | exact `1.13.8` |
+| Cleanup model | [LLM.swift](https://github.com/eastriverlee/LLM.swift) (llama.cpp, Metal) | exact `3.0.3` |
+| Build | Swift Package Manager; `.app` via `scripts/build.sh` (`xcodebuild`) | — |
 
-## 5. Concurrency Model
+## 3. Recording
 
-```
-Main Thread (UI)
-  ├── SwiftUI rendering
-  ├── AppState @Published updates
-  └── Menu bar icon updates
+**Hotkeys.** `HotKeyManager` installs a session-level `CGEventTap` and
+consumes only the configured keys. Activation is push-to-talk (hold) or
+double-tap toggle; Command Mode, hands-free and paste-last have their own
+shortcuts. The default key is Right Option.
 
-Background Thread (Audio)
-  └── AVAudioEngine tap callback
-      └── Audio buffer accumulation
+**Capture.** `AudioEngine` taps the input node, converts each buffer to
+16 kHz mono Float32 with `AVAudioConverter`, and appends it. It reports a
+level for the overlay (`AudioMeterState`) and runs energy-based silence
+detection for toggle mode (`SilenceDetectionSettings`). Device changes,
+Bluetooth settling and channel selection are handled there and in
+`AudioDeviceMonitor`.
 
-Background Thread (Transcription)
-  └── whisper_full() call
-      └── Can take 1-10+ seconds depending on model
+**Stop.** On release, `AudioEngine` waits up to 0.1 s for the last buffer
+(`stopTailWait`), or up to 0.3 s when the tail is still voiced
+(`stopTailExtension`), then hands the samples back.
 
-Main Thread (Text Injection)
-  └── NSPasteboard + CGEvent posting
-      └── Must be on main thread for CGEvent
-```
+**Process while speaking** (off by default). `RecordingTranscription` and
+`SpeechSegmenter` cut the recording at pauses and decode finished pieces while
+the user is still talking; `CleanupSpeculator` cleans those pieces ahead of
+the final pass. The final pass reuses an answer only for an identical request,
+so correctness never depends on the speculation.
 
-**Key Threading Rules:**
-1. Audio capture callbacks run on AVAudioEngine's internal thread - keep work minimal
-2. Transcription runs via `Task { }` on a background executor - never block the main thread
-3. UI updates via `@MainActor` or `DispatchQueue.main`
-4. CGEvent posting should happen from the main thread
-5. Model loading/downloading uses async/await on background threads
+## 4. Transcription
 
----
+### 4.1 `TranscriptionRouter`
 
-## 6. Permission Model
+`TranscriptionRouter` implements `SpeechTranscribing` and is the only type
+`AppState` calls for speech. It:
 
-| Permission | macOS API | Required For | How to Request |
-|------------|-----------|-------------|----------------|
-| Microphone | AVCaptureDevice.requestAccess | AudioEngine | Programmatic prompt |
-| Accessibility | AXIsProcessTrusted | HotKeyManager, TextInjector | Manual: System Settings → Privacy → Accessibility |
+1. **Loads** the selected model through `performLoad`: it unloads the other
+   engines first, so only one speech model is resident; prepares the voice
+   activity detector; and runs a warm-up decode for Whisper, Parakeet and
+   sherpa-onnx so the first dictation is not the slow one.
+2. **Serializes** loads and decodes on one queue (`operationSerializer`) and
+   bounds each with a deadline (`Deadline`): 30 minutes for a first load that
+   compiles for the Neural Engine, 5 minutes for a cached load, and a decode
+   deadline that grows with audio length. A missed deadline abandons the
+   engines; the next dictation reloads.
+3. **Trims silence** (`audioWithoutSilence`, on unless Skip Silence is off):
+   `SpeechActivityTrimmer` runs FluidAudio's Silero VAD over the recording,
+   keeps speech with 0.2 s padding, shortens pauses to at most 0.4 s, and
+   returns one of: keep, trim, no speech (nothing is decoded), or unsure.
+4. **Decodes** on the active engine.
+5. **Guards against hallucinations**: when the VAD was unsure,
+   `HallucinationGuard` drops a transcript that is only a stock phrase
+   ("Thank you.", "Thanks for watching"). Confirmed speech is never touched.
+6. **Maps timings** back to the original recording when silence was trimmed.
+7. **Counts model failures**: two failed decodes in a row unload the model so
+   the next dictation reloads it.
 
-**Accessibility Permission Check:**
-```swift
-let options = [kAXTrustedCheckOptionPrompt.takeRetainedValue(): true] as CFDictionary
-let isTrusted = AXIsProcessTrustedWithOptions(options)
-```
+### 4.2 Engines
 
-Note: Unlike microphone access, Accessibility permission cannot be granted via a system dialog - the user must manually add the app in System Settings. The app should provide clear instructions.
+| Engine | Service | Notes |
+|--------|---------|-------|
+| Whisper | `WhisperService` | Greedy decoding; prompt prefill with Dictionary and screen terms; retries an empty or looping result; audio over two minutes is decoded in chunks. Only engine with translate-to-English. |
+| Parakeet | `ParakeetService`, `ParakeetUnifiedModel` | TDT models on the Neural Engine; Dictionary words through `ParakeetVocabularyBoost` (CTC rescoring, separate ~98 MB model). |
+| Apple Speech | `AppleSpeechService` | System-managed assets; contextual strings from the Dictionary. |
+| Specialized ONNX | `SherpaService`, `SherpaModelCatalog`, `Vendor/SherpaOnnxConfigBuilders.swift` | CPU only. Recordings longer than a model's single-pass limit are split at pauses and decoded per segment. |
+| Custom Endpoint | `CustomEndpointService` | Uploads a WAV to a Whisper-compatible server the user configures. API key in the Keychain; plain HTTP only to loopback, private and `.local` hosts. |
 
----
+Recognition hints come from `RecognitionHints` (Dictionary terms plus terms
+read from the screen by `ScreenContextTerms`). Model metadata, sizes and
+memory estimates live in `Models/WhisperModel.swift` (`ModelSize`) and
+`Models/ModelRAMFit.swift`; downloads are handled by `ModelManager`.
 
-## 7. Build & Distribution
+## 5. Output pipeline
 
-### 7.1 Build Configuration
+`DictationOutputPipeline.process` turns the transcript into the text that is
+typed. Raw style returns it untouched. Otherwise:
 
-```
-Package.swift
-  ├── Platform: .macOS(.v13)
-  ├── Products: VocaMac executable
-  ├── Dependencies: WhisperKit (vendored or submodule)
-  ├── Swift settings: -O (optimized for release)
-  └── Platforms: .macOS(.v13)
-```
+### 5.1 Rule stages (`prepare`, no model)
 
-### 7.2 Build Commands
+In this order. Stages 1–6 run only where the style cleans up and the cleanup
+level allows them. Stages 7–8 also run with "Formatting only, no AI", subject
+to their own settings:
 
-```bash
-# Build + install to /Applications (recommended)
-make install
+1. Hesitations ("um", "uh"); other languages lose only sounds that are a word
+   nowhere, plus their own when the language is known.
+2. Fillers this user always deletes, learned from their edits (prose only).
+3. Stutters ("I I I think").
+4. Cut-off words said again in full ("can you ple please").
+5. Repeated phrases ("the the"; prose only).
+6. Spoken corrections and change of mind (`SpokenCorrectionResolver`,
+   `ChangeOfMindResolver`; prose only).
+7. Personal Dictionary (`DictionaryCorrector`): replacements, near-misses and
+   sound-alikes of the user's terms.
+8. Snippets, spoken emoji and spoken numbers (`SnippetExpander`,
+   `SpokenEmoji`, `SpokenNumbers`). Converted text is masked so later stages
+   cannot change it.
 
-# Build .app bundle in repo root (fast dev iteration)
-make build
+The language decision for these rules comes from the transcription language
+when one is set, otherwise from the text itself.
 
-# Install CLI commands to ~/.local/bin
-make install-cli
+### 5.2 Deciding whether to ask the model (`planCleanup`)
 
-# Run tests
-make test
+The pipeline formats the rule output with `WritingStyleEngine` (the result
+used whenever the model's is not), then returns it without a model pass when:
+cleanup is off or the level is None; the text is romanized Hindi; it contains
+spoken formatting commands; it is a short Code or Terminal command; a
+non-English rewrite was asked for; or `CleanupNeed` finds nothing left for the
+model. `CleanupNeed` is one-sided: when unsure, it asks the model.
 
-# Debug build (SPM only, no .app bundle)
-swift build
+### 5.3 The model pass
 
-# Release build (SPM only, no .app bundle)
-swift build -c release
-```
+`TranscriptCleanupService` runs the local GGUF model (default Qwen 2.5 0.5B)
+through LLM.swift. The system prompt is byte-stable per cleanup level, so
+llama.cpp reuses its cache and reads only the new transcript;
+`warmCleanupModel` re-primes it after anything that replaces the prompt in
+the model. `RemoteCleanupService` is the opt-in endpoint alternative.
 
-### 7.3 Distribution Strategy
+The answer is never taken whole:
 
-1. **Homebrew Cask** — `brew install --cask vocamac` (recommended, see `docs/HOMEBREW.md`)
-2. **GitHub Releases** — Developer ID signed & notarized DMG and ZIP, built by CI
-3. **Mac App Store** - Future consideration (requires sandbox compliance)
+- **Cleanup** (`EditMerge`) lines the answer up against the input and keeps
+  each safe edit (punctuation, filler, spelling of a glossary term) while
+  putting back any risky one (changed numbers, dropped sentences, renamed
+  people). Non-English text is merged at the Light level.
+- **Code and Terminal** keep only deletions of filler (`CleanupSalvage`);
+  the model's text never enters a command.
+- **Formal / Casual rewrites** are used whole only if `RewriteValidation`
+  accepts them, else merged like cleanup.
 
----
+Long dictations are split into slices at piece and paragraph boundaries;
+slices that are already clean skip the model.
 
-## 8. Cross-Platform Strategy
+### 5.4 Formatting
 
-VocaMac is part of [VocaHQ](https://github.com/VocaHQ): offline voice dictation on each OS, with feature parity over time. Sister apps: [VocaLinux](https://github.com/VocaHQ/vocalinux) (stable), VocaWin (coming soon), VocaPhone (in development).
+`WritingStyleEngine` and `SpokenSymbolTransformer` apply the per-app writing
+profile (`WritingStyleResolver`, `FrontmostAppResolver`): capitalization,
+terminal punctuation, trailing space, lists, spoken symbols. `PauseParagraphs`
+inserts a paragraph break at a long pause, placed with the engine's word
+timings.
 
-The living Mac ↔ Linux gap list and phased port plan live in [`docs/VOCAHQ_PARITY.md`](VOCAHQ_PARITY.md).
+## 6. Delivery
 
-### 8.1 Shared jobs, native code
+1. **Fit to the field.** When Accessibility can read the focused field,
+   `InsertionFit` adjusts the leading space and capitalization to the text
+   already before and after the caret. In single-line fields (search boxes,
+   subjects) it joins lines and drops the full stop of a single sentence. The
+   field is read when recording starts and again before delivery; if the user
+   moved to another field, nothing is fitted.
+2. **Insert.** `TextInjector` first tries an Accessibility write of the
+   selected text in single-line fields (`AXTextField`, `AXSearchField`,
+   `AXComboBox`). Otherwise, or if that fails, it snapshots the clipboard,
+   writes the transcript, waits 10 ms, posts ⌘V with `CGEvent`, waits until
+   the target app has read the transcript (up to 2 s), and restores the
+   clipboard. It refuses to paste when focus moved to another app, and leaves
+   the transcript on the clipboard when Accessibility is not granted.
+3. **After the paste**, off the wait: `DictationHistoryStore` completes the
+   History entry, `StatsManager` records the dictation, and
+   `CorrectionObserver` watches the field for the user's own edits to learn
+   terms and fillers from.
 
-```
-Shared Concepts:
-  └── Speech model families   ← Whisper-class (+ platform specialists)
-  └── UX patterns             ← Hotkey → speak → inject; searchable settings IA
-  └── Power controls          ← Auto-pause apps; idle model unload
-  └── Output polish           ← Trailing space; capitalization rules
+## 7. Command Mode
 
-Platform-Specific:
-  ┌──────────────────────┬──────────────────────┬──────────────────────┐
-  │      macOS            │      Linux            │      Windows         │
-  ├──────────────────────┼──────────────────────┼──────────────────────┤
-  │ Swift + SwiftUI      │ Python + GTK         │ (VocaWin TBD)        │
-  │ AVAudioEngine        │ PortAudio            │ WASAPI / NAudio      │
-  │ CGEventTap           │ evdev / pynput       │ SetWindowsHookEx     │
-  │ AX + NSPasteboard    │ IBus / ydotool / …   │ Clipboard + SendInput│
-  │ CoreML / Metal / ANE │ Vulkan / CUDA        │ CUDA / DirectML      │
-  │ MenuBarExtra         │ AppIndicator tray    │ NotifyIcon           │
-  └──────────────────────┴──────────────────────┴──────────────────────┘
-```
+Command Mode works on selected text (`AccessibilitySelectedTextService`).
+`AppState` routes the spoken instruction in this order:
 
-### 8.2 What can be shared
+1. Undo.
+2. Voice action (`VoiceActionParser` → `VoiceActionPolicy` →
+   `VoiceActionPerforming`): chosen only from the user's spoken words by fixed
+   patterns, never by the model or from selected text. Shortcuts run only from
+   the user's allow-list.
+3. Rule edit (`CommandExactEdit`).
+4. The model through `CommandModelRunner`: prompt, answer,
+   `CommandOutputCheck`, one retry. The model is a local slot, Apple
+   Intelligence, or an endpoint (`TextTransforming`).
 
-- User jobs and settings topic names (Dictation, Speech Model, Audio, Performance, …)
-- Model catalog *ideas* (size tiers, language honesty); each OS keeps its optimal format
-- Preference semantics (auto-pause app list, idle timeout, trailing space)
-- Privacy bar: local engines, no account wall
+Model results that replace text are shown in `CommandReviewPanel` only when
+`commandModeReview` asks for approval; it defaults to `.never`. Rule edits
+always apply directly without review.
 
-### 8.3 What must stay platform-specific
+## 8. CLI
 
-- UI framework and rendering
-- Audio capture API
-- Global hotkey mechanism
-- Text injection method
-- Permission handling
-- App lifecycle and distribution
-- GPU / NPU acceleration APIs
----
+The same executable runs headless (`CLI/`). `--transcribe-file` decodes an
+audio file with the model selected in the app (`--model`, `--language`,
+`--json`, `--text`, `--output`; `--pieces` and `--cleanup` compare
+piece-by-piece decoding), `--list-models` lists models, `--help` prints usage.
+The CLI never constructs `AppState` and never starts SwiftUI, the microphone,
+hotkeys, onboarding or text insertion. See [`CLI.md`](CLI.md).
 
-## 9. Error Handling Strategy
+## 9. Concurrency
 
-| Error Scenario | Handling |
-|---------------|----------|
-| Microphone permission denied | Show guidance to enable in System Settings |
-| Accessibility permission denied | Show step-by-step guide with screenshots |
-| Model file corrupted/missing | Re-download model, fall back to bundled tiny |
-| Audio device disconnected | Detect and notify user, pause recording |
-| Transcription fails | Show error in menu bar popover, log details |
-| Clipboard restore fails | Log warning, don't crash - clipboard is transient |
-| Out of memory during transcription | Suggest a smaller model, show clear error |
-| Network error during model download | Retry with exponential backoff, allow manual retry |
+- `AppState` and the views are `@MainActor`. The target builds with complete
+  concurrency checking.
+- The audio tap runs on AVAudioEngine's thread and only converts and appends.
+- Model loads and decodes run off the main thread, one at a time, on the
+  router's serializer; cleanup inference also runs off the main thread.
+- Accessibility reads and writes into other processes run on a dedicated
+  queue with timeouts (`AccessibilityTimeout`); ⌘V is posted from the main
+  thread.
+- `VocaMacObjC` turns `NSException`s from AVFoundation tap installation into
+  `NSError`, which Swift cannot otherwise catch.
 
----
+## 10. Storage and privacy
 
-## 10. Security Considerations
+Everything lives under `~/Library/Application Support/VocaMac/`:
 
-1. **No network communication** except model downloads from Hugging Face
-2. **No telemetry or analytics** - fully offline operation
-3. **Audio data never leaves the device** - processed entirely in-memory
-4. **No persistent audio storage** - audio buffers are discarded after transcription
-5. **Model files verified by checksum** - prevent tampering
-6. **Code signing** — Release builds are signed with a Developer ID certificate and notarized by Apple
-7. **Hardened runtime** — Enabled for Gatekeeper compatibility and notarization
+| Path | Contents |
+|------|----------|
+| `models/` | Whisper, Parakeet, sherpa-onnx (`models/sherpa-onnx/`) and cleanup (`models/cleanup/`) models |
+| `History/` | Dictation history (on by default). Audio is written for crash recovery. Successful dictations with text delete their audio unless "Keep audio" is on; failed, cancelled, interrupted and empty dictations keep it for recovery |
+| `logs/` | Rotated logs (`VocaLogger`); log lines carry character counts, not transcript text. `logs/failed-audio/` only when the `vocamac.debug.saveFailedAudio` default is set |
+
+Network use: model downloads (Hugging Face, sherpa-onnx releases), the daily
+update check against GitHub Releases, and, only when the user configures
+them, the Custom Endpoint, a remote cleanup endpoint, or a Command Mode
+endpoint. Endpoint API keys are stored in the Keychain.
+
+Permissions: Microphone (entitlement), Accessibility and Input Monitoring
+(TCC). Release builds are Developer ID signed and notarized with the hardened
+runtime; the Mac App Store variant (`APP_STORE`) is sandboxed and drops
+self-update, external processes and AppleScript (see
+[`APP_STORE.md`](APP_STORE.md)).
+
+## 11. Updates
+
+`UpdateChecker` asks GitHub Releases at most once a day. DMG installs
+download the new DMG, verify its SHA-256 and the Developer ID team of the
+bundle inside, and swap it in (`UpdateInstaller`). Homebrew installs are
+shown the `brew upgrade --cask vocamac` command instead.
+
+## 12. Related documents
+
+- [`MODELS.md`](MODELS.md): the speech model catalog.
+- [`DATA_MODEL.md`](DATA_MODEL.md): stored data and preferences.
+- [`CLI.md`](CLI.md), [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md),
+  [`RELEASE.md`](RELEASE.md), [`APP_STORE.md`](APP_STORE.md).
+- [`VOCAHQ_PARITY.md`](VOCAHQ_PARITY.md): parity with the other VocaHQ apps.

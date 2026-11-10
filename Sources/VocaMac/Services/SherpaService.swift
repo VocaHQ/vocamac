@@ -13,34 +13,6 @@
 import Foundation
 import SherpaOnnxC
 
-// MARK: - SherpaError
-
-enum SherpaError: LocalizedError {
-    case modelNotLoaded
-    case unknownModel(String)
-    case modelFilesMissing(String)
-    case initializationFailed(reason: String)
-    case transcriptionFailed(reason: String)
-    case emptyAudio
-
-    var errorDescription: String? {
-        switch self {
-        case .modelNotLoaded:
-            return "No ONNX model is loaded. Please load a model first."
-        case .unknownModel(let name):
-            return "Unknown ONNX model: \(name)"
-        case .modelFilesMissing(let path):
-            return "Model files are missing at: \(path)"
-        case .initializationFailed(let reason):
-            return "Failed to initialize the ONNX model: \(reason)"
-        case .transcriptionFailed(let reason):
-            return "Transcription failed: \(reason)"
-        case .emptyAudio:
-            return "No audio data to transcribe."
-        }
-    }
-}
-
 // MARK: - SherpaService
 
 final class SherpaService: @unchecked Sendable {
@@ -112,10 +84,18 @@ final class SherpaService: @unchecked Sendable {
         let pointer: OpaquePointer
         let size: ModelSize
         let decodeLock = NSLock()
+        /// The language the model was loaded with ("auto" when none).
+        let loadLanguage: String
+        /// Canary's current source language, changed per request with
+        /// `SherpaOnnxOfflineRecognizerSetConfig`. Only read or written while
+        /// `decodeLock` is held.
+        var canaryLanguage: String
 
-        init(pointer: OpaquePointer, size: ModelSize) {
+        init(pointer: OpaquePointer, size: ModelSize, loadLanguage: String = "auto") {
             self.pointer = pointer
             self.size = size
+            self.loadLanguage = loadLanguage
+            self.canaryLanguage = loadLanguage
         }
 
         deinit {
@@ -171,12 +151,12 @@ final class SherpaService: @unchecked Sendable {
 
         guard let size = modelName.flatMap(ModelSize.init(rawValue:)),
               let spec = SherpaModelCatalog.spec(for: size) else {
-            throw SherpaError.unknownModel(modelName ?? "nil")
+            throw TranscriptionError.unknownModel(modelName ?? "nil")
         }
 
         let directory = Self.modelDirectory(for: spec)
         guard Self.modelFilesExist(for: spec) else {
-            throw SherpaError.modelFilesMissing(directory.path)
+            throw TranscriptionError.modelFilesMissing(directory.path)
         }
 
         let preferredLanguage = Self.normalizedLoadLanguage(language)
@@ -208,14 +188,14 @@ final class SherpaService: @unchecked Sendable {
         }
 
         guard let created else {
-            throw SherpaError.initializationFailed(reason: "sherpa-onnx rejected the model files at \(directory.path)")
+            throw TranscriptionError.initializationFailed(.sherpaOnnx, reason: "sherpa-onnx rejected the model files at \(directory.path)")
         }
 
         guard !Task.isCancelled else {
             SherpaOnnxDestroyOfflineRecognizer(created)
             throw CancellationError()
         }
-        guard adopt(recognizer: created, size: size, generation: generation) else {
+        guard adopt(recognizer: created, size: size, loadLanguage: preferredLanguage, generation: generation) else {
             throw CancellationError()
         }
 
@@ -224,8 +204,8 @@ final class SherpaService: @unchecked Sendable {
     }
 
     /// Atomically install the model; existing requests retain their previous model.
-    private func adopt(recognizer created: OpaquePointer, size: ModelSize, generation: UUID) -> Bool {
-        let model = LoadedRecognizer(pointer: created, size: size)
+    private func adopt(recognizer created: OpaquePointer, size: ModelSize, loadLanguage: String, generation: UUID) -> Bool {
+        let model = LoadedRecognizer(pointer: created, size: size, loadLanguage: loadLanguage)
         recognizerLock.lock()
         guard loadGeneration == generation else {
             recognizerLock.unlock()
@@ -289,10 +269,11 @@ final class SherpaService: @unchecked Sendable {
         audioData: [Float],
         language: String? = nil,
         isPreview: Bool = false,
-        vocabulary: String = ""
+        vocabulary: String = "",
+        decodeLanguage: String? = nil
     ) async throws -> VocaTranscription {
         try Task.checkCancellation()
-        guard let request = snapshot() else { throw SherpaError.modelNotLoaded }
+        guard let request = snapshot() else { throw TranscriptionError.modelNotLoaded(.sherpaOnnx) }
         let size = request.size
         let hotwords: String?
         if case .qwen3Asr = SherpaModelCatalog.spec(for: size)?.kind {
@@ -329,10 +310,15 @@ final class SherpaService: @unchecked Sendable {
         // Detached work stays off the UI executor while retaining Swift task
         // cancellation. Native inference is synchronous: finish the current
         // segment safely, then discard its result and stop before the next one.
+        // A language picked for this request (by language ID) only applies
+        // to models that are told their language; the rest ignore it.
+        let requestLanguage = decodeLanguage.flatMap { chosen in
+            SherpaModelCatalog.spec(for: size)?.fixedLanguageChoices?.contains(chosen) == true ? chosen : nil
+        }
         let worker = Task.detached(priority: .userInitiated) {
             try Self.decodeRequest(
-                audioData: audioData, segments: segments, language: language,
-                recoversEmpty: !isPreview, hotwords: hotwords, request: request
+                audioData: audioData, segments: segments, language: requestLanguage ?? language,
+                recoversEmpty: !isPreview, hotwords: hotwords, requestLanguage: requestLanguage, request: request
             )
         }
         let decoded = try await withTaskCancellationHandler {
@@ -374,7 +360,7 @@ final class SherpaService: @unchecked Sendable {
 
         // SenseVoice reports the detected language; other models are
         // monolingual or fixed at load time.
-        let detectedLanguage = decoded.lang.isEmpty ? (language ?? "auto") : decoded.lang
+        let detectedLanguage = decoded.lang.isEmpty ? (requestLanguage ?? language ?? "auto") : decoded.lang
 
         return VocaTranscription(
             text: text,
@@ -410,38 +396,90 @@ final class SherpaService: @unchecked Sendable {
     /// Serialize native decoding for a retained model without holding the state lock.
     private static func decodeRequest(
         audioData: [Float], segments: [Range<Int>], language: String?, recoversEmpty: Bool,
-        hotwords: String?, request: LoadedRecognizer
+        hotwords: String?, requestLanguage: String?, request: LoadedRecognizer
     ) throws -> (text: String, lang: String) {
         try Task.checkCancellation()
         request.decodeLock.lock()
         defer { request.decodeLock.unlock() }
+        let kind = SherpaModelCatalog.spec(for: request.size)?.kind
+        var streamLanguage: String?
+        switch kind {
+        case .cohereTranscribe:
+            // Cohere reads the language per stream.
+            streamLanguage = requestLanguage
+        case .canary:
+            // Canary keeps it in the recognizer: switch it for this request,
+            // and back to the loaded language when none was picked.
+            setCanaryLanguage(requestLanguage ?? request.loadLanguage, on: request)
+        default:
+            break
+        }
+        // Where a cut fell inside running speech, the join is mended
+        // (`SeamRepair`); a cut in a pause joins as decoded.
+        let cutsInPause = segments.dropFirst().map { SeamRepair.isPause(at: $0.lowerBound, in: audioData) }
         return try decodeSegments(
-            segments.lazy.map { Array(audioData[$0]) }, language: language, recoversEmpty: recoversEmpty
+            segments.lazy.map { Array(audioData[$0]) }, language: language, recoversEmpty: recoversEmpty,
+            cutsInPause: cutsInPause
         ) { samples in
-            try decode(samples: samples, recognizer: request.pointer, hotwords: hotwords)
+            try decode(samples: samples, recognizer: request.pointer, hotwords: hotwords, language: streamLanguage)
         }
     }
 
+    /// Point a loaded Canary model at `language`. The caller holds `decodeLock`.
+    private static func setCanaryLanguage(_ language: String, on request: LoadedRecognizer) {
+        guard request.canaryLanguage != language,
+              let spec = SherpaModelCatalog.spec(for: request.size) else { return }
+        autoreleasepool {
+            var config = recognizerConfig(for: spec, in: modelDirectory(for: spec), language: language)
+            SherpaOnnxOfflineRecognizerSetConfig(request.pointer, &config)
+        }
+        request.canaryLanguage = language
+        VocaLogger.info(.sherpaService, "Canary now decodes \(language)")
+    }
+
     /// Application-level segment processing, shared by native decoding and regressions.
+    /// - Parameter cutsInPause: For each cut between segments, whether it
+    ///   fell in a pause; a seam inside running speech is mended
+    ///   (`SeamRepair`). Empty treats every cut as a pause.
     static func decodeSegments<Segments: Sequence>(
         _ segments: Segments,
         language: String?,
         recoversEmpty: Bool = true,
+        cutsInPause: [Bool] = [],
         decodeSegment: ([Float]) throws -> (text: String, lang: String)
     ) throws -> (text: String, lang: String) where Segments.Element == [Float] {
         try Task.checkCancellation()
         var pieces: [String] = []
+        // Whether the cut before each kept piece was in a pause. A segment
+        // that decoded to nothing makes the next join a pause: there is no
+        // sentence running across it to mend.
+        var pausesBefore: [Bool] = []
+        var nextJoinIsPause = true
         var detected = ""
-        for segment in segments {
+        for (index, segment) in segments.enumerated() {
             try Task.checkCancellation()
-            guard let result = try decode(segment, recoversEmpty: recoversEmpty, with: decodeSegment) else { continue }
+            if index > 0 {
+                let cutInPause = index - 1 < cutsInPause.count ? cutsInPause[index - 1] : true
+                nextJoinIsPause = nextJoinIsPause || cutInPause
+            }
+            guard let result = try decode(segment, recoversEmpty: recoversEmpty, with: decodeSegment) else {
+                nextJoinIsPause = true
+                continue
+            }
             try Task.checkCancellation()
             let piece = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !piece.isEmpty { pieces.append(piece) }
+            if piece.isEmpty {
+                nextJoinIsPause = true
+            } else {
+                pieces.append(piece)
+                pausesBefore.append(nextJoinIsPause)
+                nextJoinIsPause = false
+            }
             if detected.isEmpty { detected = result.lang }
         }
         let joinLanguage = detected.isEmpty ? (language ?? "") : detected
-        return (joinTranscriptPieces(pieces, language: joinLanguage), detected)
+        let mended = SeamRepair.repair(pieces, cutsInPause: Array(pausesBefore.dropFirst()), language: joinLanguage)
+        return (joinTranscriptPieces(mended, language: joinLanguage), detected)
     }
 
     /// Decode one segment, retrying with a different silence layout when the
@@ -508,14 +546,17 @@ final class SherpaService: @unchecked Sendable {
 
     /// Decode while the caller holds the recognizer lock for the whole request.
     private static func decode(
-        samples: [Float], recognizer: OpaquePointer, hotwords: String?
+        samples: [Float], recognizer: OpaquePointer, hotwords: String?, language: String? = nil
     ) throws -> (text: String, lang: String) {
         guard let stream = SherpaOnnxCreateOfflineStream(recognizer) else {
-            throw SherpaError.transcriptionFailed(reason: "Could not create an ONNX audio stream.")
+            throw TranscriptionError.transcriptionFailed(reason: "Could not create an ONNX audio stream.")
         }
         defer { SherpaOnnxDestroyOfflineStream(stream) }
         if let hotwords {
             SherpaOnnxOfflineStreamSetOption(stream, "hotwords", hotwords)
+        }
+        if let language {
+            SherpaOnnxOfflineStreamSetOption(stream, "language", language)
         }
 
         samples.withUnsafeBufferPointer { buffer in
@@ -524,7 +565,7 @@ final class SherpaService: @unchecked Sendable {
         SherpaOnnxDecodeOfflineStream(recognizer, stream)
 
         guard let result = SherpaOnnxGetOfflineStreamResult(stream) else {
-            throw SherpaError.transcriptionFailed(reason: "The ONNX decoder returned no result.")
+            throw TranscriptionError.transcriptionFailed(reason: "The ONNX decoder returned no result.")
         }
         defer { SherpaOnnxDestroyOfflineRecognizerResult(result) }
 

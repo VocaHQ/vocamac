@@ -43,12 +43,15 @@ final class OnboardingModelGuidanceTests: XCTestCase {
         // A language Parakeet doesn't know still gets Whisper.
         XCTAssertEqual(OnboardingModelGuidance.recommendation(for: "hi", availableModels: available)?.model, .small)
         // Specialists keep their languages.
-        XCTAssertEqual(
-            OnboardingModelGuidance.recommendation(
-                for: "fr", availableModels: models([.small, .parakeetV3, .canary180mFlash])
-            )?.model,
-            .canary180mFlash
-        )
+        // Spanish, German and French get Parakeet v3 now that Canary is legacy.
+        for language in ["es", "de", "fr"] {
+            XCTAssertEqual(
+                OnboardingModelGuidance.recommendation(
+                    for: language, availableModels: models([.small, .parakeetV3, .nemotronUnified, .canary180mFlash])
+                )?.model,
+                .parakeetV3, language
+            )
+        }
     }
 
     /// Cohere Transcribe can't detect the language, so it is only suggested
@@ -79,7 +82,7 @@ final class OnboardingModelGuidanceTests: XCTestCase {
     }
 
     func testLanguageSpecialistsFollowExplicitCoverage() {
-        let available = models([.small, .senseVoiceSmall, .gigaamV3, .canary180mFlash])
+        let available = models([.small, .senseVoiceSmall, .gigaamV3, .parakeetV3, .canary180mFlash])
 
         XCTAssertEqual(
             OnboardingModelGuidance.recommendation(for: "ru", availableModels: available)?.model,
@@ -91,8 +94,23 @@ final class OnboardingModelGuidanceTests: XCTestCase {
         )
         XCTAssertEqual(
             OnboardingModelGuidance.recommendation(for: "fr", availableModels: available)?.model,
-            .canary180mFlash
+            .parakeetV3
         )
+    }
+
+    /// A legacy model keeps working for whoever has it selected, so it can
+    /// be in the list, but it is never suggested, not even as the smallest.
+    func testLegacyModelsAreNeverSuggested() {
+        let available = models([.tiny, .small, .parakeetV3, .canary180mFlash, .medium])
+        for priority in SpeechModelPriority.allCases {
+            for language in ["es", "de", "fr", "en"] {
+                let pick = OnboardingModelGuidance.recommendation(
+                    for: [language], availableModels: available, priority: priority, memoryGB: 8
+                )?.model
+                XCTAssertNotEqual(pick, .canary180mFlash, "\(priority) \(language)")
+                XCTAssertNotEqual(pick, .medium, "\(priority) \(language)")
+            }
+        }
     }
 
     func testAutomaticAndOtherLanguagesUseMultilingualWhisper() {
@@ -110,7 +128,8 @@ final class OnboardingModelGuidanceTests: XCTestCase {
 
     func testUnsupportedSpecialistFallsBackToSupportedGeneralModel() {
         let available = [
-            model(.canary180mFlash, isSupported: false),
+            model(.parakeetV3, isSupported: false),
+            model(.canary180mFlash, isSupported: true),
             model(.small, isSupported: true),
             model(.tiny, isSupported: true),
         ]

@@ -13,6 +13,7 @@ struct CalmSystemSettings: View {
 
     @State private var showsSilence = false
     @State private var showsAutoPause = false
+    @State private var deliveryAppList: CalmDeliveryAppList?
 
     private static let recordingLimits: [CalmOption<Int>] = [
         CalmOption(15, "15 seconds"), CalmOption(30, "30 seconds"), CalmOption(60, "1 minute"),
@@ -24,6 +25,19 @@ struct CalmSystemSettings: View {
         CalmOption(60, "1 minute"), CalmOption(120, "2 minutes"), CalmOption(300, "5 minutes"),
         CalmOption(600, "10 minutes"), CalmOption(900, "15 minutes"), CalmOption(1800, "30 minutes"),
     ]
+
+    /// Switching reloads a model that has a streaming export: it is a
+    /// different encoder.
+    private var liveStreamingBinding: Binding<Bool> {
+        Binding(
+            get: { appState.parakeetLiveStreaming },
+            set: { isOn in
+                guard isOn != appState.parakeetLiveStreaming else { return }
+                appState.parakeetLiveStreaming = isOn
+                Task { await appState.reloadModelForLiveStreamingChangeIfNeeded() }
+            }
+        )
+    }
 
     var body: some View {
         CalmPage(.sheet) {
@@ -40,11 +54,53 @@ struct CalmSystemSettings: View {
                     )
                     .settingsTarget("process-while-speaking")
                     CalmToggleRow(
+                        "Transcribe as you speak",
+                        description: "Parakeet Unified and Nemotron Unified only. Text is ready about two seconds after you stop. A second download, slightly less accurate.",
+                        isOn: liveStreamingBinding
+                    )
+                    .settingsTarget("transcribe-as-you-speak")
+                    CalmToggleRow(
                         "Restore clipboard after typing",
                         description: "Puts back what you had copied",
                         isOn: $appState.preserveClipboard
                     )
                     .settingsTarget("clipboard")
+                }
+            }
+
+            CalmGroup("Putting text in apps") {
+                CalmPanel {
+                    CalmRow("Insert text by", description: appState.insertionMethod.settingsDescription) {
+                        CalmDropdown(
+                            selection: Binding(get: { appState.insertionMethod }, set: { appState.insertionMethod = $0 }),
+                            options: InsertionMethod.allCases.map { CalmOption($0, $0.displayName) }
+                        )
+                    }
+                    .settingsTarget("insertion-method")
+                    CalmValueRow(
+                        "Always type in",
+                        value: CalmDeliveryAppList.summary(appState.typedInsertionApps.map(\.displayName))
+                    ) {
+                        deliveryAppList = .typed
+                    }
+                    .calmDisabledByParent(appState.insertionMethod == .typing)
+                    .settingsTarget("typed-insertion-apps")
+                    CalmRow("Auto Send", description: appState.autoSendMode.settingsDescription) {
+                        CalmDropdown(
+                            selection: Binding(get: { appState.autoSendMode }, set: { appState.autoSendMode = $0 }),
+                            options: AutoSendMode.allCases.map { CalmOption($0, $0.displayName) }
+                        )
+                    }
+                    .settingsTarget("auto-send")
+                    if appState.autoSendMode != .off {
+                        CalmValueRow(
+                            "Also send in",
+                            value: CalmDeliveryAppList.summary(appState.autoSendApps.map(\.displayName))
+                        ) {
+                            deliveryAppList = .autoSend
+                        }
+                        .settingsTarget("auto-send-apps")
+                    }
                 }
             }
 
@@ -111,6 +167,7 @@ struct CalmSystemSettings: View {
         .onChange(of: appState.maxRecordingDuration) { appState.syncHotKeyConfiguration() }
         .calmDialog(isPresented: $showsSilence) { CalmSilenceDialog() }
         .calmDialog(isPresented: $showsAutoPause) { CalmAutoPauseDialog() }
+        .calmDialog(item: $deliveryAppList) { list in CalmDeliveryAppsDialog(list: list) }
     }
 
     // MARK: Rows

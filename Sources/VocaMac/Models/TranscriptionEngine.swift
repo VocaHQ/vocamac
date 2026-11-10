@@ -45,12 +45,24 @@ enum PreferenceKey {
     /// When each downloaded model was last in use (`ModelUsageLog`).
     static let modelUsageLog = "vocamac.models.usageLog"
     static let processWhileSpeaking = "vocamac.dictation.processWhileSpeaking"
+    /// Bool: Parakeet Unified and Nemotron Unified transcribe while the
+    /// user speaks, through their streaming export (default off).
+    static let parakeetLiveStreaming = "vocamac.dictation.parakeetLiveStreaming"
     static let cleanupEndpoint = "vocamac.transcriptCleanup.endpoint"
     static let speechEndpoint = "vocamac.speech.endpoint"
     static let historyEnabled = "vocamac.history.enabled"
     static let historyKeepsAudio = "vocamac.history.keepAudio"
     static let historyRetention = "vocamac.history.retention"
     static let historyExcludedApps = "vocamac.history.excludedApps"
+    /// `InsertionMethod` raw value: paste (with typing as fallback) or type.
+    static let insertionMethod = "vocamac.insertion.method"
+    /// `[AutoPauseAppEntry]` JSON: apps whose dictations are always typed.
+    static let typedInsertionApps = "vocamac.insertion.typedApps"
+    /// `AutoSendMode` raw value.
+    static let autoSendMode = "vocamac.autoSend.mode"
+    /// `[AutoPauseAppEntry]` JSON: apps where Auto Send may press Return
+    /// even though they are a terminal or code editor.
+    static let autoSendApps = "vocamac.autoSend.apps"
     static let escapeCancelsDictation = "vocamac.shortcuts.escapeCancels"
     static let pasteLastShortcut = "vocamac.shortcuts.pasteLast"
     static let handsFreeShortcut = "vocamac.shortcuts.handsFree"
@@ -79,6 +91,12 @@ enum PreferenceKey {
     static let personalFillers = "vocamac.dictionary.personalFillers"
     /// [String: Int]: dictations each filler was deleted from, until learned.
     static let personalFillerCounts = "vocamac.dictionary.personalFillerCounts"
+    /// [String: [Double]]: per lowercased dictionary term, [dictations it
+    /// appeared in, last one as seconds since 1970] (`TermUsage`).
+    static let dictionaryTermUsage = "vocamac.dictionary.termUsage"
+    /// [String: Double]: per lowercased dictionary term, when VocaMac first
+    /// saw it listed, as seconds since 1970 (`TermUsage.noting`).
+    static let dictionaryTermFirstSeen = "vocamac.dictionary.termFirstSeen"
     /// [String]: fillers the user took back; never learned again.
     static let rejectedPersonalFillers = "vocamac.dictionary.rejectedPersonalFillers"
     /// JSON `[LearnedLowercaseApp]`: apps where dictation starts in lowercase.
@@ -99,6 +117,9 @@ enum PreferenceKey {
     static let externalMicWhenLidClosed = "vocamac.audio.externalMicWhenLidClosed"
     static let skipSilence = "vocamac.audio.skipSilence"
     static let spokenLanguages = "vocamac.spokenLanguages"
+    /// Bool: the user picked a speech model (Settings, onboarding's
+    /// "Download & Use"), as opposed to the startup load saving its default.
+    static let speechModelChosen = "vocamac.speechModelChosen"
     static let modelRecommendationPriority = "vocamac.modelRecommendationPriority"
     /// Prefix of one key per model: the macOS build it last loaded on.
     static let compiledModelBuildPrefix = "vocamac.models.compiledBuild."

@@ -340,6 +340,12 @@ final class AppState: ObservableObject {
     @Published private(set) var commandReview: CommandReview?
     /// A file or system-audio capture is being transcribed.
     @Published private(set) var isTranscribingMedia = false
+    /// The microphone is recording, or the model decoding, a take of a
+    /// Dictionary word being taught (`startTeachingTake`).
+    @Published private(set) var isTeachingWord = false
+    /// The microphone start of the current take, awaited before the take
+    /// is stopped so a stop can never run ahead of it and leave it open.
+    private var teachingStart: Task<Bool, Never>?
 
     /// Optional, session-only checks for onboarding.
     @Published var onboardingVerification = OnboardingVerification()
@@ -431,6 +437,9 @@ final class AppState: ObservableObject {
     @UserDefault("vocamac.selectedAudioChannelDeviceID") var selectedAudioChannelDeviceID: String = ""
     @UserDefault("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @UserDefault(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
+    /// Whether the user picked the speech model. The startup load saves its
+    /// default into `selectedModelSize` too, so a stored value proves nothing.
+    @UserDefault(PreferenceKey.speechModelChosen) var speechModelChosen: Bool = false
     @UserDefault(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
     /// Languages the user dictates in, which steer the model picker. Nil
     /// until they choose, so the picker can start from a guess.
@@ -504,6 +513,12 @@ final class AppState: ObservableObject {
     /// Decode (and clean up) each finished sentence while recording, so long
     /// dictations paste sooner. Off by default until measured on more Macs.
     @UserDefault(PreferenceKey.processWhileSpeaking) var processWhileSpeaking: Bool = false
+    /// Parakeet Unified and Nemotron Unified load their streaming export and
+    /// transcribe while the user speaks, so the text is ready about two
+    /// seconds after they stop. Off by default: the streaming export is a
+    /// second download, and NVIDIA reports it slightly less accurate than
+    /// the batch export (6.14 % against 5.91 % average WER).
+    @UserDefault(PreferenceKey.parakeetLiveStreaming) var parakeetLiveStreaming: Bool = false
     @UserDefault(PreferenceKey.cleanupEndpoint) var cleanupEndpointJSON: String = ""
     @UserDefault(PreferenceKey.speechEndpoint) var speechEndpointJSON: String = ""
     @UserDefault(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
@@ -905,7 +920,11 @@ final class AppState: ObservableObject {
     @Published var snippets: [Snippet] = []
 
     /// Spoken forms rewritten to the user's text, for every engine.
-    @Published var wordReplacements: [WordReplacement] = []
+    @Published var wordReplacements: [WordReplacement] = [] {
+        // A replacement added again starts its "not said in a while"
+        // clock afresh (`TermUsage.noting`).
+        didSet { noteDictionaryTermsSeen() }
+    }
 
     /// Corrections noticed in dictated text, waiting for the user to accept.
     @Published private(set) var dictionarySuggestions: [CorrectionSuggestion] = []
@@ -949,9 +968,15 @@ final class AppState: ObservableObject {
             refreshCancelKeyArming()
             if oldValue && !isTranscribing {
                 scheduleQueuedRecordingStart()
+                runDeferredAutoPauseUnload()
             }
         }
     }
+
+    /// Auto-pause began while a dictation was still being transcribed or
+    /// delivered. Its model unload waits for that dictation to finish:
+    /// unloading under it fails the dictation.
+    private var autoPauseUnloadDeferred = false
 
     /// Names and identifiers read from the screen when recording started.
     private var screenContextTask: Task<[String], Never>?
@@ -1105,7 +1130,8 @@ final class AppState: ObservableObject {
     private var onboardingRequestedModel: ModelSize?
     /// Non-nil only while onboarding itself owns the serialized engine load.
     private var onboardingLoadingRequestGeneration: UInt64?
-    /// The language whose change `languageDidChange()` has already reacted to.
+    /// The language setting `languageDidChange()` has already reacted to
+    /// (`languageChangeKey`).
     private var handledLanguageChange: String?
 
     /// AudioEngine serializes its own lifecycle internally; this wrapper makes
@@ -1813,7 +1839,9 @@ final class AppState: ObservableObject {
         return "Dictation is paused while a listed app is running."
     }
 
-    private func handleAutoPauseEntered() async {
+    /// A listed app started: stop any recording and unload the model.
+    /// Internal so tests can drive it; the monitor calls it in the app.
+    func handleAutoPauseEntered() async {
         isAutoPaused = true
         autoPauseTriggerDisplayName = autoPauseMonitor.activeTrigger?.displayName
         modelKeepAlive.cancel()
@@ -1830,6 +1858,15 @@ final class AppState: ObservableObject {
             appStatus = .idle
         }
 
+        if isTranscribing {
+            VocaLogger.info(.appState, "Auto-pause entered while a dictation is finishing: unloading once it is delivered")
+            autoPauseUnloadDeferred = true
+            return
+        }
+        await unloadModelForAutoPause()
+    }
+
+    private func unloadModelForAutoPause() async {
         if whisperService.isModelLoaded {
             await unloadActiveModel(reason: .autoPause)
         } else {
@@ -1837,7 +1874,21 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func handleAutoPauseCleared() async {
+    /// Runs the unload `handleAutoPauseEntered` put off, once the dictation
+    /// it was waiting on is delivered, if the pause still holds.
+    private func runDeferredAutoPauseUnload() {
+        guard autoPauseUnloadDeferred else { return }
+        autoPauseUnloadDeferred = false
+        Task { @MainActor [weak self] in
+            guard let self, self.isAutoPaused, !self.isTranscribing, !self.isCapturingAudio else { return }
+            VocaLogger.info(.appState, "Dictation delivered during auto-pause: unloading the model now")
+            await self.unloadModelForAutoPause()
+        }
+    }
+
+    /// The listed apps quit: reload the model so the next dictation is ready.
+    func handleAutoPauseCleared() async {
+        autoPauseUnloadDeferred = false
         isAutoPaused = false
         autoPauseTriggerDisplayName = nil
         // Warm-reload so the next hotkey is ready (Linux behavior).
@@ -1851,11 +1902,15 @@ final class AppState: ObservableObject {
     /// exact variants WhisperKit marks supported for the current device.
     /// Models whose engine cannot run on this system at all (e.g. Apple
     /// Speech before macOS 26, Parakeet on Intel) are excluded entirely.
+    /// Other engines report every model they can run as supported, so only
+    /// WhisperKit's list extends the catalog; otherwise a model left out of
+    /// it on purpose (Canary 180M Flash) would come straight back. A legacy
+    /// model still appears while it is the selected one.
     private func modelCatalog() -> [ModelSize] {
         var catalog = ModelSize.standardCatalog.filter { $0.isAvailableOnThisSystem }
 
         for size in ModelSize.allCases
-        where size.isAvailableOnThisSystem && modelManager.isModelSupported(size) {
+        where size.engine == .whisperKit && size.isAvailableOnThisSystem && modelManager.isModelSupported(size) {
             if !catalog.contains(size) {
                 catalog.append(size)
             }
@@ -2258,6 +2313,7 @@ final class AppState: ObservableObject {
 
         // Reset UI state
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         cursorOverlay.hide()
         appStatus = .idle
@@ -2324,6 +2380,14 @@ final class AppState: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 if self?.errorMessage == message { self?.errorMessage = nil }
             }
+            return
+        }
+
+        // Teaching a Dictionary word holds the microphone and the model.
+        if isTeachingWord {
+            VocaLogger.info(.appState, "Dictation ignored while a Dictionary word is being taught")
+            endHotKeyToggleSession()
+            showTemporaryError("VocaMac is listening for a Dictionary word. Dictation is available when you finish.")
             return
         }
 
@@ -2427,14 +2491,43 @@ final class AppState: ObservableObject {
                     cursorOverlay.setLoadingSpeechModel(true)
                 }
             }
+            // The cleanup model loads with llama.cpp on the GPU while the
+            // speech model loads on the Neural Engine. When memory has room
+            // for both, as at launch, start it now: after the speech model,
+            // its load and prompt read were left for after the user stopped.
+            if injectResult, activeCommandTarget == nil, transcriptCleanupEnabled, startupFitsBothModels() {
+                let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
+                Task { @MainActor [weak self] in
+                    await self?.warmCleanupModel(for: target)
+                }
+            }
+            // A dictation is waiting: the load hands the model over without
+            // its warm-up decode, which this dictation would only wait for.
+            // Set before waiting on the launch load too, so a dictation that
+            // starts while that load runs skips its warm-up as well.
+            whisperService.setRecordingWaitingForLoad(true)
             if let startupModelPreparation {
                 await startupModelPreparation.value
             }
             await ensureModelLoaded()
+            whisperService.setRecordingWaitingForLoad(false)
             isLoadingModelForRecording = false
             cursorOverlay.setLoadingSpeechModel(false)
             let pendingStop = pendingStopDuringModelLoad
             pendingStopDuringModelLoad = nil
+            // Auto-pause began while the model loaded. Its unload found
+            // nothing loaded yet, so the model is resident now: unload it
+            // and refuse the dictation as a paused start would.
+            if isAutoPaused {
+                discardEarlyCapture()
+                let message = autoPausedMessage
+                VocaLogger.info(.appState, "Auto-pause began while the speech model loaded: \(message)")
+                endHotKeyToggleSession()
+                showOverlayFailure(message)
+                showTemporaryError(message)
+                await unloadModelForAutoPause()
+                return
+            }
             guard whisperService.isModelLoaded else {
                 discardEarlyCapture()
                 endHotKeyToggleSession()
@@ -2556,9 +2649,14 @@ final class AppState: ObservableObject {
         let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
-        audioEngine.onAudioSamples = session.map { session in
-            { @Sendable samples, offset in session.append(samples, at: offset) }
-        }
+        // A recording decoded whole at stop has its silence found while it
+        // is made, so the stop is left only the last fraction of a second.
+        // A microphone opened early holds audio the stream never saw, and
+        // Apple Speech finishes its own session without a batch decode.
+        let voiceActivity = adoptedCapture == nil && !recordingProcessesWhileSpeaking
+            && recordingEngine != .appleSpeech
+            ? whisperService.startVoiceActivityStream() : nil
+        audioEngine.onAudioSamples = Self.sampleObserver(session: session, voiceActivity: voiceActivity)
         let didStartRecording: Bool
         if let adoptedCapture {
             didStartRecording = await adoptedCapture.start.value
@@ -2658,10 +2756,11 @@ final class AppState: ObservableObject {
         if let contextTask = screenContextTask {
             let customVocabulary = customVocabulary
             let replacementTargets = replacementTargets
+            let usage = termUsage
             Task { @MainActor in
                 let terms = await contextTask.value
                 vocabulary.update(Self.recognitionVocabulary(
-                    customVocabulary, replacementTargets: replacementTargets, contextTerms: terms
+                    customVocabulary, replacementTargets: replacementTargets, contextTerms: terms, usage: usage
                 ))
             }
         }
@@ -2682,6 +2781,9 @@ final class AppState: ObservableObject {
         guard processWhileSpeaking, injectResult, activeCommandTarget == nil,
               let model = ModelSize(rawValue: selectedModelSize),
               model.engine != .customEndpoint,
+              // A streaming export transcribes the whole recording as it
+              // comes; pieces would decode it twice.
+              !(parakeetLiveStreaming && model.transcribesWhileSpeaking),
               !(model.engine == .whisperKit && translatesSpeech) else { return nil }
         let engine = model.engine
         guard !isPowerConstrained() else {
@@ -2961,6 +3063,15 @@ final class AppState: ObservableObject {
         defer {
             if generation == recordingGeneration { isTranscribing = false }
         }
+        // Copy the clipboard while the speech is decoded, not after the text
+        // is ready. The paste reuses it only if the board is unchanged, and
+        // the release (queued behind that paste) drops it either way.
+        if injectResult, preserveClipboard {
+            textInjector.prepareClipboardSnapshot()
+        }
+        defer {
+            if injectResult, preserveClipboard { textInjector.releasePreparedClipboardSnapshot() }
+        }
 
         let contextTask = screenContextTask
         screenContextTask = nil
@@ -2985,6 +3096,21 @@ final class AppState: ObservableObject {
             let captured = await documentURLRead.value
             return await self?.revalidatedDocumentURL(captured)
         }
+        // The field is read again at key-up, while the speech is decoded,
+        // rather than after cleanup: a move to another field while speaking
+        // is still noticed, and the read no longer adds to the wait. A move
+        // during the decode itself is left to the app check at delivery.
+        let insertionContextAtStop: Task<InsertionContext?, Never>?
+        if injectResult, writingStyleEnabled, let reader = screenContextReader {
+            insertionContextAtStop = Task {
+                await Self.value(
+                    of: Task { @MainActor in await reader.captureInsertionContext() },
+                    within: Self.screenContextTimeout, otherwise: nil
+                )
+            }
+        } else {
+            insertionContextAtStop = nil
+        }
         let language = selectedLanguage == "auto" ? nil : selectedLanguage
         let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
         // sherpa-onnx models take no screen terms (only Qwen3-ASR reads the
@@ -2994,13 +3120,33 @@ final class AppState: ObservableObject {
         let decodesWholeRecording = session == nil || session?.language != language
         if selectedEngine == .sherpaOnnx, decodesWholeRecording {
             let vocabulary = Self.recognitionVocabulary(
-                customVocabulary, replacementTargets: replacementTargets, contextTerms: []
+                customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
             )
             let transcriber = whisperService
             let translate = translatesSpeech
             earlyDecode = Task {
                 try await transcriber.transcribe(
                     audioData: audioData, language: language, translate: translate, vocabulary: vocabulary
+                )
+            }
+        } else if selectedEngine == .parakeet, decodesWholeRecording {
+            // Parakeet reads the screen terms only for its boost after the
+            // decode, so the decode starts now too and the terms join it
+            // when they arrive.
+            let vocabulary = customVocabulary
+            let targets = replacementTargets
+            let usage = termUsage
+            let transcriber = whisperService
+            let translate = translatesSpeech
+            earlyDecode = Task {
+                try await transcriber.transcribe(
+                    audioData: audioData, language: language, translate: translate,
+                    vocabularyAfterDecode: {
+                        let contextTerms = await contextTermsRead.value
+                        return await Self.recognitionVocabulary(
+                            vocabulary, replacementTargets: targets, contextTerms: contextTerms, usage: usage
+                        )
+                    }
                 )
             }
         } else {
@@ -3023,7 +3169,7 @@ final class AppState: ObservableObject {
             // gets only the user's own Dictionary.
             let recognitionVocabulary = Self.recognitionVocabulary(
                 customVocabulary, replacementTargets: replacementTargets,
-                contextTerms: selectedEngine == .customEndpoint ? [] : contextTerms
+                contextTerms: selectedEngine == .customEndpoint ? [] : contextTerms, usage: termUsage
             )
             let result: VocaTranscription
             // A commit-mode session reads the vocabulary per piece, so context
@@ -3096,6 +3242,7 @@ final class AppState: ObservableObject {
             let trimmedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             // Set when nothing was heard and no overlay could say so.
             var heardNothing = false
+            var heardNothingBecauseQuiet = false
             if !trimmedText.isEmpty {
                 let target = frontmostAppResolver.currentFrontmostApp()
                     ?? pendingTargetApp ?? frontmostAppResolver.lastActiveApp()
@@ -3129,10 +3276,13 @@ final class AppState: ObservableObject {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace, preview: !injectResult,
                     dictionary: dictionaryContext(
-                        contextTerms: contextTerms, language: result.detectedLanguage, segments: result.segments
+                        contextTerms: contextTerms, language: DictationOutputPipeline.languagePrior(
+                            reported: result.detectedLanguage, spoken: spokenLanguages, text: result.text
+                        ), segments: result.segments
                     ),
                     numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
                     skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
+                    spokenLanguages: spokenLanguages,
                     // Cleaning piece by piece only pays off with answers from
                     // while recording; an endpoint would get one call per piece.
                     pieces: speculator == nil ? [] : result.pieces, speculator: speculator
@@ -3146,16 +3296,13 @@ final class AppState: ObservableObject {
                 // Fit the text to the field: one line, the sentence already
                 // there, the draft's register. Prose only; a terminal's
                 // buffer or an editor's code is not a sentence to join.
-                // The field is read again here: the user may have moved to
+                // The field read again at key-up: the user may have moved to
                 // another one while speaking, and then nothing is fitted.
                 var leadingSpace = false
                 if injectResult, writingStyleEnabled, profile.cleanup != .raw, profile.format.supportsWording,
                    !resolved.codingAgent, let start = await insertionContextRead.value,
-                   let reader = screenContextReader,
-                   let context = InsertionFit.deliveryContext(start: start, now: await Self.value(
-                       of: Task { @MainActor in await reader.captureInsertionContext() },
-                       within: Self.screenContextTimeout, otherwise: nil
-                   )) {
+                   let stopRead = insertionContextAtStop,
+                   let context = InsertionFit.deliveryContext(start: start, now: await stopRead.value) {
                     let fit = InsertionFit.fit(
                         output.text, into: context,
                         capitalizes: Self.capitalizes(profile.rules, autoCapitalize: autoCapitalize),
@@ -3217,6 +3364,7 @@ final class AppState: ObservableObject {
                     }
                     statsManager.recordTranscription(result)
                     stampModelsInUseIfStale()
+                    recordTermUsage(in: output.text)
                 }
                 if injectResult {
                     let current = frontmostAppResolver.currentFrontmostApp()
@@ -3231,7 +3379,23 @@ final class AppState: ObservableObject {
                         showTemporaryError("The destination app changed. Your dictation is saved in the menu bar; copy it to paste where you want.")
                         return
                     }
-                    textInjector.inject(text: (leadingSpace ? " " : "") + output.text, preserveClipboard: preserveClipboard)
+                    let delivery = Self.textDelivery(
+                        spoken: result.text, text: output.text, app: current,
+                        isCodeOrTerminal: Self.isCodeOrTerminal(current, resolved: resolved),
+                        method: insertionMethod, typingApps: typedInsertionApps,
+                        autoSendMode: autoSendMode, autoSendApps: autoSendApps
+                    )
+                    if delivery.text != output.text {
+                        // "Send it" asked for Return; it isn't part of the text.
+                        output = DictationOutputResult(original: output.original, text: delivery.text, summary: output.summary)
+                        lastOutput = output
+                        // Paste Last prefers the unsaved copy: it must match
+                        // what was delivered, without the cue.
+                        if lastUnsavedDictation != nil { lastUnsavedDictation = output.text }
+                    }
+                    let deliveredText = output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? "" : (leadingSpace ? " " : "") + output.text
+                    textInjector.inject(text: deliveredText, preserveClipboard: preserveClipboard, options: delivery.options)
                     saveResult()
                     if onboardingVerification.mode == .insertion,
                        !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -3268,17 +3432,22 @@ final class AppState: ObservableObject {
                         segments: result.segments, keepAudio: historyKeepsAudio
                     )
                 }
+                // A mic turned too far down is the likeliest cause; say so.
+                let tooQuiet = result.inputLevelWarning == .tooQuiet
                 if injectResult {
-                    heardNothing = !showOverlayFailure("Didn't catch that.")
+                    heardNothing = !showOverlayFailure(tooQuiet ? "Didn't catch that. Your mic is very quiet." : "Didn't catch that.")
                 } else {
                     settingsTestResultText = nil
                 }
+                if tooQuiet { heardNothingBecauseQuiet = true }
             }
 
             cursorOverlay.hide()
             appStatus = .idle
             if heardNothing {
-                showTemporaryError("Didn't catch that. Nothing was typed.")
+                showTemporaryError(heardNothingBecauseQuiet
+                    ? "Didn't catch that. Your microphone level is very low; raise its input volume in System Settings → Sound."
+                    : "Didn't catch that. Nothing was typed.")
             }
         } catch {
             guard generation == recordingGeneration else {
@@ -3403,6 +3572,7 @@ final class AppState: ObservableObject {
     /// would be taken as an editing command for the stale selection.
     private func discardRecordingState() {
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         screenContextTask?.cancel()
         screenContextTask = nil
@@ -3573,6 +3743,26 @@ final class AppState: ObservableObject {
             self.audioDucker.restore()
             self.spotifyPauser.resume()
             VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
+        }
+    }
+
+    /// What receives the microphone's samples while recording: a live
+    /// session, the silence detector, both, or neither.
+    static func sampleObserver(
+        session: RecordingTranscription?, voiceActivity: VoiceActivityStream?
+    ) -> (@Sendable ([Float], Int) -> Void)? {
+        switch (session, voiceActivity) {
+        case (nil, nil):
+            return nil
+        case let (session?, nil):
+            return { samples, offset in session.append(samples, at: offset) }
+        case let (nil, voiceActivity?):
+            return { samples, offset in voiceActivity.append(samples, at: offset) }
+        case let (session?, voiceActivity?):
+            return { samples, offset in
+                session.append(samples, at: offset)
+                voiceActivity.append(samples, at: offset)
+            }
         }
     }
 
@@ -3792,9 +3982,41 @@ final class AppState: ObservableObject {
         availableModels[idx].loadingStatus = "Loading…"
     }
 
+    /// Reload the active model when "Transcribe as you speak" no longer
+    /// matches the loaded encoder (a Unified checkpoint's streaming export is
+    /// a different model).
+    ///
+    /// Queued behind any model operation in progress and decided only once it
+    /// has finished: a change made while a load is under way is compared
+    /// with what that load actually produced, so it is never dropped.
+    func reloadModelForLiveStreamingChangeIfNeeded() async {
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            guard let size = liveStreamingReloadTarget() else { return }
+            VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
+            await performLoadModel(size)
+        }
+    }
+
+    /// The loaded model, when its encoder disagrees with the setting.
+    ///
+    /// Nil when the chosen model is not the loaded one (an imported backup
+    /// can pick another): reloading the old model would save it over that
+    /// choice, and the next load applies the setting anyway.
+    func liveStreamingReloadTarget() -> ModelSize? {
+        guard let size = currentModel?.size,
+              ModelSize(rawValue: selectedModelSize) == size,
+              size.transcribesWhileSpeaking,
+              whisperService.isModelLoaded,
+              whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {
+            return nil
+        }
+        return size
+    }
+
     /// Reload the active model when the transcription language changes and
-    /// the engine bakes that language into the loaded model (sherpa-onnx).
-    /// Other engines take the language per transcription and need no reload.
+    /// the engine bakes that language into the loaded model (sherpa-onnx,
+    /// Nemotron Unified, SenseVoice on the Neural Engine). Other engines
+    /// take the language per transcription and need no reload.
     func reloadModelForLanguageChangeIfNeeded() async {
         guard let size = currentModel?.size,
               size.bindsLanguageAtLoadTime,
@@ -3804,6 +4026,14 @@ final class AppState: ObservableObject {
 
         VocaLogger.info(.appState, "Language changed to \(selectedLanguage) — reloading \(size.displayName)")
         await loadModel(size)
+    }
+
+    /// What a language change is judged by: the recognition language, and
+    /// the language a model that binds it at load would be given.
+    var languageChangeKey: String {
+        let pinned = selectedLanguage == TranscriptionLanguage.auto.code ? nil : selectedLanguage
+        let loadLanguage = TranscriptionRouter.loadLanguage(selected: pinned, spoken: spokenLanguages)
+        return "\(selectedLanguage)|\(loadLanguage ?? TranscriptionLanguage.auto.code)"
     }
 
     // MARK: - Spoken Languages
@@ -3842,6 +4072,7 @@ final class AppState: ObservableObject {
         // The same recommendation onboarding shows, so the button prepares
         // the model named on screen.
         guard let recommendation = speechModelRecommendation else { return }
+        speechModelChosen = true
 
         onboardingModelRequestGeneration &+= 1
         let generation = onboardingModelRequestGeneration
@@ -3948,9 +4179,15 @@ final class AppState: ObservableObject {
     /// arrives twice. Handling it twice would cancel and restart the download
     /// the first call just started, so later calls for the same language are
     /// dropped.
+    ///
+    /// The spoken languages count too: with recognition on Auto, a model
+    /// that binds its language at load (Nemotron Unified) is given the only
+    /// spoken language, so going from one spoken language to two changes
+    /// what it should load with although `selectedLanguage` stays "auto".
     func languageDidChange() async {
-        guard handledLanguageChange != selectedLanguage else { return }
-        handledLanguageChange = selectedLanguage
+        let key = languageChangeKey
+        guard handledLanguageChange != key else { return }
+        handledLanguageChange = key
 
         let shouldPrepareUpdatedRecommendation = isPreparingOnboardingModel
         cancelOnboardingModelPreparation()
@@ -4345,7 +4582,11 @@ final class AppState: ObservableObject {
             VocaLogger.warning(.appState, "Hotkey listener failed to start. Check Accessibility & Input Monitoring permissions.")
         }
 
-        await checkForCrashReport()
+        // The crash-report scan reads the diagnostics folder; nothing below
+        // needs it, so it runs while the models load.
+        let crashReportCheck = Task<Void, Never> { @MainActor [weak self] in
+            await self?.checkForCrashReport()
+        }
 
         // What the last in-place install did, before a new check runs.
         updateChecker.reportLastInstallResult()
@@ -4359,6 +4600,7 @@ final class AppState: ObservableObject {
 
         whisperService.removeRetiredEngineState()
         transcriptCleanup.pruneUnknownModels()
+        adoptRecommendedModelIfNeverChosen()
 
         // 4. Load the user's preferred model. The cleanup model loads with
         // llama.cpp on the GPU while the speech model loads on the Neural
@@ -4382,6 +4624,7 @@ final class AppState: ObservableObject {
         }
 
         await updateCheck.value
+        await crashReportCheck.value
 
         VocaLogger.info(.appState, "Startup complete!")
     }
@@ -4394,6 +4637,37 @@ final class AppState: ObservableObject {
         guard modelManager.isModelDownloaded(speech), transcriptCleanup.isDownloaded(cleanup) else { return false }
         let speechGB = CompiledModelRecord().hasLoaded(speech) ? speech.ramRequiredGB : speech.firstLoadRAMRequiredGB
         return parallelStartupFits(speechGB + cleanup.descriptor.ramRequiredGB + Self.parallelStartupMarginGB)
+    }
+
+    /// The model onboarding recommends, when the user has never picked a
+    /// speech model and that one is already on this Mac.
+    ///
+    /// "Set up later", or quitting before "Download & Use", leaves the
+    /// bundled Tiny as an unchosen default, which the startup load then
+    /// saves. Once the recommendation is on disk anyway (downloaded from
+    /// Settings, or left by an earlier install) there is no reason to stay
+    /// on Tiny. Only Tiny is replaced: a choice saved before
+    /// `speechModelChosen` existed was recorded without it, and anything
+    /// other than the default was picked by someone. Nothing is downloaded
+    /// here, and Apple Speech and Custom Endpoint are never picked for the
+    /// user: one may fetch system assets, the other uploads audio.
+    func recommendedModelForUnchosenDefault() -> ModelSize? {
+        guard !speechModelChosen,
+              selectedModelSize == ModelSize.tiny.rawValue,
+              let model = speechModelRecommendation?.model,
+              model != .tiny,
+              model.engine != .appleSpeech, model.engine != .customEndpoint,
+              modelManager.isModelSupported(model), modelManager.isModelDownloaded(model) else { return nil }
+        return model
+    }
+
+    /// Switch an unchosen default to the recommended model; see
+    /// `recommendedModelForUnchosenDefault`.
+    func adoptRecommendedModelIfNeverChosen() {
+        guard let model = recommendedModelForUnchosenDefault() else { return }
+        VocaLogger.info(.appState, "No speech model was ever chosen — using the recommended \(model.displayName), already downloaded")
+        selectedModelSize = model.rawValue
+        rebuildAvailableModels()
     }
 
     /// Headroom kept free when both models load together.
@@ -4588,7 +4862,8 @@ final class AppState: ObservableObject {
             language: selectedLanguage == "auto" ? nil : selectedLanguage, autoCapitalize: autoCapitalize,
             trailingSpace: false, preview: true,
             numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-            skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs
+            skipWhenClean: skipCleanDictations, laysOutParagraphs: pauseParagraphs,
+            spokenLanguages: spokenLanguages
         )
         return CleanupTryResult(
             input: text, text: output.text, summary: output.summary,
@@ -4596,35 +4871,54 @@ final class AppState: ObservableObject {
         )
     }
 
+    /// Whether a key is saved, read from the Keychain once and then kept:
+    /// Settings asks on every render, and each Keychain read is a
+    /// `SecItemCopyMatching` round trip. Saving or deleting a key here
+    /// refreshes it.
+    private var cachedCleanupEndpointHasAPIKey: Bool?
+    private var cachedSpeechEndpointHasAPIKey: Bool?
+
     var cleanupEndpointHasAPIKey: Bool {
-        KeychainCredentialStore.cleanupEndpoint.readAPIKey()?.isEmpty == false
+        if let cached = cachedCleanupEndpointHasAPIKey { return cached }
+        let hasKey = KeychainCredentialStore.cleanupEndpoint.readAPIKey()?.isEmpty == false
+        cachedCleanupEndpointHasAPIKey = hasKey
+        return hasKey
     }
 
     func saveCleanupAPIKey(_ key: String) throws {
+        cachedCleanupEndpointHasAPIKey = nil
         try KeychainCredentialStore.cleanupEndpoint.saveAPIKey(key)
         objectWillChange.send()
     }
 
     func deleteCleanupAPIKey() throws {
+        cachedCleanupEndpointHasAPIKey = nil
         try KeychainCredentialStore.cleanupEndpoint.deleteAPIKey()
         objectWillChange.send()
     }
 
     var speechEndpointHasAPIKey: Bool {
-        KeychainCredentialStore.speechEndpoint.readAPIKey()?.isEmpty == false
+        if let cached = cachedSpeechEndpointHasAPIKey { return cached }
+        let hasKey = KeychainCredentialStore.speechEndpoint.readAPIKey()?.isEmpty == false
+        cachedSpeechEndpointHasAPIKey = hasKey
+        return hasKey
     }
 
     func saveSpeechEndpointAPIKey(_ key: String) throws {
+        cachedSpeechEndpointHasAPIKey = nil
         try KeychainCredentialStore.speechEndpoint.saveAPIKey(key)
         objectWillChange.send()
     }
 
     func deleteSpeechEndpointAPIKey() throws {
+        cachedSpeechEndpointHasAPIKey = nil
         try KeychainCredentialStore.speechEndpoint.deleteAPIKey()
         objectWillChange.send()
     }
 
     func reloadImportedSettings() {
+        cachedCleanupEndpointHasAPIKey = nil
+        cachedSpeechEndpointHasAPIKey = nil
         loadSnippets()
         loadDictionary()
         decodedBindingsCache = nil
@@ -4632,6 +4926,11 @@ final class AppState: ObservableObject {
         syncShortcutConfiguration()
         syncLaunchAtLogin()
         refreshActiveWritingStyle()
+        // An imported "Transcribe as you speak" only takes effect with the
+        // matching encoder; a no-op when the loaded one already matches.
+        Task { @MainActor [weak self] in
+            await self?.reloadModelForLiveStreamingChangeIfNeeded()
+        }
         objectWillChange.send()
     }
 
@@ -4876,7 +5175,93 @@ final class AppState: ObservableObject {
     /// Nothing else is using the speech model. An error banner is only a
     /// message, so it doesn't count as busy.
     private var isFreeForMediaTranscription: Bool {
-        !isRecording && !isTranscribingMedia && (appStatus == .idle || appStatus == .error)
+        !isRecording && !isTranscribingMedia && !isTeachingWord && (appStatus == .idle || appStatus == .error)
+    }
+
+    // MARK: - Teaching a Dictionary word
+
+    /// Whether the microphone and the speech model are free for a take.
+    var canTeachWord: Bool {
+        isFreeForMediaTranscription && !isTranscribing && !isStartingAudio && earlyCapture == nil
+    }
+
+    /// Open the microphone for one take of a word being taught. Returns
+    /// false when something else holds it or it could not start.
+    func startTeachingTake() async -> Bool {
+        guard canTeachWord else { return false }
+        isTeachingWord = true
+        audioEngine.onAudioSamples = nil
+        let start = Task { @MainActor [weak self] () -> Bool in
+            await self?.startConfiguredAudioEngine() ?? false
+        }
+        teachingStart = start
+        let started = await start.value
+        if teachingStart == start { teachingStart = nil }
+        // Cancelled or finished while the microphone was opening: that call
+        // waited for this start and has already closed it.
+        guard isTeachingWord else { return false }
+        if !started {
+            isTeachingWord = false
+            VocaLogger.warning(.dictionary, "Could not open the microphone to teach a word")
+        }
+        return started
+    }
+
+    /// Wait for a take's microphone start still under way, so the stop that
+    /// follows closes it rather than running first on the audio queue.
+    private func settleTeachingStart() async {
+        guard let start = teachingStart else { return }
+        _ = await start.value
+        teachingStart = nil
+    }
+
+    /// End the take and decode it without recognition hints, so the result
+    /// is what the engine hears on its own. "" when nothing was heard; nil
+    /// when the model could not run.
+    func finishTeachingTake() async -> String? {
+        guard isTeachingWord else { return nil }
+        defer { isTeachingWord = false }
+        await settleTeachingStart()
+        let samples = await stopAudioEngine()
+        // Under a quarter of a second at 16 kHz is a click, not a word.
+        guard samples.count >= 4_000 else { return "" }
+        if !whisperService.isModelLoaded { await ensureModelLoaded() }
+        guard whisperService.isModelLoaded else { return nil }
+        do {
+            let result = try await whisperService.transcribe(
+                audioData: samples,
+                language: selectedLanguage == "auto" ? nil : selectedLanguage,
+                translate: false,
+                vocabulary: ""
+            )
+            return result.text
+        } catch {
+            VocaLogger.warning(.dictionary, "Could not decode a take of a Dictionary word: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// Close the microphone without decoding (the dialog closed mid-take).
+    func cancelTeachingTake() async {
+        guard isTeachingWord else { return }
+        await settleTeachingStart()
+        _ = await stopAudioEngine()
+        isTeachingWord = false
+    }
+
+    /// Save what a teaching session found: the word stays (or is put) in the
+    /// vocabulary, and each chosen spoken form becomes part of its
+    /// replacement, as a learned correction would (`learn`).
+    func teachWord(_ term: String, heardForms: [String]) {
+        let term = term.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !term.isEmpty else { return }
+        if !vocabularyTerms.contains(where: { $0.lowercased() == term.lowercased() }) {
+            addVocabularyTerm(term)
+        }
+        for form in heardForms {
+            addWordReplacement(heard: form, replacement: term)
+        }
+        VocaLogger.info(.dictionary, "Taught a word by voice with \(heardForms.count) spoken form(s)")
     }
 
     private static func sameOutputTarget(_ first: RunningAppSnapshot?, _ second: RunningAppSnapshot?) -> Bool {
@@ -5043,10 +5428,13 @@ extension AppState {
                     language: result.detectedLanguage, autoCapitalize: autoCapitalize,
                     trailingSpace: appendTrailingSpace,
                     dictionary: dictionaryContext(
-                        contextTerms: [], language: result.detectedLanguage, segments: result.segments
+                        contextTerms: [], language: DictationOutputPipeline.languagePrior(
+                            reported: result.detectedLanguage, spoken: spokenLanguages, text: result.text
+                        ), segments: result.segments
                     ),
                     numbers: numberWriting, numberSymbols: numberSymbols, spokenEmoji: spokenEmoji,
-                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs
+                    skipWhenClean: skipCleanDictations, laysOutParagraphs: laysOutParagraphs,
+                    spokenLanguages: spokenLanguages
                 )
             }
             historyStore.recordRetry(
@@ -6050,7 +6438,7 @@ extension AppState {
             profile: profile, snippetList: snippets,
             cleanupEnabled: transcriptCleanupEnabled, rewritingEnabled: writingRewriteEnabled,
             model: selectedCleanupModelKind, customPrompt: effectiveCleanupPrompt,
-            cleanupLevel: transcriptCleanupLevel, language: language,
+            cleanupLevel: transcriptCleanupLevel, language: language, spokenLanguages: spokenLanguages,
             autoCapitalize: autoCapitalize, trailingSpace: appendTrailingSpace,
             preview: preview,
             dictionary: dictionaryContext(contextTerms: contextTerms, language: language),
@@ -6125,14 +6513,16 @@ extension AppState {
     // MARK: Dictionary
 
     /// Replacement targets offered to engines as recognition hints.
-    private var replacementTargets: [String] {
+    var replacementTargets: [String] {
         wordReplacements.filter(\.isValid).map(\.replacement)
     }
 
     /// Vocabulary and replacement targets as a recognition hint, for decodes
     /// with no screen context (live sessions, files, history retries).
     var recognitionHintVocabulary: String {
-        Self.recognitionVocabulary(customVocabulary, replacementTargets: replacementTargets, contextTerms: [])
+        Self.recognitionVocabulary(
+            customVocabulary, replacementTargets: replacementTargets, contextTerms: [], usage: termUsage
+        )
     }
 
     // MARK: - Vocabulary Boost
@@ -6196,6 +6586,7 @@ extension AppState {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && seen.insert($0.lowercased()).inserted }
         customVocabulary = cleaned.joined(separator: "\n")
+        noteDictionaryTermsSeen()
         downloadVocabularyBoostIfUseful()
     }
 
@@ -6292,7 +6683,7 @@ extension AppState {
 
     /// Whether `text` is one ordinary word, so a replacement from it would
     /// rewrite ordinary speech.
-    static func isOrdinaryWord(_ text: String, isKnownWord: (String) -> Bool) -> Bool {
+    nonisolated static func isOrdinaryWord(_ text: String, isKnownWord: (String) -> Bool) -> Bool {
         let words = text.lowercased().split { !($0.isLetter || $0 == "'" || $0 == "’") }.map(String.init)
         return words.count == 1 && isKnownWord(words[0])
     }
@@ -6601,10 +6992,14 @@ extension AppState {
     /// right before them. The budget here only bounds the list as a whole; a
     /// tighter one sized for Whisper left Apple Speech and Parakeet without
     /// screen terms once the user had about 40 words.
+    /// - Parameter usage: How recently each term was dictated; the user's
+    ///   terms are ordered by it so the ones said lately are kept when an
+    ///   engine trims the list from the front (`TermUsage`).
     static func recognitionVocabulary(
         _ vocabulary: String,
         replacementTargets: [String] = [],
-        contextTerms: [String]
+        contextTerms: [String],
+        usage: [String: TermUsage] = [:]
     ) -> String {
         // Replacement targets ("GitHub" for "get hub") are words the user
         // wants heard, so they join the vocabulary ahead of the user's terms.
@@ -6616,7 +7011,7 @@ extension AppState {
                 && !listed.contains($0.lowercased())
                 && targetSeen.insert($0.lowercased()).inserted
         }
-        userTerms = targets + userTerms
+        userTerms = TermUsage.ordered(targets + userTerms, by: usage)
         let known = Set(userTerms.map { $0.lowercased() })
         let characterBudget = max(0, recognitionPromptCharacterBudget - userTerms.joined(separator: ", ").count)
         var screenTerms: [String] = []
@@ -6633,6 +7028,35 @@ extension AppState {
         return (screenTerms.reversed() + userTerms).joined(separator: ", ")
     }
 
+    /// How recently each Dictionary term was dictated (`TermUsage`).
+    var termUsage: [String: TermUsage] {
+        TermUsage.decode(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermUsage))
+    }
+
+    /// Count the Dictionary terms that appear in a dictation's final text.
+    func recordTermUsage(in text: String) {
+        let terms = vocabularyTerms + replacementTargets
+        guard !terms.isEmpty else { return }
+        noteDictionaryTermsSeen()
+        let usage = termUsage
+        let updated = TermUsage.recording(text, terms: terms, in: usage)
+        guard updated != usage else { return }
+        UserDefaults.standard.set(TermUsage.encode(updated), forKey: PreferenceKey.dictionaryTermUsage)
+    }
+
+    /// When VocaMac first saw each Dictionary term listed (`TermUsage.noting`).
+    var dictionaryTermFirstSeen: [String: Date] {
+        TermUsage.decodeDates(UserDefaults.standard.dictionary(forKey: PreferenceKey.dictionaryTermFirstSeen))
+    }
+
+    /// Start the clock for terms not seen before, and forget removed ones.
+    func noteDictionaryTermsSeen(now: Date = Date()) {
+        let firstSeen = dictionaryTermFirstSeen
+        let updated = TermUsage.noting(vocabularyTerms + replacementTargets, in: firstSeen, now: now)
+        guard updated != firstSeen else { return }
+        UserDefaults.standard.set(TermUsage.encodeDates(updated), forKey: PreferenceKey.dictionaryTermFirstSeen)
+    }
+
     /// Enough for the 100 terms Apple Speech and Parakeet take.
     static let recognitionPromptCharacterBudget = 2_000
     static let maximumRecognitionContextTerms = 100
@@ -6645,6 +7069,7 @@ extension AppState {
         dismissedSuggestionKeys = Set(
             UserDefaults.standard.stringArray(forKey: PreferenceKey.dismissedDictionarySuggestions) ?? []
         )
+        noteDictionaryTermsSeen()
     }
 
     private func saveSuggestions() {

@@ -13,6 +13,7 @@ enum CLIErrorCategory: String, Codable {
     case modelNotDownloaded = "model_not_downloaded"
     case modelUnsupported = "model_unsupported"
     case transcriptionFailed = "transcription_failed"
+    case outputFailed = "output_failed"
 }
 
 /// A categorized error with a stable process exit code.
@@ -33,6 +34,7 @@ struct CLIError: LocalizedError {
         case .invalidAudio: return 3
         case .modelNotFound, .modelNotDownloaded, .modelUnsupported: return 4
         case .transcriptionFailed: return 5
+        case .outputFailed: return 6
         }
     }
 }
@@ -45,6 +47,9 @@ struct CLITranscriptionResponse: Codable, Equatable {
     let detectedLanguage: String
     let durationSeconds: Double
     let audioLengthSeconds: Double
+    /// How many `--vocabulary` terms the engine was given; absent without
+    /// the flag.
+    var vocabularyTerms: Int?
 
     enum CodingKeys: String, CodingKey {
         case text
@@ -53,6 +58,7 @@ struct CLITranscriptionResponse: Codable, Equatable {
         case detectedLanguage = "detected_language"
         case durationSeconds = "duration_seconds"
         case audioLengthSeconds = "audio_length_seconds"
+        case vocabularyTerms = "vocabulary_terms"
     }
 }
 

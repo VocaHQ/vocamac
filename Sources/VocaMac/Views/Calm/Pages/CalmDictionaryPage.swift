@@ -7,6 +7,7 @@
 // it. Adding and editing happen in `CalmDictionaryEditor`. “Spell names
 // from the screen” lives in Settings › Privacy and History.
 
+import AppKit
 import SwiftUI
 
 /// Dictionary: vocabulary, replacements and suggestions.
@@ -21,6 +22,10 @@ struct CalmDictionaryPage: View {
     @FocusState private var isSearchFocused: Bool
     @State private var editor: CalmDictionaryEditorRequest?
     @State private var showsSuggestions = false
+    @State private var pendingImport: CalmDictionaryPendingImport?
+    @State private var notice: CalmStylesNotice?
+    @State private var teaching: CalmTeachWordRequest?
+    @State private var showsUnused = false
 
     /// The feature card's dismissal key.
     static let heroKey = "dictionary"
@@ -37,8 +42,12 @@ struct CalmDictionaryPage: View {
                     CalmButtonLabel("Add new", icon: .plus)
                 }
                 .calmButton(.primary)
+                transferMenu
             }
             tabBar
+            if let notice {
+                CalmInlineNotice(notice.message, tone: notice.tone).padding(.leading, 2)
+            }
             if isSearching {
                 searchField
             }
@@ -49,10 +58,15 @@ struct CalmDictionaryPage: View {
                     CalmDictionarySuggestedStrip { showsSuggestions = true }
                 }
             }
+            if !isSearching, !appState.unusedDictionaryItems.isEmpty {
+                CalmDictionaryUnusedStrip(count: appState.unusedDictionaryItems.count) { showsUnused = true }
+            }
             CalmDictionaryList(
-                filter: filter, query: trimmedQuery, heroIsShowing: !isSearching && !isHeroDismissed, onEdit: edit
-            ) { query = "" }
-                .settingsTarget("vocabulary", aliases: ["word-replacements"])
+                filter: filter, query: trimmedQuery, heroIsShowing: !isSearching && !isHeroDismissed, onEdit: edit,
+                onTeach: { teaching = CalmTeachWordRequest(term: $0) },
+                onClearSearch: { query = "" }
+            )
+                .settingsTarget("vocabulary", aliases: ["word-replacements", "teach-word", "unused-dictionary-words"])
             if appState.showsVocabularyBoostOption {
                 CalmPanel { CalmVocabularyBoostRow() }
             }
@@ -63,11 +77,88 @@ struct CalmDictionaryPage: View {
         .calmDialog(isPresented: $showsSuggestions) {
             CalmDictionarySuggestionsDialog()
         }
+        .calmDialog(item: $teaching) { request in
+            CalmTeachWordDialog(term: request.term, appState: appState)
+        }
+        .calmDialog(isPresented: $showsUnused) {
+            CalmDictionaryUnusedDialog()
+        }
+        .calmDialog(item: $pendingImport) { pending in
+            CalmDialog("Import into your dictionary?", description: pending.summary) {
+                CalmDialogFooter(primaryTitle: "Import", isPrimaryEnabled: !pending.plan.isEmpty) {
+                    appState.applyDictionaryImport(pending.plan)
+                    notice = CalmStylesNotice(pending.doneMessage, tone: .success)
+                }
+            }
+        }
         .onChange(of: searchTarget, initial: true) { _, target in
             // A search result for vocabulary or replacements opens its tab.
             guard let tab = DictionaryListFilter.forSearchTarget(target) else { return }
             closeSearch()
             filter = tab
+        }
+    }
+
+    // MARK: Import and export
+
+    private var transferMenu: some View {
+        Menu {
+            Button("Import…") { importDictionary() }
+            Divider()
+            Button("Export as CSV…") { exportDictionary(.csv) }
+                .disabled(appState.dictionaryTransferContents.isEmpty)
+            Button("Export as JSON…") { exportDictionary(.json) }
+                .disabled(appState.dictionaryTransferContents.isEmpty)
+        } label: {
+            CalmIconMenuLabel("Dictionary options", icon: .more, size: 18, weight: 2.4)
+        }
+        .menuStyle(.button)
+        .menuIndicator(.hidden)
+        .buttonStyle(CalmIconButtonStyle())
+        .focusEffectDisabled()
+        .fixedSize()
+        .help("Import or export your dictionary")
+        .settingsTarget("dictionary-import-export")
+    }
+
+    private func exportDictionary(_ format: DictionaryTransferFormat) {
+        let panel = NSSavePanel()
+        panel.title = "Export Dictionary"
+        panel.nameFieldStringValue = "vocamac-dictionary.\(format.fileExtension)"
+        panel.allowedContentTypes = [format.contentType]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let contents = appState.dictionaryTransferContents
+        let text = format == .json ? DictionaryTransfer.json(contents) : DictionaryTransfer.csv(contents)
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            notice = CalmStylesNotice(
+                "Exported \(contents.words.count) word(s) and \(contents.replacements.count) replacement(s).", tone: .success
+            )
+        } catch {
+            VocaLogger.warning(.appState, "Could not export the dictionary: \(error.localizedDescription)")
+            notice = CalmStylesNotice("Could not write that file: \(error.localizedDescription)", tone: .warning)
+        }
+    }
+
+    private func importDictionary() {
+        let panel = NSOpenPanel()
+        panel.title = "Import Dictionary"
+        panel.message = "Choose a CSV or JSON dictionary, a VoiceInk dictionary or backup, or a text file with one word per line."
+        panel.allowedContentTypes = [.commaSeparatedText, .tabSeparatedText, .json, .plainText]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+            notice = CalmStylesNotice("Could not read that file.", tone: .warning)
+            return
+        }
+        do {
+            let contents = try DictionaryTransfer.parse(text, format: .forFile(url))
+            pendingImport = CalmDictionaryPendingImport(plan: appState.dictionaryImportPlan(for: contents))
+            notice = nil
+        } catch let error as DictionaryTransferError {
+            notice = CalmStylesNotice(error.message, tone: .warning)
+        } catch {
+            notice = CalmStylesNotice(DictionaryTransferError.unreadable.message, tone: .warning)
         }
     }
 
@@ -153,6 +244,59 @@ struct CalmDictionaryPage: View {
         case .word(let term): editor = .editWord(term)
         case .replacement(let replacement): editor = .editReplacement(replacement)
         }
+    }
+}
+
+// MARK: - Import confirmation
+
+/// An import read from a file, waiting for the user to confirm.
+struct CalmDictionaryPendingImport: Identifiable {
+    let id = UUID()
+    let plan: DictionaryImportPlan
+
+    /// “12 new words and 3 new replacements. 4 are already in your dictionary.”
+    /// A file from another app says which: “From VoiceInk: 12 new words.”
+    var summary: String {
+        sourcePrefix + counts
+    }
+
+    private var sourcePrefix: String {
+        plan.source.map { "From \($0.displayName): " } ?? ""
+    }
+
+    private var counts: String {
+        guard !plan.isEmpty else {
+            return "Everything in that file is already in your dictionary (\(plan.duplicateCount) entr\(plan.duplicateCount == 1 ? "y" : "ies"))."
+                + skippedNote
+        }
+        var parts: [String] = []
+        if !plan.newWords.isEmpty { parts.append(Self.count(plan.newWords.count, "new word")) }
+        if !plan.newReplacements.isEmpty { parts.append(Self.count(plan.newReplacements.count, "new replacement")) }
+        var text = parts.joined(separator: " and ") + "."
+        if plan.duplicateCount > 0 {
+            text += " \(plan.duplicateCount) already in your dictionary will be left as they are."
+        }
+        return text + skippedNote
+    }
+
+    /// Entries the file has that can't be imported, said before anything is
+    /// added so nothing goes missing unnoticed.
+    private var skippedNote: String {
+        guard plan.skippedCount > 0 else { return "" }
+        let entries = plan.skippedCount == 1 ? "1 entry" : "\(plan.skippedCount) entries"
+        return " \(entries) will be skipped: longer than \(DictionaryTransfer.maxEntryLength) characters, "
+            + "or past the \(DictionaryTransfer.maxEntries.formatted()) entry limit."
+    }
+
+    var doneMessage: String {
+        "Imported " + [
+            plan.newWords.isEmpty ? nil : Self.count(plan.newWords.count, "word"),
+            plan.newReplacements.isEmpty ? nil : Self.count(plan.newReplacements.count, "replacement"),
+        ].compactMap { $0 }.joined(separator: " and ") + "."
+    }
+
+    private static func count(_ value: Int, _ noun: String) -> String {
+        "\(value) \(noun)\(value == 1 ? "" : "s")"
     }
 }
 
@@ -370,6 +514,7 @@ private struct CalmDictionaryList: View {
     /// empty “All” list under it says nothing more.
     var heroIsShowing = false
     let onEdit: (DictionaryListItem) -> Void
+    let onTeach: (String) -> Void
     let onClearSearch: () -> Void
 
     @EnvironmentObject private var appState: AppState
@@ -387,9 +532,16 @@ private struct CalmDictionaryList: View {
             // Hundreds of words: rows are made as they scroll into view, a
             // page at a time.
             CalmPagedList(items, resetKey: ListKey(filter: filter, query: query)) { item in
-                CalmDictionaryRow(item: item) { onEdit(item) }
+                CalmDictionaryRow(item: item, onTeach: teachAction(for: item)) { onEdit(item) }
             }
         }
+    }
+
+    /// Words can be taught by saying them; replacements already say what
+    /// is heard.
+    private func teachAction(for item: DictionaryListItem) -> (() -> Void)? {
+        guard case .word(let term) = item else { return nil }
+        return { onTeach(term) }
     }
 
     @ViewBuilder
@@ -424,6 +576,7 @@ private struct CalmDictionaryList: View {
 /// edit button. Clicking the row also edits it.
 private struct CalmDictionaryRow: View {
     let item: DictionaryListItem
+    var onTeach: (() -> Void)?
     let onEdit: () -> Void
 
     var body: some View {
@@ -433,12 +586,22 @@ private struct CalmDictionaryRow: View {
                 .foregroundStyle(CalmColor.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } actions: {
-            Button(action: onEdit) {
-                CalmIcon(.edit, size: 15)
+            HStack(spacing: 2) {
+                if let onTeach {
+                    Button(action: onTeach) {
+                        CalmIcon(.mic, size: 15)
+                    }
+                    .calmIconButton()
+                    .help("Say it: teach VocaMac how the speech model hears this word")
+                    .accessibilityLabel("Say \(title)")
+                }
+                Button(action: onEdit) {
+                    CalmIcon(.edit, size: 15)
+                }
+                .calmIconButton()
+                .help("Edit")
+                .accessibilityLabel("Edit \(title)")
             }
-            .calmIconButton()
-            .help("Edit")
-            .accessibilityLabel("Edit \(title)")
         }
         .onTapGesture(perform: onEdit)
         .accessibilityElement(children: .contain)

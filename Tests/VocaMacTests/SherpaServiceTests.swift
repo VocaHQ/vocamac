@@ -59,7 +59,7 @@ final class SherpaServiceTests: XCTestCase {
     /// so a partial extraction can leave real-looking files behind; if this
     /// stopped throwing, the app would treat a half-downloaded model as
     /// installed and fail to load it with no way for the user to recover.
-    func testExtractingCorruptArchiveThrows() throws {
+    func testExtractingCorruptArchiveThrows() async throws {
         let temp = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: temp, withIntermediateDirectories: true)
@@ -71,7 +71,14 @@ final class SherpaServiceTests: XCTestCase {
         try (Data([0x42, 0x5A, 0x68, 0x39]) + Data(repeating: 0xAB, count: 4096))
             .write(to: corrupt)
 
-        XCTAssertThrowsError(try ModelManager.extractTarArchive(at: corrupt, into: temp))
+        do {
+            try await ModelManager.extractTarArchive(at: corrupt, into: temp)
+            XCTFail("Expected a corrupt archive to fail")
+        } catch let error as ModelManagerError {
+            // tar's own message is kept, not just its exit status.
+            guard case .downloadFailed(let reason) = error else { return XCTFail("Unexpected error: \(error)") }
+            XCTAssertFalse(reason.contains("exited with"), "stderr should explain the failure: \(reason)")
+        }
     }
 
     func testCancelledModelPreparationStopsBeforeFileOperations() async {
@@ -83,7 +90,7 @@ final class SherpaServiceTests: XCTestCase {
                 XCTFail("Expected checksum cancellation")
             } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
             do {
-                try ModelManager.extractTarArchive(at: missing, into: missing)
+                try await ModelManager.extractTarArchive(at: missing, into: missing)
                 XCTFail("Expected extraction cancellation")
             } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
         }
@@ -255,7 +262,7 @@ final class SherpaServiceTests: XCTestCase {
         var calls = 0
         XCTAssertThrowsError(try SherpaService.decodeSegments([[0.1], [0.2]], language: "en") { _ in
             calls += 1
-            if calls == 2 { throw SherpaError.transcriptionFailed(reason: "test failure") }
+            if calls == 2 { throw TranscriptionError.transcriptionFailed(reason: "test failure") }
             return ("first segment", "en")
         })
         XCTAssertEqual(calls, 2)
@@ -299,7 +306,7 @@ final class SherpaServiceTests: XCTestCase {
                 do {
                     _ = try await service.transcribe(audioData: invalid)
                     XCTFail("Expected invalid audio to fail for \(spec.size)")
-                } catch let error as SherpaError {
+                } catch let error as TranscriptionError {
                     switch error {
                     case .emptyAudio, .transcriptionFailed: break
                     default: XCTFail("Unexpected error: \(error)")

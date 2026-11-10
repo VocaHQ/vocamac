@@ -92,28 +92,13 @@ struct CLIPieceComparisonResponse: Codable, Equatable {
 
 enum WordDifference {
     /// Word-level edit distance from `reference` to `hypothesis`, over the
-    /// reference's word count. Case and punctuation are ignored.
+    /// reference's word count, with `WordErrorRate`'s normalization (case,
+    /// punctuation and how numbers are written are ignored). An empty
+    /// reference scores 1 when the hypothesis has any words.
     static func rate(reference: String, hypothesis: String) -> Double {
-        let expected = words(reference)
-        let actual = words(hypothesis)
-        guard !expected.isEmpty else { return actual.isEmpty ? 0 : 1 }
-        var previous = Array(0...actual.count)
-        for (i, word) in expected.enumerated() {
-            var current = [i + 1] + Array(repeating: 0, count: actual.count)
-            for (j, candidate) in actual.enumerated() {
-                current[j + 1] = min(
-                    previous[j + 1] + 1,
-                    current[j] + 1,
-                    previous[j] + (word == candidate ? 0 : 1)
-                )
-            }
-            previous = current
-        }
-        return Double(previous[actual.count]) / Double(expected.count)
-    }
-
-    static func words(_ text: String) -> [String] {
-        RewriteValidation.substrings(#"[\p{L}\p{N}']+"#, in: text.lowercased())
+        let difference = WordErrorRate.measure(reference: reference, hypothesis: hypothesis)
+        guard difference.referenceWords > 0 else { return difference.insertions == 0 ? 0 : 1 }
+        return difference.rate
     }
 }
 
@@ -128,6 +113,7 @@ extension HeadlessTranscriber {
         options: PieceComparisonOptions
     ) async throws -> CLIPieceComparisonResponse {
         let cleanupModel = options.cleanupModel
+        let vocabulary = try CLIVocabulary.resolve(options.vocabulary)
         let prepared = try await prepareTranscription(
             fileURL: fileURL, modelOverride: modelOverride, languageOverride: languageOverride
         )
@@ -143,7 +129,9 @@ extension HeadlessTranscriber {
 
         do {
             let (batch, batchSeconds) = try await timed {
-                try await transcriber.transcribe(audioData: samples, language: language, translate: false, vocabulary: "")
+                try await transcriber.transcribe(
+                    audioData: samples, language: language, translate: false, vocabulary: vocabulary
+                )
             }
 
             let commitOptions = StreamingCommitOptions(
@@ -178,7 +166,7 @@ extension HeadlessTranscriber {
                             audio: { Array(samples[$0]) },
                             transcribe: { audio in
                                 try await transcriber.transcribe(
-                                    audioData: audio, language: language, translate: false, vocabulary: ""
+                                    audioData: audio, language: language, translate: false, vocabulary: vocabulary
                                 )
                             }
                         )

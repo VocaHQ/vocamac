@@ -222,6 +222,14 @@ final class AudioEngine: @unchecked Sendable {
     /// recording that silently transcribes nothing. Written from the render
     /// thread, so it must use the same realtime-safe state as `capturePhase`.
     private let firstBufferSeen = OSAllocatedUnfairLock(initialState: false)
+    /// Tap callbacks between their phase check and the end of their append.
+    /// `stopRecording` hands the audio back before the tap is removed, so it
+    /// waits for this to reach zero first: a callback that passed the check
+    /// just before the stop would otherwise append after the buffer was
+    /// emptied, and its samples (often the end of the last word) would be
+    /// lost. Counted before the phase is read, so once the stop has set the
+    /// phase and seen zero, any later callback sees the stopped phase.
+    private let buffersInFlight = OSAllocatedUnfairLock(initialState: 0)
     private var configuredInputDeviceID: AudioDeviceID?
     /// Zero-based input channel chosen by the user for multi-channel devices.
     /// Read by the input tap, so it lives in `captureSettings`.
@@ -886,9 +894,18 @@ final class AudioEngine: @unchecked Sendable {
 
             collectInputTail()
             setRecordingActive(false)
-            removeInputTap(reason: "stop recording")
-            engine?.stop()
+            // A callback still appending after the bounded wait (a stalled
+            // render thread) must not append after the hand-back: tear the
+            // capture down first then, as before this change, since
+            // stopping the engine waits for the render thread to finish.
+            let tornDown = !waitForBuffersInFlight()
+            if tornDown { tearDownStoppedCapture() }
 
+            // Hand the audio back first: once the phase is `.stopped` the tap
+            // keeps nothing more, so removing it and stopping the engine
+            // (which waits for the render thread) need not hold up the
+            // transcription. The teardown runs next on this serial queue, so
+            // a later start or reset still sees a stopped engine.
             let samples = capturedSamplesAndResetBuffer()
             let duration = Double(samples.count) / Self.whisperFormat.sampleRate
             VocaLogger.info(
@@ -896,13 +913,50 @@ final class AudioEngine: @unchecked Sendable {
                 "Captured \(samples.count) samples (\(String(format: "%.2f", duration))s)"
             )
 
-            // Keep the stopped engine briefly so rapid push-to-talk recordings
-            // don't cold-reacquire a silent input route, then release it so we
-            // don't keep forcing Bluetooth headsets into HFP while idle.
-            scheduleEngineRelease()
+            if !tornDown {
+                lifecycleQueue.async { [self] in
+                    // Defensive: the queue is serial, so a later start runs
+                    // after this, but never tear down an engine that is
+                    // recording again.
+                    guard !_isCurrentlyRecording else { return }
+                    tearDownStoppedCapture()
+                }
+            }
 
             return samples
         }
+    }
+
+    /// Longest a stop waits for a tap callback already appending.
+    static let inFlightBufferWait: TimeInterval = 0.25
+
+    /// Waits until no tap callback is between its phase check and its
+    /// append, so the samples handed back include everything it accepted.
+    /// Bounded, so a stalled render thread can't hold the stop; false when
+    /// a callback was still in flight at the deadline.
+    /// Must be called on `lifecycleQueue` after the phase is stopped.
+    private func waitForBuffersInFlight() -> Bool {
+        let deadline = Date().addingTimeInterval(Self.inFlightBufferWait)
+        while buffersInFlight.withLock({ $0 }) > 0 {
+            guard Date() < deadline else {
+                VocaLogger.warning(.audioEngine, "An audio callback was still running at stop; stopping the engine before taking the audio")
+                return false
+            }
+            Thread.sleep(forTimeInterval: 0.001)
+        }
+        return true
+    }
+
+    /// Removes the tap and stops the engine after a recording stops.
+    /// Must be called on `lifecycleQueue`.
+    private func tearDownStoppedCapture() {
+        removeInputTap(reason: "stop recording")
+        engine?.stop()
+
+        // Keep the stopped engine briefly so rapid push-to-talk recordings
+        // don't cold-reacquire a silent input route, then release it so we
+        // don't keep forcing Bluetooth headsets into HFP while idle.
+        scheduleEngineRelease()
     }
 
     /// Longest a stop waits for the tap's next buffer.
@@ -1349,7 +1403,10 @@ final class AudioEngine: @unchecked Sendable {
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat) {
         // Deliberately not `isCurrentlyRecording`: that reads through
         // `lifecycleQueue.sync`, which deadlocks the render thread. See
-        // `capturePhase`.
+        // `capturePhase`. Counted in flight before the phase is read; see
+        // `buffersInFlight`.
+        buffersInFlight.withLock { $0 += 1 }
+        defer { buffersInFlight.withLock { $0 -= 1 } }
         guard capturePhase.withLock({ $0.acceptsInputBuffers }) else { return }
 
         // Record that the HAL is really pulling from this route, before any

@@ -6,7 +6,7 @@
 #   ./scripts/install.sh --cli    Install CLI commands (vocamac, vocamac-build) to ~/.local/bin
 #   ./scripts/install.sh --help   Show this help message
 
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"

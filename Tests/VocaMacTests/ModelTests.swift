@@ -184,7 +184,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 27)
+        XCTAssertEqual(ModelSize.allCases.count, 29)
     }
 
     func testRawValues() {
@@ -220,6 +220,17 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertTrue(ModelSize.medium.isLegacy)
     }
 
+    /// Canary 180M Flash is superseded by Nemotron Unified: hidden from the
+    /// catalog, but still a valid stored choice that loads as before.
+    func testCanaryIsLegacyButStillUsable() {
+        XCTAssertFalse(ModelSize.standardCatalog.contains(.canary180mFlash))
+        XCTAssertTrue(ModelSize.canary180mFlash.isLegacy)
+        XCTAssertEqual(ModelSize(rawValue: "canary-180m-flash"), .canary180mFlash)
+        XCTAssertEqual(ModelSize.canary180mFlash.engine, .sherpaOnnx)
+        XCTAssertNotNil(SherpaModelCatalog.spec(for: .canary180mFlash))
+        XCTAssertTrue(ModelSize.standardCatalog.allSatisfy { !$0.isLegacy })
+    }
+
     func testStandardCatalogIncludesNewEngines() {
         XCTAssertEqual(ModelSize.standardCatalog.first, .parakeetUltra)
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV3))
@@ -230,7 +241,6 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertTrue(ModelSize.standardCatalog.contains(.moonshineTiny))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.senseVoiceSmall))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.gigaamV3))
-        XCTAssertTrue(ModelSize.standardCatalog.contains(.canary180mFlash))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.qwen3Asr06B))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.vocaHinglish))
     }

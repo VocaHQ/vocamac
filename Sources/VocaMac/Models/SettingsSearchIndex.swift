@@ -144,6 +144,16 @@ enum SettingsSearchIndex {
                 "process while speaking",
             ]
         ),
+        SettingsSearchEntry(
+            id: "transcribe-as-you-speak",
+            page: .dictation,
+            title: "Transcribe as you speak",
+            subtitle: "Parakeet Unified and Nemotron Unified decode while you talk",
+            keywords: [
+                "streaming", "live", "real time", "realtime", "faster", "latency", "parakeet", "nemotron",
+                "transcribe as you speak",
+            ]
+        ),
 
         // Writing Styles
         SettingsSearchEntry(
@@ -409,6 +419,30 @@ enum SettingsSearchIndex {
             keywords: ["learn", "auto", "suggest", "correction", "edit", "learn from my corrections"]
         ),
         SettingsSearchEntry(
+            id: "dictionary-import-export",
+            page: .dictionary,
+            title: "Import or export the dictionary",
+            subtitle: "Move words and replacements in or out as CSV, JSON or a word list, or bring them from VoiceInk",
+            keywords: [
+                "import", "export", "csv", "json", "dictionary", "words", "backup", "transfer", "other app",
+                "voiceink", "wispr", "migrate", "switch",
+            ]
+        ),
+        SettingsSearchEntry(
+            id: "teach-word",
+            page: .dictionary,
+            title: "Teach a word by saying it",
+            subtitle: "Say a Dictionary word and VocaMac remembers how the speech model hears it",
+            keywords: ["say it", "pronounce", "pronunciation", "teach", "train", "voice", "mishear", "sounds like", "microphone"]
+        ),
+        SettingsSearchEntry(
+            id: "unused-dictionary-words",
+            page: .dictionary,
+            title: "Words not said in a while",
+            subtitle: "Review and remove Dictionary entries you haven’t dictated lately",
+            keywords: ["unused", "old", "stale", "clean up", "remove", "never", "matched", "prune", "tidy"]
+        ),
+        SettingsSearchEntry(
             id: "screen-context",
             page: .dictionary,
             title: "Spell names from the screen",
@@ -541,6 +575,34 @@ enum SettingsSearchIndex {
             page: .application,
             title: "Restore clipboard after typing",
             keywords: ["clipboard", "paste", "preserve clipboard"]
+        ),
+        SettingsSearchEntry(
+            id: "insertion-method",
+            page: .application,
+            title: "Insert text by",
+            subtitle: "Paste, or type key by key for apps that ignore ⌘V",
+            keywords: ["type", "typing", "keystrokes", "paste", "insert", "remote desktop", "paste not working", "insert text by"]
+        ),
+        SettingsSearchEntry(
+            id: "typed-insertion-apps",
+            page: .application,
+            title: "Always type in these apps",
+            subtitle: "Type instead of paste in chosen apps",
+            keywords: ["type", "typing", "apps", "paste", "remote desktop", "game", "always type"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send",
+            page: .application,
+            title: "Auto Send",
+            subtitle: "Press Return after dictating, or when you say “send it”",
+            keywords: ["send", "send it", "return", "enter", "press enter", "submit", "chat", "message", "auto send"]
+        ),
+        SettingsSearchEntry(
+            id: "auto-send-apps",
+            page: .application,
+            title: "Auto Send in terminals and editors",
+            subtitle: "Let Auto Send press Return in chosen terminals or editors",
+            keywords: ["send", "terminal", "editor", "return", "enter", "auto send apps"]
         ),
         SettingsSearchEntry(
             id: "cursor-overlay",

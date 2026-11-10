@@ -80,18 +80,38 @@ final class CLIEntrypoint {
                     options: options
                 )
             }
-        case .transcribeFile(let path, let model, let language):
-            return await runJSONOperation {
-                try await self.headlessTranscriber.transcribe(
-                    fileURL: URL(fileURLWithPath: path),
-                    modelOverride: model,
-                    languageOverride: language
-                )
-            }
+        case .transcribeFile(let path, let model, let language, let output, let vocabulary):
+            return await runOperation(
+                outputPath: output.path,
+                render: { response in
+                    switch output.format {
+                    case .json: return try self.encodedLine(response)
+                    case .text: return Data((response.text + "\n").utf8)
+                    }
+                },
+                {
+                    try await self.headlessTranscriber.transcribe(
+                        fileURL: URL(fileURLWithPath: path),
+                        modelOverride: model,
+                        languageOverride: language,
+                        vocabulary: try CLIVocabulary.resolve(vocabulary)
+                    )
+                }
+            )
         }
     }
 
     private func runJSONOperation<Response: Encodable>(
+        _ operation: () async throws -> Response
+    ) async -> Int32 {
+        await runOperation(outputPath: nil, render: encodedLine, operation)
+    }
+
+    /// Run one headless operation and write its rendered result to stdout, or
+    /// to `outputPath` when given. Failures always go to stderr as JSON.
+    private func runOperation<Response>(
+        outputPath: String?,
+        render: (Response) throws -> Data,
         _ operation: () async throws -> Response
     ) async -> Int32 {
         let isolatedStreams = isolateOperationalStreams ? beginStandardStreamIsolation() : nil
@@ -99,8 +119,10 @@ final class CLIEntrypoint {
 
         do {
             let response = try await operation()
-            let data = try encodedLine(response)
-            if let descriptor = isolatedStreams?.stdout {
+            let data = try render(response)
+            if let outputPath {
+                try writeOutputFile(data, to: outputPath)
+            } else if let descriptor = isolatedStreams?.stdout {
                 write(data, to: descriptor)
             } else {
                 stdout(data)
@@ -135,6 +157,15 @@ final class CLIEntrypoint {
             }
         }
         return cliError.exitCode
+    }
+
+    /// Write a result atomically, so a reader never sees a partial file.
+    private func writeOutputFile(_ data: Data, to path: String) throws {
+        do {
+            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+        } catch {
+            throw CLIError(.outputFailed, "Could not write \(path): \(error.localizedDescription)")
+        }
     }
 
     private func encodedLine<Value: Encodable>(_ value: Value) throws -> Data {
@@ -206,17 +237,24 @@ final class CLIEntrypoint {
     VocaMac headless transcription
 
     Usage:
-      VocaMac --transcribe-file <audio-path> --json [--model <id>] [--language <code>]
+      VocaMac --transcribe-file <audio-path> (--json | --text) [--output <file>]
+          [--model <id>] [--language <code>] [--vocabulary <file-or-list>]
       VocaMac --transcribe-file <audio-path> --json --pieces [--cleanup <cleanup-model-id>]
           [--pause-seconds <s>] [--min-piece-seconds <s>] [--model <id>] [--language <code>]
+          [--vocabulary <file-or-list>]
       VocaMac --list-models --json
       VocaMac --help
 
     Omitting --model and --language follows the current VocaMac app preferences.
     Models must already be downloaded; headless mode never opens the GUI or downloads models.
+    --text writes only the transcript instead of JSON. --output writes the result (JSON or
+    text) to a file instead of stdout. Errors are always JSON on stderr with a nonzero exit.
     --pieces compares decoding the whole file with decoding it piece by piece at pauses, as
     "Process while speaking" does while recording, and reports both texts and timings.
     --cleanup also cleans both with a downloaded cleanup model.
+    --vocabulary gives the engine recognition hints, as the app's Dictionary does: a file
+    with one term per line (or comma-separated), or a comma-separated list such as
+    "GitHub, Kubernetes". The app's own Dictionary is never read headlessly.
     """ + "\n"
 }
 

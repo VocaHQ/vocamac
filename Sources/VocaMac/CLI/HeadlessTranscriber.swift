@@ -90,10 +90,15 @@ final class HeadlessTranscriber: @unchecked Sendable {
     }
 
     /// Transcribe one file with an optional one-request model and language override.
+    ///
+    /// - Parameter vocabulary: Recognition hints (`--vocabulary`), comma
+    ///   separated as the app passes its Dictionary. Empty by default: the
+    ///   app's Dictionary is never read headlessly.
     func transcribe(
         fileURL: URL,
         modelOverride: String?,
-        languageOverride: String?
+        languageOverride: String?,
+        vocabulary: String = ""
     ) async throws -> CLITranscriptionResponse {
         let prepared = try await prepareTranscription(
             fileURL: fileURL, modelOverride: modelOverride, languageOverride: languageOverride
@@ -104,13 +109,14 @@ final class HeadlessTranscriber: @unchecked Sendable {
         let transcriber = prepared.transcriber
 
         do {
-            // Only model and language follow app prefs (see docs/CLI.md); translate
-            // and custom vocabulary are intentionally always off headlessly.
+            // Only model and language follow app prefs (see docs/CLI.md);
+            // translate is always off headlessly, and vocabulary is only what
+            // --vocabulary passes, never the app's Dictionary.
             let result = try await transcriber.transcribe(
                 audioData: loadedAudio.samples,
                 language: language,
                 translate: false,
-                vocabulary: ""
+                vocabulary: vocabulary
             )
             return CLITranscriptionResponse(
                 text: result.text,
@@ -118,7 +124,8 @@ final class HeadlessTranscriber: @unchecked Sendable {
                 engine: model.engine.cliIdentifier,
                 detectedLanguage: result.detectedLanguage,
                 durationSeconds: result.duration,
-                audioLengthSeconds: loadedAudio.durationSeconds
+                audioLengthSeconds: loadedAudio.durationSeconds,
+                vocabularyTerms: vocabulary.isEmpty ? nil : RecognitionHints.vocabularyTerms(from: vocabulary).count
             )
         } catch let error as CLIError {
             throw error

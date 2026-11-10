@@ -560,6 +560,12 @@ final class DictationOutputPipelineTests: XCTestCase {
             // The French filler is a word elsewhere, so it needs the language.
             ("Alors euh on commence", nil, "Alors euh on commence"),
             ("Uhm, ja", nil, "Ja"),
+            ("öhm das Meeting ist um drei Uhr", "de", "das Meeting ist um drei Uhr"),
+            ("hum eu acho que a reunião foi cancelada", "pt", "eu acho que a reunião foi cancelada"),
+            ("Ãh, comprei um carro novo", "pt", "Comprei um carro novo"),
+            ("comprei um carro novo", "pt", "comprei um carro novo"),
+            // Spanish "eh" and "este" are words too ("¿vale, eh?", "este libro").
+            ("eh bueno, este libro", "es", "eh bueno, este libro"),
         ]
         for (input, language, expected) in cases {
             XCTAssertEqual(

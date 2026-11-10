@@ -388,6 +388,23 @@ final class AppStateModelLoadingTests: XCTestCase {
         )
     }
 
+    /// Canary 180M Flash is legacy: sherpa-onnx reports it supported, but
+    /// the picker only lists it for someone who already has it selected.
+    @MainActor
+    func testLegacyCanaryIsListedOnlyWhileSelected() {
+        UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")
+        let (appState, _) = AppState.makeTestState(modelManager: MockModelManager())
+        XCTAssertNil(appState.availableModels.first(where: { $0.size == .canary180mFlash }))
+        XCTAssertNotNil(appState.availableModels.first(where: { $0.size == .parakeetV3 }))
+
+        UserDefaults.standard.set(ModelSize.canary180mFlash.rawValue, forKey: "vocamac.selectedModelSize")
+        let (selecting, _) = AppState.makeTestState(modelManager: MockModelManager())
+        XCTAssertEqual(
+            selecting.availableModels.first(where: { $0.size == .canary180mFlash })?.isActive,
+            true
+        )
+    }
+
     @MainActor
     func testFailedModelSwitchShowsErrorAndRestoresPreviousModel() async {
         UserDefaults.standard.set(ModelSize.small.rawValue, forKey: "vocamac.selectedModelSize")

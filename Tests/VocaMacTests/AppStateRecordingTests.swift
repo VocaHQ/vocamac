@@ -728,8 +728,15 @@ final class AppStateRecordingTests: XCTestCase {
 
         // The catalog leaves out models whose engine cannot run here at all,
         // so the expected count depends on the machine: Apple Speech needs
-        // macOS 26, and Parakeet needs Apple Silicon.
-        let runnable = ModelSize.allCases.filter { $0.isAvailableOnThisSystem }
+        // macOS 26, and Parakeet needs Apple Silicon. It also leaves out
+        // legacy models of other engines (Canary 180M Flash) unless selected;
+        // the mock lists every Whisper model, legacy Medium included, as
+        // supported by WhisperKit.
+        let selected = appState.selectedModelSize
+        let runnable = ModelSize.allCases.filter {
+            $0.isAvailableOnThisSystem
+                && (!$0.isLegacy || $0.engine == .whisperKit || $0.rawValue == selected)
+        }
         XCTAssertEqual(appState.availableModels.count, runnable.count,
                       "Should have one entry per model this system can run")
 

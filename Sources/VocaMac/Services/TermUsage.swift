@@ -88,6 +88,65 @@ struct TermUsage: Equatable, Sendable {
         return character.isLetter || character.isNumber || character == "_"
     }
 
+    // MARK: - Unused terms
+
+    /// Days without a term turning up before the Dictionary offers to
+    /// remove it.
+    static let unusedAfterDays = 60
+
+    /// `firstSeen` with today's date for each of `terms` it doesn't have
+    /// yet, and without terms no longer listed. Keys are lowercased, like
+    /// usage keys.
+    ///
+    /// When a term was added isn't stored, so its age counts from the first
+    /// time VocaMac saw it listed. That is never earlier than when it was
+    /// added, so a term is never called unused too soon.
+    static func noting(
+        _ terms: [String], in firstSeen: [String: Date], now: Date = Date()
+    ) -> [String: Date] {
+        let keys = Set(terms.map { $0.lowercased() }.filter { !$0.isEmpty })
+        var updated = firstSeen.filter { keys.contains($0.key) }
+        for key in keys where updated[key] == nil {
+            updated[key] = now
+        }
+        return updated
+    }
+
+    /// The terms of `terms` neither dictated nor added in the last `days`:
+    /// last used that long ago, or never used and listed at least that long.
+    /// A term with no record either way is left out.
+    static func unused(
+        _ terms: [String],
+        usage: [String: TermUsage],
+        firstSeen: [String: Date],
+        now: Date = Date(),
+        days: Int = unusedAfterDays
+    ) -> [String] {
+        let cutoff = now.addingTimeInterval(-Double(days) * 86_400)
+        var seen = Set<String>()
+        return terms.filter { term in
+            let key = term.lowercased()
+            guard seen.insert(key).inserted,
+                  let reference = usage[key]?.lastUsed ?? firstSeen[key] else { return false }
+            return reference <= cutoff
+        }
+    }
+
+    static func decodeDates(_ stored: [String: Any]?) -> [String: Date] {
+        guard let stored else { return [:] }
+        var dates: [String: Date] = [:]
+        for (key, value) in stored {
+            if let seconds = value as? Double, seconds.isFinite {
+                dates[key] = Date(timeIntervalSince1970: seconds)
+            }
+        }
+        return dates
+    }
+
+    static func encodeDates(_ dates: [String: Date]) -> [String: Double] {
+        dates.mapValues(\.timeIntervalSince1970)
+    }
+
     /// `terms` reordered for hints that keep their end: never-used terms
     /// first in their listed order, then used ones from least to most
     /// recently used, so the words said lately are the last to be dropped.

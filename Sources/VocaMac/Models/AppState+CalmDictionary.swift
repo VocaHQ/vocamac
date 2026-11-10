@@ -232,6 +232,71 @@ extension AppState {
     }
 }
 
+// MARK: - Unused words
+
+extension DictionaryEditing {
+    /// Words and replacements whose text hasn't turned up in a dictation for
+    /// `TermUsage.unusedAfterDays`, in list order (newest first).
+    static func unusedItems(
+        terms: [String], replacements: [WordReplacement],
+        usage: [String: TermUsage], firstSeen: [String: Date], now: Date = Date()
+    ) -> [DictionaryListItem] {
+        let valid = replacements.filter(\.isValid)
+        let unused = Set(
+            TermUsage.unused(terms + valid.map(\.replacement), usage: usage, firstSeen: firstSeen, now: now)
+                .map { $0.lowercased() }
+        )
+        guard !unused.isEmpty else { return [] }
+        return terms.reversed().filter { unused.contains($0.lowercased()) }.map(DictionaryListItem.word)
+            + valid.reversed().filter { unused.contains($0.replacement.lowercased()) }.map(DictionaryListItem.replacement)
+    }
+}
+
+extension AppState {
+    /// Dictionary entries not said in a while, offered for removal.
+    var unusedDictionaryItems: [DictionaryListItem] {
+        DictionaryEditing.unusedItems(
+            terms: vocabularyTerms, replacements: wordReplacements,
+            usage: termUsage, firstSeen: dictionaryTermFirstSeen
+        )
+    }
+
+    /// Remove `items` together, with one Undo that puts them all back.
+    func removeDictionaryItems(_ items: [DictionaryListItem]) {
+        guard !items.isEmpty else { return }
+        let previousTerms = vocabularyTerms
+        let previousReplacements = wordReplacements
+        var removedTerms = Set<String>()
+        var removedReplacements = Set<UUID>()
+        for item in items {
+            switch item {
+            case .word(let term): removedTerms.insert(term)
+            case .replacement(let replacement): removedReplacements.insert(replacement.id)
+            }
+        }
+        setVocabularyTerms(vocabularyTerms.filter { !removedTerms.contains($0) })
+        wordReplacements.removeAll { removedReplacements.contains($0.id) }
+        let count = items.count
+        undoCenter.offer("Removed \(count) unused entr\(count == 1 ? "y" : "ies")") { [weak self] in
+            guard let self else { return }
+            // The removed words go back in their old places; words still
+            // listed keep theirs, and any added since go after them. An entry
+            // added again meanwhile is not doubled (`setVocabularyTerms`
+            // drops repeats).
+            let current = Set(self.vocabularyTerms.map { $0.lowercased() })
+            let previous = Set(previousTerms.map { $0.lowercased() })
+            let kept = previousTerms.filter { removedTerms.contains($0) || current.contains($0.lowercased()) }
+            let added = self.vocabularyTerms.filter { !previous.contains($0.lowercased()) }
+            self.setVocabularyTerms(kept + added)
+            let present = Set(self.wordReplacements.map(\.id))
+            let restored = previousReplacements.filter { removedReplacements.contains($0.id) && !present.contains($0.id) }
+                .filter { candidate in !self.wordReplacements.contains { WordReplacement.overlaps($0, candidate) } }
+            self.wordReplacements += restored
+        }
+        VocaLogger.info(.dictionary, "Removed \(count) unused Dictionary entr\(count == 1 ? "y" : "ies")")
+    }
+}
+
 // MARK: - Import and export
 
 extension AppState {

@@ -69,7 +69,7 @@ The Tiny Whisper model is built in, so you can dictate right away. VocaMac sugge
 **Dictation**
 - Type into any app, with live words in a small overlay while you speak.
 - Paragraph breaks at long pauses between sentences, and spoken emoji and numbers ("party emoji" → 🎉, "seven thirty pm" → 7:30 pm).
-- Personal dictionary for names and jargon ("get hub" → GitHub), plus snippets that expand short phrases. Import or export it as CSV, JSON or a word list.
+- Personal dictionary for names and jargon ("get hub" → GitHub), plus snippets that expand short phrases. Import or export it as CSV, JSON or a word list, or bring it over from VoiceInk. Say a word to teach VocaMac how your speech model mishears it, and clear out words you haven't said in 60 days.
 - Pastes by default, and types the text key by key when an app doesn't take the paste, or always in apps you choose (remote desktops, some games).
 - Auto Send: press Return after each dictation, or only when you end with "send it" as its own sentence. Terminals and code editors are left out unless you add them.
 - History of past dictations to search, replay, and paste again (⌃⌘V). You can keep chosen apps out of it, or turn it off.

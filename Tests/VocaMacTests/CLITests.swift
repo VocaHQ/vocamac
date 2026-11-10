@@ -322,6 +322,76 @@ final class CLITests: XCTestCase {
         XCTAssertEqual(dependencies.transcriber.lastLanguage, "en")
     }
 
+    // MARK: - Vocabulary
+
+    func testVocabularyFlagParsesForTranscriptionAndPieces() throws {
+        XCTAssertEqual(
+            try CLICommand.parse(arguments: ["--transcribe-file", "a.wav", "--json", "--vocabulary", "GitHub, Kubernetes"]),
+            .transcribeFile(path: "a.wav", model: nil, language: nil, output: CLIOutputOptions(format: .json),
+                            vocabulary: "GitHub, Kubernetes")
+        )
+        guard case .comparePieces(_, _, _, let options) = try CLICommand.parse(arguments: [
+            "--transcribe-file", "a.wav", "--json", "--pieces", "--vocabulary", "terms.txt",
+        ]) else {
+            return XCTFail("Expected a piece comparison")
+        }
+        XCTAssertEqual(options.vocabulary, "terms.txt")
+        for arguments in [
+            ["--transcribe-file", "a.wav", "--json", "--vocabulary"],
+            ["--transcribe-file", "a.wav", "--json", "--vocabulary", "a", "--vocabulary", "b"],
+            ["--list-models", "--json", "--vocabulary", "a"],
+        ] {
+            XCTAssertThrowsError(try CLICommand.parse(arguments: arguments), "\(arguments)")
+        }
+    }
+
+    func testVocabularyResolvesAListOrAFile() throws {
+        XCTAssertEqual(try CLIVocabulary.resolve(nil), "")
+        XCTAssertEqual(try CLIVocabulary.resolve("GitHub,  Kubernetes ,github"), "GitHub, Kubernetes")
+        // Not a file and no file extension: a one-term list, slash and all.
+        XCTAssertEqual(try CLIVocabulary.resolve("C/C++"), "C/C++")
+
+        let file = temporaryURL(extension: "txt")
+        try "Namrata\nVocaMac, Parakeet\n\n".write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(try CLIVocabulary.resolve(file.path), "Namrata, VocaMac, Parakeet")
+
+        XCTAssertThrowsError(try CLIVocabulary.resolve("/no/such/terms.txt")) { error in
+            XCTAssertCLIError(error, category: .invalidArguments)
+        }
+    }
+
+    func testVocabularyReachesTheEngineAndIsCounted() async throws {
+        let dependencies = makeDependencies(selectedModel: .parakeetV2)
+        var standardOutput = Data()
+        let entrypoint = CLIEntrypoint(
+            headlessTranscriber: dependencies.headless,
+            stdout: { standardOutput.append($0) },
+            stderr: { _ in XCTFail("Transcription should not fail.") }
+        )
+        let exitCode = await entrypoint.run(arguments: [
+            "--transcribe-file", "/mock/audio.wav", "--json", "--vocabulary", "GitHub, Kubernetes",
+        ])
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(dependencies.transcriber.lastVocabulary, "GitHub, Kubernetes")
+        let response = try JSONDecoder().decode(CLITranscriptionResponse.self, from: standardOutput)
+        XCTAssertEqual(response.vocabularyTerms, 2)
+    }
+
+    func testWithoutVocabularyTheEngineGetsNoneAndJSONOmitsTheCount() async throws {
+        let dependencies = makeDependencies(selectedModel: .parakeetV2)
+        var standardOutput = Data()
+        let entrypoint = CLIEntrypoint(
+            headlessTranscriber: dependencies.headless,
+            stdout: { standardOutput.append($0) },
+            stderr: { _ in XCTFail("Transcription should not fail.") }
+        )
+        let exitCode = await entrypoint.run(arguments: ["--transcribe-file", "/mock/audio.wav", "--json"])
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(dependencies.transcriber.lastVocabulary, "")
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: standardOutput) as? [String: Any])
+        XCTAssertNil(object["vocabulary_terms"])
+    }
+
     func testUnicodeTranscriptJSONIsValid() async throws {
         let dependencies = makeDependencies(selectedModel: .small)
         let transcript = "नमस्ते — こんにちは 👋\nnext line"

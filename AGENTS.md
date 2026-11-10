@@ -71,7 +71,7 @@ Sources/VocaMacObjC/  # NSException catcher for AVFoundation taps; bzip2 via lib
 Tests/VocaMacTests/   # XCTest; Mocks/ for fakes
 web/                  # Hugo site — see web/AGENTS.md
 homebrew/             # Cask sources mirrored to the tap
-docs/                 # INSTALL, MODELS, CLI, TROUBLESHOOTING, ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW, APP_STORE (no per-version notes)
+docs/                 # INSTALL, MODELS, CLI, ACCURACY, TROUBLESHOOTING, ARCHITECTURE, DATA_MODEL, RELEASE, HOMEBREW, APP_STORE (no per-version notes)
 scripts/              # build, build-appstore, install, dist, release, uninstall, Xcode 26 select, DMG background
 Makefile              # make build / install / test / dmg / appstore / release / reset
 Package.swift         # SPM: VocaMac + VocaMacObjC

@@ -107,15 +107,10 @@ swift test --filter SpeechAccuracyBenchmarkTests
 ```
 
 Each model loads through the app's `TranscriptionRouter`, so silence trimming,
-decoding options and retries match a real dictation. The JSON report (in
-`$TMPDIR`, or `VOCAMAC_ACCURACY_OUTPUT`) has each file's transcript and word
-error rate, the corpus WER per model, empty transcripts, and the first decode
-after the load next to the median warm decode. Models that are not downloaded
-are skipped unless `VOCAMAC_ACCURACY_ALLOW_DOWNLOAD=1`. Set
-`VOCAMAC_ACCURACY_LANGUAGE`, `VOCAMAC_ACCURACY_VOCABULARY` (comma-separated
-Dictionary terms), or `VOCAMAC_ACCURACY_MAX_WER` (for example `0.15`) to fail
-on a regression. Real microphone recordings find more than synthetic `say`
-audio does. Compare a change against the same corpus before and after.
+decoding options and retries match a real dictation. [ACCURACY.md](ACCURACY.md)
+describes the corpus layout, every option (character error rate, dropped edge
+words, Dictionary term recall, scoring through the real cleanup model, baselines)
+and the opt-in nightly run.
 
 Before release, compare short and long clips, selected and automatic languages,
 built-in/USB/Bluetooth microphones, rapid start/stop, cancellation, model changes,

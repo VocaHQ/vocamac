@@ -14,7 +14,12 @@ enum CLIInvocationMode: Equatable {
 /// A validated VocaMac command-line operation.
 enum CLICommand: Equatable {
     case help
-    case transcribeFile(path: String, model: String?, language: String?, output: CLIOutputOptions = CLIOutputOptions())
+    /// `vocabulary` is the raw `--vocabulary` value (a file or a comma
+    /// list), resolved by `CLIVocabulary` when the command runs.
+    case transcribeFile(
+        path: String, model: String?, language: String?,
+        output: CLIOutputOptions = CLIOutputOptions(), vocabulary: String? = nil
+    )
     /// Decode a file whole and piece by piece (as "Process while speaking"
     /// would while recording), optionally cleaning both, and report timings.
     case comparePieces(path: String, model: String?, language: String?, options: PieceComparisonOptions)
@@ -52,6 +57,7 @@ enum CLICommand: Equatable {
         var cleanupModel: CleanupModelKind?
         var pauseSeconds: Double?
         var minPieceSeconds: Double?
+        var vocabulary: String?
         var index = 0
 
         while index < arguments.count {
@@ -111,6 +117,11 @@ enum CLICommand: Equatable {
                     }
                     minPieceSeconds = seconds
                 }
+            case "--vocabulary":
+                guard vocabulary == nil else {
+                    throw CLIError(.invalidArguments, "--vocabulary may only be provided once.")
+                }
+                vocabulary = try value(after: argument, in: arguments, index: &index)
             case "--json":
                 guard !wantsJSON else {
                     throw CLIError(.invalidArguments, "--json may only be provided once.")
@@ -152,8 +163,10 @@ enum CLICommand: Equatable {
             guard !wantsPieces, cleanupModel == nil, pauseSeconds == nil, minPieceSeconds == nil else {
                 throw CLIError(.invalidArguments, "--pieces and its options only apply to --transcribe-file.")
             }
-            guard model == nil, language == nil else {
-                throw CLIError(.invalidArguments, "--model and --language only apply to --transcribe-file.")
+            guard model == nil, language == nil, vocabulary == nil else {
+                throw CLIError(
+                    .invalidArguments, "--model, --language, and --vocabulary only apply to --transcribe-file."
+                )
             }
             return .listModels
         }
@@ -172,13 +185,14 @@ enum CLICommand: Equatable {
             return .comparePieces(path: audioPath, model: model, language: language, options: PieceComparisonOptions(
                 cleanupModel: cleanupModel,
                 pauseSeconds: pauseSeconds ?? defaults.pauseSeconds,
-                minPieceSeconds: minPieceSeconds ?? defaults.minPieceSeconds
+                minPieceSeconds: minPieceSeconds ?? defaults.minPieceSeconds,
+                vocabulary: vocabulary
             ))
         }
         return .transcribeFile(path: audioPath, model: model, language: language, output: CLIOutputOptions(
             format: wantsText ? .text : .json,
             path: outputPath
-        ))
+        ), vocabulary: vocabulary)
     }
 
     /// Longest pause or minimum piece accepted: past a recording's 30-minute
@@ -206,6 +220,8 @@ struct PieceComparisonOptions: Equatable {
     var cleanupModel: CleanupModelKind?
     var pauseSeconds: Double
     var minPieceSeconds: Double
+    /// The raw `--vocabulary` value, resolved by `CLIVocabulary`.
+    var vocabulary: String?
 }
 
 /// How `--transcribe-file` writes a successful result.
@@ -219,4 +235,31 @@ struct CLIOutputOptions: Equatable {
     var format: Format = .json
     /// `--output <path>` writes the result to this file instead of stdout.
     var path: String?
+}
+
+/// Turns a `--vocabulary` value into the hint list engines read.
+///
+/// The value is a file when one exists at that path (terms one per line or
+/// comma-separated), and otherwise a comma-separated list. A value that
+/// names a `.txt` or `.csv` file that does not exist is an error rather than
+/// a one-term list, so a typo in a path is not silently scored as a term.
+enum CLIVocabulary {
+    static func resolve(_ value: String?, fileManager: FileManager = .default) throws -> String {
+        guard let value, !value.isEmpty else { return "" }
+        let path = (value as NSString).expandingTildeInPath
+        var isDirectory: ObjCBool = false
+        let text: String
+        if fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue {
+            do {
+                text = try String(contentsOfFile: path, encoding: .utf8)
+            } catch {
+                throw CLIError(.invalidArguments, "Could not read vocabulary file: \(value)")
+            }
+        } else if ["txt", "csv"].contains((path as NSString).pathExtension.lowercased()) {
+            throw CLIError(.invalidArguments, "Vocabulary file not found: \(value)")
+        } else {
+            text = value
+        }
+        return RecognitionHints.terms(from: text).joined(separator: ", ")
+    }
 }

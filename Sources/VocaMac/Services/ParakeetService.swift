@@ -321,6 +321,12 @@ final class ParakeetService: @unchecked Sendable {
     /// Prefer this over `unloadModel()` when another load is about to start:
     /// cleanup releases shared caches, and if it runs loose it can tear those
     /// down after the next model has begun using them.
+    /// Wait, up to `timeout`, for the vocabulary boost model to finish
+    /// loading. Returns whether it is loaded. For measurement only.
+    func waitForVocabularyBoost(timeout: TimeInterval) async -> Bool {
+        await vocabularyBoost.waitUntilReady(timeout: timeout)
+    }
+
     func unloadModelAndWait() async {
         await finishPendingCleanup()
         guard let manager = takeManager() else { return }

@@ -262,7 +262,7 @@ final class SherpaServiceTests: XCTestCase {
         var calls = 0
         XCTAssertThrowsError(try SherpaService.decodeSegments([[0.1], [0.2]], language: "en") { _ in
             calls += 1
-            if calls == 2 { throw SherpaError.transcriptionFailed(reason: "test failure") }
+            if calls == 2 { throw TranscriptionError.transcriptionFailed(reason: "test failure") }
             return ("first segment", "en")
         })
         XCTAssertEqual(calls, 2)
@@ -306,7 +306,7 @@ final class SherpaServiceTests: XCTestCase {
                 do {
                     _ = try await service.transcribe(audioData: invalid)
                     XCTFail("Expected invalid audio to fail for \(spec.size)")
-                } catch let error as SherpaError {
+                } catch let error as TranscriptionError {
                     switch error {
                     case .emptyAudio, .transcriptionFailed: break
                     default: XCTFail("Unexpected error: \(error)")

@@ -8,30 +8,6 @@ import Foundation
 import NaturalLanguage
 import WhisperKit
 
-// MARK: - WhisperError
-
-enum WhisperError: LocalizedError {
-    case modelNotLoaded
-    case initializationFailed(reason: String)
-    /// `underlying` is the error the engine threw, kept so the router can
-    /// tell a model fault from a cancellation without comparing messages.
-    case transcriptionFailed(reason: String, underlying: (any Error)? = nil)
-    case emptyAudio
-
-    var errorDescription: String? {
-        switch self {
-        case .modelNotLoaded:
-            return "No whisper model is loaded. Please load a model first."
-        case .initializationFailed(let reason):
-            return "Failed to initialize WhisperKit: \(reason)"
-        case .transcriptionFailed(let reason, _):
-            return "Transcription failed: \(reason)"
-        case .emptyAudio:
-            return "No audio data to transcribe."
-        }
-    }
-}
-
 // MARK: - WhisperService
 
 /// Unchecked: the loaded model and its bookkeeping are only touched under
@@ -206,7 +182,7 @@ final class WhisperService: @unchecked Sendable {
             throw CancellationError()
         } catch {
             VocaLogger.error(.whisperService, "ERROR loading model: \(error)")
-            throw WhisperError.initializationFailed(reason: error.localizedDescription)
+            throw TranscriptionError.initializationFailed(.whisperKit, reason: error.localizedDescription)
         }
     }
 
@@ -286,13 +262,13 @@ final class WhisperService: @unchecked Sendable {
         expectedLanguages: [String] = []
     ) async throws -> VocaTranscription {
         guard let use = beginUse() else {
-            throw WhisperError.modelNotLoaded
+            throw TranscriptionError.modelNotLoaded(.whisperKit)
         }
         defer { endUse(use.generation) }
         let kit = use.kit
 
         guard !audioData.isEmpty else {
-            throw WhisperError.emptyAudio
+            throw TranscriptionError.emptyAudio(.whisperKit)
         }
 
         let modelUsed = modelSizeFromName(loadedModelName ?? "tiny")
@@ -528,7 +504,7 @@ final class WhisperService: @unchecked Sendable {
             // router would count it toward reloading the model.
             throw CancellationError()
         } catch {
-            throw WhisperError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
+            throw TranscriptionError.transcriptionFailed(reason: error.localizedDescription, underlying: error)
         }
     }
 

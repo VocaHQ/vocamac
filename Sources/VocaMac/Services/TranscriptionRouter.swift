@@ -930,16 +930,9 @@ extension TranscriptionRouter: SpeechTranscribing {
     static func isModelFailure(_ error: Error) -> Bool {
         if error is CancellationError || error is URLError { return false }
         switch error {
-        case WhisperError.transcriptionFailed(_, let underlying?),
-             ParakeetError.transcriptionFailed(_, let underlying?):
-            // Judge the engine's own error: a wrapped cancellation still
-            // says nothing about the model.
-            return isModelFailure(underlying)
-        case WhisperError.modelNotLoaded, WhisperError.emptyAudio,
-             ParakeetError.modelNotLoaded, ParakeetError.emptyAudio,
-             AppleSpeechError.modelNotLoaded, AppleSpeechError.emptyAudio,
-             SherpaError.modelNotLoaded, SherpaError.emptyAudio,
-             is CustomEndpointError:
+        case let error as TranscriptionError:
+            return error.indicatesModelFault
+        case is CustomEndpointError:
             return false
         default:
             let nsError = error as NSError

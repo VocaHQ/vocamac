@@ -3319,6 +3319,9 @@ final class AppState: ObservableObject {
                         // "Send it" asked for Return; it isn't part of the text.
                         output = DictationOutputResult(original: output.original, text: delivery.text, summary: output.summary)
                         lastOutput = output
+                        // Paste Last prefers the unsaved copy: it must match
+                        // what was delivered, without the cue.
+                        if lastUnsavedDictation != nil { lastUnsavedDictation = output.text }
                     }
                     let deliveredText = output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         ? "" : (leadingSpace ? " " : "") + output.text

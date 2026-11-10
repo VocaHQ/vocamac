@@ -122,6 +122,18 @@ final class DictionaryTransferTests: XCTestCase {
         XCTAssertEqual(contents.skippedCount, 1, "an overlong entry is counted, not dropped silently")
     }
 
+    func testReplacementLineBreaksSurviveExportAndImport() throws {
+        let address = "1 Infinite Loop\nCupertino, CA"
+        let original = DictionaryTransferContents(
+            replacements: [DictionaryTransferReplacement(heard: "my address", replacement: address)]
+        )
+        for (text, format) in [(DictionaryTransfer.csv(original), DictionaryTransferFormat.csv),
+                               (DictionaryTransfer.json(original), .json)] {
+            let contents = try DictionaryTransfer.parse(text, format: format)
+            XCTAssertEqual(contents.replacements.first?.replacement, address, "\(format)")
+        }
+    }
+
     func testTabSeparatedCellsMayHoldCommas() throws {
         let contents = try DictionaryTransfer.parse("heard\treplacement\nget hub, git hub\tGitHub\n", format: .csv)
         XCTAssertEqual(contents.replacements, [DictionaryTransferReplacement(heard: "get hub, git hub", replacement: "GitHub")])

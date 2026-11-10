@@ -390,7 +390,10 @@ enum DictionaryTransfer {
         }
         for replacement in contents.replacements {
             let heard = normalized(replacement.heard)
-            let written = normalized(replacement.replacement)
+            // Replacement text may hold line breaks (a signature, an
+            // address); only the ends are trimmed so a move between Macs
+            // keeps it exactly.
+            let written = replacement.replacement.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !heard.isEmpty, !written.isEmpty else { continue }
             guard fits(heard), fits(written) else {
                 skipped += 1

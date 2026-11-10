@@ -120,6 +120,27 @@ final class TextDeliveryPlanTests: XCTestCase {
         XCTAssertFalse(typed.lowercased().contains("send it"), typed)
         XCTAssertTrue(typed.hasPrefix("See you at"), typed)
     }
+
+    func testUnsavedCopyForPasteLastHasNoCue() async {
+        let (appState, mocks) = AppState.makeTestState()
+        appState.autoSendMode = .spokenCue
+        appState.historyEnabled = false
+        defer {
+            UserDefaults.standard.removeObject(forKey: PreferenceKey.autoSendMode)
+            UserDefaults.standard.removeObject(forKey: PreferenceKey.historyEnabled)
+        }
+        mocks.frontmostAppResolver.frontmostApp = slack
+        mocks.whisperService.mockTranscriptionResult = VocaTranscription(
+            text: "See you at five. Send it.", duration: 0.1, detectedLanguage: "en", audioLengthSeconds: 0.5, modelUsed: .tiny
+        )
+        mocks.audioEngine.stopRecordingResult = [Float](repeating: 0.2, count: 8_000)
+        await appState.startRecording()
+        await appState.stopRecordingAndTranscribe()
+
+        let unsaved = appState.lastUnsavedDictation ?? ""
+        XCTAssertTrue(unsaved.hasPrefix("See you at"), unsaved)
+        XCTAssertFalse(unsaved.lowercased().contains("send it"), unsaved)
+    }
 }
 
 @MainActor

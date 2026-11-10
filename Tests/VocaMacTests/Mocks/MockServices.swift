@@ -1042,7 +1042,7 @@ extension AppState {
             PreferenceKey.dismissedDictionarySuggestions, PreferenceKey.learnCorrectionsMode,
             PreferenceKey.learnModeDefaultSettled, PreferenceKey.personalFillers,
             PreferenceKey.personalFillerCounts, PreferenceKey.rejectedPersonalFillers,
-            PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
+            PreferenceKey.dictionaryTermUsage, PreferenceKey.learnedLowercaseApps, PreferenceKey.lowercaseStartCounts,
             PreferenceKey.rejectedLowercaseApps,
             PreferenceKey.useScreenContext, "vocamac.customVocabulary",
             PreferenceKey.transcriptCleanupLevel, PreferenceKey.cleanupEndpoint,

@@ -224,15 +224,17 @@ final class AppleSpeechService: @unchecked Sendable {
             )
             let (text, count) = try await session.transcribe(
                 chunks, contextualStrings: hints, contextUpdates: vocabularyUpdates
-            ) { text, endSeconds in
-                tracker.finalized(text, endSeconds: endSeconds)
+            ) { text, endSeconds, words in
+                tracker.finalized(text, endSeconds: endSeconds, words: words)
             }
             let pieces = tracker.pieces(sampleCount: count)
             // pieces() needs >= 2 aligned results for live commit mode. Batch
             // and single-result decodes still need a segment for history.
-            let segments = pieces.isEmpty
+            // Word timings and confidences go on whichever segment they fall
+            // in, for pause paragraphs and the Dictionary's sound-alike fixes.
+            let segments = tracker.attachingWords(to: pieces.isEmpty
                 ? tracker.timedSegments(sampleCount: count, fallbackText: text)
-                : pieces.map(TimedSegment.init(piece:))
+                : pieces.map(TimedSegment.init(piece:)))
             return VocaTranscription(
                 text: text, duration: CFAbsoluteTimeGetCurrent() - start,
                 detectedLanguage: detectedLanguage,
@@ -301,6 +303,23 @@ enum AppleSpeechEngine {
         }
     }
 
+    /// The words of a result with their audio time ranges and confidences,
+    /// from the attributes `prepareSession` asks the transcriber for. Empty
+    /// when the result carries none.
+    static func timedWords(in text: AttributedString) -> [TimedWord] {
+        var words: [TimedWord] = []
+        for run in text.runs {
+            // Keyed by type: the dynamic-member form forms a non-Sendable key path.
+            guard let range = run[AttributeScopes.SpeechAttributes.TimeRangeAttribute.self] else { continue }
+            let word = String(text[run.range].characters).trimmingCharacters(in: .whitespacesAndNewlines)
+            let start = range.start.seconds
+            let end = range.end.seconds
+            guard !word.isEmpty, start.isFinite, end.isFinite else { continue }
+            words.append(TimedWord(word: word, start: start, end: max(start, end), probability: run[AttributeScopes.SpeechAttributes.ConfidenceAttribute.self]))
+        }
+        return words
+    }
+
     /// The format dictation is converted to before it reaches the analyzer:
     /// the analyzer's sample rate and channels, always as Int16 samples.
     ///
@@ -325,8 +344,11 @@ enum AppleSpeechEngine {
         guard let resolved = await resolveSupportedLocale(matching: locale) else {
             throw AppleSpeechError.localeNotSupported(locale.identifier)
         }
+        // Word time ranges and confidences come back as attributes on each
+        // result's text (`timedWords(in:)`).
         let transcriber = SpeechTranscriber(
-            locale: resolved, transcriptionOptions: [], reportingOptions: [], attributeOptions: []
+            locale: resolved, transcriptionOptions: [], reportingOptions: [],
+            attributeOptions: [.audioTimeRange, .transcriptionConfidence]
         )
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
             onPhaseChange?("Downloading speech assets…")
@@ -366,7 +388,7 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
         _ chunks: AsyncThrowingStream<[Float], Error>,
         contextualStrings: [String],
         contextUpdates: LiveVocabulary?,
-        onFinal: @escaping @Sendable (String, Double) -> Void
+        onFinal: @escaping @Sendable (String, Double, [TimedWord]) -> Void
     ) async throws -> (String, Int) {
         guard !started else { throw AppleSpeechError.modelNotLoaded }
         started = true
@@ -386,7 +408,7 @@ private actor ApplePreparedSpeechSession: PreparedSpeechSession {
             for try await result in transcriber.results where result.isFinal {
                 let text = String(result.text.characters)
                 pieces.append(text)
-                onFinal(text, result.range.end.seconds)
+                onFinal(text, result.range.end.seconds, AppleSpeechEngine.timedWords(in: result.text))
             }
             return pieces.joined().trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -527,7 +549,7 @@ private protocol PreparedSpeechSession: Sendable {
         _ chunks: AsyncThrowingStream<[Float], Error>,
         contextualStrings: [String],
         contextUpdates: LiveVocabulary?,
-        onFinal: @escaping @Sendable (String, Double) -> Void
+        onFinal: @escaping @Sendable (String, Double, [TimedWord]) -> Void
     ) async throws -> (String, Int)
     func cancel() async
 }
@@ -540,14 +562,16 @@ final class FinalizedPieceTracker: @unchecked Sendable {
     private let language: String
     private let onPiece: @Sendable (Int, TranscribedPiece) -> Void
     private var finalized: [(text: String, end: Int)] = []
+    private var words: [TimedWord] = []
 
     init(language: String, onPiece: @escaping @Sendable (Int, TranscribedPiece) -> Void) {
         self.language = language
         self.onPiece = onPiece
     }
 
-    func finalized(_ text: String, endSeconds: Double) {
+    func finalized(_ text: String, endSeconds: Double, words: [TimedWord] = []) {
         let piece: (Int, TranscribedPiece)? = lock.withLock {
+            self.words.append(contentsOf: words)
             let start = finalized.last?.end ?? 0
             let end = endSeconds.isFinite ? max(start, Int((endSeconds * 16_000).rounded())) : start
             finalized.append((text, end))
@@ -556,6 +580,27 @@ final class FinalizedPieceTracker: @unchecked Sendable {
             return (finalized.count - 1, TranscribedPiece(range: start..<end, text: trimmed, language: language))
         }
         if let piece { onPiece(piece.0, piece.1) }
+    }
+
+    /// `segments` with each word Apple Speech timed placed in the segment
+    /// its midpoint falls in; a word outside every segment goes to the
+    /// nearest one.
+    func attachingWords(to segments: [TimedSegment]) -> [TimedSegment] {
+        let words = lock.withLock { self.words }
+        guard !words.isEmpty, !segments.isEmpty else { return segments }
+        var placed = segments.map { segment -> TimedSegment in
+            var segment = segment
+            segment.words = []
+            return segment
+        }
+        for word in words {
+            let middle = (word.start + word.end) / 2
+            let index = placed.firstIndex { middle >= $0.start && middle < $0.end }
+                ?? placed.indices.min { abs(placed[$0].start - middle) < abs(placed[$1].start - middle) }
+                ?? 0
+            placed[index].words.append(word)
+        }
+        return placed
     }
 
     /// The pieces covering `0..<sampleCount`, or none when the results'

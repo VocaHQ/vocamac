@@ -841,7 +841,8 @@ enum SpokenNumbers {
     /// would also have stayed a word, so "5 pm", "version 2" and "between 5
     /// and 12" keep their figures. Never part of a decimal, time, date,
     /// range, code or amount ("2.5", "3:30", "1/2", "$5", "v2", "50%"), a
-    /// list number ("1. Buy milk"), or a name ("Python 3", "Windows 8").
+    /// list number ("1. Buy milk"), or after a capitalised word, month or
+    /// weekday ("Python 3", "May 5"), wherever it stands in the sentence.
     static func words(forFiguresIn text: String) -> String {
         guard let figurePattern, text.contains(where: \.isNumber) else { return text }
         let ns = text as NSString
@@ -854,7 +855,11 @@ enum SpokenNumbers {
             let before = ns.substring(to: match.range.location)
             let after = ns.substring(from: match.range.upperBound)
             let previous = lastWord(in: before), next = firstWord(in: after)
-            if let previous, previous.joinedBySpace, previous.isCapitalised, !previous.startsSentence { continue }
+            // A name or a date: "Python 3", "Windows 8", "May 5", also at
+            // the start of a sentence, where a capital proves nothing either
+            // way and a kept figure is the safe side.
+            if let previous, previous.joinedBySpace,
+               previous.isCapitalised || calendarWords.contains(previous.word.lowercased()) { continue }
             if let next, next.joinedBySpace, quantifyingUnits.contains(next.word.lowercased()) { continue }
             if let previous, previous.joinedBySpace, numberingWords.contains(previous.word.lowercased()) { continue }
             if pairsWithLargeNumber(before: before, after: after) { continue }
@@ -874,6 +879,14 @@ enum SpokenNumbers {
     private static let figurePattern = try? NSRegularExpression(
         pattern: #"(?<![\p{L}\p{N}.,:/$€£¥#+\-–_@'’°%])[1-9](?![\p{L}\p{N}%°$€£¥:/_@'’+\-–]|[.,]\p{N})"#
     )
+
+    /// Months and weekdays, which a figure after them dates ("may 5").
+    private static let calendarWords: Set<String> = [
+        "january", "february", "march", "april", "may", "june", "july", "august", "september",
+        "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep",
+        "sept", "oct", "nov", "dec", "monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday",
+    ]
 
     /// "two", for 1–9.
     private static func spelledOut(_ value: Int) -> String? {

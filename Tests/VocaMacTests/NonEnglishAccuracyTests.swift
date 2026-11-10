@@ -32,11 +32,17 @@ final class FiguresAsWordsTests: XCTestCase {
         }
     }
 
-    func testListNumbersAndNamesStay() {
+    func testListNumbersNamesAndDatesStay() {
         XCTAssertEqual(words("1. Buy milk"), "1. Buy milk")
         XCTAssertEqual(words("2) Call Sam"), "2) Call Sam")
         XCTAssertEqual(words("we still run Python 3 here"), "we still run Python 3 here")
         XCTAssertEqual(words("Upgrade to Windows 8 first"), "Upgrade to Windows 8 first")
+        // At the start of a sentence a capital proves nothing either way.
+        XCTAssertEqual(words("Python 3 is installed."), "Python 3 is installed.")
+        XCTAssertEqual(words("Done. Python 3 is installed."), "Done. Python 3 is installed.")
+        XCTAssertEqual(words("May 5 is a Monday."), "May 5 is a Monday.")
+        XCTAssertEqual(words("we meet on may 5"), "we meet on may 5")
+        XCTAssertEqual(words("see you friday 3 times"), "see you friday 3 times")
     }
 
     @MainActor
@@ -93,38 +99,43 @@ final class OtherLanguageCleanupTests: XCTestCase {
 
 @MainActor
 final class UnchosenDefaultModelTests: XCTestCase {
-    private var defaults: UserDefaults!
-    private var suiteName: String!
-
+    // `AppState` keeps its settings in the standard defaults.
     override func setUp() {
         super.setUp()
-        suiteName = "UnchosenDefaultModelTests.\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
     }
 
     override func tearDown() {
-        defaults.removePersistentDomain(forName: suiteName)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.speechModelChosen)
+        UserDefaults.standard.removeObject(forKey: PreferenceKey.selectedModelSize)
         super.tearDown()
     }
 
+    /// An English speaker after a normal startup: the load saved Tiny.
     private func englishState(downloaded: Set<ModelSize>) -> (AppState, MockModelManager) {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = downloaded
         let (appState, _) = AppState.makeTestState(modelManager: modelManager)
         appState.setSpokenLanguages(["en"])
         appState.selectedModelSize = ModelSize.tiny.rawValue
+        appState.speechModelChosen = false
         return (appState, modelManager)
     }
 
-    func testAnUnchosenDefaultMovesToTheDownloadedRecommendation() throws {
-        let (appState, modelManager) = englishState(downloaded: [.tiny])
+    private func adoptableRecommendation(_ appState: AppState) throws -> ModelSize {
         let recommended = try XCTUnwrap(appState.speechModelRecommendation?.model)
         guard recommended != .tiny, recommended.engine != .appleSpeech, recommended.engine != .customEndpoint else {
             throw XCTSkip("This Mac's recommendation is never adopted automatically")
         }
+        return recommended
+    }
+
+    func testTinySavedByStartupMovesToTheDownloadedRecommendation() throws {
+        let (appState, modelManager) = englishState(downloaded: [.tiny])
+        let recommended = try adoptableRecommendation(appState)
         modelManager.downloadedModels.insert(recommended)
 
-        appState.adoptRecommendedModelIfNeverChosen(defaults: defaults)
+        appState.adoptRecommendedModelIfNeverChosen()
 
         XCTAssertEqual(appState.selectedModelSize, recommended.rawValue)
         XCTAssertTrue(modelManager.downloadRequests.isEmpty)
@@ -133,19 +144,36 @@ final class UnchosenDefaultModelTests: XCTestCase {
     func testNothingIsDownloadedForAnUnchosenDefault() {
         let (appState, modelManager) = englishState(downloaded: [.tiny])
 
-        appState.adoptRecommendedModelIfNeverChosen(defaults: defaults)
+        appState.adoptRecommendedModelIfNeverChosen()
 
         XCTAssertEqual(appState.selectedModelSize, ModelSize.tiny.rawValue)
         XCTAssertTrue(modelManager.downloadRequests.isEmpty)
     }
 
-    func testAChosenModelIsNeverReplaced() {
+    func testAChosenTinyIsNeverReplaced() throws {
         let (appState, _) = englishState(downloaded: Set(ModelSize.allCases))
-        defaults.set(ModelSize.tiny.rawValue, forKey: PreferenceKey.selectedModelSize)
+        _ = try adoptableRecommendation(appState)
+        appState.speechModelChosen = true
 
-        appState.adoptRecommendedModelIfNeverChosen(defaults: defaults)
+        appState.adoptRecommendedModelIfNeverChosen()
 
         XCTAssertEqual(appState.selectedModelSize, ModelSize.tiny.rawValue)
+    }
+
+    func testAnOtherModelSavedBeforeTheFlagIsNeverReplaced() throws {
+        let (appState, _) = englishState(downloaded: Set(ModelSize.allCases))
+        _ = try adoptableRecommendation(appState)
+        appState.selectedModelSize = ModelSize.base.rawValue
+
+        appState.adoptRecommendedModelIfNeverChosen()
+
+        XCTAssertEqual(appState.selectedModelSize, ModelSize.base.rawValue)
+    }
+
+    func testPickingAModelInSettingsRecordsTheChoice() {
+        let (appState, _) = englishState(downloaded: [.tiny])
+        CalmModelPicker().startSpeech(.tiny, cancelling: nil, appState: appState)
+        XCTAssertTrue(appState.speechModelChosen)
     }
 }
 

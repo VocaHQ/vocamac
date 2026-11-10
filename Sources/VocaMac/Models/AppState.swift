@@ -431,6 +431,9 @@ final class AppState: ObservableObject {
     @UserDefault("vocamac.selectedAudioChannelDeviceID") var selectedAudioChannelDeviceID: String = ""
     @UserDefault("vocamac.selectedAudioChannelCount") var selectedAudioChannelCount: Int = 0
     @UserDefault(PreferenceKey.selectedModelSize) var selectedModelSize: String = ModelSize.tiny.rawValue
+    /// Whether the user picked the speech model. The startup load saves its
+    /// default into `selectedModelSize` too, so a stored value proves nothing.
+    @UserDefault(PreferenceKey.speechModelChosen) var speechModelChosen: Bool = false
     @UserDefault(PreferenceKey.selectedLanguage) var selectedLanguage: String = "auto"
     /// Languages the user dictates in, which steer the model picker. Nil
     /// until they choose, so the picker can start from a guess.
@@ -4047,6 +4050,7 @@ final class AppState: ObservableObject {
         // The same recommendation onboarding shows, so the button prepares
         // the model named on screen.
         guard let recommendation = speechModelRecommendation else { return }
+        speechModelChosen = true
 
         onboardingModelRequestGeneration &+= 1
         let generation = onboardingModelRequestGeneration
@@ -4617,15 +4621,19 @@ final class AppState: ObservableObject {
     /// speech model and that one is already on this Mac.
     ///
     /// "Set up later", or quitting before "Download & Use", leaves the
-    /// bundled Tiny as an unchosen default. Once the recommendation is on
-    /// disk anyway (downloaded from Settings, or left by an earlier install)
-    /// there is no reason to stay on Tiny. Nothing is downloaded here, and
-    /// Apple Speech and Custom Endpoint are never picked for the user: one
-    /// may fetch system assets, the other uploads audio.
-    func recommendedModelForUnchosenDefault(defaults: UserDefaults = .standard) -> ModelSize? {
-        guard defaults.object(forKey: PreferenceKey.selectedModelSize) == nil,
+    /// bundled Tiny as an unchosen default, which the startup load then
+    /// saves. Once the recommendation is on disk anyway (downloaded from
+    /// Settings, or left by an earlier install) there is no reason to stay
+    /// on Tiny. Only Tiny is replaced: a choice saved before
+    /// `speechModelChosen` existed was recorded without it, and anything
+    /// other than the default was picked by someone. Nothing is downloaded
+    /// here, and Apple Speech and Custom Endpoint are never picked for the
+    /// user: one may fetch system assets, the other uploads audio.
+    func recommendedModelForUnchosenDefault() -> ModelSize? {
+        guard !speechModelChosen,
+              selectedModelSize == ModelSize.tiny.rawValue,
               let model = speechModelRecommendation?.model,
-              model.rawValue != selectedModelSize,
+              model != .tiny,
               model.engine != .appleSpeech, model.engine != .customEndpoint,
               modelManager.isModelSupported(model), modelManager.isModelDownloaded(model) else { return nil }
         return model
@@ -4633,8 +4641,8 @@ final class AppState: ObservableObject {
 
     /// Switch an unchosen default to the recommended model; see
     /// `recommendedModelForUnchosenDefault`.
-    func adoptRecommendedModelIfNeverChosen(defaults: UserDefaults = .standard) {
-        guard let model = recommendedModelForUnchosenDefault(defaults: defaults) else { return }
+    func adoptRecommendedModelIfNeverChosen() {
+        guard let model = recommendedModelForUnchosenDefault() else { return }
         VocaLogger.info(.appState, "No speech model was ever chosen — using the recommended \(model.displayName), already downloaded")
         selectedModelSize = model.rawValue
         rebuildAvailableModels()

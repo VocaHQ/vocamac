@@ -544,6 +544,21 @@ final class WhisperService: @unchecked Sendable {
     /// so more workers mostly add memory.
     private static let chunkWorkerCount = 4
 
+    /// How often, in tokens, a window in progress is checked for a loop.
+    static let runawayCheckInterval = 8
+
+    /// Ends a window that has locked into a loop instead of letting it run to
+    /// the token limit: the loop is found and handled after the decode
+    /// anyway (retried, then cut to one copy), so the tokens after it were
+    /// only time spent. WhisperKit applies the stop a token or two later.
+    static let stopRunawayLoop: TranscriptionCallback = { progress in
+        guard progress.tokens.count >= runawayCheckInterval,
+              progress.tokens.count % runawayCheckInterval == 0 else { return nil }
+        guard TranscriptRepetition.isRunawayInProgress(progress.text) else { return nil }
+        VocaLogger.debug(.whisperService, "Stopped a window early: it was repeating itself")
+        return false
+    }
+
     /// Transcribe audio, splitting anything longer than one window at
     /// silences and decoding the pieces concurrently.
     ///
@@ -557,7 +572,7 @@ final class WhisperService: @unchecked Sendable {
         options: DecodingOptions
     ) async throws -> [TranscriptionResult] {
         guard audioData.count > chunkingThresholdSamples else {
-            return try await kit.transcribe(audioArray: audioData, decodeOptions: options)
+            return try await kit.transcribe(audioArray: audioData, decodeOptions: options, callback: stopRunawayLoop)
         }
 
         let chunker = VADAudioChunker(vad: EnergyVAD())
@@ -590,7 +605,9 @@ final class WhisperService: @unchecked Sendable {
                 // Each task gets its own copy of the options.
                 let decodeOptions = UncheckedSendableBox(chunkOptions)
                 group.addTask {
-                    (index, try await kitBox.value.transcribe(audioArray: samples, decodeOptions: decodeOptions.value))
+                    (index, try await kitBox.value.transcribe(
+                        audioArray: samples, decodeOptions: decodeOptions.value, callback: stopRunawayLoop
+                    ))
                 }
                 running += 1
             }

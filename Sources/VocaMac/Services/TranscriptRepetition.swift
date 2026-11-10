@@ -107,6 +107,19 @@ enum TranscriptRepetition {
             || symbolLoop(in: text) != nil
     }
 
+    /// Whether `text`, a decode still in progress, ends in a loop that is
+    /// still running: twice the copies `minimumCopies` asks for, however long
+    /// the audio, covering the last word written, so a decode that has moved
+    /// on past the repeats is never cut. Stricter than
+    /// `containsLoop`, because stopping the decode here also drops anything
+    /// the window would have written after the loop.
+    static func isRunawayInProgress(_ text: String) -> Bool {
+        guard let loop = loop(in: text), loop.copies >= 2 * minimumCopies(unitLength: loop.unitLength) else {
+            return false
+        }
+        return loop.end >= tokens(in: text).count
+    }
+
     /// `text` with every loop cut down to its first copy, keeping that copy's
     /// punctuation and anything said after the loop.
     static func collapsingLoops(in text: String, audioSeconds: Double? = nil) -> String {

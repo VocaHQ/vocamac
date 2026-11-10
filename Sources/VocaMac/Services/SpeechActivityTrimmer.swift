@@ -285,9 +285,20 @@ actor VoiceActivityDetector {
         manager = nil
     }
 
+    /// The loaded detector, for a `VoiceActivityStream`; nil until loaded.
+    func loadedManager() -> VadManager? { manager }
+
     /// What to decode from `samples`. Returns `.unchecked` whenever the
     /// detector is not ready yet, so trimming never waits on a download.
-    func decision(for samples: [Float]) async -> SpeechActivityTrimmer.Decision {
+    ///
+    /// - Parameter stream: Probabilities computed while `samples` was being
+    ///   recorded. When they match its start, only the rest is processed
+    ///   here; otherwise the whole recording is, as without one. Either way
+    ///   the decision is the same.
+    func decision(
+        for samples: [Float], stream: VoiceActivityStream? = nil
+    ) async -> SpeechActivityTrimmer.Decision {
+        let progress = await stream?.finish()
         guard Double(samples.count) / Double(SpeechActivityTrimmer.sampleRate) <= Self.maximumSeconds else {
             return .unchecked
         }
@@ -296,7 +307,13 @@ actor VoiceActivityDetector {
             return .unchecked
         }
         do {
-            let results = try await manager.process(samples)
+            let results: [VadResult]
+            if let progress, progress.manager === manager, VoiceActivityStream.matches(progress, samples: samples) {
+                results = try await Self.results(continuing: progress, over: samples)
+                PerformanceTrace.event("VoiceActivityReusedFromRecording")
+            } else {
+                results = try await manager.process(samples)
+            }
             let segments = await manager.segmentSpeech(
                 from: results,
                 totalSamples: samples.count,
@@ -317,5 +334,28 @@ actor VoiceActivityDetector {
             VocaLogger.warning(.general, "Voice activity detection failed: \(error.localizedDescription)")
             return .unchecked
         }
+    }
+
+    /// `progress`'s results followed by the rest of `samples`, chunked and
+    /// carried on exactly as `VadManager.process` would have done it.
+    private static func results(
+        continuing progress: VoiceActivityStream.Progress, over samples: [Float]
+    ) async throws -> [VadResult] {
+        var results = progress.results
+        var streamState = progress.streamState
+        var start = progress.processedSamples
+        while start < samples.count {
+            let end = min(start + VoiceActivityStream.chunkSize, samples.count)
+            let result = try await progress.manager.processStreamingChunk(Array(samples[start..<end]), state: streamState)
+            results.append(VadResult(
+                probability: result.probability,
+                isVoiceActive: result.probability >= speechThreshold,
+                processingTime: 0,
+                outputState: result.state.modelState
+            ))
+            streamState = result.state
+            start = end
+        }
+        return results
     }
 }

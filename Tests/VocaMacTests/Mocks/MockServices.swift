@@ -589,6 +589,10 @@ final class MockWhisperService: SpeechTranscribing {
     var lastStreamingCommit: StreamingCommitOptions?
     var streamingStartCount = 0
     var lastStreamingLiveVocabulary: LiveVocabulary?
+    var cancelVoiceActivityStreamCallCount = 0
+    func cancelVoiceActivityStream() {
+        cancelVoiceActivityStreamCallCount += 1
+    }
     func startStreaming(
         language: String?, vocabulary: String,
         liveVocabulary: LiveVocabulary?,

@@ -40,6 +40,12 @@ final class TranscriptionRouter: @unchecked Sendable {
     private struct RouterState {
         var activeEngine: TranscriptionEngine = .whisperKit
         var consecutiveFailures = 0
+        /// A dictation is waiting on the load in progress; see
+        /// `setRecordingWaitingForLoad(_:)`.
+        var recordingWaitsForLoad = false
+        /// Silence detection running over the recording being made; the
+        /// next batch decode picks it up. See `startVoiceActivityStream()`.
+        var voiceActivityStream: VoiceActivityStream?
     }
 
     /// Written by loads and decodes off the main actor and read from it
@@ -293,6 +299,12 @@ extension TranscriptionRouter: SpeechTranscribing {
         onPhaseChange: (@Sendable (String) -> Void)?
     ) async throws {
         let engine = Self.engine(forModelIdentifier: name)
+        // The silence detector loads alongside the speech model rather than
+        // after it; it is a separate, small CoreML model.
+        let preparesVoiceActivity = skipSilenceProvider()
+        if preparesVoiceActivity {
+            await voiceActivity.prepare()
+        }
 
         // Free the other engines before loading, so only one model is ever
         // resident. Each engine also unloads itself before loading.
@@ -348,21 +360,69 @@ extension TranscriptionRouter: SpeechTranscribing {
         // over whatever loaded since.
         try Task.checkCancellation()
         activeEngine = engine
-        if skipSilenceProvider() {
+        // The first prediction after a load is the slow one; take it now
+        // rather than on the user's first dictation, while the silence
+        // detector finishes loading. A dictation already waiting on this load
+        // would only wait for the warm-up too: its own decode takes the slow
+        // first prediction instead.
+        let warmsUp = !state.withLock { $0.recordingWaitsForLoad }
+        if !warmsUp {
+            VocaLogger.info(.general, "Skipping the warm-up decode: a dictation is waiting for this model")
+        }
+        async let warmUp: Void = warmsUp ? warmUpEngine(engine) : ()
+        if preparesVoiceActivity {
             // Waited for, so the first dictation after a load is trimmed like
             // every other; until the detector is ready a recording is decoded
-            // whole, silence and all.
+            // whole, silence and all. `prepare()` again in case the detector
+            // was dropped while the engine loaded.
             await voiceActivity.prepare()
             await voiceActivity.waitUntilLoaded(timeout: Self.voiceActivityLoadWaitSeconds)
         }
-        // The first prediction after a load is the slow one; take it now
-        // rather than on the user's first dictation.
+        await warmUp
+    }
+
+    /// One throwaway decode on the engine just loaded.
+    private func warmUpEngine(_ engine: TranscriptionEngine) async {
         switch engine {
         case .whisperKit: await whisper.warmUp()
         case .parakeet: await parakeet.warmUp()
         case .sherpaOnnx: await sherpa.warmUp()
         case .appleSpeech, .customEndpoint: break
         }
+    }
+
+    /// Start running the silence detector over the recording about to be
+    /// made, so the next batch decode is left only its last fraction of a
+    /// second to check. Nil when silence is not skipped. A stream nothing
+    /// decodes is dropped when the next one starts.
+    func startVoiceActivityStream() -> VoiceActivityStream? {
+        guard skipSilenceProvider() else { return nil }
+        let detector = voiceActivity
+        let stream = VoiceActivityStream { await detector.loadedManager() }
+        let previous = state.withLock { state -> VoiceActivityStream? in
+            let previous = state.voiceActivityStream
+            state.voiceActivityStream = stream
+            return previous
+        }
+        previous?.cancel()
+        return stream
+    }
+
+    /// Finish and release the stream of a recording that will not be
+    /// decoded, so its worker, detector reference and pending audio are not
+    /// held until the next recording replaces it.
+    func cancelVoiceActivityStream() {
+        let stream = state.withLock { state -> VoiceActivityStream? in
+            defer { state.voiceActivityStream = nil }
+            return state.voiceActivityStream
+        }
+        stream?.cancel()
+    }
+
+    /// Say whether a dictation is waiting on the model load in progress, so
+    /// the load skips its warm-up decode and hands the model over sooner.
+    func setRecordingWaitingForLoad(_ waiting: Bool) {
+        state.withLock { $0.recordingWaitsForLoad = waiting }
     }
 
     /// Longest a model load waits for the silence detector. Loading it from
@@ -716,6 +776,34 @@ extension TranscriptionRouter: SpeechTranscribing {
         translate: Bool,
         vocabulary: String
     ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate,
+            vocabularySource: .now(vocabulary)
+        )
+    }
+
+    /// Like `transcribe(audioData:language:translate:vocabulary:)`, but the
+    /// vocabulary is still being gathered (the screen's terms). Parakeet
+    /// decodes first and reads it only for the boost after the decode;
+    /// every other engine needs it before decoding and waits for it.
+    func transcribe(
+        audioData: [Float],
+        language: String?,
+        translate: Bool,
+        vocabularyAfterDecode: @escaping @Sendable () async -> String
+    ) async throws -> VocaTranscription {
+        try await transcribe(
+            audioData: audioData, language: language, translate: translate,
+            vocabularySource: .afterDecode(vocabularyAfterDecode)
+        )
+    }
+
+    private func transcribe(
+        audioData: [Float],
+        language: String?,
+        translate: Bool,
+        vocabularySource: VocabularySource
+    ) async throws -> VocaTranscription {
         let interval = PerformanceTrace.begin("TranscriptionQueueAndDecode")
         defer { PerformanceTrace.end(interval) }
         guard let prepared = await audioWithoutSilence(audioData) else {
@@ -736,7 +824,7 @@ extension TranscriptionRouter: SpeechTranscribing {
                 let result = try await Deadline.run(seconds: seconds, operation: "Transcription") { [self] in
                     try await decode(
                         audioData: prepared.samples, language: language, translate: translate,
-                        vocabulary: vocabulary, endsAtSpeech: endsAtSpeech
+                        vocabularySource: vocabularySource, endsAtSpeech: endsAtSpeech
                     )
                 }
                 consecutiveFailures = 0
@@ -775,13 +863,34 @@ extension TranscriptionRouter: SpeechTranscribing {
         return result
     }
 
+    /// Recognition hints for one decode: known now, or still being gathered.
+    enum VocabularySource: Sendable {
+        case now(String)
+        case afterDecode(@Sendable () async -> String)
+
+        /// The hints, waiting for them if they are still being gathered.
+        func value() async -> String {
+            switch self {
+            case .now(let vocabulary): return vocabulary
+            case .afterDecode(let provider): return await provider()
+            }
+        }
+    }
+
     private func decode(
         audioData: [Float],
         language: String?,
         translate: Bool,
-        vocabulary: String,
+        vocabularySource: VocabularySource,
         endsAtSpeech: Bool
     ) async throws -> VocaTranscription {
+        if activeEngine == .parakeet {
+            // Parakeet uses the hints only after decoding, for the boost.
+            return try await parakeet.transcribe(
+                audioData: audioData, language: language, vocabularyAfterDecode: { await vocabularySource.value() }
+            )
+        }
+        let vocabulary = await vocabularySource.value()
         switch activeEngine {
         case .whisperKit:
             return try await whisper.transcribe(
@@ -864,7 +973,14 @@ extension TranscriptionRouter: SpeechTranscribing {
         let interval = PerformanceTrace.begin("VoiceActivityTrim")
         defer { PerformanceTrace.end(interval) }
         let detector = voiceActivity
-        let lifted = await Self.liftedForDecode(audioData) { await detector.decision(for: $0) }
+        // Found while recording, on the samples as captured: it stands in
+        // for the batch pass whenever the samples decided on are those
+        // (no lift), and is checked again, harmlessly, otherwise.
+        let stream = state.withLock { state -> VoiceActivityStream? in
+            defer { state.voiceActivityStream = nil }
+            return state.voiceActivityStream
+        }
+        let lifted = await Self.liftedForDecode(audioData) { await detector.decision(for: $0, stream: stream) }
         var prepared = Self.speechOnlyAudio(
             lifted.samples, decision: lifted.decision, trimsSilence: skipSilenceProvider(),
             sampleCount: audioData.count
@@ -993,6 +1109,7 @@ extension TranscriptionRouter: SpeechTranscribing {
         await appleSpeech.unloadModel()
         sherpa.unloadModel()
         customEndpoint.unloadModel()
+        cancelVoiceActivityStream()
         await voiceActivity.unload()
         consecutiveFailures = 0
     }

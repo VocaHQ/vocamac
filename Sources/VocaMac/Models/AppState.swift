@@ -2264,6 +2264,7 @@ final class AppState: ObservableObject {
 
         // Reset UI state
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         cursorOverlay.hide()
         appStatus = .idle
@@ -2433,10 +2434,26 @@ final class AppState: ObservableObject {
                     cursorOverlay.setLoadingSpeechModel(true)
                 }
             }
+            // The cleanup model loads with llama.cpp on the GPU while the
+            // speech model loads on the Neural Engine. When memory has room
+            // for both, as at launch, start it now: after the speech model,
+            // its load and prompt read were left for after the user stopped.
+            if injectResult, activeCommandTarget == nil, transcriptCleanupEnabled, startupFitsBothModels() {
+                let target = frontmostAppResolver.currentFrontmostApp() ?? pendingTargetApp
+                Task { @MainActor [weak self] in
+                    await self?.warmCleanupModel(for: target)
+                }
+            }
+            // A dictation is waiting: the load hands the model over without
+            // its warm-up decode, which this dictation would only wait for.
+            // Set before waiting on the launch load too, so a dictation that
+            // starts while that load runs skips its warm-up as well.
+            whisperService.setRecordingWaitingForLoad(true)
             if let startupModelPreparation {
                 await startupModelPreparation.value
             }
             await ensureModelLoaded()
+            whisperService.setRecordingWaitingForLoad(false)
             isLoadingModelForRecording = false
             cursorOverlay.setLoadingSpeechModel(false)
             let pendingStop = pendingStopDuringModelLoad
@@ -2562,9 +2579,14 @@ final class AppState: ObservableObject {
         let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
-        audioEngine.onAudioSamples = session.map { session in
-            { @Sendable samples, offset in session.append(samples, at: offset) }
-        }
+        // A recording decoded whole at stop has its silence found while it
+        // is made, so the stop is left only the last fraction of a second.
+        // A microphone opened early holds audio the stream never saw, and
+        // Apple Speech finishes its own session without a batch decode.
+        let voiceActivity = adoptedCapture == nil && !recordingProcessesWhileSpeaking
+            && recordingEngine != .appleSpeech
+            ? whisperService.startVoiceActivityStream() : nil
+        audioEngine.onAudioSamples = Self.sampleObserver(session: session, voiceActivity: voiceActivity)
         let didStartRecording: Bool
         if let adoptedCapture {
             didStartRecording = await adoptedCapture.start.value
@@ -2971,6 +2993,15 @@ final class AppState: ObservableObject {
         defer {
             if generation == recordingGeneration { isTranscribing = false }
         }
+        // Copy the clipboard while the speech is decoded, not after the text
+        // is ready. The paste reuses it only if the board is unchanged, and
+        // the release (queued behind that paste) drops it either way.
+        if injectResult, preserveClipboard {
+            textInjector.prepareClipboardSnapshot()
+        }
+        defer {
+            if injectResult, preserveClipboard { textInjector.releasePreparedClipboardSnapshot() }
+        }
 
         let contextTask = screenContextTask
         screenContextTask = nil
@@ -2995,6 +3026,21 @@ final class AppState: ObservableObject {
             let captured = await documentURLRead.value
             return await self?.revalidatedDocumentURL(captured)
         }
+        // The field is read again at key-up, while the speech is decoded,
+        // rather than after cleanup: a move to another field while speaking
+        // is still noticed, and the read no longer adds to the wait. A move
+        // during the decode itself is left to the app check at delivery.
+        let insertionContextAtStop: Task<InsertionContext?, Never>?
+        if injectResult, writingStyleEnabled, let reader = screenContextReader {
+            insertionContextAtStop = Task {
+                await Self.value(
+                    of: Task { @MainActor in await reader.captureInsertionContext() },
+                    within: Self.screenContextTimeout, otherwise: nil
+                )
+            }
+        } else {
+            insertionContextAtStop = nil
+        }
         let language = selectedLanguage == "auto" ? nil : selectedLanguage
         let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
         // sherpa-onnx models take no screen terms (only Qwen3-ASR reads the
@@ -3011,6 +3057,26 @@ final class AppState: ObservableObject {
             earlyDecode = Task {
                 try await transcriber.transcribe(
                     audioData: audioData, language: language, translate: translate, vocabulary: vocabulary
+                )
+            }
+        } else if selectedEngine == .parakeet, decodesWholeRecording {
+            // Parakeet reads the screen terms only for its boost after the
+            // decode, so the decode starts now too and the terms join it
+            // when they arrive.
+            let vocabulary = customVocabulary
+            let targets = replacementTargets
+            let usage = termUsage
+            let transcriber = whisperService
+            let translate = translatesSpeech
+            earlyDecode = Task {
+                try await transcriber.transcribe(
+                    audioData: audioData, language: language, translate: translate,
+                    vocabularyAfterDecode: {
+                        let contextTerms = await contextTermsRead.value
+                        return await Self.recognitionVocabulary(
+                            vocabulary, replacementTargets: targets, contextTerms: contextTerms, usage: usage
+                        )
+                    }
                 )
             }
         } else {
@@ -3160,16 +3226,13 @@ final class AppState: ObservableObject {
                 // Fit the text to the field: one line, the sentence already
                 // there, the draft's register. Prose only; a terminal's
                 // buffer or an editor's code is not a sentence to join.
-                // The field is read again here: the user may have moved to
+                // The field read again at key-up: the user may have moved to
                 // another one while speaking, and then nothing is fitted.
                 var leadingSpace = false
                 if injectResult, writingStyleEnabled, profile.cleanup != .raw, profile.format.supportsWording,
                    !resolved.codingAgent, let start = await insertionContextRead.value,
-                   let reader = screenContextReader,
-                   let context = InsertionFit.deliveryContext(start: start, now: await Self.value(
-                       of: Task { @MainActor in await reader.captureInsertionContext() },
-                       within: Self.screenContextTimeout, otherwise: nil
-                   )) {
+                   let stopRead = insertionContextAtStop,
+                   let context = InsertionFit.deliveryContext(start: start, now: await stopRead.value) {
                     let fit = InsertionFit.fit(
                         output.text, into: context,
                         capitalizes: Self.capitalizes(profile.rules, autoCapitalize: autoCapitalize),
@@ -3436,6 +3499,7 @@ final class AppState: ObservableObject {
     /// would be taken as an editing command for the stale selection.
     private func discardRecordingState() {
         isRecording = false
+        whisperService.cancelVoiceActivityStream()
         audioLevel = 0.0
         screenContextTask?.cancel()
         screenContextTask = nil
@@ -3606,6 +3670,26 @@ final class AppState: ObservableObject {
             self.audioDucker.restore()
             self.spotifyPauser.resume()
             VocaLogger.info(.appState, "Closed the microphone opened for a queued dictation")
+        }
+    }
+
+    /// What receives the microphone's samples while recording: a live
+    /// session, the silence detector, both, or neither.
+    static func sampleObserver(
+        session: RecordingTranscription?, voiceActivity: VoiceActivityStream?
+    ) -> (@Sendable ([Float], Int) -> Void)? {
+        switch (session, voiceActivity) {
+        case (nil, nil):
+            return nil
+        case let (session?, nil):
+            return { samples, offset in session.append(samples, at: offset) }
+        case let (nil, voiceActivity?):
+            return { samples, offset in voiceActivity.append(samples, at: offset) }
+        case let (session?, voiceActivity?):
+            return { samples, offset in
+                session.append(samples, at: offset)
+                voiceActivity.append(samples, at: offset)
+            }
         }
     }
 
@@ -4410,7 +4494,11 @@ final class AppState: ObservableObject {
             VocaLogger.warning(.appState, "Hotkey listener failed to start. Check Accessibility & Input Monitoring permissions.")
         }
 
-        await checkForCrashReport()
+        // The crash-report scan reads the diagnostics folder; nothing below
+        // needs it, so it runs while the models load.
+        let crashReportCheck = Task<Void, Never> { @MainActor [weak self] in
+            await self?.checkForCrashReport()
+        }
 
         // What the last in-place install did, before a new check runs.
         updateChecker.reportLastInstallResult()
@@ -4447,6 +4535,7 @@ final class AppState: ObservableObject {
         }
 
         await updateCheck.value
+        await crashReportCheck.value
 
         VocaLogger.info(.appState, "Startup complete!")
     }

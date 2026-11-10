@@ -158,6 +158,16 @@ final class TextInjector: @unchecked Sendable {
     private let pasteReceiptTimeoutValue: Double
     var onFailure: ((String) -> Void)?
 
+    /// A clipboard copy taken at key-up, while the speech is decoded, and the
+    /// change count it belongs to. Used by the next clipboard paste only if
+    /// the board has not changed since; otherwise the paste copies it again.
+    /// Main thread only.
+    private var preparedSnapshot: (changeCount: Int, snapshot: PasteboardSnapshot?)?
+    private var preparingSnapshot: Task<Void, Never>?
+    /// Bumped by each preparation, so a slow one that finishes after a newer
+    /// one started (or after the snapshot was used) is dropped.
+    private var snapshotPreparation = 0
+
     /// Clipboard fallback injections must run one at a time. Otherwise a
     /// delayed restore from one injection can replace the transcription from
     /// a newer injection immediately before its Cmd+V event is handled.
@@ -268,8 +278,11 @@ final class TextInjector: @unchecked Sendable {
     ) {
         let interval = PerformanceTrace.begin("TextDeliveryQueueAndDispatch")
         Self.clipboardInjectionCoordinator.enqueue { [self] finish in
-            let complete = { @Sendable in
+            let complete = { @Sendable [self] in
                 PerformanceTrace.end(interval)
+                // Completion arrives on the main thread. A copy prepared for
+                // this dictation is never kept past its delivery.
+                discardPreparedSnapshot()
                 finish()
             }
             performInjection(
@@ -296,6 +309,79 @@ final class TextInjector: @unchecked Sendable {
                 }
             }
         }
+    }
+
+    /// Copy the clipboard now, ahead of a paste that may follow, so the copy
+    /// is not part of the wait once the text is ready. A copy made while the
+    /// board still holds the same contents is reused; any change since, and
+    /// the paste copies the board again as before.
+    func prepareClipboardSnapshot() {
+        let prepare = { @Sendable [self] in
+            preparingSnapshot?.cancel()
+            snapshotPreparation += 1
+            let preparation = snapshotPreparation
+            preparedSnapshot = nil
+            preparingSnapshot = Task { @MainActor [self] in
+                // The count is read once, before the copy, and the copy is
+                // kept only if the board still holds that generation after
+                // it. Reading the count again after the copy could pair old
+                // contents with a newer count, and the paste would then
+                // restore them over what the user just copied.
+                let generation = self.pasteboard.changeCount
+                guard let snapshot = try? await self.captureStableSnapshot(self.pasteboard),
+                      !Task.isCancelled, preparation == self.snapshotPreparation,
+                      self.pasteboard.changeCount == generation else { return }
+                self.preparedSnapshot = (generation, snapshot)
+            }
+        }
+        if Thread.isMainThread { prepare() }
+        else { DispatchQueue.main.async(execute: prepare) }
+    }
+
+    /// Test-only: wait for `prepareClipboardSnapshot()` to finish copying,
+    /// and say whether a copy is held.
+    @MainActor
+    func preparedClipboardSnapshotForTesting() async -> Bool {
+        await preparingSnapshot?.value
+        return preparedSnapshot != nil
+    }
+
+    /// The prepared copy if the board still holds what it copied, otherwise a
+    /// fresh one. Either way the prepared copy is used up.
+    @MainActor
+    private func clipboardSnapshotForPaste() async throws -> PasteboardSnapshot? {
+        preparingSnapshot?.cancel()
+        preparingSnapshot = nil
+        snapshotPreparation += 1
+        let prepared = preparedSnapshot
+        preparedSnapshot = nil
+        if let prepared, prepared.changeCount == pasteboard.changeCount {
+            PerformanceTrace.event("ClipboardSnapshotReused")
+            return prepared.snapshot
+        }
+        return try await captureStableSnapshot(pasteboard)
+    }
+
+    /// Drop the copy from `prepareClipboardSnapshot()` once no paste will use
+    /// it: queued behind any injection already waiting, so it never takes the
+    /// copy from under a paste that was asked for first.
+    func releasePreparedClipboardSnapshot() {
+        let release = { @Sendable [self] in
+            Self.clipboardInjectionCoordinator.enqueue { [self] finish in
+                discardPreparedSnapshot()
+                finish()
+            }
+        }
+        if Thread.isMainThread { release() }
+        else { DispatchQueue.main.async(execute: release) }
+    }
+
+    /// Drop a prepared copy. Main thread only.
+    private func discardPreparedSnapshot() {
+        preparingSnapshot?.cancel()
+        preparingSnapshot = nil
+        snapshotPreparation += 1
+        preparedSnapshot = nil
     }
 
     private enum AccessibilityInsertion { case inserted, unavailable, uncertain }
@@ -522,7 +608,7 @@ final class TextInjector: @unchecked Sendable {
                     reportPasteTargetMismatch(queued: request.targetPID, current: currentPID)
                     return
                 }
-                var snapshot = request.preserveClipboard ? try await captureStableSnapshot(pasteboard) : nil
+                var snapshot = request.preserveClipboard ? try await clipboardSnapshotForPaste() : nil
                 // `writeTranscribedText` clears the pasteboard before it writes,
                 // so a failed write has already taken the user's clipboard away.
                 // Put it back and say so — never drop out silently holding it.

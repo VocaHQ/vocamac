@@ -15,6 +15,8 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 | **Parakeet Unified** | ~614 MB | ⚡⚡⚡⚡⚡ | English only, NVIDIA's newest Parakeet: punctuation, capitals, and numbers written as digits |
 | **Parakeet v2** | ~464 MB | ⚡⚡⚡⚡⚡ | English only, highest recall |
 | **Parakeet 110M** | ~227 MB | ⚡⚡⚡⚡⚡ | English only, smaller download and faster first load |
+| **Nemotron Unified** | ~626 MB | ⚡⚡⚡⚡⚡ | 25 European languages with punctuation and capitals: NVIDIA's multilingual build of Parakeet Unified ([OpenMDW-1.1](https://github.com/OpenMDW/OpenMDW/blob/main/1.1/LICENSE.OpenMDW-1.1)) |
+| **SenseVoice Neural Engine** | ~240 MB | ⚡⚡⚡⚡⚡ | Chinese, Japanese, Korean, Cantonese, English: the SenseVoice model below, as CoreML on the Neural Engine, up to 100 s in one pass |
 
 Onboarding suggests **Parakeet Unified** for English (110M where Unified doesn't fit), and **Parakeet v3** for Parakeet's other European languages that have no specialist below. On a 45-sentence English set spoken by five macOS voices, scored after normalizing how numbers are written, the Parakeet models made these errors:
 
@@ -24,6 +26,25 @@ Onboarding suggests **Parakeet Unified** for English (110M where Unified doesn't
 | Parakeet v3 | 2.2 % | 0.10 s |
 | Parakeet Ultra | 2.8 % | 0.10 s |
 | Parakeet 110M | 4.7 % | 0.05 s |
+
+Nemotron Unified and SenseVoice Neural Engine are not suggested by onboarding yet: neither has been measured against v3 or the ONNX SenseVoice on recorded speech in their languages. Nemotron takes its language at load (the one you pick, or your only spoken language, or automatic language ID), so changing the language reloads it. FluidInference's model card reports its int8 encoder, which VocaMac uses, a little worse than fp16 on French (8.6 against 6.9 % on five FLEURS clips).
+
+### Transcribe as you speak (Parakeet Unified and Nemotron Unified)
+
+Settings › System › **Transcribe as you speak** loads the streaming export of either Unified model instead of the batch one: audio is decoded each second while you talk (2.08 s behind you), and the streamed transcript is the result, so at stop only the last window is left. It is off by default. The streaming encoder is a second download (~592 MB for Parakeet Unified, ~596 MB for Nemotron), and NVIDIA reports it slightly less accurate than the batch export (6.14 % against 5.91 % average WER on the Open ASR Leaderboard sets). Silence and hallucination checks run on the whole recording at stop, as on the batch path; Process while speaking is skipped for these models while it is on.
+
+Measured on an M1 Pro (Parakeet Unified, int8, warm), 30 clips: 10 macOS-voice sentences with references and 20 real dictations of 2–31 s:
+
+| | Batch export | Streaming export |
+|---|---|---|
+| Wait after stop, median | 0.20 s | 0.10 s |
+| Wait after stop, longest (30.6 s dictation) | 0.96 s | 0.23 s |
+| Word error rate, 10 synthetic sentences | 8.6 % | 8.6 % (identical text) |
+| Words that differ from the batch text, all 30 clips | — | 9 of 468 (1.9 %) |
+
+The 8.6 % is mostly numbers written as digits against a reference that spells them out. The differences on real dictations go both ways ("togle", "Vocar Mac" against the batch text's "toggle", "voca max"). Twenty recordings from one speaker is a small sample; the streaming export's accuracy on long or noisy dictation is not measured.
+
+Nemotron Unified on the same 30 clips, prompted with English: 6.3 % (batch) and 7.0 % (streaming) on the synthetic sentences, and a median wait after stop of 0.28 s (batch) against 0.12 s (streaming). Its batch export dropped the last four words of the 30.6 s dictation; the streaming export kept them. It was not measured in any other language.
 
 Synthetic speech is a weak stand-in for real voices. FluidAudio's published numbers on real speech put Ultra ahead of v3 (LibriSpeech test-clean 2.13 vs 2.27 %, FLEURS 11.67 vs 14.81 %), so Ultra stays in the catalog. The suggestion changes only when a measurement on recorded speech favours it.
 
@@ -66,7 +87,7 @@ Not offered yet: Qwen3 ASR 1.7B and Moonshine v2 Small and Medium have no sherpa
 
 Recordings longer than a model's single-pass limit are split at natural pauses and decoded segment by segment, since these models — unlike Whisper and Parakeet — do not chunk internally.
 
-> **Note:** SenseVoice, Canary and Cohere Transcribe fix their language when the model loads, so changing the transcription language reloads the active model. Whisper and Parakeet take the language per transcription.
+> **Note:** SenseVoice (both builds), Canary, Cohere Transcribe and Nemotron Unified fix their language when the model loads, so changing the transcription language reloads the active model. Whisper and Parakeet take the language per transcription.
 
 > **Note:** Of these, only Qwen3 ASR takes Dictionary words as a recognition hint. Moonshine, SenseVoice, GigaAM, and Canary have no way to listen for a word, so for them the Dictionary only fixes spellings after transcription: a near-miss of a listed term, or a run of words that sounds exactly like one.
 

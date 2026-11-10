@@ -32,6 +32,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case parakeetV2                   = "parakeet-tdt-0.6b-v2"
     case parakeetUnified              = "parakeet-unified-en-0.6b"
     case parakeetTdtCtc110m           = "parakeet-tdt-ctc-110m"
+    case nemotronUnified              = "nemotron-unified-asr-0.6b"
+    case senseVoiceNeuralEngine       = "sensevoice-small-coreml"
 
     // Apple Speech (macOS 26+ system engine)
     case appleSpeech                  = "apple-speech"
@@ -53,7 +55,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// Which engine runs this model.
     var engine: TranscriptionEngine {
         switch self {
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m:
+        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
+             .senseVoiceNeuralEngine:
             return .parakeet
         case .appleSpeech:
             return .appleSpeech
@@ -65,6 +68,12 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         default:
             return .whisperKit
         }
+    }
+
+    /// Whether the model ships a streaming export that can transcribe while
+    /// the user speaks (Settings › System › Transcribe as you speak).
+    var transcribesWhileSpeaking: Bool {
+        self == .parakeetUnified || self == .nemotronUnified
     }
 
     /// Whether this model's engine can run on the current system at all
@@ -113,7 +122,11 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// ONNX models only SenseVoice and Canary bind it, so the rest should not
     /// pay for a reload.
     var bindsLanguageAtLoadTime: Bool {
-        SherpaModelCatalog.spec(for: self)?.bindsLanguageAtLoadTime ?? false
+        // Nemotron Unified's language prompt is an encoder input set at load.
+        // Nemotron Unified's language prompt and SenseVoice's language embed
+        // are encoder inputs set at load.
+        if self == .nemotronUnified || self == .senseVoiceNeuralEngine { return true }
+        return SherpaModelCatalog.spec(for: self)?.bindsLanguageAtLoadTime ?? false
     }
 
     /// The WhisperKit model a fine-tune was trained from, whose device
@@ -174,6 +187,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .parakeetV3,
         .parakeetUnified,
         .parakeetV2,
+        .nemotronUnified,
         .parakeetTdtCtc110m,
         .tiny,
         .base,
@@ -188,6 +202,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .moonshineTiny,
         .moonshineBase,
         .senseVoiceSmall,
+        .senseVoiceNeuralEngine,
         .gigaamV3,
         .canary180mFlash,
         .qwen3Asr06B,
@@ -228,10 +243,12 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .parakeetV2:                return "Parakeet v2 (English)"
         case .parakeetUnified:           return "Parakeet Unified (English)"
         case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
+        case .nemotronUnified:           return "Nemotron Unified (Multilingual)"
         case .appleSpeech:               return "Apple Speech (System)"
         case .moonshineTiny:             return "Moonshine v2 Tiny (English)"
         case .moonshineBase:             return "Moonshine v2 Base (English)"
         case .senseVoiceSmall:           return "SenseVoice (Chinese +4)"
+        case .senseVoiceNeuralEngine:    return "SenseVoice Neural Engine (Chinese +4)"
         case .gigaamV3:                  return "GigaAM v3 (Russian)"
         case .canary180mFlash:           return "Canary 180M (EN/ES/DE/FR)"
         case .qwen3Asr06B:               return "Qwen3 ASR 0.6B (30 Languages)"
@@ -273,10 +290,16 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         // The batch export only: int8 encoder, decoder, joint, and vocab.
         case .parakeetUnified:           return 614_080_920
         case .parakeetTdtCtc110m:        return 227_468_698
+        // The batch export only: int8 encoder, decoder, joint, vocab and
+        // metadata from FluidInference/nemotron-labs-unified-asr-0.6b-coreml.
+        case .nemotronUnified:           return 626_478_903
         case .appleSpeech, .customEndpoint: return 0
         case .moonshineTiny:             return 44_441_158
         case .moonshineBase:             return 141_498_518
         case .senseVoiceSmall:           return 240_506_435
+        // int8 encoder, preprocessor and vocabulary from
+        // FluidInference/sensevoice-small-coreml.
+        case .senseVoiceNeuralEngine:    return 239_913_642
         case .gigaamV3:                  return 225_266_401
         case .canary180mFlash:           return 207_476_042
         case .qwen3Asr06B:               return 1_000_089_677
@@ -364,10 +387,12 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .parakeetV2:                return 1
         case .parakeetUnified:           return 1
         case .parakeetTdtCtc110m:        return 1
+        case .nemotronUnified:           return 1
         case .appleSpeech:               return 2
         case .moonshineTiny:             return 2
         case .moonshineBase:             return 3
         case .senseVoiceSmall:           return 3
+        case .senseVoiceNeuralEngine:    return 1
         case .gigaamV3:                  return 3
         case .canary180mFlash:           return 4
         case .qwen3Asr06B:               return 4
@@ -397,10 +422,12 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .parakeetV2:                return "Excellent"
         case .parakeetUnified:           return "Excellent"
         case .parakeetTdtCtc110m:        return "Great"
+        case .nemotronUnified:           return "Excellent"
         case .appleSpeech:               return "Excellent"
         case .moonshineTiny:             return "Good"
         case .moonshineBase:             return "Better"
         case .senseVoiceSmall:           return "Great"
+        case .senseVoiceNeuralEngine:    return "Great"
         case .gigaamV3:                  return "Great"
         case .canary180mFlash:           return "Great"
         case .qwen3Asr06B:               return "Excellent"

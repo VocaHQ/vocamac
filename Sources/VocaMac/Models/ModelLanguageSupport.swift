@@ -54,13 +54,13 @@ extension ModelSize {
         // dictation stays in one script.
         case .vocaHinglish:
             return .only(["hi", "en"])
-        case .parakeetUltra, .parakeetV3:
+        case .parakeetUltra, .parakeetV3, .nemotronUnified:
             return .only(Self.parakeetV3Languages)
         case .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase:
             return .only(["en"])
         case .appleSpeech:
             return .system
-        case .senseVoiceSmall:
+        case .senseVoiceSmall, .senseVoiceNeuralEngine:
             return .only(["zh", "yue", "en", "ja", "ko"])
         case .gigaamV3:
             return .only(["ru"])
@@ -153,10 +153,12 @@ extension ModelSize {
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetUnified:           return "NVIDIA's newest English Parakeet, with punctuation, capitals, and numbers written as digits."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."
+        case .nemotronUnified:           return "NVIDIA's multilingual Unified model: 25 European languages with punctuation and capitals."
         case .appleSpeech:               return "Built into macOS. Nothing to download in VocaMac."
         case .moonshineTiny:             return "A tiny English model for Macs short on memory."
         case .moonshineBase:             return "A small English model, more accurate than Moonshine Tiny."
         case .senseVoiceSmall:           return "Chinese, Cantonese, English, Japanese, and Korean."
+        case .senseVoiceNeuralEngine:    return "SenseVoice on the Neural Engine: faster, and up to 100 s in one pass."
         case .gigaamV3:                  return "A Russian specialist that adds punctuation."
         case .canary180mFlash:           return "English, Spanish, German, or French, one at a time, in a compact model."
         case .qwen3Asr06B:               return "30 languages, including Hindi, Arabic, and Thai."

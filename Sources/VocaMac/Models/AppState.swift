@@ -504,6 +504,12 @@ final class AppState: ObservableObject {
     /// Decode (and clean up) each finished sentence while recording, so long
     /// dictations paste sooner. Off by default until measured on more Macs.
     @UserDefault(PreferenceKey.processWhileSpeaking) var processWhileSpeaking: Bool = false
+    /// Parakeet Unified and Nemotron Unified load their streaming export and
+    /// transcribe while the user speaks, so the text is ready about two
+    /// seconds after they stop. Off by default: the streaming export is a
+    /// second download, and NVIDIA reports it slightly less accurate than
+    /// the batch export (6.14 % against 5.91 % average WER).
+    @UserDefault(PreferenceKey.parakeetLiveStreaming) var parakeetLiveStreaming: Bool = false
     @UserDefault(PreferenceKey.cleanupEndpoint) var cleanupEndpointJSON: String = ""
     @UserDefault(PreferenceKey.speechEndpoint) var speechEndpointJSON: String = ""
     @UserDefault(PreferenceKey.historyEnabled) var historyEnabled: Bool = true
@@ -2682,6 +2688,9 @@ final class AppState: ObservableObject {
         guard processWhileSpeaking, injectResult, activeCommandTarget == nil,
               let model = ModelSize(rawValue: selectedModelSize),
               model.engine != .customEndpoint,
+              // A streaming export transcribes the whole recording as it
+              // comes; pieces would decode it twice.
+              !(parakeetLiveStreaming && model.transcribesWhileSpeaking),
               !(model.engine == .whisperKit && translatesSpeech) else { return nil }
         let engine = model.engine
         guard !isPowerConstrained() else {
@@ -3792,9 +3801,41 @@ final class AppState: ObservableObject {
         availableModels[idx].loadingStatus = "Loading…"
     }
 
+    /// Reload the active model when "Transcribe as you speak" no longer
+    /// matches the loaded encoder (a Unified checkpoint's streaming export is
+    /// a different model).
+    ///
+    /// Queued behind any model operation in progress and decided only once it
+    /// has finished: a change made while a load is under way is compared
+    /// with what that load actually produced, so it is never dropped.
+    func reloadModelForLiveStreamingChangeIfNeeded() async {
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            guard let size = liveStreamingReloadTarget() else { return }
+            VocaLogger.info(.appState, "Transcribe as you speak changed — reloading \(size.displayName)")
+            await performLoadModel(size)
+        }
+    }
+
+    /// The loaded model, when its encoder disagrees with the setting.
+    ///
+    /// Nil when the chosen model is not the loaded one (an imported backup
+    /// can pick another): reloading the old model would save it over that
+    /// choice, and the next load applies the setting anyway.
+    func liveStreamingReloadTarget() -> ModelSize? {
+        guard let size = currentModel?.size,
+              ModelSize(rawValue: selectedModelSize) == size,
+              size.transcribesWhileSpeaking,
+              whisperService.isModelLoaded,
+              whisperService.isLiveStreamingLoaded != parakeetLiveStreaming else {
+            return nil
+        }
+        return size
+    }
+
     /// Reload the active model when the transcription language changes and
-    /// the engine bakes that language into the loaded model (sherpa-onnx).
-    /// Other engines take the language per transcription and need no reload.
+    /// the engine bakes that language into the loaded model (sherpa-onnx,
+    /// Nemotron Unified, SenseVoice on the Neural Engine). Other engines
+    /// take the language per transcription and need no reload.
     func reloadModelForLanguageChangeIfNeeded() async {
         guard let size = currentModel?.size,
               size.bindsLanguageAtLoadTime,
@@ -4632,6 +4673,11 @@ final class AppState: ObservableObject {
         syncShortcutConfiguration()
         syncLaunchAtLogin()
         refreshActiveWritingStyle()
+        // An imported "Transcribe as you speak" only takes effect with the
+        // matching encoder; a no-op when the loaded one already matches.
+        Task { @MainActor [weak self] in
+            await self?.reloadModelForLiveStreamingChangeIfNeeded()
+        }
         objectWillChange.send()
     }
 

@@ -184,7 +184,7 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 27)
+        XCTAssertEqual(ModelSize.allCases.count, 29)
     }
 
     func testRawValues() {

@@ -131,6 +131,27 @@ test("names the site and gives every subpage a breadcrumb trail", async () => {
   }
 });
 
+test("ties the app and its pages to the author's Person node", async () => {
+  const personId = "https://jatinkrmalik.com/about/#person";
+  const app = jsonLdBlocks(index).find((block) => block["@type"] === "SoftwareApplication");
+  for (const role of ["author", "creator"]) {
+    assert.equal(app?.[role]?.["@id"], personId, `app ${role}`);
+    assert.ok(app[role].sameAs.includes("https://www.wikidata.org/wiki/Q142178778"), `app ${role} sameAs`);
+  }
+  assert.ok(app.sameAs.includes("https://www.wikidata.org/wiki/Q142178943"));
+  assert.equal(app.publisher?.name, "VocaHQ");
+
+  const website = jsonLdBlocks(index).find((block) => block["@type"] === "WebSite");
+  assert.equal(website?.author?.["@id"], personId);
+  assert.equal(website?.creator?.["@id"], personId);
+
+  for (const page of pages) {
+    const html = await readFile(page, "utf8");
+    const webPage = jsonLdBlocks(html).find((block) => block["@type"] === "WebPage");
+    if (webPage) assert.equal(webPage.author?.["@id"], personId, relative(outputRoot, page));
+  }
+});
+
 test("does not add review, rating, FAQ or HowTo markup", async () => {
   for (const page of pages) {
     const html = await readFile(page, "utf8");

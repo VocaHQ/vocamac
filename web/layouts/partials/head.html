@@ -7,6 +7,25 @@
    can't follow a --baseURL override, so a Netlify preview build kept
    advertising production's card to link scrapers instead of its own. */ -}}
 {{- $ogImage := site.Params.ogImagePath | absURL -}}
+{{- /* The maintainer as one schema.org Person. The @id is the Person node on
+   jatinkrmalik.com/about/, so search engines can join VocaMac to the same
+   person there and on Wikidata. App and page nodes carry it in full; the
+   WebSite node refers to it by @id. */ -}}
+{{- $personID := "https://jatinkrmalik.com/about/#person" -}}
+{{- $person := dict
+  "@type" "Person"
+  "@id" $personID
+  "name" "Jatin K Malik"
+  "alternateName" "Jatin Kumar Malik"
+  "url" "https://jatinkrmalik.com/"
+  "sameAs" (slice
+    "https://www.wikidata.org/wiki/Q142178778"
+    "https://jatinkrmalik.com/about/"
+    "https://github.com/jatinkrmalik"
+    "https://x.com/jatinkrmalik"
+    "https://www.linkedin.com/in/jatinkrmalik/"
+  )
+-}}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -61,7 +80,15 @@
       "downloadUrl": {{ $p.stable.releasesURL | jsonify | safeJS }},
       "description": {{ $description | jsonify | safeJS }},
       "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "author": { "@type": "Person", "name": {{ site.Params.author | jsonify | safeJS }} }
+      "sameAs": ["https://www.wikidata.org/wiki/Q142178943"],
+      "author": {{ $person | jsonify | safeJS }},
+      "creator": {{ $person | jsonify | safeJS }},
+      "publisher": {
+        "@type": "Organization",
+        "name": "VocaHQ",
+        "url": "https://vocahq.com/",
+        "sameAs": ["https://www.wikidata.org/wiki/Q142179028", "https://github.com/VocaHQ"]
+      }
     }
     </script>
     {{- /* Google reads the site name shown in results from WebSite markup on the home page. */}}
@@ -71,7 +98,9 @@
       "@type": "WebSite",
       "name": "VocaMac",
       "alternateName": "Voca Mac",
-      "url": {{ site.BaseURL | jsonify | safeJS }}
+      "url": {{ site.BaseURL | jsonify | safeJS }},
+      "author": { "@id": {{ $personID | jsonify | safeJS }} },
+      "creator": { "@id": {{ $personID | jsonify | safeJS }} }
     }
     </script>
 {{- else if .IsPage }}
@@ -83,7 +112,7 @@
       "description": {{ $description | jsonify | safeJS }},
       "url": {{ .Permalink | jsonify | safeJS }},
       "isPartOf": { "@type": "WebSite", "name": "VocaMac", "url": {{ site.BaseURL | jsonify | safeJS }} },
-      "author": { "@type": "Person", "name": {{ site.Params.author | jsonify | safeJS }} }
+      "author": {{ $person | jsonify | safeJS }}
     }
     </script>
 {{- end }}

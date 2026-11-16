@@ -133,12 +133,14 @@ test("names the site and gives every subpage a breadcrumb trail", async () => {
 
 test("ties the app and its pages to the author's Person node", async () => {
   const personId = "https://jatinkrmalik.com/about/#person";
+  // Exact array membership; `.includes` on a URL string trips CodeQL's substring-sanitization check.
+  const lists = (urls, url) => urls.some((entry) => entry === url);
   const app = jsonLdBlocks(index).find((block) => block["@type"] === "SoftwareApplication");
   for (const role of ["author", "creator"]) {
     assert.equal(app?.[role]?.["@id"], personId, `app ${role}`);
-    assert.ok(app[role].sameAs.includes("https://www.wikidata.org/wiki/Q142178778"), `app ${role} sameAs`);
+    assert.ok(lists(app[role].sameAs, "https://www.wikidata.org/wiki/Q142178778"), `app ${role} sameAs`);
   }
-  assert.ok(app.sameAs.includes("https://www.wikidata.org/wiki/Q142178943"));
+  assert.ok(lists(app.sameAs, "https://www.wikidata.org/wiki/Q142178943"));
   assert.equal(app.publisher?.name, "VocaHQ");
 
   const website = jsonLdBlocks(index).find((block) => block["@type"] === "WebSite");

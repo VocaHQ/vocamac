@@ -142,6 +142,7 @@ test("ties the app and its pages to the author's Person node", async () => {
   }
   assert.ok(lists(app.sameAs, "https://www.wikidata.org/wiki/Q142178943"));
   assert.equal(app.publisher?.name, "VocaHQ");
+  assert.equal(app.publisher?.["@id"], "https://vocahq.com/#organization");
 
   const website = jsonLdBlocks(index).find((block) => block["@type"] === "WebSite");
   assert.equal(website?.author?.["@id"], personId);

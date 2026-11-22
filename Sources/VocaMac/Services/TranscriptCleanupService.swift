@@ -277,6 +277,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
 
     func cancelTransform() {
         guard transformInProgress else { return }
+        // Also seen by an edit waiting on a context reload, when there is no
+        // generation for `stop()` to reach.
+        cleanupCancelled = true
         activeLLM?.stop()
     }
 
@@ -302,18 +305,37 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         // replaced by it; either way the model is busy until it is done.
         if let priming = primeTask { await priming.value }
         if let growing = growTask { _ = await growing.value }
-        var attempt = await performAttempt(
-            text, prompt: prompt, glossary: glossary, recordingFailures: recordingFailures,
-            allowsTransform: allowsTransform, honoursGiveUp: honoursGiveUp, transform: transform
-        )
+        let started = Date()
+        guard !attemptInProgress else {
+            return CleanupAttempt(output: text, outcome: .skipped("another rewrite is already running"), duration: 0)
+        }
+        // Owned across a context reload and the retry after it, so Escape (or
+        // a superseded speculative pass) during the reload still stops it.
+        attemptInProgress = true
+        cleanupCancelled = false
+        defer { attemptInProgress = false }
+        func run(allowsGrowth: Bool) async -> CleanupAttempt {
+            await performAttempt(
+                text, prompt: prompt, glossary: glossary, recordingFailures: recordingFailures,
+                allowsTransform: allowsTransform, honoursGiveUp: honoursGiveUp, transform: transform,
+                allowsGrowth: allowsGrowth, started: started
+            )
+        }
+        var attempt = await run(allowsGrowth: true)
         if passNeedsLargerContext {
             passNeedsLargerContext = false
-            if await growContext() {
-                attempt = await performAttempt(
-                    text, prompt: prompt, glossary: glossary, recordingFailures: recordingFailures,
-                    allowsTransform: allowsTransform, honoursGiveUp: honoursGiveUp, transform: transform
-                )
+            if !cleanupCancelled, !Task.isCancelled {
+                // Grown or not, the retry runs: at full context in one pass,
+                // or, when the reload failed, at the starting context in the
+                // parts the first pass had planned.
+                _ = await growContext()
             }
+            attempt = cleanupCancelled || Task.isCancelled
+                ? CleanupAttempt(
+                    output: text, outcome: .skipped("cleanup was cancelled"),
+                    duration: Date().timeIntervalSince(started)
+                )
+                : await run(allowsGrowth: false)
         }
         Self.log(attempt, input: text, model: activeKind, isTransform: allowsTransform)
         return attempt
@@ -330,7 +352,9 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
     /// Reload the active model at its full context, for input that did not
     /// fit in one pass at the starting one. Returns false when it could not
     /// (already full, a stalled generation still holds the model, or the
-    /// reload failed); the pass then goes ahead as it would have.
+    /// full-size load failed). After a failed load the smaller model is
+    /// loaded again, so a reload that ran out of memory never leaves cleanup
+    /// with no model at all.
     private func growContext() async -> Bool {
         if let growing = growTask { return await growing.value }
         guard let kind = activeKind, activeLLM != nil, pendingGeneration == nil,
@@ -344,7 +368,14 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             self.unload()
             self.fullContextKind = kind
             await self.load(kind)
-            return self.loadedKind == kind && self.loadedTokenCount == kind.descriptor.maxTokenCount
+            if self.loadedKind == kind, self.loadedTokenCount == kind.descriptor.maxTokenCount { return true }
+            VocaLogger.warning(
+                .transcriptCleanup,
+                "Could not load \(kind.descriptor.displayName) at \(kind.descriptor.maxTokenCount) tokens: back to \(loaded)"
+            )
+            self.unload()
+            await self.load(kind)
+            return false
         }
         growTask = task
         defer { growTask = nil }
@@ -376,18 +407,13 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
         recordingFailures: Bool,
         allowsTransform: Bool,
         honoursGiveUp: Bool,
-        transform: TransformOptions
+        transform: TransformOptions,
+        allowsGrowth: Bool,
+        started: Date
     ) async -> CleanupAttempt {
-        let started = Date()
         func result(_ output: String, _ outcome: CleanupAttempt.Outcome) -> CleanupAttempt {
             CleanupAttempt(output: output, outcome: outcome, duration: Date().timeIntervalSince(started))
         }
-        guard !attemptInProgress else {
-            return result(text, .skipped("another rewrite is already running"))
-        }
-        attemptInProgress = true
-        cleanupCancelled = false
-        defer { attemptInProgress = false }
 
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -445,7 +471,7 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             // One pass is what the full context gave before the model started
             // smaller, so input that would now be split (or refused) grows the
             // context instead and keeps the output it always had.
-            if let kind = activeKind, Self.needsLargerContext(
+            if allowsGrowth, let kind = activeKind, Self.needsLargerContext(
                 chunkCount: chunks?.count, loadedTokens: context, fullTokens: Int(kind.descriptor.maxTokenCount)
             ) {
                 passNeedsLargerContext = true

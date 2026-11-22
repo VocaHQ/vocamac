@@ -111,7 +111,7 @@ Former tab → page mapping:
 ### 4.2 Idle model unload
 
 - Arm when status returns to idle; cancel while recording/processing/auto-paused
-- Opt-in; default timeout 300s (1–30 min options)
+- On by default; default timeout 30 min (1–30 min options). Idle models are also unloaded when macOS reports memory pressure
 - Next dictation reloads; Performance/menu bar show unload reason and approx RSS drop
 
 ### 4.3 Sleep / wake

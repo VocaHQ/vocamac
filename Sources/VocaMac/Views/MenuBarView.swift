@@ -520,7 +520,8 @@ struct MenuBarView: View {
                     Text("Model unloaded")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                } else if appState.lastModelUnloadReason == .idleKeepAlive {
+                } else if appState.lastModelUnloadReason == .idleKeepAlive
+                            || appState.lastModelUnloadReason == .memoryPressure {
                     Text("Model unloaded")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

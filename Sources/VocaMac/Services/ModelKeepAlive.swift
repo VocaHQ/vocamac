@@ -10,7 +10,7 @@ import Foundation
 @MainActor
 final class ModelKeepAlive: ObservableObject {
 
-    nonisolated static let defaultIdleTimeoutSeconds: TimeInterval = 300
+    nonisolated static let defaultIdleTimeoutSeconds: TimeInterval = 1800
     nonisolated static let minIdleTimeoutSeconds: TimeInterval = 60
     nonisolated static let maxIdleTimeoutSeconds: TimeInterval = 3600
 

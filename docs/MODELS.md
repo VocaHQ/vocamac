@@ -12,7 +12,7 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 |-------|------|-------|-----------|
 | **Parakeet Ultra** | ~632 MB | ⚡⚡⚡⚡⚡ | Parakeet v3 post-trained by moondream: more accurate at the same speed, same 25 European languages |
 | **Parakeet v3** | ~483 MB | ⚡⚡⚡⚡⚡ | 25 European languages + Japanese, auto-detected |
-| **Parakeet Redux** | ~220 MB | ⚡⚡⚡⚡ | Parakeet v3 re-trained by moondream with ternary weights: the same 25 European languages in under half the download. macOS 15 or later |
+| **Parakeet Redux** | ~220 MB | ⚡⚡⚡⚡ | Parakeet v3 re-trained by moondream with ternary weights: the same 25 European languages in under half the download, but about 3.8 GB of memory once loaded and a slow load. macOS 15 or later. Never suggested ([Smaller downloads](#smaller-downloads)) |
 | **Parakeet Unified** | ~614 MB | ⚡⚡⚡⚡⚡ | English only, NVIDIA's newest Parakeet: punctuation, capitals, and numbers written as digits |
 | **Parakeet v2** | ~464 MB | ⚡⚡⚡⚡⚡ | English only, highest recall |
 | **Parakeet 110M** | ~227 MB | ⚡⚡⚡⚡⚡ | English only, smaller download and faster first load |
@@ -58,7 +58,7 @@ OpenAI Whisper models via WhisperKit's CoreML format. The only engine that suppo
 | **Tiny** | 77 MB | ~0.5 GB | Good | Fastest; short commands and quick notes. Ships with the app |
 | **Base** | 147 MB | ~1 GB | Better | A small step up in accuracy for very little extra weight |
 | **Small** | 487 MB | ~1.5 GB | Great | A sensible default on 8 GB Macs |
-| **Small (Compact)** | 217 MB | ~1 GB | Great | Whisper Small palettized by Argmax: under half the download, same languages and translation |
+| **Small (Compact)** | 217 MB | ~1 GB | Great | Whisper Small palettized by Argmax: under half the download, same languages and translation. Never suggested ([Smaller downloads](#smaller-downloads)) |
 | **Large v3 Turbo (Compact)** | 646 MB | ~2 GB | Excellent | The best accuracy-per-second trade-off for most people |
 | **Distil Large v3 (Compact)** | 595 MB | ~2 GB | Excellent | Distilled for speed, English-focused |
 | **Distil Large v3 Turbo** | 607 MB | ~2 GB | Excellent | The fastest of the distilled variants |
@@ -131,6 +131,35 @@ Cleanup models checked the same day and not added. The cleanup prompt relies on 
 
 - **Gemma 4 E2B** (`general.architecture` = `gemma4`, Apache-2.0): the pinned llama.cpp knows the architecture, but its GGUF header declares sliding-window attention, KV layers shared across the stack, and per-layer input embeddings. A suffix-trimmed cache is not safe once a call has run past the window, so it was not measured. The Q4_0 file is also 2.8 GB, the size of Ministral 3 3B.
 - **LFM2.5 1.2B** (`lfm2`): a hybrid of short convolutions and attention, already refused by `GGUFMetadata.hybridArchitectures`, and under the LFM 1.0 licence rather than an open one.
+
+## Smaller downloads
+
+Whisper Small (Compact) and Parakeet Redux were added on 2026-11-23 for their download size, and checked against the model each would replace with the accuracy harness on synthetic `say` speech built like the set above: 12 English sentences in three voices (Samantha, Daniel, Eddy) and 8 sentences in two voices each for Spanish, German and French, plus `scripts/measure-model-ram.sh` on a 100 s English clip with the debug CLI. M1 Pro, 16 GB, macOS 27.
+
+| Language | Model | WER (errors / words) | Warm decode per clip |
+|---|---|---|---|
+| English | Whisper Small | 1.8 % (9 / 501) | 0.45 s |
+| English | Whisper Small (Compact) | 2.2 % (11 / 501) | 0.60 s |
+| English | Parakeet v3 | 0.4 % (2 / 501) | 0.10 s |
+| English | Parakeet Redux | 0.8 % (4 / 501) | 0.23 s |
+| Spanish | Parakeet v3 | 2.2 % (4 / 186) | 0.09 s |
+| Spanish | Parakeet Redux | 1.6 % (3 / 186) | 0.14 s |
+| German | Parakeet v3 | 2.4 % (4 / 164) | 0.09 s |
+| German | Parakeet Redux | 5.5 % (9 / 164) | 0.14 s |
+| French | Parakeet v3 | 9.0 % (17 / 190) | 0.09 s |
+| French | Parakeet Redux | 9.5 % (18 / 190) | 0.14 s |
+
+| Model | First load (compiles) | Every later load |
+|---|---|---|
+| Whisper Small (Compact) | 42 s; 0.18 GB in the app + 0.08 GB compiler, 0.63 GB wired | 11 s; 0.14 GB in the app + 0.53 GB wired |
+| Parakeet Redux | 610 s; 2.46 GB in the app + 2.31 GB compiler | 27 s; 2.46 GB in the app + 1.37 GB wired |
+
+The load times are the CLI's whole run, including decoding the 100 s clip. The harness's own load timing agrees: Redux took 24–25 s to load from CoreML's cache in every language run, against 0.2–0.3 s for v3.
+
+- **Whisper Small (Compact)** is a disk and memory trade: 270 MB less to download and about 0.67 GB at peak, in line with the palettized-Whisper estimate (1.0 GB), for two more errors in 501 words and decoding a third slower. It is not suggested anywhere; anyone short on disk can pick it.
+- **Parakeet Redux** is worse than v3 on everything but the download. It was less accurate in English and German (and level in Spanish and French), slower to decode, and slower to load. Its 2-bit encoder is unpacked when it loads, so it needs about five times v3's memory. Its memory estimate is set by hand to 6 GB (`ModelRAMFit.handSetGB`) instead of the 0.5 GB its download size implied. It stays selectable but is never suggested.
+
+German number words count against Redux: it wrote "20 Minuten" where the reference says "zwanzig", which the WER's number folding only handles in English. That is 2 of its 9 German errors; the rest are misheard words ("Stück" for "Stock", "Fru grandet" for "Flug landet").
 
 ## Custom Endpoint (optional, remote)
 

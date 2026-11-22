@@ -462,6 +462,12 @@ final class ModelManagerTests: XCTestCase {
         XCTAssertLessThan(ModelSize.smallCompact.fileSizeBytes, ModelSize.small.fileSizeBytes / 2)
     }
 
+    func testReduxUsesItsMeasuredMemoryNotItsDownloadSize() {
+        XCTAssertEqual(ModelSize.parakeetRedux.ramRequiredGB, 6.0)
+        XCTAssertEqual(ModelSize.parakeetRedux.firstLoadRAMRequiredGB, 6.0)
+        XCTAssertGreaterThan(ModelSize.parakeetRedux.ramRequiredGB, ModelSize.parakeetV3.ramRequiredGB)
+    }
+
     func testReduxIsAV3DerivativeGatedToMacOS15() {
         XCTAssertEqual(ModelSize.parakeetRedux.languageCoverage, .only(ModelSize.parakeetV3Languages))
         XCTAssertLessThan(ModelSize.parakeetRedux.fileSizeBytes, ModelSize.parakeetV3.fileSizeBytes / 2)

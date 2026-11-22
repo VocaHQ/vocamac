@@ -26,6 +26,34 @@ final class CalmModelPicksTests: XCTestCase {
         XCTAssertEqual(Set(picks.map(\.model)).count, 3)
     }
 
+    /// Small (Compact) and Parakeet Redux stay selectable by hand, but no
+    /// speaker profile, memory size or priority gets them suggested.
+    func testModelsExcludedFromSuggestionsAreNeverPicked() {
+        let profiles: [[String]] = [["en"], ["de"], ["fr"], ["es"], ["it"], ["en", "de"], ["hi"], ["ja"], ["auto"], []]
+        let excluded = ModelSize.excludedFromSuggestions
+        XCTAssertEqual(excluded, [.smallCompact, .parakeetRedux])
+        for languages in profiles {
+            for memoryGB in [8, 16, 64, nil] as [Int?] {
+                let eligible = CalmModelPicks.eligibleSpeechModels(
+                    languages: languages, models: catalog(), systemLanguages: nil, memoryGB: memoryGB
+                )
+                XCTAssertTrue(excluded.isDisjoint(with: eligible), "\(languages) \(String(describing: memoryGB))")
+                let picks = CalmModelPicks.speech(
+                    languages: languages, models: catalog(), systemLanguages: nil, memoryGB: memoryGB
+                )
+                XCTAssertTrue(excluded.isDisjoint(with: picks.map(\.model)), "\(languages)")
+                for priority in SpeechModelPriority.allCases {
+                    let suggestion = OnboardingModelGuidance.recommendation(
+                        for: languages, availableModels: catalog(), priority: priority, memoryGB: memoryGB
+                    )
+                    XCTAssertFalse(excluded.contains { $0 == suggestion?.model }, "\(languages) \(priority)")
+                }
+            }
+        }
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.smallCompact))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetRedux))
+    }
+
     func testRecommendedIsTheFastestModelThatUnderstandsEveryLanguage() {
         let picks = CalmModelPicks.speech(languages: ["en", "de"], models: catalog(), systemLanguages: nil, memoryGB: 16)
         let recommended = picks[0].model

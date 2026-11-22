@@ -57,7 +57,7 @@ enum OnboardingModelGuidance {
         // exactly one of its languages; otherwise every recording would be
         // decoded as one language.
         let covering = availableModels.filter {
-            $0.isSupported && !$0.size.isRemotelyHosted && !$0.size.isLegacy
+            $0.isSupported && $0.size.isSuggestible
                 && ($0.size.needsOneLanguage ? codes.count == 1 : true)
                 && ModelPickerCatalog.fit(of: $0.size, for: codes, systemLanguages: systemLanguages).coversAll
         }

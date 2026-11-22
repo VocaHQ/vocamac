@@ -367,8 +367,17 @@ final class TranscriptCleanupService: ObservableObject, TranscriptCleaning {
             )
             self.unload()
             self.fullContextKind = kind
+            let generationBeforeLoad = self.loadGeneration
             await self.load(kind)
             if self.loadedKind == kind, self.loadedTokenCount == kind.descriptor.maxTokenCount { return true }
+            // `load` moves the generation on at most once of its own accord.
+            // Any further move is an unload (cleanup turned off) or another
+            // model's load from outside, which retired this reload: restoring
+            // the smaller model would bring back a model nobody wants.
+            guard self.loadGeneration &- generationBeforeLoad <= 1 else {
+                VocaLogger.info(.transcriptCleanup, "Context reload of \(kind.descriptor.displayName) was superseded")
+                return false
+            }
             VocaLogger.warning(
                 .transcriptCleanup,
                 "Could not load \(kind.descriptor.displayName) at \(kind.descriptor.maxTokenCount) tokens: back to \(loaded)"

@@ -1166,6 +1166,7 @@ final class WhisperService: @unchecked Sendable {
         if lowered.contains("large") && lowered.contains("turbo") { return .largeV3Turbo }
         if lowered.contains("large") { return .largeV3 }
         if lowered.contains("medium") { return .medium }
+        if lowered.contains("small") && lowered.contains("216mb") { return .smallCompact }
         if lowered.contains("small") { return .small }
         if lowered.contains("base") { return .base }
         return .tiny

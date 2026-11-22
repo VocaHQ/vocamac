@@ -42,7 +42,7 @@ extension ModelSize {
     /// Languages this model transcribes.
     var languageCoverage: ModelLanguageCoverage {
         switch self {
-        case .tiny, .base, .small, .medium,
+        case .tiny, .base, .small, .smallCompact, .medium,
              .largeV3, .largeV3Turbo, .largeV3Latest, .largeV3LatestTurbo,
              .largeV3LatestCompact, .largeV3LatestTurboCompact:
             return .broad
@@ -54,7 +54,7 @@ extension ModelSize {
         // dictation stays in one script.
         case .vocaHinglish:
             return .only(["hi", "en"])
-        case .parakeetUltra, .parakeetV3, .nemotronUnified:
+        case .parakeetUltra, .parakeetV3, .parakeetRedux, .nemotronUnified:
             return .only(Self.parakeetV3Languages)
         case .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase:
             return .only(["en"])
@@ -89,7 +89,7 @@ extension ModelSize {
     /// answers in the spoken language, and Distil-Whisper is English-only.
     var translatesToEnglish: Bool {
         switch self {
-        case .tiny, .base, .small, .medium, .largeV3:
+        case .tiny, .base, .small, .smallCompact, .medium, .largeV3:
             return true
         default:
             return false
@@ -138,6 +138,7 @@ extension ModelSize {
         case .tiny:                      return "Comes with VocaMac. Smallest and fastest Whisper, fine for quick notes."
         case .base:                      return "A small download that is noticeably more accurate than Tiny."
         case .small:                     return "Balanced accuracy and speed across Whisper's languages."
+        case .smallCompact:              return "Whisper Small compressed to under half the download."
         case .largeV3LatestTurboCompact: return "Close to Whisper's best accuracy at a fraction of the size."
         case .distilLargeV3Compact:      return "English-only Whisper, distilled to run faster."
         case .distilLargeV3TurboCompact: return "English-only Whisper, distilled and tuned for speed."
@@ -150,6 +151,7 @@ extension ModelSize {
         case .vocaHinglish:              return "Hindi and English, both written in Roman script (Hinglish)."
         case .parakeetUltra:             return "Parakeet v3, post-trained to be more accurate at the same speed. 25 European languages."
         case .parakeetV3:                return "Very fast on the Neural Engine, with 25 European languages."
+        case .parakeetRedux:             return "Parakeet v3's 25 European languages in under half the download. macOS 15 or later."
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetUnified:           return "NVIDIA's newest English Parakeet, with punctuation, capitals, and numbers written as digits."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."

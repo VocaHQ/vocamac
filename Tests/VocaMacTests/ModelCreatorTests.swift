@@ -50,6 +50,8 @@ final class ModelCreatorTests: XCTestCase {
         XCTAssertEqual(ModelSize.distilLargeV3Compact.creator, .huggingFace)
         XCTAssertEqual(ModelSize.parakeetV3.creator, .nvidia)
         XCTAssertEqual(ModelSize.parakeetUltra.creator, .nvidia)
+        XCTAssertEqual(ModelSize.parakeetRedux.creator, .nvidia)
+        XCTAssertEqual(ModelSize.smallCompact.creator, .openAI)
         XCTAssertEqual(ModelSize.canary180mFlash.creator, .nvidia)
         XCTAssertEqual(ModelSize.appleSpeech.creator, .apple)
         XCTAssertEqual(ModelSize.senseVoiceSmall.creator, .alibaba)

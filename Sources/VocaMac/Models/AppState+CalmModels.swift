@@ -19,7 +19,7 @@ enum CalmModelText {
         switch size {
         case .tiny: return "Whisper Tiny"
         case .base: return "Whisper Base"
-        case .small: return "Whisper Small"
+        case .small, .smallCompact: return "Whisper Small"
         case .medium: return "Whisper Medium"
         case .largeV3LatestTurboCompact, .largeV3LatestTurbo, .largeV3Turbo: return "Whisper Large v3 Turbo"
         case .largeV3LatestCompact, .largeV3Latest: return "Whisper Large v3 Latest"
@@ -29,6 +29,7 @@ enum CalmModelText {
         case .vocaHinglish: return "Voca Hinglish"
         case .parakeetUltra: return "Parakeet Ultra"
         case .parakeetV3: return "Parakeet v3"
+        case .parakeetRedux: return "Parakeet Redux"
         case .parakeetV2: return "Parakeet v2"
         case .parakeetUnified: return "Parakeet Unified"
         case .parakeetTdtCtc110m: return "Parakeet 110M"
@@ -56,7 +57,8 @@ enum CalmModelText {
         case .medium: return "Legacy"
         case .largeV3Latest, .largeV3LatestTurbo: return "Full precision"
         case .largeV3Turbo: return "Original"
-        case .parakeetUltra, .parakeetV3, .nemotronUnified: return "Multilingual"
+        case .smallCompact: return "Compact"
+        case .parakeetUltra, .parakeetV3, .parakeetRedux, .nemotronUnified: return "Multilingual"
         case .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .moonshineTiny, .moonshineBase,
              .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return "English"

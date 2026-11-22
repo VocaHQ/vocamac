@@ -194,15 +194,16 @@ enum ModelCreator: String, CaseIterable, Identifiable {
 extension ModelSize {
     var creator: ModelCreator {
         switch self {
-        case .tiny, .base, .small, .medium,
+        case .tiny, .base, .small, .smallCompact, .medium,
              .largeV3, .largeV3Turbo,
              .largeV3Latest, .largeV3LatestTurbo,
              .largeV3LatestCompact, .largeV3LatestTurboCompact:
             return .openAI
         case .distilLargeV3Compact, .distilLargeV3TurboCompact:
             return .huggingFace
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
-             .canary180mFlash:
+        // Ultra and Redux are moondream's re-trainings of NVIDIA's v3.
+        case .parakeetUltra, .parakeetV3, .parakeetRedux, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m,
+             .nemotronUnified, .canary180mFlash:
             return .nvidia
         case .appleSpeech:
             return .apple

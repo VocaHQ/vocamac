@@ -55,6 +55,13 @@ struct ModelRAMFit: Equatable {
         // fit, made from much smaller models, would say 9.5 GB.
         case .cohereTranscribe: return 4.5
         case .moonshineTiny:  return 0.5
+        // Measured on the M1 Pro with scripts/measure-model-ram.sh (debug
+        // CLI, 100 s clip, 2026-11-23): the 2-bit encoder is unpacked at
+        // load, so the app's footprint peaks at 2.46 GB with 1.37 GB more
+        // wired (warm), and the first load adds a 2.31 GB Neural Engine
+        // compile (4.8 GB). The Parakeet fit, from its 220 MB download,
+        // would say 0.5 GB.
+        case .parakeetRedux:  return 6.0
         default:              return nil
         }
     }

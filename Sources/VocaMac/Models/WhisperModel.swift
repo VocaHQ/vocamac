@@ -241,6 +241,22 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         self == .medium || self == .canary180mFlash
     }
 
+    /// Models offered for manual selection but never suggested: not by
+    /// onboarding, the Settings picks, or the recommendation priority.
+    ///
+    /// Both lost to the model each would replace on the accuracy harness
+    /// (synthetic speech, M1 Pro, 2026-11-23; see docs/MODELS.md): Small
+    /// (Compact) against Small in English, Parakeet Redux against v3 in
+    /// English and German, and Redux takes about 24 s to load from CoreML's
+    /// cache against v3's 0.3 s. Their only win is the smaller download,
+    /// which the memory-based picks would otherwise mistake for "lightest".
+    static let excludedFromSuggestions: Set<ModelSize> = [.smallCompact, .parakeetRedux]
+
+    /// Whether onboarding and the Settings picks may suggest this model.
+    var isSuggestible: Bool {
+        !isRemotelyHosted && !isLegacy && !Self.excludedFromSuggestions.contains(self)
+    }
+
     /// Human-readable display name
     var displayName: String {
         switch self {

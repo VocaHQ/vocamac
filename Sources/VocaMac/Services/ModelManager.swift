@@ -306,6 +306,8 @@ final class ModelManager: @unchecked Sendable {
             return "openai_whisper-base"
         case .small:
             return "openai_whisper-small"
+        case .smallCompact:
+            return "openai_whisper-small_216MB"
         case .largeV3LatestTurboCompact:
             return "openai_whisper-large-v3-v20240930_turbo_632MB"
         case .distilLargeV3Compact:
@@ -326,7 +328,8 @@ final class ModelManager: @unchecked Sendable {
             return "openai_whisper-medium"
         case .vocaHinglish:
             return "vocahq_voca-hinglish_820MB"
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
+        case .parakeetUltra, .parakeetV3, .parakeetRedux, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m,
+             .nemotronUnified,
              .senseVoiceNeuralEngine, .appleSpeech,
              .moonshineTiny, .moonshineBase, .senseVoiceSmall, .gigaamV3, .canary180mFlash,
              .qwen3Asr06B, .cohereTranscribe, .customEndpoint:

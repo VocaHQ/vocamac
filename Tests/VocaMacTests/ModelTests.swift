@@ -184,13 +184,14 @@ final class ModelSizeTests: XCTestCase {
     }
 
     func testAllCasesCount() {
-        XCTAssertEqual(ModelSize.allCases.count, 29)
+        XCTAssertEqual(ModelSize.allCases.count, 31)
     }
 
     func testRawValues() {
         XCTAssertEqual(ModelSize.tiny.rawValue, "tiny")
         XCTAssertEqual(ModelSize.base.rawValue, "base")
         XCTAssertEqual(ModelSize.small.rawValue, "small")
+        XCTAssertEqual(ModelSize.smallCompact.rawValue, "small_216MB")
         XCTAssertEqual(ModelSize.largeV3LatestTurboCompact.rawValue, "large-v3-v20240930_turbo_632MB")
         XCTAssertEqual(ModelSize.distilLargeV3Compact.rawValue, "distil-large-v3_594MB")
         XCTAssertEqual(ModelSize.distilLargeV3TurboCompact.rawValue, "distil-large-v3_turbo_600MB")
@@ -203,6 +204,7 @@ final class ModelSizeTests: XCTestCase {
         XCTAssertEqual(ModelSize.vocaHinglish.rawValue, "voca-hinglish")
         XCTAssertEqual(ModelSize.parakeetUltra.rawValue, "parakeet-ultra")
         XCTAssertEqual(ModelSize.parakeetV3.rawValue, "parakeet-tdt-0.6b-v3")
+        XCTAssertEqual(ModelSize.parakeetRedux.rawValue, "parakeet-redux")
         XCTAssertEqual(ModelSize.parakeetV2.rawValue, "parakeet-tdt-0.6b-v2")
         XCTAssertEqual(ModelSize.parakeetUnified.rawValue, "parakeet-unified-en-0.6b")
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.rawValue, "parakeet-tdt-ctc-110m")
@@ -234,6 +236,8 @@ final class ModelSizeTests: XCTestCase {
     func testStandardCatalogIncludesNewEngines() {
         XCTAssertEqual(ModelSize.standardCatalog.first, .parakeetUltra)
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV3))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetRedux))
+        XCTAssertTrue(ModelSize.standardCatalog.contains(.smallCompact))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetV2))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetUnified))
         XCTAssertTrue(ModelSize.standardCatalog.contains(.parakeetTdtCtc110m))
@@ -263,6 +267,7 @@ final class ModelSizeTests: XCTestCase {
     func testEngineAssignment() {
         XCTAssertEqual(ModelSize.parakeetUltra.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV3.engine, .parakeet)
+        XCTAssertEqual(ModelSize.parakeetRedux.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetV2.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetUnified.engine, .parakeet)
         XCTAssertEqual(ModelSize.parakeetTdtCtc110m.engine, .parakeet)
@@ -276,12 +281,13 @@ final class ModelSizeTests: XCTestCase {
 
         // Everything else is a WhisperKit model.
         let whisperCases = ModelSize.allCases.filter { $0.engine == .whisperKit }
-        XCTAssertEqual(whisperCases.count, 13)
+        XCTAssertEqual(whisperCases.count, 14)
     }
 
     func testParakeetModelVersionMapping() {
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetUltra), .ultra)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV3), .v3)
+        XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetRedux), .redux)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetV2), .v2)
         XCTAssertEqual(ParakeetService.modelVersion(for: .parakeetTdtCtc110m), .tdtCtc110m)
         XCTAssertNil(ParakeetService.modelVersion(for: .parakeetUnified), "Unified is not a TDT model")
@@ -405,6 +411,7 @@ final class ModelManagerTests: XCTestCase {
         XCTAssertEqual(manager.whisperKitModelName(for: .tiny), "openai_whisper-tiny")
         XCTAssertEqual(manager.whisperKitModelName(for: .base), "openai_whisper-base")
         XCTAssertEqual(manager.whisperKitModelName(for: .small), "openai_whisper-small")
+        XCTAssertEqual(manager.whisperKitModelName(for: .smallCompact), "openai_whisper-small_216MB")
         XCTAssertEqual(manager.whisperKitModelName(for: .largeV3LatestTurboCompact), "openai_whisper-large-v3-v20240930_turbo_632MB")
         XCTAssertEqual(manager.whisperKitModelName(for: .distilLargeV3Compact), "distil-whisper_distil-large-v3_594MB")
         XCTAssertEqual(manager.whisperKitModelName(for: .distilLargeV3TurboCompact), "distil-whisper_distil-large-v3_turbo_600MB")
@@ -431,6 +438,38 @@ final class ModelManagerTests: XCTestCase {
             manager.isModelSupported(.vocaHinglish),
             manager.isModelSupported(.largeV3LatestCompact)
         )
+    }
+
+    func testCompactSmallSharesSmallDeviceSupport() {
+        let manager = ModelManager()
+        XCTAssertEqual(ModelSize.smallCompact.whisperKitBaseModel, .small)
+        XCTAssertEqual(manager.isModelSupported(.smallCompact), manager.isModelSupported(.small))
+        XCTAssertEqual(manager.whisperKitRepo(for: .smallCompact), "argmaxinc/whisperkit-coreml")
+    }
+
+    func testCompactSmallIdentifierRoundTrips() {
+        let manager = ModelManager()
+        let identifier = manager.modelIdentifier(for: .smallCompact)
+        XCTAssertEqual(manager.modelSize(from: identifier), .smallCompact)
+        XCTAssertEqual(WhisperService().modelSizeFromName(identifier), .smallCompact)
+        XCTAssertEqual(WhisperService().modelSizeFromName("openai_whisper-small"), .small)
+    }
+
+    func testCompactSmallIsPalettizedAndKeepsWhisperLanguages() {
+        XCTAssertTrue(ModelSize.smallCompact.hasPalettizedWeights)
+        XCTAssertEqual(ModelSize.smallCompact.languageCoverage, .broad)
+        XCTAssertTrue(ModelSize.smallCompact.translatesToEnglish)
+        XCTAssertLessThan(ModelSize.smallCompact.fileSizeBytes, ModelSize.small.fileSizeBytes / 2)
+    }
+
+    func testReduxIsAV3DerivativeGatedToMacOS15() {
+        XCTAssertEqual(ModelSize.parakeetRedux.languageCoverage, .only(ModelSize.parakeetV3Languages))
+        XCTAssertLessThan(ModelSize.parakeetRedux.fileSizeBytes, ModelSize.parakeetV3.fileSizeBytes / 2)
+        if #available(macOS 15.0, *) {
+            XCTAssertTrue(ModelSize.parakeetRedux.isAvailableOnThisSystem)
+        } else {
+            XCTAssertFalse(ModelSize.parakeetRedux.isAvailableOnThisSystem)
+        }
     }
 
     func testHinglishIdentifierRoundTrips() {

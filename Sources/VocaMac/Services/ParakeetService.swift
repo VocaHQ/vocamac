@@ -113,6 +113,7 @@ final class ParakeetService: @unchecked Sendable {
         switch size {
         case .parakeetUltra:      return .ultra
         case .parakeetV3:         return .v3
+        case .parakeetRedux:      return .redux
         case .parakeetV2:         return .v2
         case .parakeetTdtCtc110m: return .tdtCtc110m
         default:                  return nil

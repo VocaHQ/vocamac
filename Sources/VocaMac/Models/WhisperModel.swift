@@ -15,6 +15,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     case tiny                         = "tiny"
     case base                         = "base"
     case small                        = "small"
+    case smallCompact                 = "small_216MB"
     case largeV3LatestTurboCompact    = "large-v3-v20240930_turbo_632MB"
     case distilLargeV3Compact         = "distil-large-v3_594MB"
     case distilLargeV3TurboCompact    = "distil-large-v3_turbo_600MB"
@@ -29,6 +30,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     // Parakeet (FluidAudio)
     case parakeetUltra                = "parakeet-ultra"
     case parakeetV3                   = "parakeet-tdt-0.6b-v3"
+    case parakeetRedux                = "parakeet-redux"
     case parakeetV2                   = "parakeet-tdt-0.6b-v2"
     case parakeetUnified              = "parakeet-unified-en-0.6b"
     case parakeetTdtCtc110m           = "parakeet-tdt-ctc-110m"
@@ -55,8 +57,8 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// Which engine runs this model.
     var engine: TranscriptionEngine {
         switch self {
-        case .parakeetUltra, .parakeetV3, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m, .nemotronUnified,
-             .senseVoiceNeuralEngine:
+        case .parakeetUltra, .parakeetV3, .parakeetRedux, .parakeetV2, .parakeetUnified, .parakeetTdtCtc110m,
+             .nemotronUnified, .senseVoiceNeuralEngine:
             return .parakeet
         case .appleSpeech:
             return .appleSpeech
@@ -85,6 +87,12 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .parakeet:
             // FluidAudio's Parakeet CoreML models require Apple Silicon.
             #if arch(arm64)
+            // Parakeet Redux's 2-bit encoder uses Core ML ops that arrived
+            // in macOS 15; FluidAudio refuses to load it on macOS 14.
+            if self == .parakeetRedux {
+                if #available(macOS 15.0, *) { return true }
+                return false
+            }
             return true
             #else
             return false
@@ -129,11 +137,13 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         return SherpaModelCatalog.spec(for: self)?.bindsLanguageAtLoadTime ?? false
     }
 
-    /// The WhisperKit model a fine-tune was trained from, whose device
-    /// support it shares.
+    /// The WhisperKit model a fine-tune or compressed build was made from,
+    /// whose device support it shares. WhisperKit's per-device list names
+    /// only the stock builds.
     var whisperKitBaseModel: ModelSize? {
         switch self {
         case .vocaHinglish:       return .largeV3LatestCompact
+        case .smallCompact:       return .small
         default:                  return nil
         }
     }
@@ -185,6 +195,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     static let standardCatalog: [ModelSize] = [
         .parakeetUltra,
         .parakeetV3,
+        .parakeetRedux,
         .parakeetUnified,
         .parakeetV2,
         .nemotronUnified,
@@ -192,6 +203,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         .tiny,
         .base,
         .small,
+        .smallCompact,
         .largeV3LatestTurboCompact,
         .distilLargeV3Compact,
         .distilLargeV3TurboCompact,
@@ -235,6 +247,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .tiny:                      return "Tiny (Fastest)"
         case .base:                      return "Base"
         case .small:                     return "Small"
+        case .smallCompact:              return "Small (Compact)"
         case .largeV3LatestTurboCompact: return "Large v3 Turbo (Compact)"
         case .distilLargeV3Compact:      return "Distil Large v3 (Compact)"
         case .distilLargeV3TurboCompact: return "Distil Large v3 Turbo"
@@ -247,6 +260,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .vocaHinglish:              return "Voca Hinglish"
         case .parakeetUltra:             return "Parakeet Ultra (Multilingual)"
         case .parakeetV3:                return "Parakeet v3 (Multilingual)"
+        case .parakeetRedux:             return "Parakeet Redux (Multilingual)"
         case .parakeetV2:                return "Parakeet v2 (English)"
         case .parakeetUnified:           return "Parakeet Unified (English)"
         case .parakeetTdtCtc110m:        return "Parakeet 110M (English)"
@@ -281,6 +295,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .tiny:                      return 76_635_397
         case .base:                      return 146_719_453
         case .small:                     return 486_487_465
+        case .smallCompact:              return 217_350_763
         case .largeV3LatestTurboCompact: return 645_668_913
         case .distilLargeV3Compact:      return 594_534_261
         case .distilLargeV3TurboCompact: return 607_114_331
@@ -293,6 +308,9 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .vocaHinglish:              return 824_300_479
         case .parakeetUltra:             return 632_314_500
         case .parakeetV3:                return 483_257_242
+        // 2-bit encoder, decoder, joint, preprocessor and one vocab from
+        // FluidInference/parakeet-redux-coreml.
+        case .parakeetRedux:             return 220_304_193
         case .parakeetV2:                return 464_413_250
         // The batch export only: int8 encoder, decoder, joint, and vocab.
         case .parakeetUnified:           return 614_080_920
@@ -365,7 +383,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// which then needs far more memory than the file size suggests.
     var hasPalettizedWeights: Bool {
         switch self {
-        case .largeV3LatestTurboCompact, .distilLargeV3Compact, .distilLargeV3TurboCompact,
+        case .smallCompact, .largeV3LatestTurboCompact, .distilLargeV3Compact, .distilLargeV3TurboCompact,
              .largeV3LatestCompact, .vocaHinglish:
             return true
         default:
@@ -379,6 +397,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .tiny:                      return 1
         case .base:                      return 2
         case .small:                     return 4
+        case .smallCompact:              return 4
         case .largeV3LatestTurboCompact: return 5
         case .distilLargeV3Compact:      return 6
         case .distilLargeV3TurboCompact: return 5
@@ -391,6 +410,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .vocaHinglish:              return 8
         case .parakeetUltra:             return 1
         case .parakeetV3:                return 1
+        case .parakeetRedux:             return 2
         case .parakeetV2:                return 1
         case .parakeetUnified:           return 1
         case .parakeetTdtCtc110m:        return 1
@@ -414,6 +434,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .tiny:                      return "Good"
         case .base:                      return "Better"
         case .small:                     return "Great"
+        case .smallCompact:              return "Great"
         case .largeV3LatestTurboCompact: return "Excellent"
         case .distilLargeV3Compact:      return "Excellent"
         case .distilLargeV3TurboCompact: return "Excellent"
@@ -426,6 +447,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
         case .vocaHinglish:              return "Best for Hindi"
         case .parakeetUltra:             return "Excellent"
         case .parakeetV3:                return "Excellent"
+        case .parakeetRedux:             return "Excellent"
         case .parakeetV2:                return "Excellent"
         case .parakeetUnified:           return "Excellent"
         case .parakeetTdtCtc110m:        return "Great"

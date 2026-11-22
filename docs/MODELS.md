@@ -12,6 +12,7 @@ NVIDIA Parakeet TDT models running as CoreML on the Apple Neural Engine (via [Fl
 |-------|------|-------|-----------|
 | **Parakeet Ultra** | ~632 MB | ⚡⚡⚡⚡⚡ | Parakeet v3 post-trained by moondream: more accurate at the same speed, same 25 European languages |
 | **Parakeet v3** | ~483 MB | ⚡⚡⚡⚡⚡ | 25 European languages + Japanese, auto-detected |
+| **Parakeet Redux** | ~220 MB | ⚡⚡⚡⚡ | Parakeet v3 re-trained by moondream with ternary weights: the same 25 European languages in under half the download. macOS 15 or later |
 | **Parakeet Unified** | ~614 MB | ⚡⚡⚡⚡⚡ | English only, NVIDIA's newest Parakeet: punctuation, capitals, and numbers written as digits |
 | **Parakeet v2** | ~464 MB | ⚡⚡⚡⚡⚡ | English only, highest recall |
 | **Parakeet 110M** | ~227 MB | ⚡⚡⚡⚡⚡ | English only, smaller download and faster first load |
@@ -57,6 +58,7 @@ OpenAI Whisper models via WhisperKit's CoreML format. The only engine that suppo
 | **Tiny** | 77 MB | ~0.5 GB | Good | Fastest; short commands and quick notes. Ships with the app |
 | **Base** | 147 MB | ~1 GB | Better | A small step up in accuracy for very little extra weight |
 | **Small** | 487 MB | ~1.5 GB | Great | A sensible default on 8 GB Macs |
+| **Small (Compact)** | 217 MB | ~1 GB | Great | Whisper Small palettized by Argmax: under half the download, same languages and translation |
 | **Large v3 Turbo (Compact)** | 646 MB | ~2 GB | Excellent | The best accuracy-per-second trade-off for most people |
 | **Distil Large v3 (Compact)** | 595 MB | ~2 GB | Excellent | Distilled for speed, English-focused |
 | **Distil Large v3 Turbo** | 607 MB | ~2 GB | Excellent | The fastest of the distilled variants |

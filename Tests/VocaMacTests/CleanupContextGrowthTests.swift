@@ -80,6 +80,23 @@ final class CleanupContextGrowthTests: XCTestCase {
         XCTAssertFalse(isSkipped(attempt), "The planned parts still run: \(attempt.outcome)")
     }
 
+    func testTurningCleanupOffDuringTheReloadLeavesNoModel() async throws {
+        let service = try makeService()
+        service.modelFitsInMemory = { _, _ in true }
+        var loads = 0
+        service.willBeginLoad = { [weak service] in
+            loads += 1
+            // Cleanup turned off while the model reloads at full context.
+            if loads == 2 { service?.unload() }
+        }
+        await service.load(kind)
+
+        _ = await service.attempt(longDictation, prompt: "")
+
+        XCTAssertEqual(loads, 2, "No fallback load after cleanup was turned off")
+        XCTAssertFalse(service.isLoaded)
+    }
+
     func testCancellingDuringTheReloadStopsThePass() async throws {
         let service = try makeService()
         service.modelFitsInMemory = { _, _ in true }

@@ -373,6 +373,7 @@ enum ModelSize: String, CaseIterable, Codable, Identifiable {
     /// CoreML compiles the model for the Neural Engine. The same as
     /// `ramRequiredGB` for engines that do not compile.
     var firstLoadRAMRequiredGB: Double {
+        if let handSetGB = ModelRAMFit.handSetFirstLoadGB(for: self) { return handSetGB }
         if let handSetGB = ModelRAMFit.handSetGB(for: self) { return handSetGB }
         guard let fit = ModelRAMFit.firstLoad(for: self) else { return ramRequiredGB }
         return max(ramRequiredGB, fit.estimateGB(fileSizeBytes: fileSizeBytes))

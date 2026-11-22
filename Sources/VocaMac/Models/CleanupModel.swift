@@ -165,6 +165,16 @@ struct CleanupModelDescriptor: Equatable {
     /// deadline, so erring low costs a longer ceiling, never a result.
     let generationTokensPerSecond: Double
     let recommendation: CleanupModelRecommendation
+
+    /// The context a model is first loaded with. llama.cpp reserves the KV
+    /// cache for the whole context up front, and an ordinary dictation plus
+    /// the ~1,000-token prompt fits in 4,096 tokens with room to spare.
+    /// Measured on an M1 Pro, Ministral 3 3B's context cost 945 MB at 8,192
+    /// tokens and 519 MB at 4,096. Input that needs more reloads the model at
+    /// `maxTokenCount` (`TranscriptCleanupService.growContext`).
+    nonisolated static let startingContextLimit: Int32 = 4096
+
+    var startingTokenCount: Int32 { min(maxTokenCount, Self.startingContextLimit) }
 }
 
 /// Sizes are decimal MB/GB to match `expectedByteCount` and what Finder shows

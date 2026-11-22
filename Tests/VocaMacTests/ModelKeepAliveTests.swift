@@ -11,7 +11,7 @@ final class ModelKeepAliveTests: XCTestCase {
         XCTAssertEqual(ModelKeepAlive.clampIdleTimeout(10), 60)
         XCTAssertEqual(ModelKeepAlive.clampIdleTimeout(300), 300)
         XCTAssertEqual(ModelKeepAlive.clampIdleTimeout(99999), 3600)
-        XCTAssertEqual(ModelKeepAlive.clampIdleTimeout(.nan), 300)
+        XCTAssertEqual(ModelKeepAlive.clampIdleTimeout(.nan), ModelKeepAlive.defaultIdleTimeoutSeconds)
     }
 
     func testBumpArmsAndFireUnloadsWhenSafe() {

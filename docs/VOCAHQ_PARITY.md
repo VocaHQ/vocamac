@@ -43,7 +43,7 @@ Status as of the #207 parity ship. Update cells when follow-up PRs land.
 | Output | Custom vocabulary | No | Yes (Whisper) | Keep; feed Linux later |
 | Output | Translation | No | Yes (Whisper) | Keep |
 | Power | Auto-pause while listed apps run | Yes | Yes | Keep |
-| Power | Idle model unload (keep-alive) | Yes | Yes (opt-in) | Keep |
+| Power | Idle model unload (keep-alive) | Yes | Yes (on by default, 30 min; also on memory pressure) | Keep |
 | Power | Sleep/wake recovery | Yes (logind) | Yes (`NSWorkspace`) | Keep |
 | Models | Multi-engine catalog | 3 + remote | 4 on-device + Custom Endpoint (opt-in remote) | Keep Mac lead |
 | Models | Language catalog depth | ~33 + auto | ~36 + auto (searchable) | Keep |
@@ -276,5 +276,5 @@ A reviewer can open Settings and:
 
 1. **Stats placement:** dedicated sidebar item (keep Mac lead).
 2. **Auto-pause matching:** bundle ID **or** process name.
-3. **Idle unload default:** opt-in, default off (match Linux).
+3. **Idle unload default:** on, 30 minutes (Linux keeps it opt-in). A menu bar app should not hold a speech model and a cleanup LLM all day; VocaMac also unloads idle models when macOS reports memory pressure.
 4. **Voice commands:** skip for now; revisit with a Whisper-friendly design.

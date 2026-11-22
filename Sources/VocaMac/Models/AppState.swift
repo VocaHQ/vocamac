@@ -491,8 +491,11 @@ final class AppState: ObservableObject {
     @UserDefault(PreferenceKey.pauseParagraphs) var pauseParagraphs: Bool = true
     @UserDefault(PreferenceKey.autoPauseEnabled) var autoPauseEnabled: Bool = false
     @UserDefault(PreferenceKey.autoPausePollInterval) var autoPausePollIntervalSeconds: Double = 5
-    @UserDefault(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = false
-    @UserDefault(PreferenceKey.modelKeepAliveIdleTimeout) var modelKeepAliveIdleTimeoutSeconds: Double = 300
+    /// On by default: a menu bar app should not hold a speech model and a
+    /// cleanup LLM (together often 1–3 GB) all day for a dictation an hour.
+    /// Thirty minutes keeps the model warm through a working session.
+    @UserDefault(PreferenceKey.modelKeepAliveEnabled) var modelKeepAliveEnabled: Bool = true
+    @UserDefault(PreferenceKey.modelKeepAliveIdleTimeout) var modelKeepAliveIdleTimeoutSeconds: Double = ModelKeepAlive.defaultIdleTimeoutSeconds
     @UserDefault(PreferenceKey.writingStyleEnabled) var writingStyleEnabled: Bool = true
     /// Clean up dictation into a terminal as prose when its tab in front runs
     /// a coding agent (`CodingAgentDetector`). Not in the App Store build,
@@ -1101,18 +1104,13 @@ final class AppState: ObservableObject {
     let modelKeepAlive = ModelKeepAlive()
     /// Sleep/wake recovery hooks.
     let sleepWakeMonitor = SleepWakeMonitor()
+    /// Hands idle models back when macOS reports memory pressure.
+    let memoryPressureMonitor = MemoryPressureMonitor()
 
     // MARK: - Private
 
     var cancellables = Set<AnyCancellable>()
     private var hasStarted = false
-
-    /// Why the model was last unloaded (for logs / UI).
-    enum ModelUnloadReason: String {
-        case autoPause = "auto_pause"
-        case idleKeepAlive = "idle_keepalive"
-        case manual = "manual"
-    }
 
     /// Bumped when each load operation starts. Failure restores and success UI
     /// updates only apply when the generation is still current, so a stale

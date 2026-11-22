@@ -210,7 +210,8 @@ final class AppStateRecordingTests: XCTestCase {
         XCTAssertTrue(appState.appendTrailingSpace)
         XCTAssertTrue(appState.autoCapitalize)
         XCTAssertFalse(appState.autoPauseEnabled)
-        XCTAssertFalse(appState.modelKeepAliveEnabled)
+        XCTAssertTrue(appState.modelKeepAliveEnabled, "Idle models are released by default")
+        XCTAssertEqual(appState.modelKeepAliveIdleTimeoutSeconds, 1800)
     }
 
     private func waitUntil(_ condition: () -> Bool) async {

@@ -10,6 +10,16 @@ import AppKit
 import os
 
 extension AppState {
+    /// Why the model was last unloaded (for logs / UI).
+    enum ModelUnloadReason: String {
+        case autoPause = "auto_pause"
+        case idleKeepAlive = "idle_keepalive"
+        case memoryPressure = "memory_pressure"
+        case manual = "manual"
+    }
+}
+
+extension AppState {
 
     // MARK: - Power Management
 
@@ -57,6 +67,12 @@ extension AppState {
             }
         }
 
+        memoryPressureMonitor.onPressure = { [weak self] level in
+            Task { @MainActor in
+                await self?.handleMemoryPressure(level)
+            }
+        }
+
         sleepWakeMonitor.onWillSleep = { [weak self] in
             self?.handleWillSleep()
         }
@@ -91,6 +107,7 @@ extension AppState {
         modelKeepAlive.start()
         sleepWakeMonitor.start()
         if !skipSystemIntegration {
+            memoryPressureMonitor.start()
             AudioDeviceMonitor.shared.start()
         }
     }
@@ -110,9 +127,9 @@ extension AppState {
     func unloadActiveModel(reason: ModelUnloadReason) async {
         // The idle timer fired on an earlier turn; a dictation may have
         // started since, and unloading under it fails it at stop.
-        if reason == .idleKeepAlive,
+        if reason == .idleKeepAlive || reason == .memoryPressure,
            appStatus != .idle || isCapturingAudio || isTranscribing || isLoadingModelForRecording {
-            VocaLogger.info(.appState, "Idle unload skipped: a dictation started (\(dictationFlags))")
+            VocaLogger.info(.appState, "\(reason.rawValue) unload skipped: a dictation is under way (\(dictationFlags))")
             return
         }
         VocaLogger.info(.appState, "Unloading model (reason=\(reason.rawValue))")
@@ -137,6 +154,29 @@ extension AppState {
         )
     }
 
+    /// macOS reports memory running short. Every model VocaMac holds is idle
+    /// between dictations, so hand them all back rather than make the system
+    /// compress or swap the apps the user is working in. The next dictation
+    /// reloads the speech model (audio is captured while it loads). Nothing
+    /// is unloaded mid-dictation or mid-edit: that would fail it, and the
+    /// memory comes back moments later anyway.
+    func handleMemoryPressure(_ level: MemoryPressureMonitor.Level) async {
+        guard !isAutoPaused, activeCommandEngine == nil else { return }
+        let commandSlotLoaded = commandModelSlot?.isLoaded ?? false
+        guard transcriber.isModelLoaded || transcriptCleanup.isLoaded || commandSlotLoaded else { return }
+        if appStatus != .idle || isCapturingAudio || isTranscribing || isLoadingModelForRecording {
+            VocaLogger.info(.appState, "Memory pressure (\(level.rawValue)) during a dictation: keeping the models")
+            return
+        }
+        if commandSlotLoaded {
+            commandModelIdleUnload?.cancel()
+            commandModelSlot?.unload()
+        }
+        if transcriber.isModelLoaded || transcriptCleanup.isLoaded {
+            await unloadActiveModel(reason: .memoryPressure)
+        }
+    }
+
     /// Approximate RAM freed by the last unload, when both samples exist.
     var approximateMemoryFreedMB: Double? {
         guard let before = processMemoryBeforeUnloadMB,
@@ -159,6 +199,8 @@ extension AppState {
         switch lastModelUnloadReason {
         case .idleKeepAlive:
             return "Model unloaded after idle timeout. Next dictation reloads it."
+        case .memoryPressure:
+            return "Model unloaded because the Mac was low on memory. Next dictation reloads it."
         case .autoPause:
             return "Model unloaded by auto-pause."
         case .manual:

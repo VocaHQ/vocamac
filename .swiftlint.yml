@@ -73,12 +73,12 @@ custom_rules:
 # today so nothing grows past them. They only ever go down: lower one when
 # the code under it shrinks, never raise it. (AGENTS.md › Code style.)
 file_length:
-  warning: 2309
-  error: 2309
+  warning: 2305
+  error: 2305
   ignore_comment_only_lines: true
 type_body_length:
-  warning: 1855
-  error: 1855
+  warning: 1851
+  error: 1851
 function_body_length:
   warning: 442
   error: 442

@@ -103,11 +103,12 @@ final class ModelRAMEstimateTests: XCTestCase {
         }
     }
 
-    func testOnlyPalettizedWhisperBuildsNeedMoreOnTheirFirstLoad() {
+    func testOnlyPalettizedWhisperBuildsAndHandSetCompilesNeedMoreOnTheirFirstLoad() {
         for size in ModelSize.allCases {
             let expands = size.engine == .whisperKit && size.hasPalettizedWeights
                 && ModelRAMFit.handSetGB(for: size) == nil
-            XCTAssertEqual(size.firstLoadRAMRequiredGB > size.ramRequiredGB, expands, "\(size)")
+            let handSetCompile = ModelRAMFit.handSetFirstLoadGB(for: size) != nil
+            XCTAssertEqual(size.firstLoadRAMRequiredGB > size.ramRequiredGB, expands || handSetCompile, "\(size)")
         }
     }
 

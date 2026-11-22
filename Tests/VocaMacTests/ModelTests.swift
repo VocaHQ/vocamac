@@ -463,7 +463,11 @@ final class ModelManagerTests: XCTestCase {
     }
 
     func testReduxUsesItsMeasuredMemoryNotItsDownloadSize() {
-        XCTAssertEqual(ModelSize.parakeetRedux.ramRequiredGB, 6.0)
+        // Warm: 3.83 GB measured, plus the usual 25%. This is also what a
+        // switch away from Redux credits as freed, so it must not carry the
+        // compile peak.
+        XCTAssertEqual(ModelSize.parakeetRedux.ramRequiredGB, 5.0)
+        // First load: 4.8 GB with the Neural Engine compile, plus 25%.
         XCTAssertEqual(ModelSize.parakeetRedux.firstLoadRAMRequiredGB, 6.0)
         XCTAssertGreaterThan(ModelSize.parakeetRedux.ramRequiredGB, ModelSize.parakeetV3.ramRequiredGB)
     }

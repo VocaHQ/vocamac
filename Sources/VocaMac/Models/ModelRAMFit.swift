@@ -58,11 +58,25 @@ struct ModelRAMFit: Equatable {
         // Measured on the M1 Pro with scripts/measure-model-ram.sh (debug
         // CLI, 100 s clip, 2026-11-23): the 2-bit encoder is unpacked at
         // load, so the app's footprint peaks at 2.46 GB with 1.37 GB more
-        // wired (warm), and the first load adds a 2.31 GB Neural Engine
-        // compile (4.8 GB). The Parakeet fit, from its 220 MB download,
-        // would say 0.5 GB.
-        case .parakeetRedux:  return 6.0
+        // wired (warm, 3.83 GB). The Parakeet fit, from its 220 MB download,
+        // would say 0.5 GB. The first load is in `handSetFirstLoadGB`.
+        case .parakeetRedux:  return 5.0
         default:              return nil
+        }
+    }
+
+    /// First-load estimates set by hand, where the compile needs more than
+    /// `handSetGB` and no fit covers the engine.
+    ///
+    /// Kept apart from `handSetGB` because that value is also the memory a
+    /// switch away from the model credits as freed (`performLoadModel`), and
+    /// a compile peak would overstate it.
+    static func handSetFirstLoadGB(for size: ModelSize) -> Double? {
+        switch size {
+        // The first load adds a 2.31 GB Neural Engine compile to the warm
+        // figure: 4.8 GB peak on the M1 Pro.
+        case .parakeetRedux: return 6.0
+        default:             return nil
         }
     }
 

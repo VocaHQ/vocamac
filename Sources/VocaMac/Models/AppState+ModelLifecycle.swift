@@ -13,14 +13,16 @@ extension AppState {
 
     // MARK: - Model Management
 
-    func loadModel(_ size: ModelSize? = nil) async {
+    /// - Parameter persistsSelection: False only for a stand-in loaded because
+    ///   the chosen model isn't available; the saved choice is left alone.
+    func loadModel(_ size: ModelSize? = nil, persistsSelection: Bool = true) async {
         _ = try? await modelOperationSerializer.run { [self] in
-            await performLoadModel(size)
+            await performLoadModel(size, persistsSelection: persistsSelection)
         }
     }
 
     /// Perform one model load after earlier model operations have completed.
-    func performLoadModel(_ size: ModelSize? = nil) async {
+    func performLoadModel(_ size: ModelSize? = nil, persistsSelection: Bool = true) async {
         loadGeneration += 1
         let generation = loadGeneration
 
@@ -160,7 +162,10 @@ extension AppState {
             }
 
             // Persist the resolved model as the user's preference
-            selectedModelSize = targetSize.rawValue
+            if persistsSelection {
+                selectedModelSize = targetSize.rawValue
+                startupModelStandIn = nil
+            }
 
             // The outgoing model was in use until now.
             stampModelsInUse()
@@ -222,6 +227,52 @@ extension AppState {
     /// matches the loaded encoder (a Unified checkpoint's streaming export is
     /// a different model).
     ///
+    /// After a settings import, which writes `selectedModelSize` directly.
+    ///
+    /// Without this the old model kept decoding while recording choices read
+    /// the imported one, and the switch happened silently at the next idle
+    /// reload, downloading first if needed. Now the imported model loads at
+    /// once with the usual progress. One this Mac can't run (Apple Speech
+    /// before macOS 26, say) is not kept: the loaded model stays chosen, or
+    /// the same fallback launch uses. When the model doesn't change, an
+    /// imported "Transcribe as you speak" is applied to it.
+    ///
+    /// The choice is read now but acted on once earlier model work finishes:
+    /// a load already running saves its own model as the choice when it ends.
+    func applyImportedSpeechModel() async {
+        let importedChoice = selectedModelSize
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            let imported = ModelSize(rawValue: importedChoice)
+            let usable = imported.flatMap { modelManager.isModelSupported($0) ? $0 : nil }
+                ?? currentModel?.size
+                ?? startupFallbackModel(for: imported ?? .tiny)
+            if usable.rawValue != importedChoice {
+                VocaLogger.warning(
+                    .appState,
+                    "Imported speech model \(importedChoice) can't run on this Mac; keeping \(usable.displayName)"
+                )
+            }
+            selectedModelSize = usable.rawValue
+            guard let loaded = currentModel?.size, loaded != usable else {
+                // Nothing loaded: the next dictation loads the choice. Same
+                // model: only the streaming encoder may need to change.
+                if let size = liveStreamingReloadTarget() {
+                    await performLoadModel(size)
+                }
+                return
+            }
+            VocaLogger.info(.appState, "Settings import chose \(usable.displayName) — loading it")
+            await performLoadModel(usable)
+            // A failed switch (memory, download, load) leaves the old model
+            // loaded; the choice must name it, or recording choices would
+            // follow an engine that isn't decoding.
+            if let stillLoaded = currentModel?.size, stillLoaded != usable {
+                VocaLogger.warning(.appState, "Couldn't switch to the imported \(usable.displayName); keeping \(stillLoaded.displayName)")
+                selectedModelSize = stillLoaded.rawValue
+            }
+        }
+    }
+
     /// Queued behind any model operation in progress and decided only once it
     /// has finished: a change made while a load is under way is compared
     /// with what that load actually produced, so it is never dropped.

@@ -244,8 +244,13 @@ extension AppState {
         generation: UUID
     ) async {
         defer {
-            commandModeSession = nil
-            finishCommandModelUse(engine)
+            // Cancelled meanwhile: `resetCommandModeState` already ended this
+            // session, and the session and model slot may now be a newer
+            // command's. Clearing them here would end that one instead.
+            if generation == recordingGeneration {
+                commandModeSession = nil
+                finishCommandModelUse(engine)
+            }
         }
         var instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         // "um, make this shorter" — the model doesn't need the hesitation, and
@@ -634,7 +639,17 @@ extension AppState {
         // A shortcut gets the selection as its input; nothing else does.
         var input: String?
         if case .runShortcut = permitted { input = run.target.selectedText }
-        switch await voiceActionPerformer.perform(permitted, input: input) {
+        // Escape bumps `recordingGeneration`; that is what cancels a command.
+        let result = await voiceActionPerformer.perform(permitted, input: input) { [weak self] in
+            self?.recordingGeneration == run.generation
+        }
+        // Cancelled meanwhile: `cancelDictation` already reset the screen,
+        // and whatever happened isn't this command's result to publish.
+        guard run.generation == recordingGeneration else {
+            VocaLogger.info(.appState, "Command Mode action cancelled: \(permitted.summary)")
+            return
+        }
+        switch result {
         case .failure(let error):
             failCommand(error.message, detail: "\(permitted.summary) failed — \(error.message)", started: run.started)
         case .success:

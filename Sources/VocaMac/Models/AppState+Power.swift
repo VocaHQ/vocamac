@@ -210,31 +210,54 @@ extension AppState {
         }
     }
 
-    /// The chosen speech model is not on this Mac and none is on the way.
+    /// The speech model the next dictation would load is not on this Mac and
+    /// none is on the way.
     ///
     /// A model that is downloaded but not loaded yet, or unloaded on purpose
     /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
+    /// Nor is a chosen model the launch stand-in covers for (`modelToReload`).
     var needsSpeechModel: Bool {
-        appStatus == .idle
+        let reloadTarget = modelToReload.size
+        return appStatus == .idle
             && !transcriber.isModelLoaded
             // Not yet populated at launch: nothing is known to be missing.
             && !availableModels.isEmpty
-            && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
+            && !availableModels.contains { $0.size == reloadTarget && $0.isDownloaded }
             && !availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
+    }
+
+    /// The model a reload loads, and whether it is the launch stand-in.
+    ///
+    /// Launch may have had to stand in for the chosen model; the stand-in
+    /// stays until the chosen one is on disk, rather than failing every
+    /// dictation on a download that already failed.
+    private var modelToReload: (size: ModelSize, isStandIn: Bool) {
+        let chosen = ModelSize(rawValue: selectedModelSize)
+            ?? currentModel?.size
+            ?? .tiny
+        if let standIn = startupModelStandIn, !modelManager.isModelDownloaded(chosen) {
+            return (standIn, true)
+        }
+        return (chosen, false)
+    }
+
+    /// The model the next dictation decodes with: the loaded one, else the
+    /// one a reload would load. Engine-specific recording choices read this,
+    /// not the saved choice, which a stand-in or a pending switch can differ from.
+    var dictationModelSize: ModelSize {
+        currentModel?.size ?? modelToReload.size
     }
 
     /// Ensure a model is loaded before dictation (lazy reload after idle unload).
     func ensureModelLoaded() async {
         guard !transcriber.isModelLoaded else { return }
-        let size = ModelSize(rawValue: selectedModelSize)
-            ?? currentModel?.size
-            ?? .tiny
+        let (size, isStandIn) = modelToReload
         VocaLogger.info(.appState, "Ensuring model loaded: \(size.displayName)")
         // Checked again once earlier model operations finish: a load queued
         // ahead of this one may already have loaded a model.
         _ = try? await modelOperationSerializer.run { @MainActor [self] in
             guard !transcriber.isModelLoaded else { return }
-            await performLoadModel(size)
+            await performLoadModel(size, persistsSelection: !isStandIn)
         }
     }
 

@@ -1262,10 +1262,19 @@ final class MockVoiceActionPerformer: VoiceActionPerforming {
     var performed: [VoiceAction] = []
     var inputs: [String?] = []
     var result: Result<Void, VoiceActionError> = .success(())
+    /// Holds `perform` until opened, to cancel the command meanwhile.
+    var gate: StepGate?
 
-    func perform(_ action: VoiceAction, input: String?) async -> Result<Void, VoiceActionError> {
+    /// What `isStillWanted` answered after the gate.
+    var stillWantedAfterGate: Bool?
+
+    func perform(
+        _ action: VoiceAction, input: String?, isStillWanted: @escaping @MainActor () -> Bool
+    ) async -> Result<Void, VoiceActionError> {
         performed.append(action)
         inputs.append(input)
+        await gate?.wait()
+        stillWantedAfterGate = isStillWanted()
         return result
     }
 }

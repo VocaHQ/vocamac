@@ -7,6 +7,26 @@
 
 import Foundation
 
+// MARK: - Deleting a speech model
+
+extension AppState {
+    /// Why `deleteModel` must refuse this model, or nil when it may go.
+    func deletionRefusal(for model: WhisperModelInfo) -> String? {
+        if model.isActive {
+            return "Can't delete the active model. Load a different model first."
+        }
+        // Idle unload clears `isActive`, but the model is still the user's
+        // choice: the next dictation would have to download it again.
+        if model.size.rawValue == selectedModelSize {
+            return "Can't delete the model you dictate with. Choose a different model first."
+        }
+        if model.isLoading || model.downloadProgress != nil {
+            return "Can't delete a model that's loading or downloading."
+        }
+        return nil
+    }
+}
+
 // MARK: - Downloaded models
 
 /// One downloaded model in a Models tab's On this Mac list.

@@ -62,9 +62,11 @@ final class CalmSpeechPickFlow {
     }
 
     /// Whether Remove from this Mac may be offered: never for the model in
-    /// use, one busy loading or downloading, a built-in one, or Whisper Tiny.
-    static func canRemove(_ model: WhisperModelInfo) -> Bool {
+    /// use or chosen (an idle unload clears `isActive`, not the choice), one
+    /// busy loading or downloading, a built-in one, or Whisper Tiny.
+    static func canRemove(_ model: WhisperModelInfo, selectedModelSize: String) -> Bool {
         model.isDownloaded && !model.isActive && !model.isLoading && model.downloadProgress == nil
+            && model.size.rawValue != selectedModelSize
             && !model.size.isSystemManaged && model.size != .tiny
     }
 }

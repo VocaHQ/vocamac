@@ -1116,6 +1116,10 @@ final class AppState: ObservableObject {
     /// updates only apply when the generation is still current, so a stale
     /// failure cannot undo a newer successful load.
     var loadGeneration: UInt64 = 0
+    /// The model loaded at launch in place of the chosen one, which couldn't
+    /// be downloaded. The choice is kept, so the next launch tries it again;
+    /// until then a reload after an idle unload uses this one.
+    var startupModelStandIn: ModelSize?
 
     /// Serializes model downloads and loads at the AppState boundary. The
     /// engine router also protects its own load/transcribe lifecycle, but UI
@@ -2383,12 +2387,8 @@ final class AppState: ObservableObject {
             await deleteUnlistedModel(size)
             return
         }
-        guard !availableModels[index].isActive else {
-            errorMessage = "Can't delete the active model. Load a different model first."
-            return
-        }
-        guard !availableModels[index].isLoading, availableModels[index].downloadProgress == nil else {
-            errorMessage = "Can't delete a model that's loading or downloading."
+        if let refusal = deletionRefusal(for: availableModels[index]) {
+            errorMessage = refusal
             return
         }
 
@@ -2407,7 +2407,7 @@ final class AppState: ObservableObject {
     /// Delete a downloaded model the picker doesn't list, unless it is the
     /// one loaded.
     private func deleteUnlistedModel(_ size: ModelSize) async {
-        guard calmLoadedSpeechModel != size, size != .tiny else { return }
+        guard calmLoadedSpeechModel != size, size.rawValue != selectedModelSize, size != .tiny else { return }
         do {
             try await modelManager.deleteModel(size)
             CompiledModelRecord().forget(size)
@@ -2610,15 +2610,18 @@ final class AppState: ObservableObject {
             if !modelManager.isModelDownloaded(modelToLoad), modelToLoad != .tiny {
                 let installedTiny = await installBundledOrFallback(preferred: .tiny)
                 if installedTiny {
+                    VocaLogger.info(.appState, "Falling back to bundled Tiny model; keeping \(modelToLoad.displayName) as the choice")
                     modelToLoad = .tiny
+                    startupModelStandIn = .tiny
                     refreshModelStatuses()
-                    VocaLogger.info(.appState, "Falling back to bundled Tiny model")
                 }
             }
         }
 
         VocaLogger.info(.appState, "Loading model: \(modelToLoad.displayName)...")
-        await loadModel(modelToLoad)
+        // A stand-in must not be saved over the user's choice, or every later
+        // launch would stay on it without trying the chosen model again.
+        await loadModel(modelToLoad, persistsSelection: startupModelStandIn == nil)
         VocaLogger.info(.appState, "Model loaded: \(transcriber.loadedModelName ?? "none")")
     }
 
@@ -2832,10 +2835,10 @@ final class AppState: ObservableObject {
         syncShortcutConfiguration()
         syncLaunchAtLogin()
         refreshActiveWritingStyle()
-        // An imported "Transcribe as you speak" only takes effect with the
-        // matching encoder; a no-op when the loaded one already matches.
+        // Puts the imported speech model (and its "Transcribe as you speak"
+        // encoder) into use now rather than at the next idle reload.
         Task { @MainActor [weak self] in
-            await self?.reloadModelForLiveStreamingChangeIfNeeded()
+            await self?.applyImportedSpeechModel()
         }
         objectWillChange.send()
     }

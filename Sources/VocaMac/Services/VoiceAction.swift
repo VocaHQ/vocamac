@@ -156,6 +156,10 @@ enum VoiceActionParser {
 enum VoiceActionError: Error, Equatable {
     case appNotFound(String)
     case shortcutNotAllowed(String)
+    /// Allowed, but no shortcut has that name any more (renamed or deleted).
+    case shortcutMissing(String)
+    /// The command was cancelled before the action ran; nothing to report.
+    case cancelled
     case failed(String)
 
     var message: String {
@@ -163,7 +167,11 @@ enum VoiceActionError: Error, Equatable {
         case .appNotFound(let name):
             return "No app named “\(name)” was found."
         case .shortcutNotAllowed(let name):
-            return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it under Voice actions on the Commands page."
+            return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it in Settings → Command Mode → Voice Actions."
+        case .shortcutMissing(let name):
+            return "There's no shortcut named “\(name)” in the Shortcuts app. If you renamed it, change the name on VocaMac's list too."
+        case .cancelled:
+            return "Cancelled."
         case .failed(let why):
             return why
         }
@@ -174,8 +182,19 @@ enum VoiceActionError: Error, Equatable {
 /// opening apps or creating reminders.
 @MainActor
 protocol VoiceActionPerforming: AnyObject {
-    /// - Parameter input: Selected text handed to a shortcut as its input.
-    func perform(_ action: VoiceAction, input: String?) async -> Result<Void, VoiceActionError>
+    /// - Parameters:
+    ///   - input: Selected text handed to a shortcut as its input.
+    ///   - isStillWanted: Asked after any wait and before the action runs;
+    ///     false once the command was cancelled (Escape), and nothing runs.
+    func perform(
+        _ action: VoiceAction, input: String?, isStillWanted: @escaping @MainActor () -> Bool
+    ) async -> Result<Void, VoiceActionError>
+}
+
+extension VoiceActionPerforming {
+    func perform(_ action: VoiceAction, input: String?) async -> Result<Void, VoiceActionError> {
+        await perform(action, input: input, isStillWanted: { true })
+    }
 }
 
 /// Which actions a spoken instruction may take. Checked before any performer
@@ -205,7 +224,23 @@ enum VoiceActionPolicy {
 
 @MainActor
 final class SystemVoiceActionPerformer: VoiceActionPerforming {
-    func perform(_ action: VoiceAction, input: String?) async -> Result<Void, VoiceActionError> {
+    private let installedShortcutNames: @Sendable () async -> [String]?
+    private let openShortcutURL: @MainActor (URL) -> Bool
+
+    /// - Parameters:
+    ///   - installedShortcutNames: The user's shortcut names, nil when unknown.
+    ///   - openShortcutURL: Opens a `shortcuts://` URL. Both are seams for tests.
+    init(
+        installedShortcutNames: @escaping @Sendable () async -> [String]? = { await ShortcutsLibrary.installedNames() },
+        openShortcutURL: @escaping @MainActor (URL) -> Bool = { NSWorkspace.shared.open($0) }
+    ) {
+        self.installedShortcutNames = installedShortcutNames
+        self.openShortcutURL = openShortcutURL
+    }
+
+    func perform(
+        _ action: VoiceAction, input: String?, isStillWanted: @escaping @MainActor () -> Bool
+    ) async -> Result<Void, VoiceActionError> {
         switch action {
         case .openApp(let name):
             guard let url = Self.applicationURL(named: name) else { return .failure(.appNotFound(name)) }
@@ -219,11 +254,24 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
         case .webSearch(let query):
             guard let url = Self.searchURL(for: query) else { return .failure(.failed("That search couldn't be opened.")) }
             return NSWorkspace.shared.open(url) ? .success(()) : .failure(.failed("The search couldn't be opened."))
-        case .runShortcut(let name):
+        case .runShortcut(let allowedName):
+            // Opening the URL "succeeds" for a shortcut that no longer exists,
+            // so check first when the list can be read.
+            var name = allowedName
+            let installed = await installedShortcutNames()
+            // Escape during the lookup cancels the command: the shortcut must
+            // not run after the user called it off.
+            guard isStillWanted(), !Task.isCancelled else { return .failure(.cancelled) }
+            if let installed {
+                guard let match = ShortcutsLibrary.installedName(matching: allowedName, in: installed) else {
+                    return .failure(.shortcutMissing(allowedName))
+                }
+                name = match
+            }
             guard let url = Self.shortcutURL(name: name, input: input) else {
                 return .failure(.failed("That shortcut couldn't be started."))
             }
-            return NSWorkspace.shared.open(url) ? .success(()) : .failure(.failed("The Shortcuts app couldn't be opened."))
+            return openShortcutURL(url) ? .success(()) : .failure(.failed("The Shortcuts app couldn't be opened."))
         case .addReminder(let title, let due):
             return Self.addReminder(title: title, due: due)
         }
@@ -250,21 +298,28 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
         return components?.url
     }
 
+    /// Folders searched for apps, in order. Safari lives in the system
+    /// cryptex: `/Applications/Safari.app` is only a hidden symlink to it,
+    /// and hidden files are skipped below.
+    static var applicationFolders: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            URL(fileURLWithPath: "/Applications"), URL(fileURLWithPath: "/System/Applications"),
+            URL(fileURLWithPath: "/System/Applications/Utilities"), URL(fileURLWithPath: "/Applications/Utilities"),
+            URL(fileURLWithPath: "/System/Cryptexes/App/System/Applications"),
+            home.appendingPathComponent("Applications"),
+        ]
+    }
+
     /// The installed app whose name is `name`, compared without case, spaces,
     /// or a trailing ".app" — "vs code" finds "Visual Studio Code" only by
     /// its real name, so nothing is opened on a guess.
-    static func applicationURL(named name: String) -> URL? {
+    static func applicationURL(named name: String, in folders: [URL] = applicationFolders) -> URL? {
         func key(_ text: String) -> String {
             text.lowercased().replacingOccurrences(of: ".app", with: "").filter { $0.isLetter || $0.isNumber }
         }
         let wanted = key(name)
         guard !wanted.isEmpty else { return nil }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let folders = [
-            URL(fileURLWithPath: "/Applications"), URL(fileURLWithPath: "/System/Applications"),
-            URL(fileURLWithPath: "/System/Applications/Utilities"), URL(fileURLWithPath: "/Applications/Utilities"),
-            home.appendingPathComponent("Applications"),
-        ]
         for folder in folders {
             let apps = (try? FileManager.default.contentsOfDirectory(
                 at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]

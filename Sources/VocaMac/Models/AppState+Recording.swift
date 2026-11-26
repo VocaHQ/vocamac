@@ -374,7 +374,7 @@ extension AppState {
         // Only promise live words when an engine will actually send them:
         // Whisper, Parakeet and ONNX decode partial snapshots; the Apple
         // Speech session streams audio but reports text only when it finishes.
-        let recordingEngine = ModelSize(rawValue: selectedModelSize)?.engine
+        let recordingEngine = dictationModelSize.engine
         let engineSendsPartials = [.whisperKit, .parakeet, .sherpaOnnx].contains(recordingEngine)
         cursorOverlay.setLiveWordsAvailable(session != nil && partialHandler != nil && engineSendsPartials)
         recordingTranscription = session
@@ -472,7 +472,7 @@ extension AppState {
     /// decoded, and a tail decoded before the screen terms arrived would send
     /// the recording to the batch path instead.
     private func endsSessionInputAtStop(liveVocabulary: LiveVocabulary?) -> Bool {
-        guard ModelSize(rawValue: selectedModelSize)?.engine == .whisperKit else { return true }
+        guard dictationModelSize.engine == .whisperKit else { return true }
         return !translatesSpeech && liveVocabulary?.isSettled == true
     }
 
@@ -508,7 +508,7 @@ extension AppState {
         // The custom endpoint is batch-only: one upload per recording. Commit
         // mode would mean an upload per piece, so it stays off for it.
         guard processWhileSpeaking, injectResult, activeCommandTarget == nil,
-              let model = ModelSize(rawValue: selectedModelSize),
+              case let model = dictationModelSize,
               model.engine != .customEndpoint,
               // A streaming export transcribes the whole recording as it
               // comes; pieces would decode it twice.
@@ -841,7 +841,7 @@ extension AppState {
             insertionContextAtStop = nil
         }
         let language = selectedLanguage == "auto" ? nil : selectedLanguage
-        let selectedEngine = ModelSize(rawValue: selectedModelSize)?.engine
+        let selectedEngine = dictationModelSize.engine
         // sherpa-onnx models take no screen terms (only Qwen3-ASR reads the
         // user's own words), so its batch decode starts now instead of after
         // the History write and the screen read.

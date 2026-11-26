@@ -236,26 +236,41 @@ extension AppState {
     /// before macOS 26, say) is not kept: the loaded model stays chosen, or
     /// the same fallback launch uses. When the model doesn't change, an
     /// imported "Transcribe as you speak" is applied to it.
+    ///
+    /// The choice is read now but acted on once earlier model work finishes:
+    /// a load already running saves its own model as the choice when it ends.
     func applyImportedSpeechModel() async {
-        let imported = ModelSize(rawValue: selectedModelSize)
-        let usable = imported.flatMap { modelManager.isModelSupported($0) ? $0 : nil }
-            ?? currentModel?.size
-            ?? startupFallbackModel(for: imported ?? .tiny)
-        if usable.rawValue != selectedModelSize {
-            VocaLogger.warning(
-                .appState,
-                "Imported speech model \(selectedModelSize) can't run on this Mac; keeping \(usable.displayName)"
-            )
+        let importedChoice = selectedModelSize
+        _ = try? await modelOperationSerializer.run { @MainActor [self] in
+            let imported = ModelSize(rawValue: importedChoice)
+            let usable = imported.flatMap { modelManager.isModelSupported($0) ? $0 : nil }
+                ?? currentModel?.size
+                ?? startupFallbackModel(for: imported ?? .tiny)
+            if usable.rawValue != importedChoice {
+                VocaLogger.warning(
+                    .appState,
+                    "Imported speech model \(importedChoice) can't run on this Mac; keeping \(usable.displayName)"
+                )
+            }
             selectedModelSize = usable.rawValue
+            guard let loaded = currentModel?.size, loaded != usable else {
+                // Nothing loaded: the next dictation loads the choice. Same
+                // model: only the streaming encoder may need to change.
+                if let size = liveStreamingReloadTarget() {
+                    await performLoadModel(size)
+                }
+                return
+            }
+            VocaLogger.info(.appState, "Settings import chose \(usable.displayName) — loading it")
+            await performLoadModel(usable)
+            // A failed switch (memory, download, load) leaves the old model
+            // loaded; the choice must name it, or recording choices would
+            // follow an engine that isn't decoding.
+            if let stillLoaded = currentModel?.size, stillLoaded != usable {
+                VocaLogger.warning(.appState, "Couldn't switch to the imported \(usable.displayName); keeping \(stillLoaded.displayName)")
+                selectedModelSize = stillLoaded.rawValue
+            }
         }
-        guard let loaded = currentModel?.size, loaded != usable else {
-            // Nothing loaded: the next dictation loads the choice. Same model:
-            // only the streaming encoder may need to change.
-            await reloadModelForLiveStreamingChangeIfNeeded()
-            return
-        }
-        VocaLogger.info(.appState, "Settings import chose \(usable.displayName) — loading it")
-        await loadModel(usable)
     }
 
     /// Queued behind any model operation in progress and decided only once it

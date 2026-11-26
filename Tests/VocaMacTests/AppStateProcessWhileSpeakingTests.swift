@@ -329,6 +329,47 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
                        "the old model is not reloaded")
     }
 
+    func testFailedImportedSwitchKeepsTheLoadedModelChosen() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small, .medium]
+        let transcriber = MockWhisperService()
+        transcriber.loadResponses = [
+            .success(modelManager.modelIdentifier(for: .small)),
+            .failure(NSError(domain: "VocaMacTests", code: 1)),
+        ]
+        let (app, _) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
+        await app.loadModel(.small)
+
+        app.selectedModelSize = ModelSize.medium.rawValue
+        await app.applyImportedSpeechModel()
+
+        XCTAssertEqual(app.currentModel?.size, .small, "the old model is restored")
+        XCTAssertEqual(app.selectedModelSize, ModelSize.small.rawValue, "the choice names the model still decoding")
+    }
+
+    func testImportDuringAnInitialLoadIsAppliedAfterIt() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small, .medium]
+        let transcriber = MockWhisperService()
+        transcriber.loadedModelName = nil
+        transcriber.isModelLoaded = false
+        let gate = StepGate()
+        transcriber.loadGate = gate
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
+
+        let load = Task { await app.loadModel(.small) }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        app.selectedModelSize = ModelSize.medium.rawValue
+        let apply = Task { await app.applyImportedSpeechModel() }
+        gate.open()
+        await load.value
+        await apply.value
+
+        XCTAssertEqual(app.selectedModelSize, ModelSize.medium.rawValue, "the running load doesn't replace the import")
+        XCTAssertEqual(mocks.transcriber.loadRequests.last?.name, modelManager.modelIdentifier(for: .medium))
+    }
+
     func testImportedModelThisMacCantRunKeepsTheLoadedModel() async {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.small]

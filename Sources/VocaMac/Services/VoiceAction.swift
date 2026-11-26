@@ -250,21 +250,28 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
         return components?.url
     }
 
+    /// Folders searched for apps, in order. Safari lives in the system
+    /// cryptex: `/Applications/Safari.app` is only a hidden symlink to it,
+    /// and hidden files are skipped below.
+    static var applicationFolders: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            URL(fileURLWithPath: "/Applications"), URL(fileURLWithPath: "/System/Applications"),
+            URL(fileURLWithPath: "/System/Applications/Utilities"), URL(fileURLWithPath: "/Applications/Utilities"),
+            URL(fileURLWithPath: "/System/Cryptexes/App/System/Applications"),
+            home.appendingPathComponent("Applications"),
+        ]
+    }
+
     /// The installed app whose name is `name`, compared without case, spaces,
     /// or a trailing ".app" — "vs code" finds "Visual Studio Code" only by
     /// its real name, so nothing is opened on a guess.
-    static func applicationURL(named name: String) -> URL? {
+    static func applicationURL(named name: String, in folders: [URL] = applicationFolders) -> URL? {
         func key(_ text: String) -> String {
             text.lowercased().replacingOccurrences(of: ".app", with: "").filter { $0.isLetter || $0.isNumber }
         }
         let wanted = key(name)
         guard !wanted.isEmpty else { return nil }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let folders = [
-            URL(fileURLWithPath: "/Applications"), URL(fileURLWithPath: "/System/Applications"),
-            URL(fileURLWithPath: "/System/Applications/Utilities"), URL(fileURLWithPath: "/Applications/Utilities"),
-            home.appendingPathComponent("Applications"),
-        ]
         for folder in folders {
             let apps = (try? FileManager.default.contentsOfDirectory(
                 at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]

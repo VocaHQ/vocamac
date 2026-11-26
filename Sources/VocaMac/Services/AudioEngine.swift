@@ -604,6 +604,7 @@ final class AudioEngine: @unchecked Sendable {
         }
         self.configuredInputDeviceID = configuredInputDeviceID
 
+        Self.alignInputClientRate(of: inputNode)
         let inputFormat = inputNode.outputFormat(forBus: 0)
         guard isValidInputFormat(inputFormat) else {
             VocaLogger.error(
@@ -765,6 +766,7 @@ final class AudioEngine: @unchecked Sendable {
                     return abandonCancelledStart()
                 }
 
+                Self.alignInputClientRate(of: inputNode)
                 let inputFormat = inputNode.outputFormat(forBus: 0)
 
                 guard isValidInputFormat(inputFormat) else {

@@ -1034,6 +1034,12 @@ final class AudioEngine: @unchecked Sendable {
         lifecycleQueue.async { [self] in
             guard engine != nil, !_isCurrentlyRecording, !isPreparingRecording else { return }
             VocaLogger.info(.audioEngine, "Releasing the idle audio engine around system sleep")
+            // A stop that was collecting its last buffer when this was queued
+            // has not torn its capture down yet: its teardown runs after this
+            // and would find no engine. Take the tap off and stop the engine
+            // here, or the retired engine keeps feeding the next recording.
+            removeInputTap(reason: "release idle engine")
+            engine?.stop()
             // Detached, not deallocated here: AVFAudio may still be running
             // its own callbacks for this engine.
             retireEngineAfterConfigurationChange()

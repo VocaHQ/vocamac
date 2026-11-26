@@ -961,6 +961,48 @@ final class AudioEngineTests: XCTestCase {
             "Audio buffer should contain samples after recording")
     }
 
+    /// A sleep notice that lands while a stop is collecting its last buffer
+    /// queues the release ahead of the stop's teardown. The retired engine
+    /// must not keep its tap running into the next dictation (vocamac#439).
+    func testReleasingTheIdleEngineDuringAStopLeavesOneStream() throws {
+        try skipWithoutRealAudioInput()
+        let engine = AudioEngine()
+        let buffer = XCTestExpectation(description: "A buffer just arrived")
+        buffer.assertForOverFulfill = false
+        engine.onAudioLevel = { _ in buffer.fulfill() }
+        let didStart = engine.startRecording(silenceThreshold: 0.01, silenceDuration: 999.0, maxDuration: 60.0)
+        try XCTSkipIf(!didStart, "No microphone available or Core Audio input could not start")
+        wait(for: [buffer], timeout: 5.0)
+
+        // Stop right after a buffer, so the stop holds the queue waiting for
+        // the next one (~85 ms), and send the release in that window.
+        let next = XCTestExpectation(description: "The buffer before the stop")
+        next.assertForOverFulfill = false
+        engine.onAudioLevel = { _ in next.fulfill() }
+        wait(for: [next], timeout: 2.0)
+        engine.onAudioLevel = nil
+        let stopped = XCTestExpectation(description: "Stopped")
+        DispatchQueue.global().async {
+            _ = engine.stopRecording()
+            stopped.fulfill()
+        }
+        Thread.sleep(forTimeInterval: 0.01)
+        engine.releaseIdleEngine()
+        wait(for: [stopped], timeout: 2.0)
+
+        // The next dictation, within the retired engine's three-second hold.
+        let started = Date()
+        XCTAssertTrue(engine.startRecording(silenceThreshold: 0.01, silenceDuration: 999.0, maxDuration: 60.0))
+        Thread.sleep(forTimeInterval: 1.0)
+        let samples = engine.stopRecording()
+        let elapsed = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(
+            Double(samples.count), elapsed * AudioEngine.whisperFormat.sampleRate * 1.3,
+            "only one engine's tap may feed the recording"
+        )
+    }
+
     func testStopKeepsEngineWarmUntilIdleRelease() throws {
         try skipWithoutRealAudioInput()
         let engine = AudioEngine()

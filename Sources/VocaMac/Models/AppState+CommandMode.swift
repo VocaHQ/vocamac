@@ -244,8 +244,13 @@ extension AppState {
         generation: UUID
     ) async {
         defer {
-            commandModeSession = nil
-            finishCommandModelUse(engine)
+            // Cancelled meanwhile: `resetCommandModeState` already ended this
+            // session, and the session and model slot may now be a newer
+            // command's. Clearing them here would end that one instead.
+            if generation == recordingGeneration {
+                commandModeSession = nil
+                finishCommandModelUse(engine)
+            }
         }
         var instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
         // "um, make this shorter" — the model doesn't need the hesitation, and

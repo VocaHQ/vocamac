@@ -156,6 +156,8 @@ enum VoiceActionParser {
 enum VoiceActionError: Error, Equatable {
     case appNotFound(String)
     case shortcutNotAllowed(String)
+    /// Allowed, but no shortcut has that name any more (renamed or deleted).
+    case shortcutMissing(String)
     case failed(String)
 
     var message: String {
@@ -164,6 +166,8 @@ enum VoiceActionError: Error, Equatable {
             return "No app named “\(name)” was found."
         case .shortcutNotAllowed(let name):
             return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it in Settings → Command Mode → Voice Actions."
+        case .shortcutMissing(let name):
+            return "There's no shortcut named “\(name)” in the Shortcuts app. If you renamed it, change the name on VocaMac's list too."
         case .failed(let why):
             return why
         }
@@ -219,7 +223,16 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
         case .webSearch(let query):
             guard let url = Self.searchURL(for: query) else { return .failure(.failed("That search couldn't be opened.")) }
             return NSWorkspace.shared.open(url) ? .success(()) : .failure(.failed("The search couldn't be opened."))
-        case .runShortcut(let name):
+        case .runShortcut(let allowedName):
+            // Opening the URL "succeeds" for a shortcut that no longer exists,
+            // so check first when the list can be read.
+            var name = allowedName
+            if let installed = await ShortcutsLibrary.installedNames() {
+                guard let match = ShortcutsLibrary.installedName(matching: allowedName, in: installed) else {
+                    return .failure(.shortcutMissing(allowedName))
+                }
+                name = match
+            }
             guard let url = Self.shortcutURL(name: name, input: input) else {
                 return .failure(.failed("That shortcut couldn't be started."))
             }

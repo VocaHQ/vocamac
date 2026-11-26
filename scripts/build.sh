@@ -8,8 +8,8 @@
 # 3. Code signs — Developer ID if CODE_SIGN_IDENTITY is set, ad-hoc otherwise
 #
 # Environment variables:
-#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 1.2.0.
-#                         Set by CI for nightly builds (e.g., 1.2.0-nightly.20260512+abc1234).
+#   APP_VERSION         — Version string to embed in Info.plist. Defaults to 1.3.0.
+#                         Set by CI for nightly builds (e.g., 1.3.0-nightly.20260512+abc1234).
 #   VOCAMAC_KEEP_RUNNING — Set to 1 for isolated validation without stopping the installed app.
 #   CODE_SIGN_IDENTITY  — Signing identity to use. Defaults to auto-detect
 #                         Developer ID Application in the login keychain.
@@ -34,7 +34,7 @@ BUNDLE_ID="com.vocamac.app"
 APP_NAME="VocaMac"
 APP_DIR="${APP_NAME}.app"
 ENTITLEMENTS="VocaMac.entitlements"
-APP_VERSION="${APP_VERSION:-1.2.0}"
+APP_VERSION="${APP_VERSION:-1.3.0}"
 DERIVED_DATA=".xcode-build"
 # The llama.cpp framework's folder inside the bundle; see "Embed llama.cpp".
 FRAMEWORKS_SUBDIR="lib"

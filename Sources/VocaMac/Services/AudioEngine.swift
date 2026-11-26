@@ -296,6 +296,13 @@ final class AudioEngine: @unchecked Sendable {
         lifecycleQueue.sync { engine != nil }
     }
 
+    /// Holds `graph` as the engine a stop leaves behind before its teardown
+    /// runs (running, tapped, not recording), so the release can be tested
+    /// on an offline graph without a microphone.
+    func holdIdleEngineForTesting(_ graph: AVAudioEngine) {
+        lifecycleQueue.sync { engine = graph }
+    }
+
     private var isPreparingRecording: Bool {
         recordingPreparationLock.lock()
         defer { recordingPreparationLock.unlock() }

@@ -187,7 +187,7 @@ struct CalmModelsOnThisMac: View {
                 // Not offered here, so not loadable: removable unless loaded.
                 return appState.calmLoadedSpeechModel != size && size != .tiny
             }
-            return CalmSpeechPickFlow.canRemove(info)
+            return CalmSpeechPickFlow.canRemove(info, selectedModelSize: appState.selectedModelSize)
         case .writing(let kind):
             return CalmWritingPickFlow.canRemove(kind, appState: appState)
         }

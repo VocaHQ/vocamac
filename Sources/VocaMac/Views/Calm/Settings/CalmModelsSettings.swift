@@ -167,7 +167,7 @@ struct CalmSpeechModelMenu: View {
                 Label("Cancel download", systemImage: "xmark")
             }
         }
-        if let model, CalmSpeechPickFlow.canRemove(model) {
+        if let model, CalmSpeechPickFlow.canRemove(model, selectedModelSize: appState.selectedModelSize) {
             Divider()
             Button(role: .destructive) { flow.prompt = .remove(size) } label: {
                 Label("Remove from this Mac  \(CalmModelText.downloadSize(size))", systemImage: "trash")

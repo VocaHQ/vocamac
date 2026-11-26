@@ -120,6 +120,26 @@ final class AIConfigurationTests: XCTestCase {
         XCTAssertNil(CommandModeEngine(storageValue: CleanupModelKind.qwen25_0_5b_q4_k_m.rawValue))
     }
 
+    func testAnUnofferedLocalCommandModelNeverMovesToTheEndpoint() {
+        // A local model this version doesn't offer for Command Mode (dropped,
+        // or imported) must not send selected text to the cleanup endpoint.
+        for stored in [CleanupModelKind.qwen25_0_5b_q4_k_m.rawValue, "a-model-from-another-version"] {
+            XCTAssertEqual(
+                CommandModeEngine.resolve(stored: stored, endpointIsConfigured: true, appleIntelligenceAvailable: false),
+                .local(.qwen25_1_5b_q4_k_m)
+            )
+            XCTAssertEqual(
+                CommandModeEngine.resolve(stored: stored, endpointIsConfigured: true, appleIntelligenceAvailable: true),
+                .appleIntelligence
+            )
+        }
+        // An explicit endpoint choice still uses it.
+        XCTAssertEqual(
+            CommandModeEngine.resolve(stored: "endpoint", endpointIsConfigured: true, appleIntelligenceAvailable: true),
+            .endpoint
+        )
+    }
+
     func testCommandModeModelsArePinned() {
         for kind in CleanupModelKind.commandModeChoices {
             let descriptor = kind.descriptor

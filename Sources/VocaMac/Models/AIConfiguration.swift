@@ -169,6 +169,11 @@ enum CommandModeEngine: Hashable, Identifiable {
     /// rather than silently switching models. With nothing stored, prefer what
     /// needs no download: a configured endpoint, then Apple Intelligence, then
     /// the smallest capable local model.
+    ///
+    /// A stored local model this version doesn't offer for Command Mode (one
+    /// dropped from `commandModeChoices`, or imported from another version)
+    /// stays on this Mac: falling through to a configured endpoint would send
+    /// selected text off the Mac without the user choosing that.
     static func resolve(
         stored: String,
         endpointIsConfigured: Bool,
@@ -178,7 +183,8 @@ enum CommandModeEngine: Hashable, Identifiable {
            explicit != .endpoint || endpointIsConfigured {
             return explicit
         }
-        if endpointIsConfigured { return .endpoint }
+        let storedUnknownLocalChoice = !stored.isEmpty && stored != CommandModeEngine.endpoint.storageValue
+        if endpointIsConfigured && !storedUnknownLocalChoice { return .endpoint }
         if appleIntelligenceAvailable { return .appleIntelligence }
         return .local(defaultLocalModel)
     }

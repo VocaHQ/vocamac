@@ -74,6 +74,9 @@ extension AppState {
         switch action {
         case .openSettings(let page):
             openSettings(page)
+        case .openMicrophoneSettings:
+            // The old Dictation page's home is General, where the picker is.
+            openSettings(.dictation)
         case .openMicrophonePrivacy:
             requestMicrophonePermission()
         case .openAccessibilityPrivacy:

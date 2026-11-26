@@ -32,15 +32,15 @@ extension AppState {
         case .appleIntelligence:
             guard !appleIntelligenceAvailable() else { return nil }
             return AppleIntelligenceTextService.availabilityProblem()
-                ?? "Apple Intelligence is unavailable. Choose another model in Settings → Command Mode."
+                ?? "Apple Intelligence is unavailable. Choose another model in Settings › Models."
         case .endpoint:
             if cleanupEndpoint.isLocal {
-                return "Command Mode is set to use the cleanup endpoint, but none is configured. Choose a model in Settings → Command Mode."
+                return "Command Mode is set to use the cleanup endpoint, but none is configured. Choose a model in Settings › Models."
             }
             return cleanupEndpoint.validationProblem()
         case .local(let kind):
             guard transcriptCleanup.isDownloaded(kind) else {
-                return "Download \(kind.descriptor.displayName) in Settings → Command Mode first."
+                return "Download \(kind.descriptor.displayName) in Settings › Models first."
             }
             return nil
         }

@@ -13,12 +13,15 @@ import Foundation
 /// One thing the user can do about an error, offered as a button beside it.
 enum ErrorFixAction: Equatable {
     case openSettings(SettingsPage)
+    /// The Microphone picker, in Settings › General.
+    case openMicrophoneSettings
     case openMicrophonePrivacy
     case openAccessibilityPrivacy
 
     var title: String {
         switch self {
         case .openSettings(let page): return "Open \(page.title)"
+        case .openMicrophoneSettings: return "Choose Microphone…"
         case .openMicrophonePrivacy: return "Allow Microphone…"
         case .openAccessibilityPrivacy: return "Allow Accessibility…"
         }
@@ -27,13 +30,15 @@ enum ErrorFixAction: Equatable {
     var systemImage: String {
         switch self {
         case .openSettings(let page): return page.systemImage
+        case .openMicrophoneSettings: return "mic"
         case .openMicrophonePrivacy: return "mic"
         case .openAccessibilityPrivacy: return "hand.raised"
         }
     }
 
     /// The fix an error message points to, if any. Messages name the place
-    /// to go in words ("Settings → Audio"); this turns that into a button.
+    /// to go in words ("Settings › General › Microphone"); this turns that
+    /// into a button, so the wording and these matches change together.
     static func suggested(for message: String) -> ErrorFixAction? {
         let text = message.lowercased()
         if text.contains("microphone permission") || text.contains("microphone access") {
@@ -42,10 +47,13 @@ enum ErrorFixAction: Equatable {
         if text.contains("accessibility is off") {
             return .openAccessibilityPrivacy
         }
-        if text.contains("settings → audio") {
-            return .openSettings(.audio)
+        if text.contains("settings › general › microphone") {
+            return .openMicrophoneSettings
         }
-        if text.contains("settings → speech model") || text.contains("speech model is still downloading") {
+        // Command Mode messages name Settings › Models too, for its Writing
+        // AI tab; only speech-model messages open the Speech tab.
+        if (text.contains("settings › models") && text.contains("speech model"))
+            || text.contains("speech model is still downloading") {
             return .openSettings(.speechModel)
         }
         return nil

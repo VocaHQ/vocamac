@@ -3213,7 +3213,7 @@ extension AppState {
             let samples = try await historyStore.loadAudio(for: entry)
             await ensureModelLoaded()
             guard transcriber.isModelLoaded else {
-                showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
+                showTemporaryError("Could not load the speech model. Open Settings › Models and try again.")
                 return nil
             }
             let result = try await transcriber.transcribe(

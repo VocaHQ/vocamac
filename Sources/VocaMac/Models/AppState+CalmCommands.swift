@@ -206,8 +206,7 @@ extension AppState {
             if !transcriptCleanup.isDownloaded(kind) { return .needsDownload(kind) }
         }
         guard let problem = commandModeProblem(for: engine) else { return .ready }
-        // The old wording points at a page that moved.
-        return .problem(problem.replacingOccurrences(of: "Settings → Command Mode", with: "Settings › Models"))
+        return .problem(problem)
     }
 
     /// The Model row's line: what runs the edits and where.

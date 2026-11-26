@@ -19,24 +19,38 @@ final class ErrorFixActionTests: XCTestCase {
         XCTAssertEqual(ErrorFixAction.suggested(for: "Microphone access is off."), .openMicrophonePrivacy)
     }
 
-    func testAudioMessagesOpenTheAudioPage() {
+    func testMicrophoneMessagesOpenTheMicrophonePicker() {
         XCTAssertEqual(
             ErrorFixAction.suggested(
-                for: "Could not start USB Mic. Pick a different input in Settings → Audio, or reconnect the device."
+                for: "Could not start USB Mic. Pick a different one in Settings › General › Microphone, or reconnect the device."
             ),
-            .openSettings(.audio)
+            .openMicrophoneSettings
         )
         XCTAssertEqual(
             ErrorFixAction.suggested(
-                for: "No microphone audio detected. Check that the selected microphone is connected and available in Settings → Audio."
+                for: "No microphone audio detected. Check that the selected microphone is connected and chosen in Settings › General › Microphone."
             ),
-            .openSettings(.audio)
+            .openMicrophoneSettings
         )
+        XCTAssertEqual(ErrorFixAction.openMicrophoneSettings.title, "Choose Microphone…")
+    }
+
+    @MainActor
+    func testMicrophoneFixOpensGeneralWhereThePickerIs() {
+        let (appState, _) = AppState.makeTestState()
+        var opened: SettingsPage?
+        appState.performErrorFix(.openMicrophoneSettings) { opened = $0 }
+        XCTAssertEqual(opened, .dictation)
+        XCTAssertEqual(CalmNavigation.destination(for: .dictation), .settings(.general))
+    }
+
+    func testCommandModeMessagesDontOpenTheSpeechTab() {
+        XCTAssertNil(ErrorFixAction.suggested(for: "Download Qwen 3 4B in Settings › Models first."))
     }
 
     func testModelMessagesOpenTheSpeechModelPage() {
         XCTAssertEqual(
-            ErrorFixAction.suggested(for: "Could not load the speech model. Open Settings → Speech Model and try again."),
+            ErrorFixAction.suggested(for: "Could not load the speech model. Open Settings › Models and try again."),
             .openSettings(.speechModel)
         )
         XCTAssertEqual(
@@ -60,7 +74,7 @@ final class ErrorFixActionTests: XCTestCase {
     }
 
     func testNoticeInfersItsAction() {
-        let notice = DictationErrorNotice(message: "Could not load the speech model. Open Settings → Speech Model and try again.")
+        let notice = DictationErrorNotice(message: "Could not load the speech model. Open Settings › Models and try again.")
         XCTAssertEqual(notice.action, .openSettings(.speechModel))
         XCTAssertEqual(notice.action?.title, "Open Speech Model")
     }
@@ -293,7 +307,7 @@ final class AppStateDictationFeedbackTests: XCTestCase {
 
     func testAFixActionClosesTheNotice() {
         let (appState, _) = AppState.makeTestState()
-        appState.errorMessage = "Could not load the speech model. Open Settings → Speech Model and try again."
+        appState.errorMessage = "Could not load the speech model. Open Settings › Models and try again."
         appState.appStatus = .error
         var opened: SettingsPage?
 

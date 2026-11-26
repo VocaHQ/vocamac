@@ -777,6 +777,7 @@ struct MenuBarView: View {
 
     private func refreshAudioDevices() {
         audioDevices = AudioEngine.availableInputDevices()
+        appState.reconcileSelectedAudioDevice(with: audioDevices)
         if let selectedAudioDevice {
             appState.selectedAudioDeviceName = selectedAudioDevice.name
         }

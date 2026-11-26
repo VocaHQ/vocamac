@@ -3,7 +3,7 @@
 # ONNX Runtime macOS framework so `swift test` can sign its test bundle.
 # Usage: ./scripts/fix-onnxruntime-framework-links.sh   (after `swift package resolve`)
 #
-# onnxruntime-libs 1.28.2, which sherpa-onnx 1.13.8 pins exactly, zips its
+# onnxruntime-libs 1.28.2, which sherpa-onnx pins exactly (1.13.8 through 2.0.3), zips its
 # macOS xcframework with every framework symlink replaced by a copy
 # (csukuangfj/onnxruntime-libs#62). Under the SwiftBuild backend (Swift 6.4,
 # Xcode 27) the framework is embedded in VocaMacTests.xctest, and codesign

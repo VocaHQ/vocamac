@@ -29,7 +29,7 @@ let package = Package(
         // the transcribe language hint, Nemotron Unified, the Unified
         // streaming manager) do not all exist in earlier releases.
         // FluidAudio is pre-1.0, so minor bumps may break the build.
-        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.18.3")),
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", .upToNextMinor(from: "0.18.4")),
         // sherpa-onnx — specialized ONNX models (Moonshine, SenseVoice,
         // GigaAM, Canary) via ONNX Runtime, CPU-only.
         // Pin the release and its matching binary xcframework for reproducible builds.
@@ -40,7 +40,7 @@ let package = Package(
         // (k2-fsa/sherpa-onnx#3919).
         .package(
             url: "https://github.com/k2-fsa/sherpa-onnx",
-            exact: "1.13.8"
+            exact: "2.0.3"
         ),
         // LLM.swift — llama.cpp GGUF runtime for optional on-device transcript cleanup.
         // Pin the exact release: the package is pre-1.0 in spirit (it re-vendors

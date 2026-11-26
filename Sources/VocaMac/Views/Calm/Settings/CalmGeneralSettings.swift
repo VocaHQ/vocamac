@@ -185,6 +185,7 @@ struct CalmGeneralSettings: View {
 
     private func refreshDevices() {
         audioDevices = appState.availableInputDevices()
+        appState.reconcileSelectedAudioDevice(with: audioDevices)
     }
 }
 

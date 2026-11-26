@@ -1414,6 +1414,9 @@ extension AppState {
 
     /// Start the microphone with the user's audio settings.
     func startConfiguredAudioEngine() async -> Bool {
+        if !selectedAudioDeviceID.isEmpty {
+            reconcileSelectedAudioDevice(with: availableInputDevices())
+        }
         let automaticExternal = automaticExternalInputIfNeeded()
         return await startAudioEngine(
             silenceThreshold: Float(silenceThreshold),

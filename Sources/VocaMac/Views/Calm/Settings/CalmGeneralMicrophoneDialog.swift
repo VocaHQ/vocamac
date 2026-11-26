@@ -190,6 +190,7 @@ struct CalmMicrophoneDialog: View {
 
     private func refresh() {
         devices = appState.availableInputDevices()
+        appState.reconcileSelectedAudioDevice(with: devices)
         if let selectedDevice { appState.selectAudioDevice(selectedDevice) }
         syncChannel()
     }

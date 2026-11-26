@@ -308,7 +308,6 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         let modelManager = MockModelManager()
         modelManager.downloadedModels = [.parakeetUnified]
         let transcriber = MockWhisperService()
-        transcriber.loadResponses = [.success(ModelSize.parakeetUnified.rawValue)]
         let (app, mocks) = AppState.makeTestState(modelManager: modelManager, transcriber: transcriber)
         let originalModel = app.selectedModelSize
         defer {
@@ -321,11 +320,40 @@ final class AppStateProcessWhileSpeakingTests: XCTestCase {
         // A backup turns streaming on and picks another model.
         app.parakeetLiveStreaming = true
         app.selectedModelSize = ModelSize.parakeetV3.rawValue
-        app.reloadImportedSettings()
-        await app.reloadModelForLiveStreamingChangeIfNeeded()
+        await app.applyImportedSpeechModel()
 
         XCTAssertEqual(app.selectedModelSize, ModelSize.parakeetV3.rawValue)
-        XCTAssertEqual(mocks.transcriber.loadRequests.count, 1, "the old model is not reloaded")
+        let loadedNames = mocks.transcriber.loadRequests.map(\.name)
+        XCTAssertEqual(loadedNames.last, modelManager.modelIdentifier(for: .parakeetV3), "the imported model loads")
+        XCTAssertFalse(loadedNames.dropFirst().contains(modelManager.modelIdentifier(for: .parakeetUnified)),
+                       "the old model is not reloaded")
+    }
+
+    func testImportedModelThisMacCantRunKeepsTheLoadedModel() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small]
+        modelManager.supportedModels = ModelSize.allCases.filter { $0 != .appleSpeech }
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager)
+        await app.loadModel(.small)
+        let loadsBefore = mocks.transcriber.loadRequests.count
+
+        app.selectedModelSize = ModelSize.appleSpeech.rawValue
+        await app.applyImportedSpeechModel()
+
+        XCTAssertEqual(app.selectedModelSize, ModelSize.small.rawValue)
+        XCTAssertEqual(mocks.transcriber.loadRequests.count, loadsBefore, "nothing to reload")
+    }
+
+    func testImportedModelWaitsForTheNextDictationWhenNothingIsLoaded() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.small, .medium]
+        let (app, mocks) = AppState.makeTestState(modelManager: modelManager)
+
+        app.selectedModelSize = ModelSize.medium.rawValue
+        await app.applyImportedSpeechModel()
+
+        XCTAssertEqual(app.selectedModelSize, ModelSize.medium.rawValue)
+        XCTAssertTrue(mocks.transcriber.loadRequests.isEmpty)
     }
 
     func testStreamingSettingIsSearchableAndArchived() {

@@ -227,6 +227,37 @@ extension AppState {
     /// matches the loaded encoder (a Unified checkpoint's streaming export is
     /// a different model).
     ///
+    /// After a settings import, which writes `selectedModelSize` directly.
+    ///
+    /// Without this the old model kept decoding while recording choices read
+    /// the imported one, and the switch happened silently at the next idle
+    /// reload, downloading first if needed. Now the imported model loads at
+    /// once with the usual progress. One this Mac can't run (Apple Speech
+    /// before macOS 26, say) is not kept: the loaded model stays chosen, or
+    /// the same fallback launch uses. When the model doesn't change, an
+    /// imported "Transcribe as you speak" is applied to it.
+    func applyImportedSpeechModel() async {
+        let imported = ModelSize(rawValue: selectedModelSize)
+        let usable = imported.flatMap { modelManager.isModelSupported($0) ? $0 : nil }
+            ?? currentModel?.size
+            ?? startupFallbackModel(for: imported ?? .tiny)
+        if usable.rawValue != selectedModelSize {
+            VocaLogger.warning(
+                .appState,
+                "Imported speech model \(selectedModelSize) can't run on this Mac; keeping \(usable.displayName)"
+            )
+            selectedModelSize = usable.rawValue
+        }
+        guard let loaded = currentModel?.size, loaded != usable else {
+            // Nothing loaded: the next dictation loads the choice. Same model:
+            // only the streaming encoder may need to change.
+            await reloadModelForLiveStreamingChangeIfNeeded()
+            return
+        }
+        VocaLogger.info(.appState, "Settings import chose \(usable.displayName) — loading it")
+        await loadModel(usable)
+    }
+
     /// Queued behind any model operation in progress and decided only once it
     /// has finished: a change made while a load is under way is compared
     /// with what that load actually produced, so it is never dropped.

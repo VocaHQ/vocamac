@@ -2835,10 +2835,10 @@ final class AppState: ObservableObject {
         syncShortcutConfiguration()
         syncLaunchAtLogin()
         refreshActiveWritingStyle()
-        // An imported "Transcribe as you speak" only takes effect with the
-        // matching encoder; a no-op when the loaded one already matches.
+        // Puts the imported speech model (and its "Transcribe as you speak"
+        // encoder) into use now rather than at the next idle reload.
         Task { @MainActor [weak self] in
-            await self?.reloadModelForLiveStreamingChangeIfNeeded()
+            await self?.applyImportedSpeechModel()
         }
         objectWillChange.send()
     }

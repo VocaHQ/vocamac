@@ -3,7 +3,7 @@
 //
 // Trimmed copy of swift-api-examples/SherpaOnnx.swift from the sherpa-onnx
 // project (https://github.com/k2-fsa/sherpa-onnx), release
-// v1.13.8, Copyright (c) 2023 Xiaomi
+// v2.0.3, Copyright (c) 2023 Xiaomi
 // Corporation, Apache License 2.0.
 //
 // The upstream file lives in the package's example target and declares
@@ -363,6 +363,15 @@ func sherpaOnnxOfflineModelConfig(
   )
 }
 
+func sherpaOnnxOfflineCtcFstDecoderConfig(
+  graph: String = "",
+  maxActive: Int = 3000
+) -> SherpaOnnxOfflineCtcFstDecoderConfig {
+  return SherpaOnnxOfflineCtcFstDecoderConfig(
+    graph: toCPointer(graph),
+    max_active: Int32(maxActive))
+}
+
 func sherpaOnnxOfflineRecognizerConfig(
   featConfig: SherpaOnnxFeatureConfig,
   modelConfig: SherpaOnnxOfflineModelConfig,
@@ -374,7 +383,8 @@ func sherpaOnnxOfflineRecognizerConfig(
   ruleFsts: String = "",
   ruleFars: String = "",
   blankPenalty: Float = 0.0,
-  hr: SherpaOnnxHomophoneReplacerConfig = sherpaOnnxHomophoneReplacerConfig()
+  hr: SherpaOnnxHomophoneReplacerConfig = sherpaOnnxHomophoneReplacerConfig(),
+  ctcFstDecoderConfig: SherpaOnnxOfflineCtcFstDecoderConfig = sherpaOnnxOfflineCtcFstDecoderConfig()
 ) -> SherpaOnnxOfflineRecognizerConfig {
   return SherpaOnnxOfflineRecognizerConfig(
     feat_config: featConfig,
@@ -387,6 +397,7 @@ func sherpaOnnxOfflineRecognizerConfig(
     rule_fsts: toCPointer(ruleFsts),
     rule_fars: toCPointer(ruleFars),
     blank_penalty: blankPenalty,
-    hr: hr
+    hr: hr,
+    ctc_fst_decoder_config: ctcFstDecoderConfig
   )
 }

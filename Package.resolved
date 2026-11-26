@@ -14,8 +14,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/FluidInference/FluidAudio.git",
       "state" : {
-        "revision" : "c8b41f98eae668794dd0083bbe028fe7e6585051",
-        "version" : "0.18.3"
+        "revision" : "e0c6103bc87a88d25276cad491c86e757f58c865",
+        "version" : "0.18.4"
       }
     },
     {
@@ -41,8 +41,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/k2-fsa/sherpa-onnx",
       "state" : {
-        "revision" : "11afbd009a7f8c08f4bcf2fc1b265d0df4670fbf",
-        "version" : "1.13.8"
+        "revision" : "38016c6e0622e90bf417c35e8b47e0eb805af417",
+        "version" : "2.0.3"
       }
     },
     {

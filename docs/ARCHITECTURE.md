@@ -57,7 +57,7 @@ only through `DictationOutputPipeline` / `TranscriptCleanupService`.
 | Whisper | [WhisperKit](https://github.com/argmaxinc/argmax-oss-swift) (CoreML) | `.upToNextMinor(from: "1.1.0")` |
 | Parakeet, Silero VAD | [FluidAudio](https://github.com/FluidInference/FluidAudio) (CoreML) | `.upToNextMinor(from: "0.17.5")` |
 | Apple Speech | `SpeechAnalyzer` / `SpeechTranscriber` | macOS 26+ at runtime |
-| Specialized models | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ONNX Runtime, CPU) | exact `1.13.8` |
+| Specialized models | [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) (ONNX Runtime, CPU) | exact `2.0.3` |
 | Cleanup model | [LLM.swift](https://github.com/eastriverlee/LLM.swift) (llama.cpp, Metal) | exact `3.0.3` |
 | Build | Swift Package Manager; `.app` via `scripts/build.sh` (`xcodebuild`) | — |
 

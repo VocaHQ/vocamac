@@ -184,8 +184,10 @@ struct CalmModelsOnThisMac: View {
         switch id {
         case .speech(let size):
             guard let info = appState.availableModels.first(where: { $0.size == size }) else {
-                // Not offered here, so not loadable: removable unless loaded.
+                // Not offered here, but an imported setting can still name it:
+                // removable unless loaded or chosen.
                 return appState.calmLoadedSpeechModel != size && size != .tiny
+                    && size.rawValue != appState.selectedModelSize
             }
             return CalmSpeechPickFlow.canRemove(info, selectedModelSize: appState.selectedModelSize)
         case .writing(let kind):

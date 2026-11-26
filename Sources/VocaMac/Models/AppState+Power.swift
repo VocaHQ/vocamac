@@ -210,16 +210,19 @@ extension AppState {
         }
     }
 
-    /// The chosen speech model is not on this Mac and none is on the way.
+    /// The speech model the next dictation would load is not on this Mac and
+    /// none is on the way.
     ///
     /// A model that is downloaded but not loaded yet, or unloaded on purpose
     /// (idle timeout, auto-pause), is not missing: the next dictation loads it.
+    /// Nor is a chosen model the launch stand-in covers for (`modelToReload`).
     var needsSpeechModel: Bool {
-        appStatus == .idle
+        let reloadTarget = modelToReload.size
+        return appStatus == .idle
             && !transcriber.isModelLoaded
             // Not yet populated at launch: nothing is known to be missing.
             && !availableModels.isEmpty
-            && !availableModels.contains { $0.size.rawValue == selectedModelSize && $0.isDownloaded }
+            && !availableModels.contains { $0.size == reloadTarget && $0.isDownloaded }
             && !availableModels.contains { $0.isLoading || $0.downloadProgress != nil }
     }
 

@@ -751,6 +751,33 @@ final class CommandModeAutomationTests: XCTestCase {
         XCTAssertEqual(fixture.app.appStatus, .idle)
     }
 
+    func testACancelledActionLeavesTheNextCommandsSessionAlone() async {
+        let fixture = makeFixture(selected: "the selected text")
+        fixture.app.voiceActionsEnabled = true
+        fixture.app.voiceActionShortcuts = "Morning Routine"
+        let gate = StepGate()
+        fixture.actions.gate = gate
+
+        let first = Task { await say("run the shortcut Morning Routine", fixture) }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        await fixture.app.cancelDictation()
+
+        // The next command starts while the cancelled one is still waiting.
+        await fixture.app.beginCommandMode()
+        XCTAssertTrue(fixture.app.isRecording)
+        let session = fixture.app.commandModeSession
+        XCTAssertNotNil(session)
+        XCTAssertNotNil(fixture.app.activeCommandEngine)
+
+        gate.open()
+        await first.value
+
+        XCTAssertEqual(fixture.app.commandModeSession, session, "the cancelled command must not end the new one")
+        XCTAssertNotNil(fixture.app.activeCommandEngine, "nor give back the model it is using")
+        await fixture.app.cancelDictation()
+    }
+
     func testAShortcutRunsOnlyWhenItIsOnTheList() async {
         let fixture = makeFixture(selected: "the selected text")
         fixture.app.voiceActionsEnabled = true

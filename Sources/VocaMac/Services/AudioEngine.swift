@@ -231,6 +231,10 @@ final class AudioEngine: @unchecked Sendable {
     /// phase and seen zero, any later callback sees the stopped phase.
     private let buffersInFlight = OSAllocatedUnfairLock(initialState: 0)
     private var configuredInputDeviceID: AudioDeviceID?
+    /// The engine's I/O unit had its output side turned off to record from a
+    /// chosen microphone (`makeInputOnly`). Following the system input needs
+    /// a fresh engine again.
+    private var engineIsInputOnly = false
     /// Zero-based input channel chosen by the user for multi-channel devices.
     /// Read by the input tap, so it lives in `captureSettings`.
     private var preferredInputChannel: Int {
@@ -438,6 +442,7 @@ final class AudioEngine: @unchecked Sendable {
         pendingEngineRelease = nil
 
         configuredInputDeviceID = nil
+        engineIsInputOnly = false
         guard let engine else { return }
         NotificationCenter.default.removeObserver(self, name: .AVAudioEngineConfigurationChange, object: engine)
         self.engine = nil
@@ -572,6 +577,7 @@ final class AudioEngine: @unchecked Sendable {
         pendingEngineRelease?.cancel()
         pendingEngineRelease = nil
         configuredInputDeviceID = nil
+        engineIsInputOnly = false
 
         guard let oldEngine = engine else { return }
 
@@ -752,6 +758,12 @@ final class AudioEngine: @unchecked Sendable {
                     return abandonCancelledStart()
                 }
 
+                // An engine made input-only for a chosen microphone can't
+                // follow the system input (its output side is off).
+                if engineIsInputOnly, Self.followsSystemInput(preferredInputDeviceUID: preferredInputDeviceID) {
+                    VocaLogger.info(.audioEngine, "Following the system input again: replacing the engine set up for a chosen microphone")
+                    retireEngineAfterConfigurationChange()
+                }
                 let engine = acquireEngine()
                 let inputNode = engine.inputNode
                 guard let configuredInputDeviceID = configureInputRoute(
@@ -1868,6 +1880,21 @@ final class AudioEngine: @unchecked Sendable {
         return nil
     }
 
+    /// Whether a start with this saved microphone follows the system input:
+    /// none is chosen, it isn't connected, or it is the system input.
+    /// - Parameters:
+    ///   - deviceForUID: Resolves a UID to a connected input device.
+    ///   - defaultDevice: The system input. Both are seams for tests.
+    static func followsSystemInput(
+        preferredInputDeviceUID: String?,
+        deviceForUID: (String) -> AudioDeviceID? = { inputAudioDeviceID(forUID: $0) },
+        defaultDevice: () -> AudioDeviceID? = { defaultInputAudioDeviceID() }
+    ) -> Bool {
+        let uid = preferredInputDeviceUID?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requested: AudioDeviceID? = uid.flatMap { $0.isEmpty ? nil : deviceForUID($0) }
+        return shouldFollowSystemDefaultInput(requestedDeviceID: requested, defaultDeviceID: defaultDevice())
+    }
+
     /// System Default and a pinned device that is already the default should be
     /// left to AVAudioEngine. Setting CurrentDevice is reserved for a real
     /// non-default override.
@@ -1954,6 +1981,13 @@ final class AudioEngine: @unchecked Sendable {
         }
         defer { NotificationCenter.default.removeObserver(observer) }
 
+        // AVAudioEngine drives input and output with one I/O unit. When the
+        // system input and output are the same Bluetooth headset, that unit
+        // runs on a Core Audio aggregate of both, and pointing it at another
+        // microphone fails (-10851) and leaves it with no device, so the
+        // start fails with -10868. VocaMac never plays through this engine:
+        // turn the output side off first, so the unit can take any input.
+        if Self.makeInputOnly(audioUnit) { engineIsInputOnly = true }
         guard Self.applyInputDevice(targetDeviceID, to: audioUnit) else {
             VocaLogger.warning(.audioEngine, "Failed to set input device \(targetDeviceID)")
             return nil

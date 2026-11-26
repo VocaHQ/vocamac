@@ -7,6 +7,7 @@
 // shows the error, and VocaMac reported the action as done.
 
 import Foundation
+import os
 
 enum ShortcutsLibrary {
     private static let tool = URL(fileURLWithPath: "/usr/bin/shortcuts")
@@ -20,12 +21,32 @@ enum ShortcutsLibrary {
         return nil
 #else
         guard FileManager.default.isExecutableFile(atPath: tool.path) else { return nil }
-        return await withCheckedContinuation { continuation in
-            DispatchQueue.global(qos: .userInitiated).async {
-                continuation.resume(returning: runList(timeout: timeout))
+        return await names(within: timeout) { runList(timeout: timeout) }
+#endif
+    }
+
+    /// Runs `list` on a background thread and answers with its result, or
+    /// nil at `deadline` whichever comes first. The deadline holds even if
+    /// `list` never returns (a child that ignores termination): the caller
+    /// is never kept waiting past it.
+    static func names(
+        within deadline: TimeInterval,
+        list: @escaping @Sendable () -> [String]?
+    ) async -> [String]? {
+        await withCheckedContinuation { continuation in
+            // Resumed exactly once, by whichever side gets here first.
+            let pending = OSAllocatedUnfairLock<CheckedContinuation<[String]?, Never>?>(initialState: continuation)
+            let finish: @Sendable ([String]?) -> Void = { names in
+                pending.withLock { pending in
+                    pending?.resume(returning: names)
+                    pending = nil
+                }
+            }
+            DispatchQueue.global(qos: .userInitiated).async { finish(list()) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + deadline) {
+                finish(nil)
             }
         }
-#endif
     }
 
     /// The installed spelling of `name`: an exact match first, then one that
@@ -58,10 +79,17 @@ enum ShortcutsLibrary {
             VocaLogger.warning(.general, "Couldn't list Shortcuts: \(error.localizedDescription)")
             return nil
         }
-        // Only terminated from the timer; Process is thread-safe for that.
+        // Only stopped from the timer; Process is thread-safe for that. A
+        // child that ignores SIGTERM is killed a second later, so this thread
+        // (already abandoned by `names(within:)`) doesn't wait on it forever.
         let box = UncheckedSendableBox(process)
         let timer = DispatchWorkItem {
-            if box.value.isRunning { box.value.terminate() }
+            guard box.value.isRunning else { return }
+            box.value.terminate()
+            let pid = box.value.processIdentifier
+            DispatchQueue.global().asyncAfter(deadline: .now() + 1) {
+                if box.value.isRunning { kill(pid, SIGKILL) }
+            }
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timer)
         let data = output.fileHandleForReading.readDataToEndOfFile()

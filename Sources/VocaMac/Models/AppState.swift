@@ -2407,7 +2407,7 @@ final class AppState: ObservableObject {
     /// Delete a downloaded model the picker doesn't list, unless it is the
     /// one loaded.
     private func deleteUnlistedModel(_ size: ModelSize) async {
-        guard calmLoadedSpeechModel != size, size != .tiny else { return }
+        guard calmLoadedSpeechModel != size, size.rawValue != selectedModelSize, size != .tiny else { return }
         do {
             try await modelManager.deleteModel(size)
             CompiledModelRecord().forget(size)

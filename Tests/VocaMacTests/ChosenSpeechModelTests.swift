@@ -76,4 +76,33 @@ final class ChosenSpeechModelTests: XCTestCase {
         await appState.unloadActiveModel(reason: .idleKeepAlive)
         XCTAssertEqual(appState.dictationModelSize, .tiny)
     }
+
+    func testChosenModelMissingFromTheListCantBeDeleted() async {
+        // A settings import can choose an older download the picker no longer lists.
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny, .medium]
+        let (appState, _) = AppState.makeTestState(modelManager: modelManager)
+        appState.availableModels.removeAll { $0.size == .medium }
+        appState.selectedModelSize = ModelSize.medium.rawValue
+
+        await appState.deleteModel(.medium)
+
+        XCTAssertTrue(modelManager.deletedModels.isEmpty)
+    }
+
+    func testStandInCoveringForAMissingChoiceDoesntAskToSetUp() async {
+        let modelManager = MockModelManager()
+        modelManager.downloadedModels = [.tiny]
+        let (appState, _) = AppState.makeTestState(modelManager: modelManager)
+        appState.selectedModelSize = ModelSize.medium.rawValue
+        appState.startupModelStandIn = .tiny
+        await appState.loadModel(.tiny, persistsSelection: false)
+        await appState.unloadActiveModel(reason: .idleKeepAlive)
+        appState.refreshModelStatuses()
+
+        XCTAssertFalse(appState.needsSpeechModel, "Tiny reloads offline; nothing to set up")
+
+        appState.startupModelStandIn = nil
+        XCTAssertTrue(appState.needsSpeechModel, "Without a stand-in the missing choice must be set up")
+    }
 }

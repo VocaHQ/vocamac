@@ -13,14 +13,16 @@ extension AppState {
 
     // MARK: - Model Management
 
-    func loadModel(_ size: ModelSize? = nil) async {
+    /// - Parameter persistsSelection: False only for a stand-in loaded because
+    ///   the chosen model isn't available; the saved choice is left alone.
+    func loadModel(_ size: ModelSize? = nil, persistsSelection: Bool = true) async {
         _ = try? await modelOperationSerializer.run { [self] in
-            await performLoadModel(size)
+            await performLoadModel(size, persistsSelection: persistsSelection)
         }
     }
 
     /// Perform one model load after earlier model operations have completed.
-    func performLoadModel(_ size: ModelSize? = nil) async {
+    func performLoadModel(_ size: ModelSize? = nil, persistsSelection: Bool = true) async {
         loadGeneration += 1
         let generation = loadGeneration
 
@@ -160,7 +162,10 @@ extension AppState {
             }
 
             // Persist the resolved model as the user's preference
-            selectedModelSize = targetSize.rawValue
+            if persistsSelection {
+                selectedModelSize = targetSize.rawValue
+                startupModelStandIn = nil
+            }
 
             // The outgoing model was in use until now.
             stampModelsInUse()

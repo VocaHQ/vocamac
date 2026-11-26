@@ -7,6 +7,7 @@ import XCTest
 import AVFoundation
 import CoreAudio
 @testable import VocaMac
+import VocaMacObjC
 
 // MARK: - KeyCodeReference Tests
 
@@ -962,45 +963,30 @@ final class AudioEngineTests: XCTestCase {
     }
 
     /// A sleep notice that lands while a stop is collecting its last buffer
-    /// queues the release ahead of the stop's teardown. The retired engine
-    /// must not keep its tap running into the next dictation (vocamac#439).
-    func testReleasingTheIdleEngineDuringAStopLeavesOneStream() throws {
-        try skipWithoutRealAudioInput()
+    /// queues the release ahead of the stop's teardown, so the release finds
+    /// the engine still running with its tap. It must stop it and take the
+    /// tap off, or the retired engine feeds the next dictation (vocamac#439).
+    /// An offline graph stands in for the microphone.
+    func testReleasingTheIdleEngineStopsItAndTakesItsTapOff() throws {
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16_000, channels: 1))
+        let graph = AVAudioEngine()
+        try graph.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 1024)
+        XCTAssertTrue(graph.inputNode.setManualRenderingInputPCMFormat(format) { _ in nil })
+        graph.connect(graph.inputNode, to: graph.mainMixerNode, format: format)
+        graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { _, _ in }
+        try graph.start()
         let engine = AudioEngine()
-        let buffer = XCTestExpectation(description: "A buffer just arrived")
-        buffer.assertForOverFulfill = false
-        engine.onAudioLevel = { _ in buffer.fulfill() }
-        let didStart = engine.startRecording(silenceThreshold: 0.01, silenceDuration: 999.0, maxDuration: 60.0)
-        try XCTSkipIf(!didStart, "No microphone available or Core Audio input could not start")
-        wait(for: [buffer], timeout: 5.0)
+        engine.holdIdleEngineForTesting(graph)
 
-        // Stop right after a buffer, so the stop holds the queue waiting for
-        // the next one (~85 ms), and send the release in that window.
-        let next = XCTestExpectation(description: "The buffer before the stop")
-        next.assertForOverFulfill = false
-        engine.onAudioLevel = { _ in next.fulfill() }
-        wait(for: [next], timeout: 2.0)
-        engine.onAudioLevel = nil
-        let stopped = XCTestExpectation(description: "Stopped")
-        DispatchQueue.global().async {
-            _ = engine.stopRecording()
-            stopped.fulfill()
-        }
-        Thread.sleep(forTimeInterval: 0.01)
         engine.releaseIdleEngine()
-        wait(for: [stopped], timeout: 2.0)
 
-        // The next dictation, within the retired engine's three-second hold.
-        let started = Date()
-        XCTAssertTrue(engine.startRecording(silenceThreshold: 0.01, silenceDuration: 999.0, maxDuration: 60.0))
-        Thread.sleep(forTimeInterval: 1.0)
-        let samples = engine.stopRecording()
-        let elapsed = Date().timeIntervalSince(started)
-
-        XCTAssertLessThan(
-            Double(samples.count), elapsed * AudioEngine.whisperFormat.sampleRate * 1.3,
-            "only one engine's tap may feed the recording"
-        )
+        XCTAssertFalse(engine.isEngineAllocatedForTesting, "the engine is released")
+        XCTAssertFalse(graph.isRunning, "the released engine is stopped")
+        // A second tap on the same bus raises; installing one proves the old tap is gone.
+        let exception = VocaObjCExceptionCatcher.catchException {
+            graph.inputNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { _, _ in }
+        }
+        XCTAssertNil(exception, "the released engine's tap is removed")
     }
 
     func testStopKeepsEngineWarmUntilIdleRelease() throws {

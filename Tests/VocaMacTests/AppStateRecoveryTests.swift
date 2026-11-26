@@ -289,6 +289,36 @@ final class AppStateRecoveryTests: XCTestCase {
         XCTAssertFalse(appState.isRecording)
     }
 
+    func testSleepWhileIdleReleasesTheWarmAudioEngine() {
+        // vocamac#400: an engine kept across sleep could deadlock the first
+        // start after wake.
+        let (appState, mocks) = AppState.makeTestState()
+
+        appState.handleWillSleep()
+
+        XCTAssertEqual(mocks.audioEngine.releaseIdleEngineCallCount, 1)
+        XCTAssertEqual(mocks.audioEngine.forceResetCallCount, 0, "Nothing to recover from")
+    }
+
+    func testWakeReleasesAnIdleAudioEngine() {
+        let (appState, mocks) = AppState.makeTestState()
+
+        appState.handleDidWake()
+
+        XCTAssertEqual(mocks.audioEngine.releaseIdleEngineCallCount, 1)
+    }
+
+    func testSleepMidDictationDoesNotReleaseTheEngineUnderIt() async {
+        let (appState, mocks) = AppState.makeTestState()
+        mocks.audioEngine.stopRecordingResult = speech
+
+        await appState.startRecording()
+        appState.handleWillSleep()
+
+        XCTAssertEqual(mocks.audioEngine.releaseIdleEngineCallCount, 0)
+        await waitUntil { mocks.textInjector.injectCallCount == 1 }
+    }
+
     func testIdleUnloadIsSkippedWhenADictationStartedSince() async {
         let (appState, mocks) = AppState.makeTestState()
 

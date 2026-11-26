@@ -1021,6 +1021,25 @@ final class AudioEngine: @unchecked Sendable {
         }
     }
 
+    /// Drop a stopped engine kept warm for the next dictation (wired and
+    /// built-in mics keep one; see `releasesEngineWhenIdle`).
+    ///
+    /// Called around system sleep: an engine kept across sleep holds Core
+    /// Audio state that wake invalidates, and the first start after wake
+    /// could deadlock inside AVFAudio (GetHWFormat on our queue against
+    /// IOUnitConfigurationChanged on the engine's), leaving the app stuck
+    /// "recording" (vocamac#400). Unlike `forceReset` it never touches a
+    /// recording that is running or starting.
+    func releaseIdleEngine() {
+        lifecycleQueue.async { [self] in
+            guard engine != nil, !_isCurrentlyRecording, !isPreparingRecording else { return }
+            VocaLogger.info(.audioEngine, "Releasing the idle audio engine around system sleep")
+            // Detached, not deallocated here: AVFAudio may still be running
+            // its own callbacks for this engine.
+            retireEngineAfterConfigurationChange()
+        }
+    }
+
     /// Forcibly reset the audio engine to a clean state, regardless of current state.
     /// This is a last-resort recovery mechanism — it unconditionally tears down
     /// taps, stops the engine, clears buffers, and resets all flags.

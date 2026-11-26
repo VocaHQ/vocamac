@@ -163,7 +163,7 @@ enum VoiceActionError: Error, Equatable {
         case .appNotFound(let name):
             return "No app named “\(name)” was found."
         case .shortcutNotAllowed(let name):
-            return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it in Settings → Command Mode → Voice Actions."
+            return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it under Voice actions on the Commands page."
         case .failed(let why):
             return why
         }

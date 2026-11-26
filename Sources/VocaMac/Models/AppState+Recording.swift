@@ -261,7 +261,7 @@ extension AppState {
                 discardEarlyCapture()
                 endHotKeyToggleSession()
                 showOverlayFailure("Couldn't load the speech model.")
-                showTemporaryError("Could not load the speech model. Open Settings → Speech Model and try again.")
+                showTemporaryError("Could not load the speech model. Open Settings › Models and try again.")
                 return
             }
             appStatus = .idle
@@ -412,7 +412,7 @@ extension AppState {
             let deviceDescription = selectedAudioDeviceName.isEmpty
                 ? "the system default microphone"
                 : selectedAudioDeviceName
-            showTemporaryError("Could not start \(deviceDescription). Pick a different input in Settings → Audio, or reconnect the device.")
+            showTemporaryError("Could not start \(deviceDescription). Pick a different one in Settings › General › Microphone, or reconnect the device.")
             return
         }
 
@@ -781,7 +781,7 @@ extension AppState {
             cursorOverlay.hide()
             // Don't keep a route warm when it produced only silence.
             audioEngine.forceReset()
-            let message = "No microphone audio detected. Check that the selected microphone is connected and available in Settings → Audio."
+            let message = "No microphone audio detected. Check that the selected microphone is connected and chosen in Settings › General › Microphone."
             VocaLogger.warning(.appState, message)
             showTemporaryError(message)
             return

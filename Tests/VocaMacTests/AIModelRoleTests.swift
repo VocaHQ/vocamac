@@ -265,11 +265,11 @@ final class AIModelRoleTests: XCTestCase {
         XCTAssertTrue(ModelSize.allCases.contains { $0.translatesToEnglish })
     }
 
-    func testCommandModeProblemsPointToTheCommandModePage() {
+    func testCommandModeProblemsPointToTheModelsPage() {
         let (state, cleanup) = makeState()
         cleanup.downloadedKinds = []
         let problem = state.commandModeProblem(for: .local(.qwen3_4b_instruct_2507_q4_k_m))
-        XCTAssertEqual(problem?.contains("Settings → Command Mode"), true)
+        XCTAssertEqual(problem?.contains("Settings › Models"), true)
         XCTAssertEqual(problem?.contains("Cleanup"), false)
     }
 }

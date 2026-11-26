@@ -88,4 +88,32 @@ extension AudioEngine {
         VocaLogger.info(.audioEngine, "Input tap format moved from \(Int(clientRate))Hz to the device's \(Int(hardwareRate))Hz")
         return true
     }
+
+    /// Turns off the output side of an I/O unit so it can record from a
+    /// device other than the one the system output uses. The unit must not
+    /// be running; it is uninitialized first, as `EnableIO` requires.
+    /// - Returns: Whether output is now off.
+    @discardableResult
+    static func makeInputOnly(_ audioUnit: AudioUnit) -> Bool {
+        var enabled: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let outputElement: AudioUnitElement = 0
+        if AudioUnitGetProperty(
+            audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, outputElement, &enabled, &size
+        ) == noErr, enabled == 0 {
+            return true
+        }
+        AudioUnitUninitialize(audioUnit)
+        var off: UInt32 = 0
+        let status = AudioUnitSetProperty(
+            audioUnit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, outputElement,
+            &off, UInt32(MemoryLayout<UInt32>.size)
+        )
+        guard status == noErr else {
+            VocaLogger.warning(.audioEngine, "Couldn't make the input unit input-only (status \(status))")
+            return false
+        }
+        VocaLogger.debug(.audioEngine, "Input unit made input-only for a chosen microphone")
+        return true
+    }
 }

@@ -90,4 +90,46 @@ final class AudioInputFormatTests: XCTestCase {
         XCTAssertFalse(AudioEngine.alignInputClientRate(hardwareRate: 48_000, clientRate: 24_000, access: unit.access))
         XCTAssertEqual(unit.format.mSampleRate, 24_000)
     }
+
+    // MARK: - Input-only unit for a chosen microphone
+
+    /// A standalone HAL I/O unit, like the one AVAudioEngine's input node uses.
+    private func makeHALUnit() throws -> AudioUnit {
+        var description = AudioComponentDescription(
+            componentType: kAudioUnitType_Output, componentSubType: kAudioUnitSubType_HALOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple, componentFlags: 0, componentFlagsMask: 0
+        )
+        let component = try XCTUnwrap(AudioComponentFindNext(nil, &description))
+        var unit: AudioUnit?
+        XCTAssertEqual(AudioComponentInstanceNew(component, &unit), noErr)
+        return try XCTUnwrap(unit)
+    }
+
+    private func outputEnabled(_ unit: AudioUnit) -> UInt32 {
+        var enabled: UInt32 = 99
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        AudioUnitGetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &enabled, &size)
+        return enabled
+    }
+
+    func testAChosenMicrophoneTurnsTheUnitsOutputOff() throws {
+        // A shared input/output unit can't take another microphone while it
+        // drives the system output (a Bluetooth headset's aggregate): -10851.
+        let unit = try makeHALUnit()
+        defer { AudioComponentInstanceDispose(unit) }
+        XCTAssertEqual(outputEnabled(unit), 1, "a HAL unit starts with output on")
+
+        XCTAssertTrue(AudioEngine.makeInputOnly(unit))
+        XCTAssertEqual(outputEnabled(unit), 0)
+        XCTAssertTrue(AudioEngine.makeInputOnly(unit), "already input-only is fine")
+    }
+
+    func testNoChosenMicrophoneFollowsTheSystemInput() {
+        XCTAssertTrue(AudioEngine.followsSystemInput(preferredInputDeviceUID: nil))
+        XCTAssertTrue(AudioEngine.followsSystemInput(preferredInputDeviceUID: "  "))
+        XCTAssertTrue(
+            AudioEngine.followsSystemInput(preferredInputDeviceUID: "no-such-microphone"),
+            "a chosen microphone that isn't connected falls back to the system input"
+        )
+    }
 }

@@ -77,16 +77,7 @@ extension AppState {
             self?.handleWillSleep()
         }
         sleepWakeMonitor.onDidWake = { [weak self] in
-            guard let self else { return }
-            VocaLogger.info(.appState, "Wake recovery: refreshing hotkey health")
-            self.checkPermissions()
-            if self.permissionManager.allPermissionsGranted {
-                self.syncHotKeyConfiguration()
-                self.restartHotKeyListenerIfNeeded()
-            }
-            if !self.isAutoPaused {
-                self.modelKeepAlive.bump()
-            }
+            self?.handleDidWake()
         }
 
         $appStatus
@@ -116,11 +107,33 @@ extension AppState {
     /// the key came up rather than discarded: its audio is saved to History
     /// first, so it is transcribed (now or after wake) or can be retried,
     /// instead of lost with a closed lid.
+    ///
+    /// An idle engine kept warm for the next dictation is released, so wake
+    /// starts on a fresh one (vocamac#400).
     func handleWillSleep() {
         modelKeepAlive.cancel()
-        guard isCapturingAudio else { return }
+        guard isCapturingAudio else {
+            audioEngine.releaseIdleEngine()
+            return
+        }
         VocaLogger.info(.appState, "Mac is going to sleep mid-dictation — stopping and keeping the audio")
         Task { @MainActor [weak self] in await self?.stopRecordingAndTranscribe() }
+    }
+
+    /// The Mac woke: refresh hotkey health and permissions.
+    func handleDidWake() {
+        VocaLogger.info(.appState, "Wake recovery: refreshing hotkey health")
+        // Backstop for an engine created between the sleep notice and sleep
+        // itself (vocamac#400); a dictation started since wake is left alone.
+        audioEngine.releaseIdleEngine()
+        checkPermissions()
+        if permissionManager.allPermissionsGranted {
+            syncHotKeyConfiguration()
+            restartHotKeyListenerIfNeeded()
+        }
+        if !isAutoPaused {
+            modelKeepAlive.bump()
+        }
     }
 
     /// Unload the resident model and clear active UI flags.

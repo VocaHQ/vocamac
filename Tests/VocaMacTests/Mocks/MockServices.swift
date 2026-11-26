@@ -91,6 +91,11 @@ final class MockAudioEngine: AudioRecording {
         isCurrentlyRecording = false
     }
 
+    var releaseIdleEngineCallCount = 0
+    func releaseIdleEngine() {
+        releaseIdleEngineCallCount += 1
+    }
+
     func checkPermissionStatus() -> PermissionStatus {
         permissionStatus
     }

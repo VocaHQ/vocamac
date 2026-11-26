@@ -32,11 +32,16 @@ protocol AudioRecording: AnyObject {
     @discardableResult func stopRecording() -> [Float]
     func cancelPendingStart()
     func forceReset()
+    /// Drop a stopped engine kept warm between dictations; no-op while a
+    /// recording is running or starting.
+    func releaseIdleEngine()
     func checkPermissionStatus() -> PermissionStatus
     func requestPermission(completion: @escaping @Sendable (Bool) -> Void)
 }
 
 extension AudioRecording {
+    func releaseIdleEngine() {}
+
     var onAudioSamples: (@Sendable ([Float], Int) -> Void)? {
         get { nil }
         // swiftlint:disable:next unused_setter_value

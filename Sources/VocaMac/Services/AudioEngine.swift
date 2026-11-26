@@ -1882,10 +1882,17 @@ final class AudioEngine: @unchecked Sendable {
 
     /// Whether a start with this saved microphone follows the system input:
     /// none is chosen, it isn't connected, or it is the system input.
-    static func followsSystemInput(preferredInputDeviceUID: String?) -> Bool {
+    /// - Parameters:
+    ///   - deviceForUID: Resolves a UID to a connected input device.
+    ///   - defaultDevice: The system input. Both are seams for tests.
+    static func followsSystemInput(
+        preferredInputDeviceUID: String?,
+        deviceForUID: (String) -> AudioDeviceID? = { inputAudioDeviceID(forUID: $0) },
+        defaultDevice: () -> AudioDeviceID? = { defaultInputAudioDeviceID() }
+    ) -> Bool {
         let uid = preferredInputDeviceUID?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let requested: AudioDeviceID? = uid.flatMap { inputAudioDeviceID(forUID: $0) }
-        return shouldFollowSystemDefaultInput(requestedDeviceID: requested, defaultDeviceID: defaultInputAudioDeviceID())
+        let requested: AudioDeviceID? = uid.flatMap { $0.isEmpty ? nil : deviceForUID($0) }
+        return shouldFollowSystemDefaultInput(requestedDeviceID: requested, defaultDeviceID: defaultDevice())
     }
 
     /// System Default and a pinned device that is already the default should be

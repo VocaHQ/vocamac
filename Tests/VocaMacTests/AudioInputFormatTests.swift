@@ -124,12 +124,22 @@ final class AudioInputFormatTests: XCTestCase {
         XCTAssertTrue(AudioEngine.makeInputOnly(unit), "already input-only is fine")
     }
 
-    func testNoChosenMicrophoneFollowsTheSystemInput() {
-        XCTAssertTrue(AudioEngine.followsSystemInput(preferredInputDeviceUID: nil))
-        XCTAssertTrue(AudioEngine.followsSystemInput(preferredInputDeviceUID: "  "))
-        XCTAssertTrue(
-            AudioEngine.followsSystemInput(preferredInputDeviceUID: "no-such-microphone"),
-            "a chosen microphone that isn't connected falls back to the system input"
-        )
+    func testWhichStartsFollowTheSystemInput() {
+        // Devices supplied here, so the test doesn't depend on the host's audio hardware.
+        let connected: [String: AudioDeviceID] = ["usb": 86, "built-in": 81]
+        func follows(_ uid: String?, systemInput: AudioDeviceID? = 81) -> Bool {
+            AudioEngine.followsSystemInput(
+                preferredInputDeviceUID: uid,
+                deviceForUID: { connected[$0] },
+                defaultDevice: { systemInput }
+            )
+        }
+
+        XCTAssertTrue(follows(nil), "System Default")
+        XCTAssertTrue(follows("  "), "a blank choice is System Default")
+        XCTAssertTrue(follows("no-such-microphone"), "a chosen mic that isn't connected falls back")
+        XCTAssertTrue(follows("built-in"), "the chosen mic is the system input")
+        XCTAssertFalse(follows("usb"), "a chosen mic other than the system input")
+        XCTAssertFalse(follows(nil, systemInput: nil), "no system input: nothing to follow")
     }
 }

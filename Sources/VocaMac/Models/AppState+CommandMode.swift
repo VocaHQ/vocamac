@@ -634,7 +634,17 @@ extension AppState {
         // A shortcut gets the selection as its input; nothing else does.
         var input: String?
         if case .runShortcut = permitted { input = run.target.selectedText }
-        switch await voiceActionPerformer.perform(permitted, input: input) {
+        // Escape bumps `recordingGeneration`; that is what cancels a command.
+        let result = await voiceActionPerformer.perform(permitted, input: input) { [weak self] in
+            self?.recordingGeneration == run.generation
+        }
+        // Cancelled meanwhile: `cancelDictation` already reset the screen,
+        // and whatever happened isn't this command's result to publish.
+        guard run.generation == recordingGeneration else {
+            VocaLogger.info(.appState, "Command Mode action cancelled: \(permitted.summary)")
+            return
+        }
+        switch result {
         case .failure(let error):
             failCommand(error.message, detail: "\(permitted.summary) failed — \(error.message)", started: run.started)
         case .success:

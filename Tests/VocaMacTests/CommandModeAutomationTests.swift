@@ -731,6 +731,26 @@ final class CommandModeAutomationTests: XCTestCase {
         XCTAssertEqual(fixture.app.appStatus, .idle)
     }
 
+    func testEscapeDuringAnActionPublishesNoResult() async {
+        let fixture = makeFixture(selected: "the selected text")
+        fixture.app.voiceActionsEnabled = true
+        fixture.app.voiceActionShortcuts = "Morning Routine"
+        let gate = StepGate()
+        fixture.actions.gate = gate
+
+        let session = Task { await say("run the shortcut Morning Routine", fixture) }
+        let reachedGate = await gate.waitUntilReached()
+        XCTAssertTrue(reachedGate)
+        await fixture.app.cancelDictation()
+        gate.open()
+        await session.value
+
+        XCTAssertEqual(fixture.actions.stillWantedAfterGate, false, "the performer is told not to run it")
+        XCTAssertNil(fixture.app.lastCommandEdit, "a cancelled command records nothing")
+        XCTAssertNil(fixture.app.errorMessage, "and shows no error")
+        XCTAssertEqual(fixture.app.appStatus, .idle)
+    }
+
     func testAShortcutRunsOnlyWhenItIsOnTheList() async {
         let fixture = makeFixture(selected: "the selected text")
         fixture.app.voiceActionsEnabled = true

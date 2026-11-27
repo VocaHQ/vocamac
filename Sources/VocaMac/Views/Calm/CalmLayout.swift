@@ -517,7 +517,7 @@ struct CalmToggleRow: View {
 ///
 /// ```swift
 /// CalmStatusRow("Input Monitoring", description: "To notice the dictation key", tone: .warning) {
-///     Button("Grant access") { … }.calmButton(.primary)
+///     Button("Continue…") { … }.calmButton(.primary)
 /// }
 /// CalmStatusRow("Microphone", description: "To hear you", tone: .success) { CalmAllowedLabel() }
 /// ```

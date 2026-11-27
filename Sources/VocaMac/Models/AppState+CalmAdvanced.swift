@@ -126,7 +126,7 @@ enum CalmAdvancedSummary {
     static func permissionAction(_ status: PermissionStatus) -> String? {
         switch status {
         case .granted: return nil
-        case .notDetermined: return "Grant access"
+        case .notDetermined: return "Continue…"
         case .denied: return "Open Settings"
         }
     }

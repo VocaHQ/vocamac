@@ -120,7 +120,7 @@ enum CalmButtonSize: Sendable {
 /// ```swift
 /// Button("Change") { … }.calmButton(.secondary)
 /// Button { … } label: { CalmButtonLabel("Add new", icon: .plus) }.calmButton(.primary)
-/// Button("Grant access") { … }.calmButton(.primary, size: .small)
+/// Button("Continue…") { … }.calmButton(.primary, size: .small)
 /// ```
 /// Prefer `calmButton(_:size:)`: it also turns off the system focus ring
 /// so only the Calm ring shows.

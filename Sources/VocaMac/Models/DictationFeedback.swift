@@ -22,8 +22,8 @@ enum ErrorFixAction: Equatable {
         switch self {
         case .openSettings(let page): return "Open \(page.title)"
         case .openMicrophoneSettings: return "Choose Microphone…"
-        case .openMicrophonePrivacy: return "Allow Microphone…"
-        case .openAccessibilityPrivacy: return "Allow Accessibility…"
+        case .openMicrophonePrivacy: return "Continue…"
+        case .openAccessibilityPrivacy: return "Open Accessibility Settings…"
         }
     }
 

@@ -671,7 +671,7 @@ struct OnboardingPermissionRow: View {
                         .foregroundStyle(VocaDesign.accent)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 } else {
-                    Button(status == .notDetermined ? "Allow…" : "Open Settings", action: action)
+                    Button(status == .notDetermined ? "Continue…" : "Open Settings", action: action)
                         .buttonStyle(VocaOutlineButtonStyle())
                         .transition(.opacity)
                 }

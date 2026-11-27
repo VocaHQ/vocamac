@@ -946,7 +946,7 @@ struct MenuBarView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button(buttonTitle ?? (isDenied ? "Open…" : "Allow…"), action: action)
+            Button(buttonTitle ?? (isDenied ? "Open…" : "Continue…"), action: action)
                 .controlSize(.small)
                 .vocaGlassButton()
                 .help(help ?? (isDenied ? "Open System Settings" : "Ask macOS for access"))

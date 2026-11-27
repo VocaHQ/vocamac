@@ -126,7 +126,7 @@ final class CalmAdvancedSummaryTests: XCTestCase {
             "To hear you. Turn it on in System Settings › Privacy & Security."
         )
         XCTAssertNil(CalmAdvancedSummary.permissionAction(.granted))
-        XCTAssertEqual(CalmAdvancedSummary.permissionAction(.notDetermined), "Grant access")
+        XCTAssertEqual(CalmAdvancedSummary.permissionAction(.notDetermined), "Continue…")
         XCTAssertEqual(CalmAdvancedSummary.permissionAction(.denied), "Open Settings")
         XCTAssertTrue(CalmAdvancedSummary.recheckDescription(mayNeedRelaunch: true).contains("Restart VocaMac"))
     }

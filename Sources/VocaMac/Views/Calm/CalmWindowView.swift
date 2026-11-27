@@ -555,7 +555,7 @@ struct CalmStatusCardContent: View {
     private var action: some View {
         switch status {
         case .needsAccess:
-            Button("Grant access", action: onGrantAccess)
+            Button("Continue…", action: onGrantAccess)
                 .calmButton(.primary, size: .small)
         case .error(_, _, let actionTitle):
             Button(actionTitle, action: onFix).calmButton(.secondary, size: .small)

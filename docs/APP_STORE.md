@@ -16,6 +16,16 @@ to the store sits behind the `APP_STORE` compile condition, and
 `AppDistribution` (in `Sources/VocaMac/App/AppDistribution.swift`) tells the
 UI what this build has.
 
+## Permission buttons (Guideline 5.1.1(iv))
+
+App Review rejected a custom screen before the microphone prompt because its
+button said "Allow". A button that leads to a system permission prompt
+(microphone, Accessibility, Input Monitoring, speech recognition), or to the
+Settings page that asks for one, says **Continue…**, never "Allow" or
+"Grant": onboarding, the menu's permission rows, the sidebar status card,
+Settings › Advanced › Permissions, and the error notice's fix button. Only
+macOS's own prompt asks the user to allow. This holds in every build.
+
 ## What the App Store build leaves out, and why
 
 App Review requires the App Sandbox (Guideline 2.4.5(i)), forbids apps that

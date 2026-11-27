@@ -11,6 +11,16 @@ import XCTest
 
 final class ErrorFixActionTests: XCTestCase {
 
+    /// App Review (Guideline 5.1.1(iv)) rejects "Allow" on a button shown
+    /// before a system permission prompt; those buttons say "Continue".
+    func testPermissionFixButtonsDoNotSayAllow() {
+        for action in [ErrorFixAction.openMicrophonePrivacy, .openAccessibilityPrivacy] {
+            XCTAssertFalse(action.title.localizedCaseInsensitiveContains("allow"), action.title)
+            XCTAssertFalse(action.title.localizedCaseInsensitiveContains("grant"), action.title)
+        }
+        XCTAssertEqual(ErrorFixAction.openMicrophonePrivacy.title, "Continue…")
+    }
+
     func testMicrophoneMessagesOfferThePrivacyPane() {
         XCTAssertEqual(
             ErrorFixAction.suggested(for: "Microphone permission is required. Please grant access in System Settings."),

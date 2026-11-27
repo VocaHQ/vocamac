@@ -302,10 +302,10 @@ final class CalmSidebarStatusTests: XCTestCase {
     func testErrorUsesTheNoticeAndItsFix() {
         var failed = inputs(status: .error)
         failed.errorMessage = "Microphone access is off."
-        failed.errorActionTitle = "Allow Microphone…"
+        failed.errorActionTitle = "Continue…"
         XCTAssertEqual(
             CalmSidebarStatus.resolve(failed),
-            .error(title: "Something went wrong", message: "Microphone access is off.", actionTitle: "Allow Microphone…")
+            .error(title: "Something went wrong", message: "Microphone access is off.", actionTitle: "Continue…")
         )
     }
 

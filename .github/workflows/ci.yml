@@ -286,7 +286,7 @@ jobs:
         run: ./scripts/check-app-warnings.sh build-appstore.log
 
       - name: Launch the sandboxed app
-        run: ./scripts/smoke-test-app.sh dist/appstore/VocaMac.app 20
+        run: ./scripts/smoke-test-app.sh dist/appstore/Voca.app 20
 
   lint:
     name: SwiftLint

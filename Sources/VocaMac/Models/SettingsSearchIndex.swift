@@ -529,7 +529,7 @@ enum SettingsSearchIndex {
             id: "settings-backup",
             page: .application,
             title: "Settings Backup",
-            subtitle: "Export or import VocaMac preferences",
+            subtitle: "Export or import \(AppDistribution.displayName) preferences",
             keywords: ["settings", "backup", "export", "import", "transfer", "json"]
         ),
 
@@ -599,7 +599,7 @@ enum SettingsSearchIndex {
             id: "family",
             page: .about,
             title: "Part of VocaHQ",
-            subtitle: "VocaLinux, VocaMac, VocaWin, VocaPhone, VocaGateway",
+            subtitle: "VocaLinux, \(AppDistribution.displayName), VocaWin, VocaPhone, VocaGateway",
             keywords: ["family", "vocahq", "vocalinux", "vocamac", "vocawin", "windows", "vocaphone", "vocagateway"]
         ),
         SettingsSearchEntry(

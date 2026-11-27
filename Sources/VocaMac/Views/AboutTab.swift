@@ -35,7 +35,7 @@ struct AboutTab: View {
             VStack(spacing: 8) {
                 BrandLogoView(size: 64)
 
-                Text("VocaMac")
+                Text(AppDistribution.displayName)
                     .font(VocaDesign.display(34))
 
                 Text(appState.speechProcessingIsRemote
@@ -122,7 +122,7 @@ struct AboutTab: View {
             Button {
                 NotificationCenter.default.post(name: .showOnboarding, object: nil)
             } label: {
-                Label("Set Up VocaMac…", systemImage: "wand.and.stars")
+                Label("Set Up \(AppDistribution.displayName)…", systemImage: "wand.and.stars")
             }
             .help("Re-run the first-launch setup wizard")
         } header: {
@@ -154,7 +154,7 @@ struct AboutTab: View {
         } header: {
             VocaFormSectionHeader("Model Credits")
         } footer: {
-            Text("VocaMac runs models made by these teams. Names and logos belong to their owners and are shown for credit only. Logos from Lobe Icons (MIT).")
+            Text("\(AppDistribution.displayName) runs models made by these teams. Names and logos belong to their owners and are shown for credit only. Logos from Lobe Icons (MIT).")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

@@ -22,7 +22,7 @@ struct HistorySettingsPage: View {
     var body: some View {
         VocaSettingsPageContent {
             if appState.historyStore.hasUnsavedChanges {
-                Label("Recent history changes couldn't be saved to disk. VocaMac keeps trying; check that your disk has free space.",
+                Label("Recent history changes couldn't be saved to disk. \(AppDistribution.displayName) keeps trying; check that your disk has free space.",
                       systemImage: "exclamationmark.triangle.fill")
                     .font(.callout)
                     .foregroundStyle(VocaDesign.warning)

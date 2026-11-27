@@ -31,7 +31,7 @@ enum VocaDeepLink: Equatable {
         case .stopDictation: return "stop recording and type the transcript"
         case .toggleDictation: return "start or stop microphone recording"
         case .pasteLast: return "type your last saved dictation"
-        case .history, .settings, .transcribeFile, .scratchpad: return "open VocaMac"
+        case .history, .settings, .transcribeFile, .scratchpad: return "open \(AppDistribution.displayName)"
         }
     }
 

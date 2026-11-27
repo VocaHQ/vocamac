@@ -5,7 +5,11 @@ import AppIntents
 
 @available(macOS 14.0, *)
 struct StartVocaDictationIntent: AppIntent {
+#if APP_STORE
+    static let title: LocalizedStringResource = "Start Voca Dictation"
+#else
     static let title: LocalizedStringResource = "Start VocaMac Dictation"
+#endif
     static let description = IntentDescription("Start recording with the currently selected speech model.")
     // Run in the background: bringing VocaMac forward would make it the
     // destination for the dictation instead of the app the user was in.
@@ -20,7 +24,11 @@ struct StartVocaDictationIntent: AppIntent {
 
 @available(macOS 14.0, *)
 struct StopVocaDictationIntent: AppIntent {
+#if APP_STORE
+    static let title: LocalizedStringResource = "Stop Voca Dictation"
+#else
     static let title: LocalizedStringResource = "Stop VocaMac Dictation"
+#endif
     static let description = IntentDescription("Stop recording, transcribe, and type the result.")
     static let openAppWhenRun = false
 
@@ -33,7 +41,11 @@ struct StopVocaDictationIntent: AppIntent {
 
 @available(macOS 14.0, *)
 struct PasteLastVocaDictationIntent: AppIntent {
+#if APP_STORE
+    static let title: LocalizedStringResource = "Paste Last Voca Dictation"
+#else
     static let title: LocalizedStringResource = "Paste Last VocaMac Dictation"
+#endif
     static let description = IntentDescription("Type the most recent saved dictation at the cursor.")
     static let openAppWhenRun = false
 
@@ -46,7 +58,11 @@ struct PasteLastVocaDictationIntent: AppIntent {
 
 @available(macOS 14.0, *)
 struct TranscribeVocaFileIntent: AppIntent {
+#if APP_STORE
+    static let title: LocalizedStringResource = "Transcribe a File with Voca"
+#else
     static let title: LocalizedStringResource = "Transcribe a File with VocaMac"
+#endif
     static let description = IntentDescription("Transcribe an audio or video file with the currently selected local speech model.")
     static let openAppWhenRun = false
 
@@ -69,7 +85,11 @@ struct TranscribeVocaFileIntent: AppIntent {
 /// is applied to whatever is selected in the app in front.
 @available(macOS 14.0, *)
 struct EditSelectedTextWithVocaIntent: AppIntent {
+#if APP_STORE
+    static let title: LocalizedStringResource = "Edit Selected Text with Voca"
+#else
     static let title: LocalizedStringResource = "Edit Selected Text with VocaMac"
+#endif
     static let description = IntentDescription(
         "Apply a Command Mode instruction, such as “fix grammar and spelling”, to the text selected in the frontmost app. With nothing selected, the instruction says what to write at the cursor."
     )

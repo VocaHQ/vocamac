@@ -13,7 +13,7 @@ struct WebsiteRulesSettings: View {
             if appState.websiteStyleBindings.isEmpty {
                 VocaEmptyState(
                     title: "No websites set up yet",
-                    message: "VocaMac reads the focused tab's address through Accessibility. Addresses are never saved to history.",
+                    message: "\(AppDistribution.displayName) reads the focused tab's address through Accessibility. Addresses are never saved to history.",
                     systemImage: "globe",
                     actionTitle: "Add Website…"
                 ) { isAdding = true }

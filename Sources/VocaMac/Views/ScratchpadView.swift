@@ -28,7 +28,7 @@ final class ScratchpadWindowManager: ObservableObject {
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],
             backing: .buffered, defer: false
         )
-        panel.title = "VocaMac Scratchpad"
+        panel.title = "\(AppDistribution.displayName) Scratchpad"
         panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(rootView: ScratchpadView().environmentObject(appState))

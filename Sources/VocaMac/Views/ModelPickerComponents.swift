@@ -295,7 +295,7 @@ enum ModelLanguageBadge {
     /// The full language list, for hover help.
     static func tooltip(for size: ModelSize, systemLanguages: Set<String>?) -> String {
         guard let names = names(for: size, systemLanguages: systemLanguages) else {
-            return "Understands 99 languages, including every language VocaMac lists."
+            return "Understands 99 languages, including every language \(AppDistribution.displayName) lists."
         }
         let list = names.joined(separator: ", ")
         return size.languageCoverage == .system ? "macOS supports: \(list)" : "Understands: \(list)"

@@ -6,10 +6,10 @@
 # This script:
 # 1. Builds with scripts/build.sh in App Store mode (VOCAMAC_APP_STORE=1):
 #    compiled with the APP_STORE condition, sandboxed with
-#    VocaMac-AppStore.entitlements, ad-hoc signed, in dist/appstore/VocaMac.app
+#    VocaMac-AppStore.entitlements, ad-hoc signed, in dist/appstore/Voca.app
 # 2. Checks the bundle: entitlements, Info.plist, architecture, and that the
 #    code left out under APP_STORE really is gone
-# 3. Wraps it in dist/appstore/VocaMac.xcarchive, the layout Xcode's archive
+# 3. Wraps it in dist/appstore/Voca.xcarchive, the layout Xcode's archive
 #    action produces, so xcodebuild can export it
 # 4. With --upload: exports it for App Store Connect, which re-signs it with
 #    cloud-managed Apple Distribution and Mac Installer Distribution
@@ -41,12 +41,16 @@ for arg in "$@"; do
     esac
 done
 
+# The executable keeps the direct download's name; the app people see is
+# "Voca" (App Review rejects "Mac" in the name, Guideline 5.2.5). Keep
+# DISPLAY_NAME in step with build.sh and AppDistribution.displayName.
 APP_NAME="VocaMac"
+DISPLAY_NAME="Voca"
 BUNDLE_ID="com.vocamac.app"
 OUT_DIR="dist/appstore"
 # build.sh writes the App Store variant here.
-APP_DIR="${OUT_DIR}/${APP_NAME}.app"
-ARCHIVE_DIR="${OUT_DIR}/${APP_NAME}.xcarchive"
+APP_DIR="${OUT_DIR}/${DISPLAY_NAME}.app"
+ARCHIVE_DIR="${OUT_DIR}/${DISPLAY_NAME}.xcarchive"
 PLIST_BUDDY="/usr/libexec/PlistBuddy"
 
 fail() {
@@ -72,7 +76,7 @@ if [ "$UPLOAD" = true ]; then
 fi
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  VocaMac ${APP_VERSION} (${APP_BUILD_NUMBER}) — Mac App Store build"
+echo "  ${DISPLAY_NAME} ${APP_VERSION} (${APP_BUILD_NUMBER}) — Mac App Store build"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
@@ -94,6 +98,18 @@ plist_value() {
 }
 
 [ "$(plist_value CFBundleIdentifier)" = "$BUNDLE_ID" ] || fail "CFBundleIdentifier is not $BUNDLE_ID"
+[ "$(plist_value CFBundleExecutable)" = "$APP_NAME" ] || fail "CFBundleExecutable is not $APP_NAME"
+for key in CFBundleName CFBundleDisplayName; do
+    [ "$(plist_value "$key")" = "$DISPLAY_NAME" ] || fail "$key is not $DISPLAY_NAME"
+done
+# Guideline 5.2.5: no "Mac" in the name people see, including the permission
+# prompts' text.
+for key in NSMicrophoneUsageDescription NSSpeechRecognitionUsageDescription \
+    NSLocalNetworkUsageDescription NSAudioCaptureUsageDescription; do
+    if plist_value "$key" | grep "VocaMac" >/dev/null; then
+        fail "$key still says VocaMac"
+    fi
+done
 [ "$(plist_value CFBundleShortVersionString)" = "$APP_VERSION" ] || fail "CFBundleShortVersionString is not $APP_VERSION"
 [ "$(plist_value CFBundleVersion)" = "$APP_BUILD_NUMBER" ] || fail "CFBundleVersion is not $APP_BUILD_NUMBER"
 [ "$(plist_value LSMinimumSystemVersion)" = "14.0" ] || fail "LSMinimumSystemVersion is not 14.0"
@@ -154,7 +170,7 @@ echo ""
 echo "▶ Step 3/4: Creating ${ARCHIVE_DIR}..."
 rm -rf "$ARCHIVE_DIR"
 mkdir -p "${ARCHIVE_DIR}/Products/Applications"
-ditto "$APP_DIR" "${ARCHIVE_DIR}/Products/Applications/${APP_NAME}.app"
+ditto "$APP_DIR" "${ARCHIVE_DIR}/Products/Applications/${DISPLAY_NAME}.app"
 cat > "${ARCHIVE_DIR}/Info.plist" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -163,7 +179,7 @@ cat > "${ARCHIVE_DIR}/Info.plist" << EOF
     <key>ApplicationProperties</key>
     <dict>
         <key>ApplicationPath</key>
-        <string>Applications/${APP_NAME}.app</string>
+        <string>Applications/${DISPLAY_NAME}.app</string>
         <key>Architectures</key>
         <array>
             <string>arm64</string>
@@ -182,7 +198,7 @@ cat > "${ARCHIVE_DIR}/Info.plist" << EOF
     <key>CreationDate</key>
     <date>$(date -u +%Y-%m-%dT%H:%M:%SZ)</date>
     <key>Name</key>
-    <string>${APP_NAME}</string>
+    <string>${DISPLAY_NAME}</string>
     <key>SchemeName</key>
     <string>${APP_NAME}</string>
 </dict>

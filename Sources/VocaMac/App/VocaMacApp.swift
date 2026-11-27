@@ -66,7 +66,7 @@ final class SettingsWindowManager: ObservableObject {
             backing: .buffered,
             defer: false
         )
-        window.title = "VocaMac Settings"
+        window.title = "\(AppDistribution.displayName) Settings"
         // Content runs up under a transparent title bar, so the page's scene
         // and the sidebar's paper reach the top edge as in onboarding.
         window.styleMask.insert(.fullSizeContentView)
@@ -277,7 +277,7 @@ final class OnboardingWindowManager: ObservableObject {
             .environmentObject(appState)
 
         window.contentMinSize = NSSize(width: 880, height: 600)
-        window.title = "Welcome to VocaMac"
+        window.title = "Welcome to \(AppDistribution.displayName)"
         window.styleMask.insert(.fullSizeContentView)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -396,8 +396,8 @@ struct VocaMacApp: App {
                         )
                         let alert = NSAlert()
                         alert.alertStyle = .warning
-                        alert.messageText = "Allow VocaMac action?"
-                        alert.informativeText = "Another app or website asked VocaMac to \(link.confirmationDescription). Continue only if you initiated this action."
+                        alert.messageText = "Allow \(AppDistribution.displayName) action?"
+                        alert.informativeText = "Another app or website asked \(AppDistribution.displayName) to \(link.confirmationDescription). Continue only if you initiated this action."
                         alert.addButton(withTitle: "Allow")
                         alert.addButton(withTitle: "Cancel")
                         return (target, alert.runModal() == .alertFirstButtonReturn)
@@ -573,7 +573,7 @@ struct MenuBarIcon: View {
     var isCommandMode = false
     var readiness: MenuBarReadiness = .ready
     /// Says what the app is doing or needs ("VocaMac, recording").
-    var accessibilityLabel = "VocaMac"
+    var accessibilityLabel = AppDistribution.displayName
 
     var body: some View {
         Image(nsImage: makeMenuBarIcon())
@@ -638,9 +638,9 @@ struct MenuBarIcon: View {
 
     private func fallbackSymbol(named name: String, tint: NSColor?) -> NSImage {
         let config = NSImage.SymbolConfiguration(pointSize: Self.symbolPointSize, weight: .regular)
-        guard let baseImage = NSImage(systemSymbolName: name, accessibilityDescription: "VocaMac")?
+        guard let baseImage = NSImage(systemSymbolName: name, accessibilityDescription: AppDistribution.displayName)?
             .withSymbolConfiguration(config) else {
-            return NSImage(systemSymbolName: "mic", accessibilityDescription: "VocaMac") ?? NSImage()
+            return NSImage(systemSymbolName: "mic", accessibilityDescription: AppDistribution.displayName) ?? NSImage()
         }
 
         guard let tint else {

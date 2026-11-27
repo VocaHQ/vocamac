@@ -478,7 +478,7 @@ struct MenuBarView: View {
             BrandLogoView(size: 32)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("VocaMac")
+                Text(AppDistribution.displayName)
                     .font(VocaDesign.display(20))
 
                 if let model = appState.currentModel {
@@ -847,7 +847,7 @@ struct MenuBarView: View {
                 MenuPanelRowDivider()
                 permissionRow(
                     title: "Speech model",
-                    detail: "Pick a model so VocaMac can transcribe.",
+                    detail: "Pick a model so \(AppDistribution.displayName) can transcribe.",
                     systemImage: "brain",
                     isDenied: false,
                     buttonTitle: "Choose…",
@@ -899,12 +899,12 @@ struct MenuBarView: View {
                 permissionRow(
                     title: appState.permissionsAwaitingGrant ? "Still shows as off?" : "Shortcut not connected",
                     detail: appState.permissionsAwaitingGrant
-                        ? "macOS can wait to apply a permission until VocaMac reopens."
+                        ? "macOS can wait to apply a permission until \(AppDistribution.displayName) reopens."
                         : "macOS hasn't connected your shortcut yet. Reopening fixes this.",
                     systemImage: "arrow.clockwise",
                     isDenied: false,
                     buttonTitle: "Reopen",
-                    help: "Quit and reopen VocaMac",
+                    help: "Quit and reopen \(AppDistribution.displayName)",
                     action: { appState.relaunch() }
                 )
             }
@@ -932,7 +932,7 @@ struct MenuBarView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 8)
-            Button(buttonTitle ?? (isDenied ? "Open…" : "Allow…"), action: action)
+            Button(buttonTitle ?? (isDenied ? "Open…" : "Continue…"), action: action)
                 .controlSize(.small)
                 .vocaGlassButton()
                 .help(help ?? (isDenied ? "Open System Settings" : "Ask macOS for access"))
@@ -976,7 +976,7 @@ struct MenuBarView: View {
 
     private func crashSection(_ crash: PendingCrashReport) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("VocaMac quit unexpectedly last time", systemImage: "exclamationmark.triangle")
+            Label("\(AppDistribution.displayName) quit unexpectedly last time", systemImage: "exclamationmark.triangle")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(VocaDesign.warning)
             Text("Report opens a new GitHub issue in your browser, filled in with where it crashed. Opening it gives those details to GitHub; nothing is posted until you submit.")
@@ -1091,7 +1091,7 @@ struct MenuBarView: View {
                     settingsManager.open(appState: appState, page: .gateway, showPairing: true)
                 }
             }
-            menuRow("Quit VocaMac", systemImage: "power", shortcut: "⌘Q", keyEquivalent: "q") {
+            menuRow("Quit \(AppDistribution.displayName)", systemImage: "power", shortcut: "⌘Q", keyEquivalent: "q") {
                 NSApplication.shared.terminate(nil)
             }
         }

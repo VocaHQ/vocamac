@@ -33,7 +33,7 @@ enum AppRelauncher {
                 if let error {
                     VocaLogger.error(.general, "Couldn't relaunch VocaMac: \(error.localizedDescription)")
                     let alert = NSAlert()
-                    alert.messageText = "VocaMac couldn't reopen itself"
+                    alert.messageText = "\(AppDistribution.displayName) couldn't reopen itself"
                     alert.informativeText = "Quit it from the menu bar and open it again."
                     alert.runModal()
                     return

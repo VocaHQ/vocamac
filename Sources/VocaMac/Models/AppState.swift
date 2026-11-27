@@ -2187,7 +2187,7 @@ final class AppState: ObservableObject {
         if isTranscribingMedia {
             VocaLogger.info(.appState, "Dictation ignored while a file or system-audio transcription is running")
             endHotKeyToggleSession()
-            errorMessage = "VocaMac is transcribing audio. Dictation is available when it finishes."
+            errorMessage = "\(AppDistribution.displayName) is transcribing audio. Dictation is available when it finishes."
             let message = errorMessage
             DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
                 if self?.errorMessage == message { self?.errorMessage = nil }
@@ -4586,7 +4586,7 @@ final class AppState: ObservableObject {
         let deadline = Date().addingTimeInterval(Self.mediaTranscriptionWaitSeconds)
         while !isFreeForMediaTranscription {
             guard Date() < deadline else {
-                throw CLIError(.transcriptionFailed, "VocaMac is still busy with a dictation. Try again when it finishes.")
+                throw CLIError(.transcriptionFailed, "\(AppDistribution.displayName) is still busy with a dictation. Try again when it finishes.")
             }
             try await Task.sleep(nanoseconds: 100_000_000)
         }
@@ -5303,7 +5303,7 @@ extension AppState {
                 VocaLogger.info(.appState, "Command Mode applied a rule edit (\(exact.name)) without the model")
                 await deliverEdit(PendingCommandEdit(
                     snapshot: snapshot, replacement: exact.text, instruction: instruction,
-                    engineName: "VocaMac", summary: "Command Mode · \(exact.name)", note: nil,
+                    engineName: AppDistribution.displayName, summary: "Command Mode · \(exact.name)", note: nil,
                     app: commandTargetApp, language: run.language, audioSeconds: run.audioSeconds
                 ), run: run, reviews: false)
                 return
@@ -5320,7 +5320,7 @@ extension AppState {
             // A rule edit of text that can't be replaced is still exact, and
             // still needs no model: show it to copy.
             if let exact = CommandExactEdit.apply(instruction: instruction, to: snapshot.text, keeping: establishedSpellings) {
-                deliverAnswer(exact.text, about: snapshot.text, note: nil, run: run, engineName: "VocaMac")
+                deliverAnswer(exact.text, about: snapshot.text, note: nil, run: run, engineName: AppDistribution.displayName)
                 return
             }
             guard let result = await runCommandModel(text: snapshot.text, intent: intent, mode: .answer, run: run) else { return }
@@ -5581,7 +5581,7 @@ extension AppState {
             return
         }
         guard let reselected = await selectedTextService.reselect(last.snapshot, replacement: last.replacement) else {
-            failCommand("VocaMac can't take that edit back here: the text has changed since, or this app doesn't let it be selected. Press ⌘Z in the app instead.", detail: "the last edit could not be selected again to undo it", started: run.started)
+            failCommand("\(AppDistribution.displayName) can't take that edit back here: the text has changed since, or this app doesn't let it be selected. Press ⌘Z in the app instead.", detail: "the last edit could not be selected again to undo it", started: run.started)
             return
         }
         // Text that was written, not replaced, has nothing to put back.
@@ -5589,7 +5589,7 @@ extension AppState {
             ? await selectedTextService.deleteSelection(reselected)
             : await selectedTextService.replaceSelection(reselected, with: last.original)
         guard undone else {
-            failCommand("VocaMac couldn't take that edit back: the selection changed. Press ⌘Z in the app instead.", detail: "the reselected edit changed before it could be undone", started: run.started)
+            failCommand("\(AppDistribution.displayName) couldn't take that edit back: the selection changed. Press ⌘Z in the app instead.", detail: "the reselected edit changed before it could be undone", started: run.started)
             return
         }
         lastCommandTarget = nil
@@ -5625,7 +5625,7 @@ extension AppState {
         case .success:
             lastCommandEdit = CommandModeEdit(
                 instruction: run.instruction, original: "", replacement: permitted.summary,
-                engineName: "VocaMac", kind: .action
+                engineName: AppDistribution.displayName, kind: .action
             )
             recordCommandHistory(
                 instruction: run.instruction, original: "", replacement: permitted.summary,

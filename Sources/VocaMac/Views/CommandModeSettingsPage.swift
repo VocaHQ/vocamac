@@ -89,7 +89,7 @@ struct CommandModeSettingsPage: View {
                     detail: "For terminals and editors that don't share selected text.",
                     isOn: $appState.commandModeClipboardFallback
                 )
-                .help("VocaMac copies the selection with ⌘C and puts your clipboard back right away. Clipboard managers may briefly see the selected text.")
+                .help("\(AppDistribution.displayName) copies the selection with ⌘C and puts your clipboard back right away. Clipboard managers may briefly see the selected text.")
                 .settingsTarget("command-mode-clipboard")
             }
 
@@ -109,13 +109,13 @@ struct CommandModeSettingsPage: View {
                 )
                 if appState.voiceActionsEnabled {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Shortcuts VocaMac may run")
+                        Text("Shortcuts \(AppDistribution.displayName) may run")
                             .font(.caption)
                         TextEditor(text: $appState.voiceActionShortcuts)
                             .font(.system(.caption, design: .monospaced))
                             .frame(height: 54)
                             .vocaTextEditor()
-                            .accessibilityLabel("Shortcuts VocaMac may run, one per line")
+                            .accessibilityLabel("Shortcuts \(AppDistribution.displayName) may run, one per line")
                         Text("One name per line, as it appears in the Shortcuts app. A shortcut that isn't listed never runs. Selected text is passed to the shortcut as its input.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)

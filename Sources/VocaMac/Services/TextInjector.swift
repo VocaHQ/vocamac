@@ -273,7 +273,7 @@ final class TextInjector: @unchecked Sendable {
                 PerformanceTrace.event("AccessibilityTextInserted")
                 completion()
             } else if result == .uncertain {
-                onFailure?("The target app did not confirm text insertion. Check the field before retrying; your transcript is available in VocaMac.")
+                onFailure?("The target app did not confirm text insertion. Check the field before retrying; your transcript is available in \(AppDistribution.displayName).")
                 completion()
             } else {
                 let currentPID = frontmostPIDProvider()
@@ -455,7 +455,7 @@ final class TextInjector: @unchecked Sendable {
                         restoreSnapshot(snapshot, to: pasteboard)
                     }
                     VocaLogger.warning(.textInjector, "Could not put the transcript on the clipboard; insertion abandoned")
-                    onFailure?("The transcript could not be copied, so nothing was pasted. It's available in VocaMac.")
+                    onFailure?("The transcript could not be copied, so nothing was pasted. It's available in \(AppDistribution.displayName).")
                 }
                 // Preserving the clipboard means restoring it after the paste.
                 // Promise the text instead of writing it, so the target's read
@@ -503,7 +503,7 @@ final class TextInjector: @unchecked Sendable {
                 }
             } catch {
                 VocaLogger.warning(.textInjector, "Clipboard changed repeatedly while being preserved; insertion abandoned")
-                onFailure?("The clipboard kept changing, so text was not pasted. Your transcript is available in VocaMac.")
+                onFailure?("The clipboard kept changing, so text was not pasted. Your transcript is available in \(AppDistribution.displayName).")
             }
         }
     }
@@ -524,12 +524,12 @@ final class TextInjector: @unchecked Sendable {
 
     private func reportMissingPasteTarget() {
         VocaLogger.warning(.textInjector, "No active app to paste into; paste cancelled")
-        onFailure?("There was no active app to paste into. Your transcript is available in VocaMac.")
+        onFailure?("There was no active app to paste into. Your transcript is available in \(AppDistribution.displayName).")
     }
 
     private func reportFocusChange() {
         VocaLogger.warning(.textInjector, "Focus changed during text insertion; paste cancelled")
-        onFailure?("The active app changed before text could be pasted. Your transcript is available in VocaMac.")
+        onFailure?("The active app changed before text could be pasted. Your transcript is available in \(AppDistribution.displayName).")
     }
 
     private enum SnapshotError: Error { case changed }

@@ -166,7 +166,7 @@ final class SystemAudioCapture: ObservableObject {
         guard !isCapturing else { return }
         didReachLimit = false
         let tap = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
-        tap.name = "VocaMac System Audio"
+        tap.name = "\(AppDistribution.displayName) System Audio"
         tap.isPrivate = true
         tap.muteBehavior = .unmuted
 
@@ -176,7 +176,7 @@ final class SystemAudioCapture: ObservableObject {
         tapID = newTap
 
         let aggregateDescription: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "VocaMac System Audio",
+            kAudioAggregateDeviceNameKey: "\(AppDistribution.displayName) System Audio",
             kAudioAggregateDeviceUIDKey: "com.vocamac.system-audio.\(UUID().uuidString)",
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceTapAutoStartKey: true,

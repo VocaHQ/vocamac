@@ -37,7 +37,7 @@ enum CustomEndpointError: LocalizedError, Equatable {
         case .endpointRejected(let status, _):
             return "The endpoint answered HTTP \(status)."
         case .unexpectedResponse:
-            return "The endpoint's answer was not the JSON transcript VocaMac expects."
+            return "The endpoint's answer was not the JSON transcript \(AppDistribution.displayName) expects."
         }
     }
 }

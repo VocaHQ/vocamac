@@ -79,7 +79,7 @@ enum StatsShareComposer {
     /// unknown there, so it signs off with the site alone.
     static func message(for snapshot: StatsShareSnapshot, handle: String? = nil) -> String {
         var lines = [
-            "🎤 \(pluralized(snapshot.totalWords, "word")) talked into my Mac with VocaMac.",
+            "🎤 \(pluralized(snapshot.totalWords, "word")) talked into my Mac with \(AppDistribution.displayName).",
             statLine(for: snapshot),
             "Every model runs on my Mac. Works fully offline, no audio ever leaves it. 🔒",
             [handle, siteURL].compactMap { $0 }.joined(separator: " · ")

@@ -87,12 +87,25 @@ jobs:
           persist-credentials: false
 
       - name: Cache SPM dependencies
+        id: spm-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: spm-debug-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             spm-debug-${{ runner.os }}-
+
+      # A partial cache hit comes from a different Package.swift, such as
+      # main's when this runs on a release branch. SwiftPM then trips over the
+      # other manifest's package state (main enables a FluidAudio trait that
+      # 1.2's FluidAudio doesn't have). Keep the fetched repositories and
+      # binary artifacts, drop the rest.
+      - name: Drop package state from a stale cache
+        if: steps.spm-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -d .build ]; then
+            find .build -mindepth 1 -maxdepth 1 ! -name repositories ! -name artifacts -exec rm -rf {} +
+          fi
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -123,12 +136,25 @@ jobs:
           persist-credentials: false
 
       - name: Cache SPM dependencies
+        id: spm-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: spm-release-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             spm-release-${{ runner.os }}-
+
+      # A partial cache hit comes from a different Package.swift, such as
+      # main's when this runs on a release branch. SwiftPM then trips over the
+      # other manifest's package state (main enables a FluidAudio trait that
+      # 1.2's FluidAudio doesn't have). Keep the fetched repositories and
+      # binary artifacts, drop the rest.
+      - name: Drop package state from a stale cache
+        if: steps.spm-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -d .build ]; then
+            find .build -mindepth 1 -maxdepth 1 ! -name repositories ! -name artifacts -exec rm -rf {} +
+          fi
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -219,12 +245,22 @@ jobs:
           persist-credentials: false
 
       - name: Cache Xcode build
+        id: xcode-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-build/SourcePackages
           key: xcode-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             xcode-deps-${{ runner.os }}-
+
+      # As in the test job: a partial hit holds another branch's package
+      # state. Keep the fetched repositories and artifacts, drop the rest.
+      - name: Drop package state from a stale cache
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -d .xcode-build/SourcePackages ]; then
+            find .xcode-build/SourcePackages -mindepth 1 -maxdepth 1 ! -name repositories ! -name artifacts -exec rm -rf {} +
+          fi
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -263,12 +299,22 @@ jobs:
           persist-credentials: false
 
       - name: Cache Xcode build
+        id: xcode-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .xcode-build-appstore/SourcePackages
           key: xcode-appstore-deps-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
           restore-keys: |
             xcode-appstore-deps-${{ runner.os }}-
+
+      # As in the test job: a partial hit holds another branch's package
+      # state. Keep the fetched repositories and artifacts, drop the rest.
+      - name: Drop package state from a stale cache
+        if: steps.xcode-cache.outputs.cache-hit != 'true'
+        run: |
+          if [ -d .xcode-build-appstore/SourcePackages ]; then
+            find .xcode-build-appstore/SourcePackages -mindepth 1 -maxdepth 1 ! -name repositories ! -name artifacts -exec rm -rf {} +
+          fi
 
       - name: Select Xcode 26
         run: ./scripts/select-xcode-26.sh
@@ -286,7 +332,7 @@ jobs:
         run: ./scripts/check-app-warnings.sh build-appstore.log
 
       - name: Launch the sandboxed app
-        run: ./scripts/smoke-test-app.sh dist/appstore/VocaMac.app 20
+        run: ./scripts/smoke-test-app.sh dist/appstore/Voca.app 20
 
   lint:
     name: SwiftLint

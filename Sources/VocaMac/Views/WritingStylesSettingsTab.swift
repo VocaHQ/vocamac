@@ -270,7 +270,7 @@ struct WritingStylesSettingsTab: View {
                 }
             }
 
-            LabeledContent("VocaMac types") {
+            LabeledContent("\(AppDistribution.displayName) types") {
                 Text(previewResult.isEmpty ? "—" : previewResult)
                     .font(.system(.body, design: .monospaced))
                     .textSelection(.enabled)
@@ -414,7 +414,7 @@ struct WritingStylesSettingsTab: View {
 
         let added = await appState.addSuggestedWritingStyles()
         suggestionNotice = added == 0
-            ? "Nothing new to add. Every app VocaMac recognizes on this Mac is already listed."
+            ? "Nothing new to add. Every app \(AppDistribution.displayName) recognizes on this Mac is already listed."
             : "Added \(added) app\(added == 1 ? "" : "s"). Change any style from the list."
     }
 }

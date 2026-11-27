@@ -36,7 +36,7 @@ struct DictionarySettingsPage: View {
                     Button("Add", action: addTerm)
                         .disabled(newTerm.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
-                .help("Matches ignore case and spaces (“voca mac” → VocaMac) and fix close misspellings with every model. Whisper, Parakeet, and Apple Speech also listen for these words.")
+                .help("Matches ignore case and spaces (“git hub” → GitHub) and fix close misspellings with every model. Whisper, Parakeet, and Apple Speech also listen for these words.")
                 if showsVocabularyBoost {
                     Divider()
                     VocabularyBoostRow()
@@ -91,7 +91,7 @@ struct DictionarySettingsPage: View {
                     isOn: $appState.useScreenContext
                 )
                 .settingsTarget("screen-context")
-                .help("When you start dictating, VocaMac reads the visible text in the focused field and spells matching names and code identifiers the same way (“user id” → userId). Needs Accessibility permission and never reads password fields.")
+                .help("When you start dictating, \(AppDistribution.displayName) reads the visible text in the focused field and spells matching names and code identifiers the same way (“user id” → userId). Needs Accessibility permission and never reads password fields.")
             }
         }
     }

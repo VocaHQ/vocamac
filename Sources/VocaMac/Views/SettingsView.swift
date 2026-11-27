@@ -150,7 +150,7 @@ struct SettingsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 BrandLogoView(size: 26)
-                Text("VocaMac").font(VocaDesign.display(20))
+                Text(AppDistribution.displayName).font(VocaDesign.display(20))
                 Spacer()
             }
             .padding(.horizontal, 18)
@@ -543,7 +543,7 @@ struct DictationSettingsPage: View {
                 Divider()
                 HotKeySelectionControl(
                     pickerLabel: "Shortcut",
-                    footerText: "Reserved while VocaMac is running."
+                    footerText: "Reserved while \(AppDistribution.displayName) is running."
                 )
                 .settingsTarget("hotkey")
                 if appState.activationMode == .doubleTapToggle {
@@ -745,7 +745,7 @@ struct ApplicationSettingsPage: View {
             VocaSettingsGroup("Behavior") {
                 SettingsToggleRow(
                     title: "Launch at Login",
-                    detail: "Opens VocaMac in the menu bar when you sign in.",
+                    detail: "Opens \(AppDistribution.displayName) in the menu bar when you sign in.",
                     isOn: Binding(
                         get: { appState.launchAtLogin },
                         set: { appState.setLaunchAtLogin($0) }
@@ -755,7 +755,7 @@ struct ApplicationSettingsPage: View {
                 Divider()
                 SettingsToggleRow(
                     title: "Restore clipboard after typing",
-                    detail: "Puts your clipboard back after VocaMac types text.",
+                    detail: "Puts your clipboard back after \(AppDistribution.displayName) types text.",
                     isOn: $appState.preserveClipboard
                 )
                 .settingsTarget("clipboard")
@@ -781,7 +781,7 @@ struct ApplicationSettingsPage: View {
 
     private func exportSettings() {
         let panel = NSSavePanel()
-        panel.title = "Export VocaMac Settings"
+        panel.title = "Export \(AppDistribution.displayName) Settings"
         panel.nameFieldStringValue = "vocamac-settings.json"
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -795,7 +795,7 @@ struct ApplicationSettingsPage: View {
 
     private func importSettings() {
         let panel = NSOpenPanel()
-        panel.title = "Import VocaMac Settings"
+        panel.title = "Import \(AppDistribution.displayName) Settings"
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -979,7 +979,7 @@ struct AddSnippetView: View {
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
 
-            Text("VocaMac will listen for the trigger phrase and replace it with the expansion text.")
+            Text("\(AppDistribution.displayName) will listen for the trigger phrase and replace it with the expansion text.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1035,7 +1035,7 @@ struct PermissionRow: View {
                     .font(.caption)
                     .foregroundStyle(VocaDesign.success)
             case .notDetermined:
-                Button("Grant") { action() }
+                Button("Continue…") { action() }
                     .controlSize(.small)
             case .denied:
                 Button("Open Settings") { action() }
@@ -1102,7 +1102,7 @@ struct PerformanceSettingsTab: View {
                             MemoryFigure(title: "Model needs about", value: estimate)
                         }
                         MemoryFigure(
-                            title: "VocaMac is using",
+                            title: "\(AppDistribution.displayName) is using",
                             value: String(format: "%.0f MB", ProcessMonitor.currentResidentMemoryMB())
                         )
                     }
@@ -2237,7 +2237,7 @@ struct PermissionsLogsTab: View {
                 }
 
                 if appState.permissionsMayNeedRelaunch {
-                    Text("Turned a permission on, but it still shows as off? macOS can wait to apply it until VocaMac reopens. Use Restart VocaMac below.")
+                    Text("Turned a permission on, but it still shows as off? macOS can wait to apply it until \(AppDistribution.displayName) reopens. Use Restart \(AppDistribution.displayName) below.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -2246,7 +2246,7 @@ struct PermissionsLogsTab: View {
                     Button("Re-check") {
                         appState.checkPermissions()
                     }
-                    Button("Restart VocaMac", action: restartApp)
+                    Button("Restart \(AppDistribution.displayName)", action: restartApp)
                         .help("Quit and relaunch. Can fix stuck permissions or audio devices.")
 
                     Spacer()
@@ -2254,7 +2254,7 @@ struct PermissionsLogsTab: View {
                     // Resetting runs tccutil, which the App Store build can't start.
                     if AppDistribution.canResetPermissions {
                         Button("Reset All…", role: .destructive, action: resetPermissions)
-                            .help("Clear every permission grant for VocaMac. The app quits and asks again on next launch.")
+                            .help("Clear every permission grant for \(AppDistribution.displayName). The app quits and asks again on next launch.")
                     }
                 }
                 .controlSize(.small)
@@ -2317,7 +2317,7 @@ struct PermissionsLogsTab: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 4)
-                .help("VocaMac's whole process, refreshed every few seconds. Not a model-only VRAM or ANE reading.")
+                .help("\(AppDistribution.displayName)'s whole process, refreshed every few seconds. Not a model-only VRAM or ANE reading.")
             } header: {
                 VocaFormSectionHeader("Resource Usage")
             }
@@ -2334,7 +2334,7 @@ struct PermissionsLogsTab: View {
     private func resetPermissions() {
         let alert = NSAlert()
         alert.messageText = "Reset All Permissions?"
-        alert.informativeText = "This will clear all permission grants (Microphone, Accessibility, Input Monitoring) for VocaMac. The app will quit and you'll need to re-grant permissions on next launch.\n\nThis is useful when permissions appear stuck or aren't being recognized after an update."
+        alert.informativeText = "This will clear all permission grants (Microphone, Accessibility, Input Monitoring) for \(AppDistribution.displayName). The app will quit and you'll need to re-grant permissions on next launch.\n\nThis is useful when permissions appear stuck or aren't being recognized after an update."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Reset & Quit")
         alert.addButton(withTitle: "Cancel")
@@ -2362,7 +2362,7 @@ struct PermissionsLogsTab: View {
 
         let savePanel = NSSavePanel()
         savePanel.allowedContentTypes = [.plainText]
-        savePanel.nameFieldStringValue = "VocaMac-Debug-\(ISO8601DateFormatter().string(from: Date()).prefix(19)).log"
+        savePanel.nameFieldStringValue = "\(AppDistribution.displayName)-Debug-\(ISO8601DateFormatter().string(from: Date()).prefix(19)).log"
         // In the sandbox the home folder is the app's container, so the App
         // Store build lets the panel pick its usual starting folder.
         if !AppDistribution.isAppStore {

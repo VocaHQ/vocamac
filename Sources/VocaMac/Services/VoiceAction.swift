@@ -163,7 +163,7 @@ enum VoiceActionError: Error, Equatable {
         case .appNotFound(let name):
             return "No app named “\(name)” was found."
         case .shortcutNotAllowed(let name):
-            return "“\(name)” isn't on the list of shortcuts VocaMac may run. Add it in Settings → Command Mode → Voice Actions."
+            return "“\(name)” isn't on the list of shortcuts \(AppDistribution.displayName) may run. Add it in Settings → Command Mode → Voice Actions."
         case .failed(let why):
             return why
         }
@@ -296,7 +296,7 @@ final class SystemVoiceActionPerformer: VoiceActionPerforming {
 #if APP_STORE
         // Reminders is driven with AppleScript, which the App Store build
         // leaves out (it would need an Apple Events exception).
-        return .failure(.failed("The App Store version of VocaMac can't add reminders."))
+        return .failure(.failed("The App Store version of \(AppDistribution.displayName) can't add reminders."))
 #else
         let seconds = due.map { Int($0.timeIntervalSinceNow.rounded()) }
         guard let script = NSAppleScript(source: reminderScript(title: title, secondsFromNow: seconds)) else {

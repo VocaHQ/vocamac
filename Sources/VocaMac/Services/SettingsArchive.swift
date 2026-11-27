@@ -200,7 +200,7 @@ enum SettingsArchiveService {
         case newerVersion(Int)
         var errorDescription: String? {
             switch self {
-            case .newerVersion(let version): return "This backup uses settings format \(version), which this VocaMac does not understand."
+            case .newerVersion(let version): return "This backup uses settings format \(version), which this \(AppDistribution.displayName) does not understand."
             }
         }
     }

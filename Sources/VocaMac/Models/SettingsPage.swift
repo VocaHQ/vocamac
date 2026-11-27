@@ -21,7 +21,7 @@ enum SettingsSection: CaseIterable, Identifiable {
         case .dictation: return "Dictation"
         case .writing: return "Writing"
         case .activity: return "Activity"
-        case .app: return "VocaMac"
+        case .app: return AppDistribution.displayName
         }
     }
 
@@ -110,7 +110,7 @@ enum SettingsPage: String, CaseIterable, Identifiable, Hashable {
         case .writingStyles: return "How dictation is written in each app: email, chat, notes, code, and tone."
         case .cleanup: return "Optional on-device model that tidies each dictation."
         case .commandMode: return "Edit selected text by saying what to change."
-        case .language: return "The languages you speak and the one VocaMac listens for."
+        case .language: return "The languages you speak and the one \(AppDistribution.displayName) listens for."
         case .speechModel: return "The model that turns speech into text."
         default: return nil
         }

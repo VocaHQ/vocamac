@@ -71,11 +71,11 @@ enum LearnCorrectionsMode: String, CaseIterable, Identifiable, Codable {
     var description: String {
         switch self {
         case .off:
-            return "VocaMac doesn't look at text after typing it."
+            return "\(AppDistribution.displayName) doesn't look at text after typing it."
         case .suggest:
-            return "When you fix a word VocaMac typed, it suggests adding your spelling to the dictionary."
+            return "When you fix a word \(AppDistribution.displayName) typed, it suggests adding your spelling to the dictionary."
         case .automatic:
-            return "When you fix a word VocaMac typed, your spelling is added to the dictionary right away."
+            return "When you fix a word \(AppDistribution.displayName) typed, your spelling is added to the dictionary right away."
         }
     }
 }

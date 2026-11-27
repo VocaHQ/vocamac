@@ -19,9 +19,19 @@ enum AppDistribution {
 #if APP_STORE
     /// Built for the Mac App Store: sandboxed, updated by the App Store.
     static let isAppStore = true
+
+    /// The app's name in text people see. App Review rejects "Mac" in an
+    /// App Store app's name (Guideline 5.2.5), so the store build is "Voca"
+    /// (listed as "Voca: Private Dictation"). Only what people read changes:
+    /// type names, the bundle ID, the executable, log subsystems and the
+    /// Application Support folder keep "VocaMac", so no data moves.
+    static let displayName = "Voca"
 #else
     /// Built for the direct download.
     static let isAppStore = false
+
+    /// The app's name in text people see: the DMG and Homebrew builds are "VocaMac".
+    static let displayName = "VocaMac"
 #endif
 
     /// Checking GitHub for a new release and installing it in place.

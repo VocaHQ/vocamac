@@ -105,11 +105,11 @@ struct LanguageSettingsPage: View {
         let spoken = appState.spokenLanguages
         switch spoken.count {
         case 0:
-            return "Add the languages you dictate in. Until then, VocaMac works out the language each time."
+            return "Add the languages you dictate in. Until then, \(AppDistribution.displayName) works out the language each time."
         case 1:
-            return "VocaMac listens for \(SpokenLanguages.displayName(for: spoken[0])). Add another language if you switch between them."
+            return "\(AppDistribution.displayName) listens for \(SpokenLanguages.displayName(for: spoken[0])). Add another language if you switch between them."
         default:
-            return "VocaMac works out which of these you're speaking each time, unless you pick one below."
+            return "\(AppDistribution.displayName) works out which of these you're speaking each time, unless you pick one below."
         }
     }
 

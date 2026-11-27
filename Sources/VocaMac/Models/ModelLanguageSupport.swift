@@ -130,7 +130,7 @@ extension ModelSize {
     /// A one-line description for the model picker.
     var pickerSummary: String {
         switch self {
-        case .tiny:                      return "Comes with VocaMac. Smallest and fastest Whisper, fine for quick notes."
+        case .tiny:                      return "Comes with \(AppDistribution.displayName). Smallest and fastest Whisper, fine for quick notes."
         case .base:                      return "A small download that is noticeably more accurate than Tiny."
         case .small:                     return "Balanced accuracy and speed across Whisper's languages."
         case .largeV3LatestTurboCompact: return "Close to Whisper's best accuracy at a fraction of the size."
@@ -148,7 +148,7 @@ extension ModelSize {
         case .parakeetV2:                return "Very fast on the Neural Engine, with top English accuracy."
         case .parakeetUnified:           return "NVIDIA's newest English Parakeet, with punctuation, capitals, and numbers written as digits."
         case .parakeetTdtCtc110m:        return "A compact English model with low memory use."
-        case .appleSpeech:               return "Built into macOS. Nothing to download in VocaMac."
+        case .appleSpeech:               return "Built into macOS. Nothing to download in \(AppDistribution.displayName)."
         case .moonshineTiny:             return "A tiny English model for Macs short on memory."
         case .moonshineBase:             return "A small English model, more accurate than Moonshine Tiny."
         case .senseVoiceSmall:           return "Chinese, Cantonese, English, Japanese, and Korean."

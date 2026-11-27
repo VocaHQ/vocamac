@@ -52,7 +52,7 @@ struct StatsShareCard: View {
             HStack(spacing: 12) {
                 BrandLogoView(size: 48)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("VocaMac")
+                    Text(AppDistribution.displayName)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(.white)
                     Text("My usage")
@@ -174,7 +174,7 @@ enum StatsShareExporter {
         if let png = renderPNG(snapshot) {
             let directory = FileManager.default.temporaryDirectory
                 .appendingPathComponent("VocaMac Share \(UUID().uuidString)", isDirectory: true)
-            let url = directory.appendingPathComponent("VocaMac Stats.png")
+            let url = directory.appendingPathComponent("\(AppDistribution.displayName) Stats.png")
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 try png.write(to: url, options: .atomic)

@@ -17,9 +17,9 @@ enum TranscriptionDeadlineError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .loadTimedOut:
-            return "The speech model took too long to load. VocaMac stopped waiting and will try again on the next dictation."
+            return "The speech model took too long to load. \(AppDistribution.displayName) stopped waiting and will try again on the next dictation."
         case .decodeTimedOut:
-            return "Transcription took too long. VocaMac stopped waiting and reloads the model on the next dictation."
+            return "Transcription took too long. \(AppDistribution.displayName) stopped waiting and reloads the model on the next dictation."
         }
     }
 }

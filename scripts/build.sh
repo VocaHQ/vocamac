@@ -31,7 +31,12 @@ cd "$PROJECT_DIR"
 
 CONFIG="${1:-release}"
 BUNDLE_ID="com.vocamac.app"
+# The executable and Swift module. The App Store variant keeps this name too:
+# only the bundle and the name people see change (DISPLAY_NAME below).
 APP_NAME="VocaMac"
+# CFBundleName, CFBundleDisplayName, the .app folder and the usage
+# descriptions. Must match AppDistribution.displayName.
+DISPLAY_NAME="VocaMac"
 APP_DIR="${APP_NAME}.app"
 ENTITLEMENTS="VocaMac.entitlements"
 APP_VERSION="${APP_VERSION:-1.2.0}"
@@ -48,7 +53,10 @@ APP_SIGN_FLAGS=()
 # signed, because the App Store export re-signs it for distribution.
 APP_STORE="${VOCAMAC_APP_STORE:-0}"
 if [ "$APP_STORE" = "1" ]; then
-    APP_DIR="dist/appstore/${APP_NAME}.app"
+    # App Review rejects "Mac" in the app's name (Guideline 5.2.5), so the
+    # store build is "Voca". The bundle ID and the executable stay as they are.
+    DISPLAY_NAME="Voca"
+    APP_DIR="dist/appstore/${DISPLAY_NAME}.app"
     ENTITLEMENTS="VocaMac-AppStore.entitlements"
     DERIVED_DATA=".xcode-build-appstore"
     FRAMEWORKS_SUBDIR="Frameworks"
@@ -344,9 +352,9 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <key>CFBundleIdentifier</key>
     <string>${BUNDLE_ID}</string>
     <key>CFBundleName</key>
-    <string>${APP_NAME}</string>
+    <string>${DISPLAY_NAME}</string>
     <key>CFBundleDisplayName</key>
-    <string>${APP_NAME}</string>
+    <string>${DISPLAY_NAME}</string>
     <key>CFBundleVersion</key>
     <string>${APP_VERSION}</string>
     <key>CFBundleShortVersionString</key>
@@ -371,7 +379,7 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
     <key>CFBundleIconName</key>
     <string>AppIcon</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>VocaMac needs microphone access to capture your voice for transcription.</string>
+    <string>${DISPLAY_NAME} needs microphone access to capture your voice for transcription.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
         <!-- Ollama and LM Studio serve plain HTTP on this Mac or the LAN. -->
@@ -379,9 +387,9 @@ cat > "${APP_DIR}/Contents/Info.plist" << EOF
         <true/>
     </dict>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>VocaMac connects to an AI model server you run yourself, such as Ollama or LM Studio, when you point it at one on your network.</string>
+    <string>${DISPLAY_NAME} connects to an AI model server you run yourself, such as Ollama or LM Studio, when you point it at one on your network.</string>
     <key>NSAudioCaptureUsageDescription</key>
-    <string>VocaMac captures system audio only when you start a System Audio transcription.</string>
+    <string>${DISPLAY_NAME} captures system audio only when you start a System Audio transcription.</string>
     <key>NSAppleEventsUsageDescription</key>
     <string>VocaMac pauses and resumes Spotify while you dictate when "Pause Spotify while dictating" is on, and adds a reminder when you ask Command Mode for one with voice actions on.</string>
     <key>NSPrincipalClass</key>
@@ -398,7 +406,7 @@ if [ "$APP_STORE" = "1" ]; then
     plutil -insert LSApplicationCategoryType -string "public.app-category.productivity" "$INFO_PLIST"
     plutil -insert ITSAppUsesNonExemptEncryption -bool NO "$INFO_PLIST"
     plutil -insert NSSpeechRecognitionUsageDescription -string \
-        "VocaMac uses Apple's on-device speech recognition when you choose an Apple Speech model." "$INFO_PLIST"
+        "${DISPLAY_NAME} uses Apple's on-device speech recognition when you choose an Apple Speech model." "$INFO_PLIST"
     # No AppleScript in this build, so nothing to ask Automation for.
     plutil -remove NSAppleEventsUsageDescription "$INFO_PLIST"
     # App Store Connect checks the SDK and Xcode an app was built with in the

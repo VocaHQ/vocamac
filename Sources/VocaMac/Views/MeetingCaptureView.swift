@@ -203,7 +203,7 @@ struct MeetingCaptureView: View {
         let samples = capture.stop()
         guard !samples.isEmpty else { error = "No system audio was captured."; return }
         guard !SystemAudioAccumulator.isSilent(samples) else {
-            error = "Only silence was captured. Play audio while capturing, and allow VocaMac under System Settings → Privacy & Security → Screen & System Audio Recording."
+            error = "Only silence was captured. Play audio while capturing, and allow \(AppDistribution.displayName) under System Settings → Privacy & Security → Screen & System Audio Recording."
             return
         }
         if capture.didReachLimit {

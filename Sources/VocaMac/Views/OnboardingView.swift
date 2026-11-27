@@ -23,7 +23,7 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Speak freely. Write anywhere."
         case .permissions: return "Connect your voice to your Mac."
-        case .modelSetup: return "Tune VocaMac to your voice."
+        case .modelSetup: return "Tune \(AppDistribution.displayName) to your voice."
         case .hotkeyConfig: return "One shortcut. Your flow."
         case .quickTest: return "Try your first dictation."
         case .complete: return "Make it part of your day."
@@ -45,10 +45,10 @@ enum OnboardingStep: Int, CaseIterable, Identifiable {
         switch self {
         case .welcome: return "Private voice typing that feels at home on macOS."
         case .permissions: return "Three permissions, each with a clear purpose."
-        case .modelSetup: return "Tell us what you speak; VocaMac will recommend a local model."
+        case .modelSetup: return "Tell us what you speak; \(AppDistribution.displayName) will recommend a local model."
         case .hotkeyConfig: return "Choose the gesture that feels natural to you."
         case .quickTest: return "Record a sentence, then optionally check your shortcut and text insertion."
-        case .complete: return "VocaMac lives in your menu bar, ready when you need it."
+        case .complete: return "\(AppDistribution.displayName) lives in your menu bar, ready when you need it."
         }
     }
 
@@ -175,7 +175,7 @@ struct OnboardingView: View {
 
             if introExpanded {
                 VStack(spacing: 10) {
-                    Text("VocaMac")
+                    Text(AppDistribution.displayName)
                         .font(VocaDesign.display(88))
                         .riseIn(delay: 0.15, distance: 10)
                     Text("SPEAK · WRITE · ANYWHERE")
@@ -204,7 +204,7 @@ struct OnboardingView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 BrandLogoView(size: 20)
-                Text("VocaMac")
+                Text(AppDistribution.displayName)
                     .font(.system(size: 13, weight: .semibold))
                     .tracking(1)
             }
@@ -458,10 +458,10 @@ enum OnboardingPermissionGaps {
     ) -> [String] {
         var gaps: [String] = []
         if microphone != .granted {
-            gaps.append("Without Microphone, VocaMac can't hear you, so dictation won't work.")
+            gaps.append("Without Microphone, \(AppDistribution.displayName) can't hear you, so dictation won't work.")
         }
         if accessibility != .granted {
-            gaps.append("Without Accessibility, VocaMac can't type your words into other apps.")
+            gaps.append("Without Accessibility, \(AppDistribution.displayName) can't type your words into other apps.")
         }
         if inputMonitoring != .granted {
             gaps.append("Without Input Monitoring, your shortcut won't start dictation.")
@@ -536,7 +536,7 @@ struct PermissionsStep: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            Text("After enabling VocaMac in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
+            Text("After enabling \(AppDistribution.displayName) in System Settings → Privacy & Security, return here. Permission status refreshes automatically.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -580,11 +580,11 @@ struct PermissionHelpCard: View {
                 .frame(width: 34, height: 34)
                 .onDrag { NSItemProvider(object: Bundle.main.bundleURL as NSURL) }
                 .help("Drag into the Accessibility or Input Monitoring list in System Settings")
-                .accessibilityLabel("VocaMac app icon")
+                .accessibilityLabel("\(AppDistribution.displayName) app icon")
                 .accessibilityHint("Drag into the list in System Settings")
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Don't see VocaMac in the list?")
+                Text("Don't see \(AppDistribution.displayName) in the list?")
                     .font(.system(size: 13.5, weight: .semibold))
                 Text("Drag this icon into the list in System Settings, then switch it on.")
                     .font(.caption)
@@ -604,11 +604,11 @@ struct PermissionHelpCard: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(appState.permissionsAwaitingGrant ? "Turned VocaMac on, but it still shows as off?" : "One more step for your shortcut")
+                Text(appState.permissionsAwaitingGrant ? "Turned \(AppDistribution.displayName) on, but it still shows as off?" : "One more step for your shortcut")
                     .font(.system(size: 13.5, weight: .semibold))
                 Text(appState.permissionsAwaitingGrant
-                     ? "macOS can wait to apply Accessibility and Input Monitoring until VocaMac reopens."
-                     : "Every permission is on, but macOS hasn't connected your shortcut yet. Reopening VocaMac fixes this.")
+                     ? "macOS can wait to apply Accessibility and Input Monitoring until \(AppDistribution.displayName) reopens."
+                     : "Every permission is on, but macOS hasn't connected your shortcut yet. Reopening \(AppDistribution.displayName) fixes this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -622,7 +622,7 @@ struct PermissionHelpCard: View {
                     .buttonStyle(VocaOutlineButtonStyle())
 
                     Text(relaunchFailed
-                         ? "VocaMac couldn't reopen itself. Quit it from the menu bar and open it again."
+                         ? "\(AppDistribution.displayName) couldn't reopen itself. Quit it from the menu bar and open it again."
                          : "Setup picks up right here.")
                         .font(.caption)
                         .foregroundStyle(relaunchFailed ? VocaDesign.warning : .secondary)
@@ -671,7 +671,7 @@ struct OnboardingPermissionRow: View {
                         .foregroundStyle(VocaDesign.accent)
                         .transition(.scale(scale: 0.4).combined(with: .opacity))
                 } else {
-                    Button(status == .notDetermined ? "Allow…" : "Open Settings", action: action)
+                    Button(status == .notDetermined ? "Continue…" : "Open Settings", action: action)
                         .buttonStyle(VocaOutlineButtonStyle())
                         .transition(.opacity)
                 }
@@ -724,8 +724,8 @@ struct ModelSetupStep: View {
                     set: { appState.setOnboardingSpokenLanguages($0) }
                 ))
                 Text(appState.selectedLanguage == TranscriptionLanguage.auto.code
-                     ? "VocaMac works out which language you're speaking each time you dictate."
-                     : "VocaMac listens for \(selectedLanguageName). Add another language if you switch between them.")
+                     ? "\(AppDistribution.displayName) works out which language you're speaking each time you dictate."
+                     : "\(AppDistribution.displayName) listens for \(selectedLanguageName). Add another language if you switch between them.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -869,7 +869,7 @@ struct HotkeyConfigStep: View {
 
                     HotKeySelectionControl(
                         pickerLabel: "Key",
-                        footerText: "VocaMac reserves this key while running."
+                        footerText: "\(AppDistribution.displayName) reserves this key while running."
                     )
                 }
 
@@ -1072,7 +1072,7 @@ struct QuickTestStep: View {
                         Text("Notice the filler words?")
                             .font(.caption)
                             .fontWeight(.semibold)
-                        Text("VocaMac can drop “um” and “uh” and punctuate what you said, all on this Mac. Downloads \(descriptor.sizeDescription) in the background — you can set it up later in Settings → Smart Cleanup instead.")
+                        Text("\(AppDistribution.displayName) can drop “um” and “uh” and punctuate what you said, all on this Mac. Downloads \(descriptor.sizeDescription) in the background — you can set it up later in Settings → Smart Cleanup instead.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1233,7 +1233,7 @@ struct CompleteStep: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Launch at Login")
                             .font(.subheadline)
-                        Text("Start VocaMac automatically when you log in")
+                        Text("Start \(AppDistribution.displayName) automatically when you log in")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -1262,7 +1262,7 @@ struct CompleteStep: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            Text("You can adjust settings anytime from the VocaMac menu.")
+            Text("You can adjust settings anytime from the \(AppDistribution.displayName) menu.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

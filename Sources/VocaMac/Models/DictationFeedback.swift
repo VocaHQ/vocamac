@@ -19,8 +19,8 @@ enum ErrorFixAction: Equatable {
     var title: String {
         switch self {
         case .openSettings(let page): return "Open \(page.title)"
-        case .openMicrophonePrivacy: return "Allow Microphone…"
-        case .openAccessibilityPrivacy: return "Allow Accessibility…"
+        case .openMicrophonePrivacy: return "Continue…"
+        case .openAccessibilityPrivacy: return "Open Accessibility Settings…"
         }
     }
 
@@ -96,8 +96,8 @@ enum MenuBarAccessibility {
         guard let state = stateDescription(
             status: status, readiness: readiness, isCommandMode: isCommandMode,
             isCleaningUp: isCleaningUp, isAutoPaused: isAutoPaused
-        ) else { return "VocaMac" }
-        return "VocaMac, \(state)"
+        ) else { return AppDistribution.displayName }
+        return "\(AppDistribution.displayName), \(state)"
     }
 
     private static func stateDescription(

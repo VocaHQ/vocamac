@@ -98,7 +98,7 @@ struct AboutFamilyProduct: Identifiable, Equatable {
             systemImage: nil
         ),
         AboutFamilyProduct(
-            title: "VocaMac",
+            title: AppDistribution.displayName,
             platform: "macOS",
             url: URL(string: "https://vocamac.com")!,
             marks: [.apple],

@@ -206,13 +206,13 @@ enum HotKeyComboRules {
         let tab = 48
         switch (combo.keyCode, combo.modifiers) {
         case (space, [.command]):
-            return "⌘ Space opens Spotlight. VocaMac takes it over while running."
+            return "⌘ Space opens Spotlight. \(AppDistribution.displayName) takes it over while running."
         case (space, [.command, .option]):
-            return "⌥⌘ Space opens a Finder search. VocaMac takes it over while running."
+            return "⌥⌘ Space opens a Finder search. \(AppDistribution.displayName) takes it over while running."
         case (space, [.control]), (space, [.control, .option]):
-            return "\(KeyCodeReference.displayName(for: combo)) switches input sources. VocaMac takes it over while running."
+            return "\(KeyCodeReference.displayName(for: combo)) switches input sources. \(AppDistribution.displayName) takes it over while running."
         case (tab, [.command]):
-            return "⌘ Tab switches apps. VocaMac takes it over while running."
+            return "⌘ Tab switches apps. \(AppDistribution.displayName) takes it over while running."
         default:
             return nil
         }

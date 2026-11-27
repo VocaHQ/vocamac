@@ -9,7 +9,8 @@ VocaMac ships in two ways from the same source:
 | Compile condition | none | `APP_STORE` |
 | Entitlements | `VocaMac.entitlements` (hardened runtime) | `VocaMac-AppStore.entitlements` (App Sandbox) |
 | Updates | In-app updater (GitHub Releases) or `brew upgrade` | The App Store |
-| Output | `VocaMac.app`, `dist/VocaMac-*.dmg` | `dist/appstore/VocaMac.app`, `dist/appstore/VocaMac.xcarchive` |
+| Name people see | VocaMac | Voca (listed as "Voca: Private Dictation") |
+| Output | `VocaMac.app`, `dist/VocaMac-*.dmg` | `dist/appstore/Voca.app`, `dist/appstore/Voca.xcarchive` |
 
 The direct download is unchanged by the App Store build. Everything specific
 to the store sits behind the `APP_STORE` compile condition, and
@@ -27,6 +28,40 @@ bumps that haven't shipped yet. Tag `appstore/v*` on this branch, and land
 App Store fixes for 1.2 here by pull request. A later App Store release can
 come from `main` (or a new release branch) once that code has shipped as a
 direct download.
+
+## Name: Voca
+
+App Review rejected 1.2.0 because "Mac" was in the app's name (Guideline
+5.2.5). The App Store listing is **Voca: Private Dictation** and the store
+build calls itself **Voca**; the DMG and Homebrew builds stay **VocaMac**.
+
+- `AppDistribution.displayName` is `"Voca"` under `APP_STORE` and `"VocaMac"`
+  otherwise. Use it for every name people read: the menu, window titles,
+  onboarding, Settings, About, alerts, error messages, VoiceOver labels and
+  Shortcuts action titles (`VocaAppIntents.swift` has an `APP_STORE` branch,
+  since App Intents titles must be literals).
+- `scripts/build.sh` writes `CFBundleName`, `CFBundleDisplayName` and the
+  usage descriptions with `DISPLAY_NAME` ("Voca" in App Store mode), and the
+  bundle is `dist/appstore/Voca.app` (archived as
+  `Products/Applications/Voca.app`), so it installs as `/Applications/Voca.app`.
+  `build-appstore.sh` fails if a name or usage description still says VocaMac.
+- Unchanged, on purpose: the bundle ID `com.vocamac.app`, the executable
+  (`Contents/MacOS/VocaMac`), the Swift module and type names, log
+  subsystems, the `vocamac://` URL scheme, and the Application Support folder
+  (`…/Application Support/VocaMac`). Renaming any of those would move data or
+  break links, and none of them is the app's name in the store.
+- The About page's "Part of VocaHQ" list names this app with `displayName`
+  too, and links still go to vocamac.com.
+
+## Permission buttons (Guideline 5.1.1(iv))
+
+App Review also rejected a custom screen before the microphone prompt
+because its button said "Allow". A button that leads to a system permission
+prompt (microphone, Accessibility, Input Monitoring, speech recognition) says
+**Continue…**, never "Allow" or "Grant": onboarding, the menu's permission
+rows, Settings › Permissions & Logs, and the error notice's fix button. Only
+macOS's own prompt asks the user to allow. This holds in every build.
+`AppDistributionTests` checks the error-notice buttons.
 
 ## What the App Store build leaves out, and why
 
@@ -103,9 +138,9 @@ macOS 14 or later.
 make appstore                      # or ./scripts/build-appstore.sh
 ```
 
-This builds `dist/appstore/VocaMac.app` with `APP_STORE`, signs it ad hoc
+This builds `dist/appstore/Voca.app` with `APP_STORE`, signs it ad hoc
 with the sandbox entitlements, checks it, and wraps it in
-`dist/appstore/VocaMac.xcarchive`. It uses its own derived data
+`dist/appstore/Voca.xcarchive`. It uses its own derived data
 (`.xcode-build-appstore`), so it never mixes with `make build`. To bundle
 Whisper Tiny the way a release does, point `VOCAMAC_BUNDLED_MODEL_SOURCE` at
 a folder holding `openai_whisper-tiny/` (see the model step in
@@ -145,12 +180,14 @@ To cut an upload:
 2. Tag that branch's commit and push the tag:
 
    ```bash
-   git tag -a appstore/v1.2.0 -m "VocaMac 1.2.0 for the Mac App Store"
-   git push origin appstore/v1.2.0
+   git tag -a appstore/v1.2.1 -m "Voca 1.2.1 for the Mac App Store"
+   git push origin appstore/v1.2.1
    ```
 
    The tag sets `CFBundleShortVersionString` (plain `MAJOR.MINOR.PATCH`, no
-   suffix). The build number is the workflow's run number. Alternatively, run
+   suffix), so `appstore/v1.2.1` uploads 1.2.1 while `scripts/build.sh`
+   still says 1.2.0 for the direct download. The build number is the
+   workflow's run number. Alternatively, run
    **App Store** from the Actions tab to upload the version in
    `scripts/build.sh` without a tag.
 3. Wait for App Store Connect to finish processing (a few minutes; an email
@@ -167,10 +204,11 @@ The sandbox and privacy prompts (TCC) can't be exercised in CI, which only
 builds the App Store variant and launches it for 20 seconds. Before
 submitting, on a Mac with no earlier VocaMac grants (or after
 `tccutil reset All com.vocamac.app`), install the TestFlight build or run
-`open dist/appstore/VocaMac.app` and check:
+`open dist/appstore/Voca.app` and check:
 
 **First run and permissions**
-- [ ] Onboarding opens. Allowing the **microphone** shows the system prompt and the grant sticks.
+- [ ] Onboarding opens. The **microphone** button says **Continue…** (not "Allow"), shows the system prompt, and the grant sticks.
+- [ ] The app is called **Voca** everywhere: Finder (`/Applications/Voca.app`), the menu ("Quit Voca"), onboarding, Settings and About, the permission prompts' text, and the Shortcuts actions.
 - [ ] **Accessibility**: the button opens System Settings, VocaMac is in the list (or can be dragged in from onboarding), and turning it on is picked up (after the relaunch onboarding offers, if asked).
 - [ ] **Input Monitoring**: same as above; the hotkey works afterwards.
 - [ ] **Restart VocaMac** (Settings › Permissions & Logs) quits and reopens one copy, still with its permissions.

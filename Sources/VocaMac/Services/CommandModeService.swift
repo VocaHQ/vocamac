@@ -71,7 +71,7 @@ enum SelectionCaptureFailure: Error, Equatable {
     var message: String {
         switch self {
         case .accessibilityPermission:
-            return "Command Mode needs Accessibility access. Allow VocaMac in System Settings → Privacy & Security → Accessibility."
+            return "Command Mode needs Accessibility access. Allow \(AppDistribution.displayName) in System Settings → Privacy & Security → Accessibility."
         case .noFocusedApp:
             return "Select text in another app, then use the Command Mode shortcut."
         case .nothingSelected:
@@ -79,9 +79,9 @@ enum SelectionCaptureFailure: Error, Equatable {
         case .secureField:
             return "Command Mode doesn't read password fields."
         case .unreadable:
-            return "VocaMac couldn't read the selection in this app. Select the text again, or copy it and try once more."
+            return "\(AppDistribution.displayName) couldn't read the selection in this app. Select the text again, or copy it and try once more."
         case .needsClipboardFallback:
-            return "This app doesn't share its selection with VocaMac. To edit text here, turn on “Copy the selection when an app hides it” in Settings → Command Mode."
+            return "This app doesn't share its selection with \(AppDistribution.displayName). To edit text here, turn on “Copy the selection when an app hides it” in Settings → Command Mode."
         }
     }
 }

@@ -18,11 +18,11 @@ VocaMac can inspect the Mac's Apple Silicon hardware and available memory to rec
 
 ![VocaMac Settings showing the Speech Model page](/screenshots/settings-models.png)
 
-The stable release includes Tiny, Base, Small, compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 77 MB to 1.6 GB. VocaMac shows the local model state and resource guidance in Settings.
+The stable release includes Tiny, Base, Small and Small (Compact), compact Large v3 and Distil Large variants, and the full Large v3 model. Their approximate download sizes range from 77 MB to 1.6 GB. VocaMac shows the local model state and resource guidance in Settings.
 
 Start with Small on an 8 GB Mac if you want a balanced default. Choose Tiny or Base for a smaller download and lower memory use. Choose a compact Large or Distil model when accuracy matters and your Mac has the headroom. The full Large v3 model needs substantially more disk space and memory.
 
-Whisper is not the only choice. v1.2.0 also offers Parakeet, Apple Speech (macOS 26 and later), and specialized ONNX models. During setup, VocaMac suggests a model from the languages you speak and your Mac's memory: Parakeet 110M for English, GigaAM v3 for Russian, SenseVoice for Chinese, Japanese, or Korean, Canary 180M Flash for Spanish, German, or French, and Whisper Small for other languages or a mix.
+Whisper is not the only choice. v1.3.0 also offers Parakeet and Nemotron on the Neural Engine, Apple Speech (macOS 26 and later), and specialized ONNX models, including Cohere Transcribe. During setup, VocaMac suggests a model from the languages you speak and your Mac's memory: Parakeet Unified for English (Parakeet 110M where it doesn't fit), GigaAM v3 for Russian, SenseVoice for Chinese, Japanese, or Korean, Parakeet v3 for its other European languages, and Whisper Small for other languages or a mix.
 
 ## Download, verify, switch
 

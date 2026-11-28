@@ -58,14 +58,14 @@ test("keeps navigation and anchors accessible", () => {
 });
 
 test("keeps the PRODUCT.md product boundary explicit", () => {
-  assert.match(index, /v1\.2\.0/);
+  assert.match(index, /v1\.3\.0/);
   assert.match(index, /macOS 14\+|macOS 14 Sonoma/);
   assert.match(index, /Apple Silicon/);
   assert.match(index, /WhisperKit/);
   assert.match(index, /model downloads/i);
   assert.match(index, /Available now/);
   assert.match(index, /includes Parakeet/i);
-  assert.match(index, /Additional engines and models available in v1\.2\.0/i);
+  assert.match(index, /Additional engines and models available in v1\.3\.0/i);
   assert.match(index, /Parakeet/);
   assert.match(index, /sherpa-onnx/);
   assert.doesNotMatch(index, /macOS 13/);
@@ -99,7 +99,7 @@ test("emits valid structured metadata", () => {
   assert.ok(jsonLd, "homepage JSON-LD is present");
   const structured = JSON.parse(jsonLd);
   assert.equal(structured["@type"], "SoftwareApplication");
-  assert.equal(structured.softwareVersion, "1.2.0");
+  assert.equal(structured.softwareVersion, "1.3.0");
   assert.equal(structured.processorRequirements, "Apple Silicon");
 });
 
@@ -203,7 +203,7 @@ test("keeps content available without javascript", () => {
   assert.match(index, /<details[^>]+open/);
   assert.match(index, /<summary>Does my voice leave my Mac\?<\/summary>/);
   assert.match(index, /brew install --cask vocamac/);
-  assert.match(index, /Download v1\.2\.0 DMG/);
+  assert.match(index, /Download v1\.3\.0 DMG/);
   assert.match(script, /IntersectionObserver/);
   assert.match(script, /setTimeout\(function \(\) \{ revealItems\.forEach\(reveal\); \}, 800\)/);
   assert.match(script, /event\.key === "Escape"/);
@@ -322,7 +322,7 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   assert.match(script, /if \(token !== copyFeedbackToken\)/);
 
   const ogSvg = await readFile(join(siteRoot, "static/og-image.svg"), "utf8");
-  assert.match(ogSvg, /v1\.2\.0/);
+  assert.match(ogSvg, /v1\.3\.0/);
   assert.doesNotMatch(ogSvg, /beta/i);
   assert.match(ogSvg, /ON-DEVICE/);
   assert.doesNotMatch(ogSvg, />LOCAL</);
@@ -331,7 +331,7 @@ test("keeps the site-audit copy and a11y fixes", async () => {
   const ogPng = await readFile(join(outputRoot, "og-image.png"));
   assert.equal(
     createHash("sha256").update(ogPng).digest("hex"),
-    "9c8ce22ac54d717fd5f4583b965cb48ef6c921d713b52c2e43ef1ccdefddeca4",
+    "bf03ebd83e46677c325934e75e518544f52d6cee1cb0967be86da24e1e76a9b6",
   );
 
   const languages = await readFile(join(outputRoot, "features/languages/index.html"), "utf8");
@@ -408,7 +408,7 @@ test("ships a playable 404 page whose assets stay on that page", async () => {
   assert.doesNotMatch(sitemap, /404/);
 });
 
-test("keeps site claims aligned with the v1.2.0 release", async () => {
+test("keeps site claims aligned with the v1.3.0 release", async () => {
   assert.doesNotMatch(index, /Custom vocabulary is processed with the Whisper path/);
   assert.doesNotMatch(index, /In-memory audio|captured in memory/);
   assert.match(index, /Does my voice leave my Mac\?<\/summary><p>[^<]*<a href="\/features\/custom-endpoint\/">Custom Endpoint<\/a>/);

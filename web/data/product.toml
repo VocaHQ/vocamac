@@ -3,22 +3,22 @@
 # Status and OS floor follow VocaHQ/vocahq PRODUCT.md:
 # Available now, macOS 14+ Apple Silicon, Homebrew or DMG, AGPL-3.0.
 # Available now was verified against VocaHQ/vocahq PRODUCT.md.
-# Version/artifact figures were verified against the tagged v1.2.0 release.
+# Version/artifact figures were verified against the tagged v1.3.0 release.
 # Re-verify this file before publishing a website change.
 #
-# Verified: 2026-10-15 against v1.2.0 and its tagged release assets.
+# Verified: 2026-11-28 against v1.3.0 and its tagged release assets.
 
 [stable]
-version = "1.2.0"
-tag = "v1.2.0"
+version = "1.3.0"
+tag = "v1.3.0"
 status = "Available now"
-released = "2026-10-15"
-releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v1.2.0"
+released = "2026-11-28"
+releaseURL = "https://github.com/VocaHQ/vocamac/releases/tag/v1.3.0"
 releasesURL = "https://github.com/VocaHQ/vocamac/releases"
 latestURL = "https://github.com/VocaHQ/vocamac/releases/latest"
-dmg = "VocaMac-1.2.0-arm64.dmg"
-dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v1.2.0/VocaMac-1.2.0-arm64.dmg"
-dmgSize = "111 MB"
+dmg = "VocaMac-1.3.0-arm64.dmg"
+dmgURL = "https://github.com/VocaHQ/vocamac/releases/download/v1.3.0/VocaMac-1.3.0-arm64.dmg"
+dmgSize = "115 MB"
 
 [requirements]
 os = "macOS 14 Sonoma or later"
@@ -28,7 +28,7 @@ archNote = "Apple Silicon only. There is no supported Intel build."
 signing = "Developer ID signed and notarized by Apple"
 permissions = ["Microphone", "Accessibility", "Input Monitoring"]
 
-# Languages that can actually be pinned in Settings in v1.2.0, verified against
+# Languages that can actually be pinned in Settings in v1.3.0, verified against
 # TranscriptionLanguage.selectable in TranscriptionLanguage.swift.
 # The Whisper model is trained on ~99 languages, but only these are selectable,
 # so the site must not claim "99+ languages".
@@ -44,7 +44,7 @@ runtime = "CoreML"
 modelRepo = "argmaxinc/whisperkit-coreml"
 modelRepoURL = "https://huggingface.co/argmaxinc/whisperkit-coreml"
 
-# The WhisperKit model picker shown in Settings in v1.2.0 (ModelSize.standardCatalog).
+# The WhisperKit model picker shown in Settings in v1.3.0 (ModelSize.standardCatalog).
 # size/ram are the values the app itself reports (fileSizeDescription and the
 # loaded ramRequiredGB from ModelRAMFit, #311).
 [[models]]
@@ -70,6 +70,14 @@ size = "487 MB"
 ram = "1.5 GB"
 quality = "Great"
 note = "A sensible default on 8 GB Macs."
+
+[[models]]
+id = "small-compact"
+name = "Small (Compact)"
+size = "217 MB"
+ram = "1 GB"
+quality = "Great"
+note = "Whisper Small compressed to under half the download."
 
 [[models]]
 id = "large-v3-turbo-compact"
@@ -119,7 +127,7 @@ ram = "1.5 GB"
 quality = "Best for Hindi"
 note = "Writes Hindi speech in Roman script (Hinglish). Fine-tuned from Oriserve's Whisper Hindi2Hinglish Apex."
 
-# Additional engines and models in v1.2.0. Sizes and notes follow the shipped
+# Additional engines and models in v1.3.0. Sizes and notes follow the shipped
 # catalogs in WhisperModel.swift and SherpaModelCatalog.swift.
 [[releaseModels]]
 id = "parakeet-ultra"
@@ -136,6 +144,13 @@ size = "483 MB"
 note = "Fastest engine. 25 European languages, auto-detected."
 
 [[releaseModels]]
+id = "parakeet-redux"
+name = "Parakeet Redux"
+engine = "Parakeet"
+size = "220 MB"
+note = "Parakeet v3's 25 European languages in under half the download. macOS 15 or later."
+
+[[releaseModels]]
 id = "parakeet-unified"
 name = "Parakeet Unified"
 engine = "Parakeet"
@@ -148,6 +163,13 @@ name = "Parakeet v2"
 engine = "Parakeet"
 size = "464 MB"
 note = "Fastest engine. English only, highest recall."
+
+[[releaseModels]]
+id = "nemotron-unified"
+name = "Nemotron Unified"
+engine = "Parakeet"
+size = "626 MB"
+note = "NVIDIA's multilingual Unified model: 25 European languages with punctuation and capitals."
 
 [[releaseModels]]
 id = "parakeet-110m"
@@ -185,6 +207,13 @@ size = "241 MB"
 note = "CPU-only. Chinese, Japanese, Korean, Cantonese, English."
 
 [[releaseModels]]
+id = "sense-voice-neural-engine"
+name = "SenseVoice Neural Engine"
+engine = "FluidAudio"
+size = "240 MB"
+note = "SenseVoice on the Neural Engine: faster, and up to 100 s in one pass."
+
+[[releaseModels]]
 id = "gigaam-v3"
 name = "GigaAM v3"
 engine = "sherpa-onnx"
@@ -192,18 +221,18 @@ size = "225 MB"
 note = "CPU-only. Russian, with punctuation."
 
 [[releaseModels]]
-id = "canary-180m-flash"
-name = "Canary 180M Flash"
-engine = "sherpa-onnx"
-size = "207 MB"
-note = "CPU-only. English, Spanish, German, French."
-
-[[releaseModels]]
 id = "qwen3-asr-0.6b"
 name = "Qwen3 ASR 0.6B"
 engine = "sherpa-onnx"
 size = "1 GB"
 note = "CPU-only. 30 languages, including Hindi, Arabic, and Thai."
+
+[[releaseModels]]
+id = "cohere-transcribe"
+name = "Cohere Transcribe"
+engine = "sherpa-onnx"
+size = "2.9 GB"
+note = "CPU-only. 14 languages, one at a time; the most accurate model in VocaMac's tests."
 
 # Apple's built-in dictation, for the FAQ comparison. Re-verify on each macOS
 # release. Source: 9to5Mac, 2026-06-12 ("Mac (M3 chip) or later with at least

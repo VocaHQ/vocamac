@@ -143,7 +143,7 @@ VocaMac is the macOS member of [Voca](https://vocahq.com).
 
 | Platform | Project | Status |
 |---|---|---|
-| macOS | [VocaMac](https://github.com/VocaHQ/vocamac) | Stable (`v1.2.0`) |
+| macOS | [VocaMac](https://github.com/VocaHQ/vocamac) | Stable (`v1.3.0`) |
 | Linux | [VocaLinux](https://github.com/VocaHQ/vocalinux) | Available now (`v0.16.0`) |
 | Windows | [VocaWin](https://github.com/VocaHQ/vocawin) | Beta (unsigned `v0.1.0-beta.1`) |
 | Phone | [VocaPhone](https://github.com/VocaHQ/vocaphone) | Android beta, iOS [TestFlight](https://testflight.apple.com/join/wd85wQ3W) |

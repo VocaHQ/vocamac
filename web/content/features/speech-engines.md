@@ -18,18 +18,18 @@ No single speech model is best at everything. Whisper knows many languages, Para
 
 | Engine | Runs on | Good at | Models |
 |---|---|---|---|
-| **Whisper** (WhisperKit) | CoreML on Apple Silicon | The widest language coverage, translation to English | Tiny to Large v3 Latest, Distil variants, Voca Hinglish |
-| **Parakeet** (NVIDIA, via FluidAudio) | CoreML on the Neural Engine | Speed; English and 25 European languages | Parakeet 110M, v2, v3, Ultra, Unified |
+| **Whisper** (WhisperKit) | CoreML on Apple Silicon | The widest language coverage, translation to English | Tiny to Large v3 Latest, Small (Compact), Distil variants, Voca Hinglish |
+| **Parakeet** (NVIDIA, via FluidAudio) | CoreML on the Neural Engine | Speed; English and 25 European languages | Parakeet 110M, v2, v3, Ultra, Redux, Unified, Nemotron Unified; SenseVoice Neural Engine |
 | **Apple Speech** | macOS 26 system engine | No model download; assets managed by macOS | Apple Speech |
-| **Specialized ONNX** (sherpa-onnx) | CPU only | Compact models for specific languages and low-memory Macs | Moonshine, SenseVoice, GigaAM v3, Canary 180M Flash, Qwen3 ASR 0.6B |
+| **Specialized ONNX** (sherpa-onnx) | CPU only | Specific languages, low-memory Macs, and the most accurate model | Moonshine, SenseVoice, GigaAM v3, Qwen3 ASR 0.6B, Cohere Transcribe |
 
 ### Whisper
 
-OpenAI's Whisper, compiled to CoreML by WhisperKit, is the generalist. It has the most selectable languages, can [translate speech into English](/features/translation/), and comes in sizes from Tiny (77 MB) to Large v3 Latest (1.6 GB). Voca Hinglish is a Whisper model fine-tuned to write Hindi speech in Roman script.
+OpenAI's Whisper, compiled to CoreML by WhisperKit, is the generalist. It has the most selectable languages, can [translate speech into English](/features/translation/), and comes in sizes from Tiny (77 MB) to Large v3 Latest (1.6 GB). Small (Compact) is Whisper Small in under half the download (217 MB). Voca Hinglish is a Whisper model fine-tuned to write Hindi speech in Roman script.
 
 ### Parakeet
 
-NVIDIA's Parakeet models run on the Apple Neural Engine and are the fastest option in VocaMac. Parakeet 110M (227 MB), v2 and Unified are English-only; Unified adds punctuation, capitals and numbers as digits. Parakeet v3 and Ultra cover 25 European languages. Parakeet needs Apple Silicon, which every Mac VocaMac supports already has.
+NVIDIA's Parakeet models run on the Apple Neural Engine and are the fastest option in VocaMac. Parakeet 110M (227 MB), v2 and Unified are English-only; Unified adds punctuation, capitals and numbers as digits. Parakeet v3 and Ultra cover 25 European languages, and Redux does too in under half the download (220 MB, macOS 15 or later). Nemotron Unified is NVIDIA's multilingual Unified model: the same 25 languages, with punctuation and capitals. The same runtime also runs SenseVoice on the Neural Engine, faster than its CPU version. Parakeet needs Apple Silicon, which every Mac VocaMac supports already has.
 
 ### Apple Speech
 
@@ -42,8 +42,8 @@ These run on the CPU through sherpa-onnx and suit particular languages or Macs w
 - **Moonshine v2 Tiny and Base**: English, for very low-RAM Macs (44 MB and 142 MB)
 - **SenseVoice**: Chinese, Japanese, Korean, Cantonese and English
 - **GigaAM v3**: Russian, with punctuation
-- **Canary 180M Flash**: English, Spanish, German and French
 - **Qwen3 ASR 0.6B**: 30 languages, including Hindi, Arabic and Thai
+- **Cohere Transcribe**: 14 languages, one at a time (Arabic, Chinese, Dutch, English, French, German, Greek, Italian, Japanese, Korean, Polish, Portuguese, Spanish, Vietnamese). The most accurate model in VocaMac's tests; a 2.9 GB download
 
 ## Which One Should I Use?
 
@@ -51,10 +51,10 @@ During setup, VocaMac asks which languages you speak and recommends a model:
 
 | You mostly speak | Suggested starting point |
 |---|---|
-| English | Parakeet 110M |
+| English | Parakeet Unified (Parakeet 110M where it doesn't fit) |
 | Russian | GigaAM v3 |
 | Chinese, Japanese or Korean | SenseVoice |
-| Spanish, German or French | Canary 180M Flash |
+| Another of Parakeet's 25 European languages | Parakeet v3 |
 | Several languages | Whisper Small |
 
 Tiny ships with the app, so dictation works before any download. All of these are starting points; [Smart Model Selection](/features/smart-model-selection/) explains how memory and accuracy trade off, and [Custom Vocabulary](/features/custom-vocabulary/) works with every engine.

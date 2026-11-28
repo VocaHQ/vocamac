@@ -506,9 +506,16 @@ final class AudioEngine: @unchecked Sendable {
         // Capture preparation state on the posting queue. startRecording holds
         // lifecycleQueue during Bluetooth HFP settle, so reading later would race.
         let occurredDuringRecordingPreparation = isPreparingRecording
+        let source = (notification.object as AnyObject?).map(ObjectIdentifier.init)
 
         lifecycleQueue.async { [weak self] in
             guard let self = self else { return }
+            // Queued before its engine was retired (a direct capture started
+            // meanwhile): it says nothing about the recording now running.
+            guard Self.isFromCurrentEngine(source: source, current: self.engine.map(ObjectIdentifier.init)) else {
+                VocaLogger.info(.audioEngine, "Ignoring a configuration change from a retired audio engine")
+                return
+            }
             VocaLogger.info(.audioEngine, "Audio configuration changed (device plug/unplug or route change)")
 
             let wasRecording = self._isCurrentlyRecording
@@ -1280,6 +1287,13 @@ final class AudioEngine: @unchecked Sendable {
     // MARK: - Direct capture
 
     enum DirectStartOutcome { case started, cancelled, retry, failed, useEngine }
+
+    /// Whether a configuration change came from the engine in use. A
+    /// notification without an engine is treated as current, as before.
+    static func isFromCurrentEngine(source: ObjectIdentifier?, current: ObjectIdentifier?) -> Bool {
+        guard let source else { return true }
+        return source == current
+    }
 
     /// The device to record directly, bypassing AVAudioEngine: a chosen,
     /// connected microphone that isn't the system input and isn't Bluetooth.

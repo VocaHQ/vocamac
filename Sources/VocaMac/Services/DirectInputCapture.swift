@@ -17,18 +17,22 @@ import AudioToolbox
 import AVFoundation
 import CoreAudio
 
-/// Captures from one input device and hands each buffer to `onBuffer`.
+/// Captures from one input device and hands buffers of about 85 ms to
+/// `onBuffer`, the size AVAudioEngine's tap delivers (`InputChunker`).
 ///
 /// `onBuffer` runs on the device's I/O thread with a buffer that is reused for
-/// the next callback: it must finish with the buffer before returning.
+/// the next chunk: it must finish with the buffer before returning.
 final class DirectInputCapture: @unchecked Sendable {
     // @unchecked Sendable: `unit`, `buffer` and `format` are set in `init` and
     // only read afterwards; start/stop are called from AudioEngine's serial
-    // `lifecycleQueue`; the render callback only reads them.
+    // `lifecycleQueue`. The render callback is the only writer of `buffer`
+    // and `chunker` while running; `start` resets `chunker` before the unit
+    // runs.
     let deviceID: AudioDeviceID
     let format: AVAudioFormat
     private let unit: AudioUnit
     private let buffer: AVAudioPCMBuffer
+    private let chunker: InputChunker
     private let onBuffer: (AVAudioPCMBuffer, AVAudioFormat) -> Void
     private(set) var isRunning = false
 
@@ -95,7 +99,9 @@ final class DirectInputCapture: @unchecked Sendable {
         AudioUnitGetProperty(
             unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0, &maxFrames, &maxFramesSize
         )
-        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: max(maxFrames, 4_096)) else {
+        let renderCapacity = max(maxFrames, 4_096)
+        guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: renderCapacity),
+              let chunker = InputChunker(format: format, maxPieceFrames: renderCapacity) else {
             AudioComponentInstanceDispose(unit)
             return nil
         }
@@ -104,7 +110,10 @@ final class DirectInputCapture: @unchecked Sendable {
         self.format = format
         self.unit = unit
         self.buffer = buffer
+        self.chunker = chunker
         self.onBuffer = onBuffer
+        // From here `self` owns the unit, and a failed init runs `deinit`,
+        // which disposes it: don't dispose it here as well.
 
         var callback = AURenderCallbackStruct(
             inputProc: { refCon, flags, timeStamp, bus, frameCount, _ in
@@ -113,11 +122,19 @@ final class DirectInputCapture: @unchecked Sendable {
             },
             inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
         )
-        if fail("set input callback", AudioUnitSetProperty(
+        let callbackStatus = AudioUnitSetProperty(
             unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0,
             &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)
-        )) { return nil }
-        if fail("initialize", AudioUnitInitialize(unit)) { return nil }
+        )
+        guard callbackStatus == noErr else {
+            VocaLogger.warning(.audioEngine, "Direct capture: set input callback failed (status \(callbackStatus))")
+            return nil
+        }
+        let initializeStatus = AudioUnitInitialize(unit)
+        guard initializeStatus == noErr else {
+            VocaLogger.warning(.audioEngine, "Direct capture: initialize failed (status \(initializeStatus))")
+            return nil
+        }
     }
 
     deinit {
@@ -129,6 +146,7 @@ final class DirectInputCapture: @unchecked Sendable {
     /// Starts the device's input stream. Must be called on AudioEngine's `lifecycleQueue`.
     func start() -> OSStatus {
         guard !isRunning else { return noErr }
+        chunker.reset()
         let status = AudioOutputUnitStart(unit)
         isRunning = status == noErr
         return status
@@ -152,8 +170,55 @@ final class DirectInputCapture: @unchecked Sendable {
         buffer.frameLength = frameCount
         let status = AudioUnitRender(unit, flags, timeStamp, bus, frameCount, buffer.mutableAudioBufferList)
         if status == noErr {
-            onBuffer(buffer, format)
+            chunker.append(buffer) { onBuffer($0, format) }
         }
         return status
+    }
+}
+
+// MARK: - Chunking
+
+/// Gathers the small buffers a HAL unit delivers (often 512 frames, ~11 ms)
+/// into chunks of about 85 ms, what AVAudioEngine's 4,096-frame tap delivers
+/// at 48 kHz. `SilenceDetector` adapts its noise floor once per buffer, tuned
+/// for that size: fed eight times as many buffers it adapts eight times as
+/// fast, and hands-free dictation stops on quiet speech.
+final class InputChunker {
+    /// About 85 ms: 4,096 frames at 48 kHz.
+    static let chunkDuration: Double = 4_096.0 / 48_000.0
+
+    let chunkFrames: AVAudioFrameCount
+    private let chunk: AVAudioPCMBuffer
+
+    /// - Parameter maxPieceFrames: The largest buffer `append` will be given.
+    init?(format: AVAudioFormat, maxPieceFrames: AVAudioFrameCount) {
+        let frames = max(1, AVAudioFrameCount((format.sampleRate * Self.chunkDuration).rounded()))
+        guard let chunk = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames + maxPieceFrames) else { return nil }
+        chunkFrames = frames
+        self.chunk = chunk
+    }
+
+    /// Drops any partial chunk, for the next recording.
+    func reset() {
+        chunk.frameLength = 0
+    }
+
+    /// Adds `piece` and calls `emit` with the chunk once it holds at least
+    /// `chunkFrames`. The chunk is emitted as soon as it reaches that, so it
+    /// always has room for the next piece of up to `maxPieceFrames`.
+    /// Float32, non-interleaved.
+    func append(_ piece: AVAudioPCMBuffer, emit: (AVAudioPCMBuffer) -> Void) {
+        guard let source = piece.floatChannelData, let destination = chunk.floatChannelData else { return }
+        let count = Int(piece.frameLength)
+        let offset = Int(chunk.frameLength)
+        guard offset + count <= Int(chunk.frameCapacity) else { return }
+        for channel in 0..<Int(chunk.format.channelCount) {
+            (destination[channel] + offset).update(from: source[channel], count: count)
+        }
+        chunk.frameLength = AVAudioFrameCount(offset + count)
+        if chunk.frameLength >= chunkFrames {
+            emit(chunk)
+            chunk.frameLength = 0
+        }
     }
 }

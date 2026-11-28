@@ -190,6 +190,10 @@ final class AudioEngine: @unchecked Sendable {
     /// forces the headset (HFP/SCO) profile and breaks remote media controls
     /// (e.g. tap-to-pause) for any other app playing audio.
     private var engine: AVAudioEngine?
+    /// The capture used instead of `engine` for a chosen microphone that
+    /// isn't the system input (`directCaptureDevice`). Kept, stopped, between
+    /// dictations on the same device.
+    private var directCapture: DirectInputCapture?
     private var pendingEngineRelease: DispatchWorkItem?
     private let capturedAudio = OSAllocatedUnfairLock(initialState: [Float]())
     private let monoBufferCache = AudioPCMBufferCache()
@@ -502,9 +506,16 @@ final class AudioEngine: @unchecked Sendable {
         // Capture preparation state on the posting queue. startRecording holds
         // lifecycleQueue during Bluetooth HFP settle, so reading later would race.
         let occurredDuringRecordingPreparation = isPreparingRecording
+        let source = (notification.object as AnyObject?).map(ObjectIdentifier.init)
 
         lifecycleQueue.async { [weak self] in
             guard let self = self else { return }
+            // Queued before its engine was retired (a direct capture started
+            // meanwhile): it says nothing about the recording now running.
+            guard Self.isFromCurrentEngine(source: source, current: self.engine.map(ObjectIdentifier.init)) else {
+                VocaLogger.info(.audioEngine, "Ignoring a configuration change from a retired audio engine")
+                return
+            }
             VocaLogger.info(.audioEngine, "Audio configuration changed (device plug/unplug or route change)")
 
             let wasRecording = self._isCurrentlyRecording
@@ -758,6 +769,16 @@ final class AudioEngine: @unchecked Sendable {
                     return abandonCancelledStart()
                 }
 
+                if let deviceID = Self.directCaptureDevice(forPreferredUID: preferredInputDeviceID) {
+                    switch startDirectCapture(on: deviceID, attempt: attempt) {
+                    case .started: return true
+                    case .cancelled: return abandonCancelledStart()
+                    case .retry: continue
+                    case .failed: return false
+                    case .useEngine: break
+                    }
+                }
+                stopDirectCapture(release: true)
                 // An engine made input-only for a chosen microphone can't
                 // follow the system input (its output side is off).
                 if engineIsInputOnly, Self.followsSystemInput(preferredInputDeviceUID: preferredInputDeviceID) {
@@ -973,6 +994,7 @@ final class AudioEngine: @unchecked Sendable {
     private func tearDownStoppedCapture() {
         removeInputTap(reason: "stop recording")
         engine?.stop()
+        stopDirectCapture(release: false)
 
         // Keep the stopped engine briefly so rapid push-to-talk recordings
         // don't cold-reacquire a silent input route, then release it so we
@@ -1011,7 +1033,7 @@ final class AudioEngine: @unchecked Sendable {
     /// AVAudioEngine does not go below about 100 ms on macOS.
     /// Must be called on `lifecycleQueue`.
     private func collectInputTail() {
-        guard engine?.isRunning == true,
+        guard engine?.isRunning == true || directCapture?.isRunning == true,
               capturePhase.withLock({ $0 == .recording }) else { return }
         capturePhase.withLock { $0 = .preparing }
         let start = Date()
@@ -1051,7 +1073,9 @@ final class AudioEngine: @unchecked Sendable {
     /// recording that is running or starting.
     func releaseIdleEngine() {
         lifecycleQueue.async { [self] in
-            guard engine != nil, !_isCurrentlyRecording, !isPreparingRecording else { return }
+            guard engine != nil || directCapture != nil, !_isCurrentlyRecording, !isPreparingRecording else { return }
+            stopDirectCapture(release: true)
+            guard engine != nil else { return }
             VocaLogger.info(.audioEngine, "Releasing the idle audio engine around system sleep")
             // A stop that was collecting its last buffer when this was queued
             // has not torn its capture down yet: its teardown runs after this
@@ -1086,6 +1110,7 @@ final class AudioEngine: @unchecked Sendable {
             removeInputTap(reason: "force reset")
             engine?.stop()
             engine?.reset()
+            stopDirectCapture(release: true)
             clearAudioBuffer()
 
             // Drop the engine entirely so the input route is released. The
@@ -1252,10 +1277,96 @@ final class AudioEngine: @unchecked Sendable {
         if engine?.isRunning == true {
             engine?.stop()
         }
+        stopDirectCapture(release: false)
         clearAudioBuffer()
         scheduleEngineRelease()
         VocaLogger.info(.audioEngine, "Start cancelled before capture began — keeping the negotiated route warm")
         return false
+    }
+
+    // MARK: - Direct capture
+
+    enum DirectStartOutcome { case started, cancelled, retry, failed, useEngine }
+
+    /// Whether a configuration change came from the engine in use. A
+    /// notification without an engine is treated as current, as before.
+    static func isFromCurrentEngine(source: ObjectIdentifier?, current: ObjectIdentifier?) -> Bool {
+        guard let source else { return true }
+        return source == current
+    }
+
+    /// The device to record directly, bypassing AVAudioEngine: a chosen,
+    /// connected microphone that isn't the system input and isn't Bluetooth.
+    /// Bluetooth inputs keep the engine path, which settles their call
+    /// profile. Nil means use the engine.
+    /// The closures are seams for tests; they default to live Core Audio.
+    static func directCaptureDevice(
+        forPreferredUID uid: String?,
+        deviceForUID: (String) -> AudioDeviceID? = { inputAudioDeviceID(forUID: $0) },
+        systemInput: () -> AudioDeviceID? = { defaultInputAudioDeviceID() },
+        isBluetooth: (AudioDeviceID) -> Bool = { isBluetoothDevice($0) }
+    ) -> AudioDeviceID? {
+        guard let uid = uid?.trimmingCharacters(in: .whitespacesAndNewlines), !uid.isEmpty,
+              let deviceID = deviceForUID(uid),
+              deviceID != systemInput(),
+              !isBluetooth(deviceID) else { return nil }
+        return deviceID
+    }
+
+    /// Starts recording `deviceID` through its own input-only unit. Any
+    /// engine is retired first: it holds the system input, and a headset's
+    /// call profile with it. Must be called on `lifecycleQueue`.
+    private func startDirectCapture(on deviceID: AudioDeviceID, attempt: Int) -> DirectStartOutcome {
+        if engine != nil {
+            removeInputTap(reason: "direct capture")
+            engine?.stop()
+            retireEngineAfterConfigurationChange()
+        }
+        if directCapture?.deviceID != deviceID {
+            stopDirectCapture(release: true)
+            directCapture = DirectInputCapture(deviceID: deviceID) { [weak self] buffer, format in
+                self?.processAudioBuffer(buffer, inputFormat: format)
+            }
+        }
+        let name = Self.audioDeviceName(for: deviceID) ?? "the chosen microphone"
+        guard let capture = directCapture else {
+            VocaLogger.warning(.audioEngine, "Couldn't record \(name) directly; using the audio engine")
+            return .useEngine
+        }
+        configuredInputDeviceID = deviceID
+        syncPreferredInputChannel(with: deviceID, channelCount: Int(capture.format.channelCount))
+        if isStartCancelled { return .cancelled }
+
+        converterCache.resetForNextCapture()
+        setCaptureActive(true)
+        let status = capture.start()
+        guard status == noErr else {
+            VocaLogger.error(.audioEngine, "Couldn't start \(name) (attempt \(attempt), status \(status))")
+            setCaptureActive(false)
+            stopDirectCapture(release: true)
+            clearAudioBuffer()
+            return attempt == 1 ? .retry : .failed
+        }
+        VocaLogger.info(.audioEngine, "Recording \(name) directly at \(Int(capture.format.sampleRate)) Hz; the system input is untouched")
+        guard waitForFirstInputBuffer() else {
+            if isStartCancelled { return .cancelled }
+            VocaLogger.warning(.audioEngine, "No audio arrived from \(name) within \(Self.firstInputBufferTimeout)s (attempt \(attempt))")
+            setCaptureActive(false)
+            stopDirectCapture(release: true)
+            clearAudioBuffer()
+            return attempt == 1 ? .retry : .failed
+        }
+        recordingStartTime = Date()
+        silenceDetector.withLock { $0.reset() }
+        setRecordingActive(true)
+        return .started
+    }
+
+    /// Stops the direct capture, and drops it when `release` is true.
+    /// Must be called on `lifecycleQueue`.
+    private func stopDirectCapture(release: Bool) {
+        directCapture?.stop()
+        if release { directCapture = nil }
     }
 
     /// Restores AudioEngine to a clean idle state after any failed start attempt.
@@ -1266,6 +1377,7 @@ final class AudioEngine: @unchecked Sendable {
         removeInputTap(reason: "start failure")
         engine?.stop()
         engine?.reset()
+        stopDirectCapture(release: true)
         clearAudioBuffer()
 
         // Release the engine so a failed start doesn't leave us holding the
